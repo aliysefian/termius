@@ -104,14 +104,28 @@ fn split_line(line: &str) -> Option<(String, String)> {
     Some((key, value.to_string()))
 }
 
+/// Expand a leading `~` or `%d` to the home directory. The remainder is
+/// joined component by component, so the result uses the platform's own
+/// separator (`C:\Users\me\.ssh\id_ed25519` on Windows) even though ssh
+/// configs are usually written with `/`.
 fn expand_path(p: &str, home: &Path) -> String {
-    let p = p.replace("%d", &home.to_string_lossy());
-    if let Some(rest) = p.strip_prefix("~/").or_else(|| p.strip_prefix("~\\")) {
-        home.join(rest).to_string_lossy().into_owned()
-    } else if p == "~" {
-        home.to_string_lossy().into_owned()
+    let rest = if p == "~" || p == "%d" {
+        Some("")
     } else {
-        p
+        ["~/", "~\\", "%d/", "%d\\"]
+            .iter()
+            .find_map(|prefix| p.strip_prefix(prefix))
+    };
+    match rest {
+        Some(rest) => {
+            let mut path = home.to_path_buf();
+            for part in rest.split(['/', '\\']).filter(|c| !c.is_empty()) {
+                path.push(part);
+            }
+            path.to_string_lossy().into_owned()
+        }
+        // `%d` elsewhere in the value is rare; substitute it as-is.
+        None => p.replace("%d", &home.to_string_lossy()),
     }
 }
 
@@ -432,6 +446,34 @@ Host *
     Port 22
 "#;
 
+    /// `home` joined with `parts` using this platform's separator.
+    fn home_path(home: &str, parts: &[&str]) -> String {
+        parts
+            .iter()
+            .fold(std::path::PathBuf::from(home), |p, c| p.join(c))
+            .to_string_lossy()
+            .into_owned()
+    }
+
+    #[test]
+    fn expands_home_with_native_separators() {
+        let h = Path::new("/home/me");
+        assert_eq!(
+            expand_path("~/.ssh/id", h),
+            home_path("/home/me", &[".ssh", "id"])
+        );
+        assert_eq!(
+            expand_path("~\\.ssh\\id", h),
+            home_path("/home/me", &[".ssh", "id"])
+        );
+        assert_eq!(
+            expand_path("%d/.ssh/id", h),
+            home_path("/home/me", &[".ssh", "id"])
+        );
+        assert_eq!(expand_path("~", h), "/home/me");
+        assert_eq!(expand_path("/etc/ssh/key", h), "/etc/ssh/key");
+    }
+
     fn get<'a>(r: &'a ParseResult, alias: &str) -> &'a ImportedHost {
         r.hosts.iter().find(|h| h.alias == alias).unwrap()
     }
@@ -445,7 +487,10 @@ Host *
         let b = get(&r, "bastion");
         assert_eq!(b.hostname, "bastion.example.com");
         assert_eq!(b.user.as_deref(), Some("ops"));
-        assert_eq!(b.identity_file.as_deref(), Some("/home/me/.ssh/id_ops"));
+        assert_eq!(
+            b.identity_file.as_deref(),
+            Some(home_path("/home/me", &[".ssh", "id_ops"]).as_str())
+        );
         assert_eq!(b.port, 22);
 
         let d = get(&r, "db1");
@@ -454,7 +499,10 @@ Host *
         assert_eq!(d.proxy_jump.as_deref(), Some("bastion"));
         // `Host *` defaults fill what the specific block didn't set.
         assert_eq!(d.user.as_deref(), Some("fallback"));
-        assert_eq!(d.identity_file.as_deref(), Some("/home/me/.ssh/id_ed25519"));
+        assert_eq!(
+            d.identity_file.as_deref(),
+            Some(home_path("/home/me", &[".ssh", "id_ed25519"]).as_str())
+        );
 
         let w = get(&r, "web");
         assert_eq!(w.hostname, "10.0.0.5");
