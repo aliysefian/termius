@@ -7,8 +7,16 @@ export interface GroupNode {
   hosts: VaultRecord<Host>[];
 }
 
+export type HostSort = "name" | "hostname" | "updated";
+
+const comparators: Record<HostSort, (a: VaultRecord<Host>, b: VaultRecord<Host>) => number> = {
+  name: (a, b) => (a.data?.label ?? "").localeCompare(b.data?.label ?? ""),
+  hostname: (a, b) => (a.data?.hostname ?? "").localeCompare(b.data?.hostname ?? ""),
+  updated: (a, b) => b.updated_at - a.updated_at,
+};
+
 /** Fold a flat host list into a tree keyed by each host's slash-separated group path. */
-export function buildTree(hosts: VaultRecord<Host>[]): GroupNode {
+export function buildTree(hosts: VaultRecord<Host>[], sortBy: HostSort = "name"): GroupNode {
   const root: GroupNode = { name: "", path: "", children: [], hosts: [] };
   for (const h of hosts) {
     if (!h.data) continue;
@@ -28,7 +36,7 @@ export function buildTree(hosts: VaultRecord<Host>[]): GroupNode {
   }
   const sort = (n: GroupNode) => {
     n.children.sort((a, b) => a.name.localeCompare(b.name));
-    n.hosts.sort((a, b) => (a.data?.label ?? "").localeCompare(b.data?.label ?? ""));
+    n.hosts.sort(comparators[sortBy]);
     n.children.forEach(sort);
   };
   sort(root);

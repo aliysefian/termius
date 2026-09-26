@@ -19,6 +19,7 @@
   import { vaultStore } from "$lib/stores/vault.svelte";
   import { themeById } from "$lib/themes";
   import { errorMessage } from "$lib/types";
+  import { LineTracker, matchDestructive, pastedLines, pasteNeedsConfirm } from "$lib/guard";
 
   let {
     pane,
@@ -40,7 +41,64 @@
   const label = $derived(
     target.kind === "host" ? (host?.label ?? "host") : target.kind === "adhoc" ? adhocLabel(target.adhoc) : "Local",
   );
-  const needsCredentials = $derived(target.kind === "host" && !!host && !host.identity_id);
+  const needsCredentials = $derived(target.kind === "host" && !!host && !vaultStore.effectiveIdentity(host));
+  const production = $derived(vaultStore.effectiveEnv(host) === "production");
+  const shared = $derived(vaultStore.settings?.settings);
+
+  // -- input guards (a safety net, not a guarantee) -------------------------
+  const tracker = new LineTracker();
+  type Pending =
+    | { kind: "paste"; text: string; lines: number; danger: string | null }
+    | { kind: "command"; line: string; pattern: string };
+  let pending = $state<Pending | null>(null);
+
+  function send(d: string | Uint8Array) {
+    if (broadcast) broadcast(d);
+    else void writeToPane(pane, d);
+  }
+
+  /** Typed input: hold Enter on production when the line looks destructive. */
+  function typed(d: string) {
+    if (production && shared && (d === "\r" || d === "\n")) {
+      const line = tracker.line;
+      const pattern = line === null ? null : matchDestructive(line, shared.destructive_patterns);
+      if (line !== null && pattern) {
+        pending = { kind: "command", line, pattern };
+        return;
+      }
+    }
+    tracker.feed(d);
+    send(d);
+  }
+
+  /** Every paste path (menu, shortcut, native Ctrl+V) goes through here. */
+  function guardedPaste(text: string) {
+    if (!text || status.kind !== "connected") return;
+    const lines = pastedLines(text);
+    const danger = production && shared ? text.split(/\r\n|\r|\n/).map((l) => matchDestructive(l, shared.destructive_patterns)).find(Boolean) ?? null : null;
+    if (danger || pasteNeedsConfirm(text, shared?.paste_confirm_lines ?? 2, production)) {
+      pending = { kind: "paste", text, lines, danger };
+      return;
+    }
+    doPaste(text);
+  }
+
+  function doPaste(text: string) {
+    // term.paste handles bracketed-paste mode and newline normalisation.
+    tracker.reset();
+    term.paste(text);
+  }
+
+  function resolvePending(go: boolean) {
+    const p = pending;
+    pending = null;
+    if (go && p?.kind === "paste") doPaste(p.text);
+    else if (go && p?.kind === "command") {
+      tracker.reset();
+      send("\r");
+    }
+    term?.focus();
+  }
 
   let container: HTMLDivElement;
   // Created once in onMount; the appearance effect re-reads it on each run.
@@ -125,14 +183,6 @@
     else connect(null);
   }
 
-  async function trustNewKey(h: string, port: number) {
-    try {
-      await api.knownHosts.forget(h, port);
-      reconnect();
-    } catch (e) {
-      ui.notify("error", errorMessage(e));
-    }
-  }
 
   // -- clipboard --------------------------------------------------------
 
@@ -150,8 +200,7 @@
     if (status.kind !== "connected") return;
     try {
       const text = await readText();
-      // term.paste handles bracketed-paste mode and newline normalisation.
-      if (text) term.paste(text);
+      if (text) guardedPaste(text);
     } catch (e) {
       ui.notify("error", `Paste failed: ${errorMessage(e)}`);
     }
@@ -235,10 +284,21 @@
       return true;
     });
 
+    // Native paste (Ctrl+V, middle click): intercept before xterm sends it.
+    container.addEventListener(
+      "paste",
+      (e) => {
+        const text = e.clipboardData?.getData("text/plain") ?? "";
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        guardedPaste(text);
+      },
+      { capture: true },
+    );
+
     term.onData((d) => {
-      if (status.kind !== "connected") return;
-      if (broadcast) broadcast(d);
-      else void writeToPane(pane, d);
+      if (status.kind !== "connected" || pending) return;
+      typed(d);
     });
     term.onBinary((d) => {
       if (status.kind !== "connected") return;
@@ -328,6 +388,11 @@
 </script>
 
 <div class="relative flex min-h-0 flex-1 flex-col" style:background>
+  {#if production && target.kind === "host"}
+    <div class="flex shrink-0 items-center gap-2 bg-danger px-3 py-0.5 text-[11px] font-semibold tracking-wide text-white" role="status">
+      <ShieldAlert size={12} /> PRODUCTION · {label}
+    </div>
+  {/if}
   <!-- `isolate` keeps xterm's internal z-indexed layers (up to 11) inside
        this box, so the overlays below always sit on top and stay clickable. -->
   <div
@@ -387,13 +452,41 @@
     </div>
   {/if}
 
+  {#if pending}
+    <div class="absolute inset-0 z-40 flex items-center justify-center bg-base/80 p-4" role="presentation">
+      <div class="w-full max-w-lg rounded-xl border {pending.kind === 'command' || (pending.kind === 'paste' && pending.danger) ? 'border-danger/50' : 'border-line'} bg-panel p-5 shadow-2xl" role="alertdialog" aria-modal="true" aria-label="Confirm input">
+        {#if pending.kind === "command"}
+          <div class="mb-2 flex items-center gap-2 text-sm font-semibold text-danger"><ShieldAlert size={16} /> Run this on production?</div>
+          <pre class="max-h-32 overflow-auto rounded-md bg-base px-3 py-2 font-mono text-xs whitespace-pre-wrap">{pending.line}</pre>
+          <p class="mt-2 text-xs text-fg-muted">It matches a destructive-command pattern for <strong>{label}</strong>. This check only sees what you typed; it's a reminder, not a guarantee.</p>
+        {:else}
+          <div class="mb-2 flex items-center gap-2 text-sm font-semibold {pending.danger ? 'text-danger' : ''}">
+            <ShieldAlert size={16} /> Paste {pending.lines} line{pending.lines === 1 ? "" : "s"} into {label}?
+          </div>
+          <pre class="max-h-48 overflow-auto rounded-md bg-base px-3 py-2 font-mono text-xs whitespace-pre-wrap">{pending.text.length > 4000 ? `${pending.text.slice(0, 4000)}
+…` : pending.text}</pre>
+          <p class="mt-2 text-xs text-fg-muted">
+            {pending.danger ? "It contains a command that looks destructive, and this is a production host. " : ""}Each line runs as soon as it's pasted.
+          </p>
+        {/if}
+        <div class="mt-4 flex justify-end gap-2">
+          <!-- svelte-ignore a11y_autofocus -->
+          <button class="btn-primary" autofocus onclick={() => resolvePending(false)}>Cancel</button>
+          <button class="btn-ghost border {pending.kind === 'command' || (pending.kind === 'paste' && pending.danger) ? 'border-danger/50 text-danger' : 'border-line'}" onclick={() => resolvePending(true)}>
+            {pending.kind === "command" ? "Run it" : "Paste"}
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
   {#if hostKeyNotices.length}
     <div class="absolute inset-x-2 top-2 z-10 flex items-start gap-2 rounded-md border border-line bg-panel/95 px-3 py-2 text-xs shadow-lg">
       <ShieldAlert size={14} class="mt-0.5 shrink-0 text-accent" />
       <div class="min-w-0 flex-1 space-y-1">
         {#each hostKeyNotices as k (k.host)}
           <div>
-            <div class="font-medium">New host key recorded for {k.host}</div>
+            <div class="font-medium">Host key trusted for {k.host}</div>
             <div class="truncate font-mono text-fg-muted">{k.fingerprint}</div>
           </div>
         {/each}
@@ -449,16 +542,14 @@
           <ShieldX size={18} /> Host key changed for {status.host}{status.port !== 22 ? `:${status.port}` : ""}
         </div>
         <p class="text-xs text-fg-muted">
-          The server presented a different key from the one pinned earlier. This happens when a server is
-          reinstalled, but it is also exactly what a man-in-the-middle attack looks like. Only trust the new key
-          if you know why it changed.
+          The server presented a different key from the one trusted before, so the connection was stopped and nothing was
+          sent. This happens when a server is reinstalled, but it is also exactly what a man-in-the-middle attack looks
+          like. Reconnect to compare the old and new fingerprints and decide.
         </p>
         <div class="mt-3 rounded-md bg-base px-3 py-2 font-mono text-xs break-all">{status.fingerprint}</div>
         <div class="mt-4 flex justify-end gap-2">
-          <button class="btn-ghost" onclick={() => (status = { kind: "disconnected", code: null })}>Cancel</button>
-          <button class="btn border border-danger/40 text-danger hover:bg-danger/10" onclick={() => status.kind === "host_key_changed" && trustNewKey(status.host, status.port)}>
-            Trust new key and reconnect
-          </button>
+          <button class="btn-ghost" onclick={() => (status = { kind: "disconnected", code: null })}>Close</button>
+          <button class="btn border border-danger/40 text-danger hover:bg-danger/10" onclick={reconnect}>Review and reconnect</button>
         </div>
       </div>
     </div>

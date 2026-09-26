@@ -13,16 +13,27 @@
   // The form is remounted via {#key} when the id changes, so capturing the initial value is intended.
   // svelte-ignore state_referenced_locally
   const existing = id ? vaultStore.hostById.get(id)?.data : undefined;
+  // The revision being edited: a change from another device meanwhile is merged or reported, never overwritten.
+  // svelte-ignore state_referenced_locally
+  const baseRev = id ? (vaultStore.hostById.get(id)?.rev ?? null) : null;
   // svelte-ignore state_referenced_locally
   let form = $state<Host>(existing ? structuredClone($state.snapshot(existing)) : { ...emptyHost(), group: group ?? "" });
   let tags = $state(form.tags.join(", "));
+  const knownEnv = (v: string | undefined) => ENVIRONMENTS.some((e) => e.value === (v ?? ""));
+  let envChoice = $state(knownEnv(form.environment) ? (form.environment ?? "") : "custom");
+  let customEnv = $state(knownEnv(form.environment) ? "" : (form.environment ?? ""));
+  let customFields = $state(
+    Object.entries(form.custom ?? {})
+      .map(([k, v]) => `${k}=${v}`)
+      .join("\n"),
+  );
   let error = $state<string | null>(null);
   let busy = $state(false);
 
   // -- credentials ---------------------------------------------------------
 
   type Mode = "password" | "key" | "keychain" | "ask";
-  type KeySource = "keep" | "generate" | "file" | "paste" | "agent";
+  type KeySource = "keep" | "manager" | "generate" | "file" | "paste" | "agent";
 
   // The identity this host uses now, as listed (secrets redacted).
   const current = existing?.identity_id ? vaultStore.identityById.get(existing.identity_id)?.data : undefined;
@@ -36,8 +47,18 @@
   let password = $state("");
   let showPassword = $state(false);
   let keySource = $state<KeySource>(
-    owned && current!.auth.type === "private_key" ? "keep" : owned && current!.auth.type === "agent" ? "agent" : "generate",
+    owned && current!.auth.type === "private_key"
+      ? "keep"
+      : owned && current!.auth.type === "agent"
+        ? "agent"
+        : owned && current!.auth.type === "key"
+          ? "manager"
+          : vaultStore.keys.some((k) => k.data?.private_key !== undefined)
+            ? "manager"
+            : "generate",
   );
+  let managerKeyId = $state<Uuid | "">(owned && current!.auth.type === "key" ? current!.auth.key_id : "");
+  const managerKeys = $derived(vaultStore.keys.filter((k) => k.data && k.data.private_key !== undefined));
   let keyText = $state("");
   let keyFile = $state<string | null>(null);
   let passphrase = $state("");
@@ -81,6 +102,10 @@
       switch (keySource) {
         case "keep":
           auth = { type: "private_key", private_key: null, passphrase: passphrase || null };
+          break;
+        case "manager":
+          if (!managerKeyId) throw new Error("Choose a key from the Key Manager");
+          auth = { type: "key", key_id: managerKeyId };
           break;
         case "generate":
           auth = { type: "generate_key" };
@@ -159,7 +184,16 @@
       form.jump_host_id = form.jump_host_id || undefined;
       form.environment = form.environment || undefined;
       form.startup_command = form.startup_command?.trim() || undefined;
-      const out = await vaultStore.saveHostWithCredentials(id, $state.snapshot(form), credentials());
+      form.environment = envChoice === "custom" ? customEnv.trim() || undefined : envChoice || undefined;
+      form.proxy_id = form.proxy_id || undefined;
+      form.keepalive_secs = form.keepalive_secs == null || (form.keepalive_secs as unknown) === "" ? undefined : Number(form.keepalive_secs);
+      const custom: Record<string, string> = {};
+      for (const line of customFields.split("\n")) {
+        const at = line.indexOf("=");
+        if (at > 0) custom[line.slice(0, at).trim()] = line.slice(at + 1).trim();
+      }
+      form.custom = Object.keys(custom).length ? custom : undefined;
+      const out = await vaultStore.saveHostWithCredentials(id, $state.snapshot(form), credentials(), baseRev);
       password = keyText = passphrase = "";
       if (out.public_key) generatedKey = out.public_key;
       else ui.modal = null;
@@ -179,11 +213,12 @@
   const modes: { value: Mode; label: string; icon: typeof Lock }[] = [
     { value: "password", label: "Password", icon: Lock },
     { value: "key", label: "SSH key", icon: KeyRound },
-    { value: "keychain", label: "Keychain", icon: Users },
+    { value: "keychain", label: "Credential", icon: Users },
     { value: "ask", label: "Ask", icon: HelpCircle },
   ];
   const sources: { value: KeySource; label: string; icon: typeof Lock; show: boolean }[] = [
     { value: "keep", label: "Saved key", icon: Check, show: hasSavedKey },
+    { value: "manager", label: "Key Manager", icon: KeyRound, show: true },
     { value: "generate", label: "Generate", icon: Sparkles, show: true },
     { value: "file", label: "From file", icon: FileKey, show: true },
     { value: "paste", label: "Paste", icon: KeyRound, show: true },
@@ -297,6 +332,17 @@
 
               {#if keySource === "keep"}
                 <p class="text-xs text-fg-muted">The saved private key stays as it is.</p>
+              {:else if keySource === "manager"}
+                {#if managerKeys.length === 0}
+                  <p class="text-xs text-fg-muted">The Key Manager has no private keys yet. Add one under <strong>Keys</strong>.</p>
+                {:else}
+                  <select class="input" bind:value={managerKeyId} required aria-label="Key">
+                    <option value="" disabled>Choose a key…</option>
+                    {#each managerKeys as k (k.id)}
+                      <option value={k.id}>{k.data!.name} · {k.data!.algorithm} · {k.data!.fingerprint.slice(7, 19)}…</option>
+                    {/each}
+                  </select>
+                {/if}
               {:else if keySource === "generate"}
                 <p class="text-xs text-fg-muted">
                   A new Ed25519 key is created when you save. You'll get its public key to add to the server.
@@ -332,7 +378,7 @@
 
             <label class="flex items-center gap-2 text-xs text-fg-muted">
               <input type="checkbox" class="accent-[#7b61ff]" bind:checked={saveToKeychain} />
-              Also save to Keychain so other hosts can use these credentials
+              Also save to Credentials so other hosts can use them
             </label>
             {#if saveToKeychain}
               <input class="input text-sm" bind:value={keychainLabel} placeholder={`${username || "user"}@${form.label || "host"}`} aria-label="Keychain label" />
@@ -342,7 +388,7 @@
           {#if keychainChoices.length === 0}
             <p class="text-sm text-fg-muted">
               The Keychain is empty. Choose <strong>Password</strong> or <strong>SSH key</strong> above, and tick "Also save to
-              Keychain" to add one.
+              Credentials" to add one.
             </p>
           {:else}
             <label class="label" for="h-identity">Identity</label>
@@ -351,7 +397,7 @@
               {#each keychainChoices as ident (ident.id)}
                 {@const d = ident.data!}
                 <option value={ident.id}>
-                  {d.label} · {d.username} · {d.auth.type === "password" ? "password" : d.auth.type === "private_key" ? "key" : "agent"}
+                  {d.label} · {d.username} · {d.auth.type === "password" ? "password" : d.auth.type === "agent" ? "agent" : "key"}
                 </option>
               {/each}
             </select>
@@ -390,12 +436,16 @@
         </label>
         <div>
           <label class="label" for="h-env">Environment</label>
-          <select id="h-env" class="input" bind:value={form.environment}>
+          <select id="h-env" class="input" bind:value={envChoice}>
             {#each ENVIRONMENTS as e (e.value)}
               <option value={e.value}>{e.label}</option>
             {/each}
+            <option value="custom">Custom…</option>
           </select>
-          {#if form.environment === "production"}
+          {#if envChoice === "custom"}
+            <input class="input mt-1.5" bind:value={customEnv} placeholder="qa, dr, customer-x" aria-label="Custom environment" />
+          {/if}
+          {#if envChoice === "production"}
             <p class="mt-1 text-xs text-danger">Marked in red, and bulk actions ask before touching it.</p>
           {/if}
         </div>
@@ -418,6 +468,23 @@
               desktops, XQuartz on macOS, VcXsrv or X410 on Windows) and <code>xauth</code> on the host.
             </span>
           </span>
+        </label>
+        <div>
+          <label class="label" for="h-proxy">Proxy</label>
+          <select id="h-proxy" class="input" bind:value={form.proxy_id}>
+            <option value={undefined}>None{form.group && vaultStore.groupByPath.get(form.group)?.data?.proxy_id ? " (group default applies)" : ""}</option>
+            {#each vaultStore.proxies as p (p.id)}
+              <option value={p.id}>{p.data?.name}{p.data?.spec.kind === "command" && !p.data.spec.approved ? " (not approved)" : ""}</option>
+            {/each}
+          </select>
+        </div>
+        <div>
+          <label class="label" for="h-keepalive">Keep-alive (seconds)</label>
+          <input id="h-keepalive" class="input font-mono" type="number" min="0" max="3600" bind:value={form.keepalive_secs} placeholder="30 (0 = off)" />
+        </div>
+        <label class="col-span-2 flex items-center gap-2 text-sm">
+          <input type="checkbox" class="accent-[#7b61ff]" bind:checked={form.favorite} />
+          Favorite
         </label>
         <div>
           <label class="label" for="h-group">Group</label>
@@ -444,6 +511,10 @@
         <div class="col-span-2">
           <label class="label" for="h-notes">Notes</label>
           <textarea id="h-notes" class="input" rows="2" bind:value={form.notes}></textarea>
+        </div>
+        <div class="col-span-2">
+          <label class="label" for="h-custom">Custom fields <span class="font-normal text-fg-muted">(one <code>key=value</code> per line)</span></label>
+          <textarea id="h-custom" class="input font-mono text-xs" rows="2" bind:value={customFields} placeholder="owner=platform-team" spellcheck="false"></textarea>
         </div>
       </div>
 

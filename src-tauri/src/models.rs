@@ -14,8 +14,22 @@ pub enum AuthMethod {
     /// Plain password authentication.
     Password { password: String },
     /// Private key in PEM / OpenSSH format, optionally passphrase-protected.
+    /// Stored credentials reference the Key Manager instead ([`AuthMethod::Key`]);
+    /// this form remains for connection targets and older records.
     PrivateKey {
         private_key: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        passphrase: Option<String>,
+        /// OpenSSH certificate for this key, if the server uses a CA.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        certificate: Option<String>,
+    },
+    /// A key from the Key Manager (the `keys` collection).
+    Key { key_id: Uuid },
+    /// A key file on *this* computer, referenced by path rather than copied
+    /// into the vault. Other devices need the same file at the same path.
+    KeyFile {
+        path: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         passphrase: Option<String>,
     },
@@ -45,9 +59,17 @@ impl Identity {
             AuthMethod::Password { .. } => AuthMethod::Password {
                 password: String::new(),
             },
-            AuthMethod::PrivateKey { .. } => AuthMethod::PrivateKey {
+            // Certificates are public; keep them so the form can show one.
+            AuthMethod::PrivateKey { certificate, .. } => AuthMethod::PrivateKey {
                 private_key: String::new(),
                 passphrase: None,
+                certificate: certificate.clone(),
+            },
+            AuthMethod::Key { key_id } => AuthMethod::Key { key_id: *key_id },
+            AuthMethod::KeyFile { path, passphrase } => AuthMethod::KeyFile {
+                path: path.clone(),
+                // Present-but-hidden, like SshKey::redacted.
+                passphrase: passphrase.as_ref().map(|_| String::new()),
             },
             AuthMethod::Agent => AuthMethod::Agent,
         };
@@ -98,6 +120,221 @@ pub struct Host {
     pub color: Option<String>,
     #[serde(default)]
     pub notes: String,
+    #[serde(default)]
+    pub favorite: bool,
+    /// SOCKS/HTTP proxy or ProxyCommand used to reach this host (or the
+    /// first hop of its jump chain).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proxy_id: Option<Uuid>,
+    /// Send a keep-alive every N seconds (OpenSSH `ServerAliveInterval`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub keepalive_secs: Option<u32>,
+    /// Free-form key/value metadata, e.g. owner, ticket, cost centre.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub custom: std::collections::BTreeMap<String, String>,
+}
+
+/// An entry in the Key Manager.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SshKey {
+    pub name: String,
+    /// e.g. "ssh-ed25519", "ssh-rsa", "ecdsa-sha2-nistp256".
+    pub algorithm: String,
+    /// One `authorized_keys` line.
+    pub public_key: String,
+    pub fingerprint: String,
+    /// OpenSSH or PEM private key. `None` for public-only entries.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub private_key: Option<String>,
+    /// Passphrase of `private_key`, if it's encrypted and the user saved it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub passphrase: Option<String>,
+    /// The private key text is itself passphrase-encrypted.
+    #[serde(default)]
+    pub encrypted: bool,
+    /// OpenSSH certificate (`...-cert-v01@openssh.com ...`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub certificate: Option<String>,
+    #[serde(default)]
+    pub comment: String,
+    #[serde(default)]
+    pub created_at: u64,
+    /// Created from a host's own form rather than the Key Manager.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub for_host: Option<Uuid>,
+}
+
+impl SshKey {
+    /// Safe for the webview: whether a private key and passphrase exist, but
+    /// never their contents.
+    pub fn redacted(&self) -> Self {
+        Self {
+            private_key: self.private_key.as_ref().map(|_| String::new()),
+            passphrase: self.passphrase.as_ref().map(|_| String::new()),
+            ..self.clone()
+        }
+    }
+}
+
+/// A folder in the host tree, with defaults its hosts inherit.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HostGroup {
+    /// Slash-separated path, matching [`Host::group`].
+    pub path: String,
+    /// Used by hosts in this group (or below) that have no identity.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_identity_id: Option<Uuid>,
+    /// Gateway for hosts in this group that have no jump host.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_jump_host_id: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proxy_id: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub environment: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+    #[serde(default)]
+    pub notes: String,
+}
+
+/// A trusted server key, synced through the vault.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct KnownHost {
+    pub host: String,
+    pub port: u16,
+    pub algorithm: String,
+    /// OpenSSH public key line.
+    pub public_key: String,
+    pub fingerprint: String,
+    pub trusted_at: u64,
+    /// Device that trusted it.
+    pub trusted_by: String,
+    /// Earlier keys this entry replaced, newest first.
+    #[serde(default)]
+    pub history: Vec<ReplacedKey>,
+    #[serde(default)]
+    pub note: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReplacedKey {
+    pub algorithm: String,
+    pub fingerprint: String,
+    pub replaced_at: u64,
+    pub replaced_by: String,
+}
+
+/// How to reach a host (or the first hop of its jump chain).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ProxySpec {
+    Socks5 {
+        host: String,
+        port: u16,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        username: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        password: Option<String>,
+    },
+    Http {
+        host: String,
+        port: u16,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        username: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        password: Option<String>,
+    },
+    /// OpenSSH `ProxyCommand`. Runs a local program, so it only takes effect
+    /// once a user has explicitly approved it (imported ones start unapproved).
+    Command {
+        command: String,
+        #[serde(default)]
+        approved: bool,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Proxy {
+    pub name: String,
+    pub spec: ProxySpec,
+}
+
+impl Proxy {
+    pub fn redacted(&self) -> Self {
+        let mut p = self.clone();
+        if let ProxySpec::Socks5 { password, .. } | ProxySpec::Http { password, .. } = &mut p.spec {
+            *password = password.as_ref().map(|_| String::new());
+        }
+        p
+    }
+}
+
+/// A saved set of tabs and split layouts. The frontend owns the layout
+/// format; the backend just stores it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Workspace {
+    pub name: String,
+    #[serde(default)]
+    pub tabs: Vec<serde_json::Value>,
+}
+
+/// Settings shared by every device using the vault.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VaultSettings {
+    #[serde(default = "default_retention")]
+    pub backup_retention: usize,
+    /// Regular expressions for commands that get an extra confirmation on
+    /// production hosts. A safety net, not a guarantee.
+    #[serde(default = "default_destructive")]
+    pub destructive_patterns: Vec<String>,
+    /// Ask before pasting this many lines or more (0 = never ask).
+    #[serde(default = "default_paste_lines")]
+    pub paste_confirm_lines: u32,
+    /// Clear copied secrets from the clipboard after this many seconds.
+    #[serde(default = "default_clipboard_secs")]
+    pub clipboard_clear_secs: u32,
+}
+
+/// The settings record's fixed ID.
+pub const SETTINGS_ID: Uuid = Uuid::from_u128(1);
+
+fn default_retention() -> usize {
+    crate::vault::backup::DEFAULT_RETENTION
+}
+fn default_paste_lines() -> u32 {
+    2
+}
+fn default_clipboard_secs() -> u32 {
+    30
+}
+pub fn default_destructive() -> Vec<String> {
+    [
+        r"\brm\s+(-[a-zA-Z]*[rf][a-zA-Z]*\s+)+/",
+        r"\bmkfs(\.\w+)?\b",
+        r"\bdd\b.*\bof=/dev/",
+        r"(^|[;&|]|\bsudo)\s*(shutdown|reboot|poweroff|halt)(\s|$)",
+        r"(?i)\bdrop\s+(database|table|schema)\b",
+        r"(?i)\btruncate\s+table\b",
+        r"\bkubectl\s+delete\b",
+        r"\bterraform\s+destroy\b",
+        r"\bgit\s+push\b.*(--force|\s-f\b)",
+        r"\bsystemctl\s+(stop|disable|mask)\b",
+        r":\(\)\s*\{\s*:\|:&\s*\};:",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect()
+}
+
+impl Default for VaultSettings {
+    fn default() -> Self {
+        Self {
+            backup_retention: default_retention(),
+            destructive_patterns: default_destructive(),
+            paste_confirm_lines: default_paste_lines(),
+            clipboard_clear_secs: default_clipboard_secs(),
+        }
+    }
 }
 
 fn default_port() -> u16 {
@@ -110,6 +347,11 @@ pub struct Snippet {
     pub command: String,
     #[serde(default)]
     pub description: String,
+    /// Slash-separated folder, e.g. "Kubernetes/Debug".
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub folder: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -183,9 +425,66 @@ pub enum ForwardKind {
     Dynamic { bind_addr: String, bind_port: u16 },
 }
 
+/// A record as the webview may see it: secrets replaced by empty
+/// placeholders, exactly as the list commands return them. `None` when the
+/// data can't be read (it's then not sent at all rather than sent as-is).
+pub fn redact_record(c: crate::vault::Collection, v: serde_json::Value) -> Option<serde_json::Value> {
+    use crate::vault::Collection;
+    fn via<T: Serialize + serde::de::DeserializeOwned>(
+        v: serde_json::Value,
+        f: impl FnOnce(&T) -> T,
+    ) -> Option<serde_json::Value> {
+        let t = serde_json::from_value::<T>(v).ok()?;
+        serde_json::to_value(f(&t)).ok()
+    }
+    match c {
+        Collection::Identities => via::<Identity>(v, Identity::redacted),
+        Collection::Keys => via::<SshKey>(v, SshKey::redacted),
+        Collection::Proxies => via::<Proxy>(v, Proxy::redacted),
+        // Locks are internal; the rest hold no secrets.
+        Collection::Locks => None,
+        _ => Some(v),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn live_records_are_redacted_like_lists() {
+        use crate::vault::Collection;
+        let key = SshKey {
+            name: "k".into(),
+            private_key: Some("-----BEGIN OPENSSH PRIVATE KEY-----".into()),
+            passphrase: Some("hunter2".into()),
+            ..Default::default()
+        };
+        let out = redact_record(Collection::Keys, serde_json::to_value(&key).unwrap()).unwrap();
+        let text = out.to_string();
+        assert!(!text.contains("BEGIN") && !text.contains("hunter2"), "{text}");
+        assert_eq!(out["private_key"], "", "presence is still visible");
+
+        let proxy = Proxy {
+            name: "p".into(),
+            spec: ProxySpec::Socks5 { host: "h".into(), port: 1, username: Some("u".into()), password: Some("s3cret".into()) },
+        };
+        let out = redact_record(Collection::Proxies, serde_json::to_value(&proxy).unwrap()).unwrap();
+        assert!(!out.to_string().contains("s3cret"));
+
+        let ident = Identity {
+            label: "l".into(),
+            username: "u".into(),
+            auth: AuthMethod::Password { password: "pw!".into() },
+            notes: String::new(),
+            for_host: None,
+        };
+        let out = redact_record(Collection::Identities, serde_json::to_value(&ident).unwrap()).unwrap();
+        assert!(!out.to_string().contains("pw!"));
+        // Garbage in a secret-bearing collection is dropped, not forwarded.
+        assert!(redact_record(Collection::Keys, serde_json::json!({"private_key": "x"})).is_none());
+        assert!(redact_record(Collection::Locks, serde_json::json!({})).is_none());
+    }
 
     #[test]
     fn host_defaults_fill_in_when_missing() {
@@ -267,6 +566,7 @@ mod tests {
             auth: AuthMethod::PrivateKey {
                 private_key: "SECRET".into(),
                 passphrase: Some("PASS".into()),
+                certificate: None,
             },
             notes: "n".into(),
             for_host: None,
@@ -296,6 +596,7 @@ mod tests {
         let a = AuthMethod::PrivateKey {
             private_key: "-----BEGIN".into(),
             passphrase: None,
+            certificate: None,
         };
         let json = serde_json::to_string(&a).unwrap();
         assert!(json.contains(r#""type":"private_key""#));

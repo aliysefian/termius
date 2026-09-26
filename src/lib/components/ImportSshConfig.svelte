@@ -6,11 +6,16 @@
   import * as api from "$lib/api";
   import { ui } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
-  import { errorMessage, type ImportSummary, type SshConfigPreview } from "$lib/types";
+  import { describeForward, errorMessage, type ImportSummary, type KeyImport, type SshConfigPreview } from "$lib/types";
 
   let preview = $state<SshConfigPreview | null>(null);
   let picked = $state<Set<string>>(new Set());
   let group = $state("Imported");
+  /** Key files are only copied into the vault if the user chooses to. */
+  let keyImport = $state<KeyImport>("reference");
+  const pickedHosts = $derived(preview?.hosts.filter((h) => picked.has(h.alias)) ?? []);
+  const hasKeys = $derived(pickedHosts.some((h) => h.identity_file));
+  const hasCommands = $derived(pickedHosts.some((h) => h.proxy_command));
   let loading = $state(false);
   let importing = $state(false);
   let error = $state<string | null>(null);
@@ -73,7 +78,7 @@
     error = null;
     try {
       const hosts = preview.hosts.filter((h) => picked.has(h.alias));
-      summary = await api.sshConfig.import(hosts, group);
+      summary = await api.sshConfig.import(hosts, group, keyImport);
       await vaultStore.reloadAll();
     } catch (e) {
       error = errorMessage(e);
@@ -88,8 +93,17 @@
     <div class="space-y-3 text-sm">
       <p>
         Imported <strong>{summary.hosts_created}</strong> host{summary.hosts_created === 1 ? "" : "s"} and created
-        <strong>{summary.identities_created}</strong> identit{summary.identities_created === 1 ? "y" : "ies"}.
+        <strong>{summary.identities_created}</strong> credential{summary.identities_created === 1 ? "" : "s"}{summary.keys_imported
+          ? `, copied ${summary.keys_imported} key(s) into the vault`
+          : ""}{summary.forwards_created ? `, ${summary.forwards_created} tunnel(s)` : ""}{summary.proxies_created
+          ? `, ${summary.proxies_created} ProxyCommand(s)`
+          : ""}.
       </p>
+      {#if summary.proxies_created}
+        <p class="text-xs text-warning">
+          Imported ProxyCommands don't run until you review and approve them under Groups and proxies.
+        </p>
+      {/if}
       {#if summary.skipped_existing.length}
         <p class="text-fg-muted">Skipped because they already exist: {summary.skipped_existing.join(", ")}</p>
       {/if}
@@ -151,7 +165,12 @@
                     <td class="px-2 py-1.5 font-mono">{h.hostname}{h.port !== 22 ? `:${h.port}` : ""}</td>
                     <td class="px-2 py-1.5 font-mono">{h.user ?? "—"}</td>
                     <td class="max-w-48 truncate px-2 py-1.5 font-mono text-fg-muted" title={h.identity_file ?? ""}>
-                      {h.identity_file ? h.identity_file.split(/[\\/]/).pop() : "agent"}{h.proxy_jump ? ` · via ${h.proxy_jump}` : ""}
+                      {h.identity_file ? h.identity_file.split(/[\\/]/).pop() : "agent"}{h.proxy_jump ? ` · via ${h.proxy_jump}` : ""}{h.proxy_command
+                        ? " · ProxyCommand"
+                        : ""}
+                      {#if h.forwards?.length}
+                        <span class="block" title={h.forwards.map(describeForward).join("\n")}>{h.forwards.length} forward(s)</span>
+                      {/if}
                     </td>
                     {#if source === "ansible"}<td class="px-2 py-1.5 text-fg-muted">{h.group ?? "—"}</td>{/if}
                   </tr>
@@ -167,10 +186,25 @@
             </div>
           </div>
 
-          <p class="flex gap-2 text-xs text-fg-muted">
-            <TriangleAlert size={13} class="mt-0.5 shrink-0 text-warning" />
-            Private key files are copied into the encrypted vault, so they sync to your other computers.
-          </p>
+          {#if hasKeys}
+            <fieldset class="space-y-1.5 rounded-md border border-line p-3 text-xs">
+              <legend class="px-1 font-medium">Key files (IdentityFile)</legend>
+              <label class="flex items-start gap-2">
+                <input type="radio" class="mt-0.5 accent-[#7b61ff]" bind:group={keyImport} value="reference" />
+                <span><strong>Reference by path</strong> (default). The key stays in <code>~/.ssh</code> on this computer; other computers need the same file.</span>
+              </label>
+              <label class="flex items-start gap-2">
+                <input type="radio" class="mt-0.5 accent-[#7b61ff]" bind:group={keyImport} value="copy" />
+                <span><strong>Copy into the vault.</strong> Keys are stored encrypted in the Key Manager and sync to all your devices. Encrypted keys stay passphrase-protected.</span>
+              </label>
+            </fieldset>
+          {/if}
+          {#if hasCommands}
+            <p class="flex gap-2 text-xs text-fg-muted">
+              <TriangleAlert size={13} class="mt-0.5 shrink-0 text-warning" />
+              ProxyCommands are imported switched off. Nothing runs until you read and approve each one.
+            </p>
+          {/if}
         {/if}
         {#each preview.warnings as w, i (i)}
           <p class="flex gap-2 text-xs text-warning"><TriangleAlert size={13} class="mt-0.5 shrink-0" /> {w}</p>

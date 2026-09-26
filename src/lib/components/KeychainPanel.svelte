@@ -8,7 +8,13 @@
   import { ui } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
 
-  const authLabel = { password: "Password", private_key: "Private key", agent: "SSH agent" } as const;
+  const authLabel = {
+    password: "Password",
+    private_key: "Private key",
+    key: "Key Manager key",
+    key_file: "Key file",
+    agent: "SSH agent",
+  } as const;
 
   // Credentials entered in a host's own form are listed apart from the
   // shared Keychain so the list doesn't fill up with one entry per host.
@@ -56,6 +62,13 @@
     }
   }
 
+  async function copyManagedPublic(keyId: string) {
+    const k = vaultStore.keyById.get(keyId)?.data;
+    if (!k) return ui.notify("error", "That key was deleted from the Key Manager.");
+    await writeText(k.public_key);
+    ui.notify("info", `Public key copied (${k.fingerprint}).`);
+  }
+
   async function remove(id: string, label: string) {
     const n = usage(id);
     const msg = n ? `Delete "${label}"? ${n} host(s) reference it and will be detached.` : `Delete "${label}"?`;
@@ -66,8 +79,8 @@
 
 <aside class="flex w-72 flex-col border-r border-line bg-panel">
   <div class="flex items-center justify-between px-4 pt-4 pb-2">
-    <h2 class="text-sm font-semibold">Keychain</h2>
-    <button class="icon-btn" title="New identity" onclick={() => (ui.modal = { kind: "identity", id: null })}>
+    <h2 class="text-sm font-semibold">Credentials</h2>
+    <button class="icon-btn" title="New credential" onclick={() => (ui.modal = { kind: "identity", id: null })}>
       <Plus size={16} />
     </button>
   </div>
@@ -75,9 +88,9 @@
     {#if vaultStore.identities.length === 0}
       <div class="px-3 py-10 text-center">
         <KeyRound size={28} class="mx-auto mb-3 text-fg-muted/50" />
-        <p class="text-sm text-fg-muted">No identities yet.</p>
+        <p class="text-sm text-fg-muted">No credentials yet.</p>
         <button class="btn-primary mt-4" onclick={() => (ui.modal = { kind: "identity", id: null })}>
-          <Plus size={14} /> Add identity
+          <Plus size={14} /> Add credential
         </button>
       </div>
     {:else}
@@ -92,7 +105,7 @@
             </div>
           </div>
           <div class="flex {shown[ident.id] ? '' : 'opacity-0'} group-hover:opacity-100">
-            {#if d.auth.type !== "agent"}
+            {#if d.auth.type === "password" || d.auth.type === "private_key" || d.auth.type === "key_file"}
               <button
                 class="icon-btn h-6 w-6 {shown[ident.id] ? 'text-accent' : ''}"
                 title={shown[ident.id] ? "Hide" : d.auth.type === "password" ? "Show password" : "Show private key"}
@@ -105,6 +118,9 @@
               <button class="icon-btn h-6 w-6" title="Copy password" onclick={() => copyStored(ident.id, ownerLabel ?? d.label, "password")}><Copy size={12} /></button>
             {:else if d.auth.type === "private_key"}
               <button class="icon-btn h-6 w-6" title="Copy public key" onclick={() => copyPublicKey(ident.id)}><KeyRound size={12} /></button>
+            {:else if d.auth.type === "key"}
+              {@const kid = d.auth.key_id}
+              <button class="icon-btn h-6 w-6" title="Copy public key" onclick={() => copyManagedPublic(kid)}><KeyRound size={12} /></button>
             {/if}
             <button class="icon-btn h-6 w-6" title="Edit" onclick={() => (ui.modal = { kind: "identity", id: ident.id })}><Pencil size={12} /></button>
             <button class="icon-btn h-6 w-6 hover:text-danger" title="Delete" onclick={() => remove(ident.id, d.label)}><Trash2 size={12} /></button>
@@ -143,7 +159,7 @@
         {@render row(ident)}
       {/each}
       {#if shared.length === 0}
-        <p class="px-2 py-3 text-xs text-fg-muted">No shared identities yet. Create one to reuse it across hosts.</p>
+        <p class="px-2 py-3 text-xs text-fg-muted">No shared credentials yet. Create one to reuse it across hosts.</p>
       {/if}
 
       {#if owned.length}

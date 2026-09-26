@@ -133,12 +133,18 @@ impl From<&AuthMethod> for Revealed {
             AuthMethod::PrivateKey {
                 private_key,
                 passphrase,
+                ..
             } => Self {
                 private_key: Some(private_key.clone()),
                 passphrase: passphrase.clone(),
                 ..Self::default()
             },
-            AuthMethod::Agent => Self::default(),
+            AuthMethod::KeyFile { passphrase, .. } => Self {
+                passphrase: passphrase.clone(),
+                ..Self::default()
+            },
+            // Key Manager keys are revealed from the Key Manager.
+            AuthMethod::Key { .. } | AuthMethod::Agent => Self::default(),
         }
     }
 }
@@ -162,10 +168,12 @@ pub fn merge_auth(edited: AuthMethod, stored: Option<&AuthMethod>) -> Result<Aut
             AuthMethod::PrivateKey {
                 private_key,
                 passphrase,
+                certificate,
             },
             Some(AuthMethod::PrivateKey {
                 private_key: old_key,
                 passphrase: old_pass,
+                certificate: old_cert,
             }),
         ) if private_key.is_empty() => Ok(AuthMethod::PrivateKey {
             private_key: old_key.clone(),
@@ -173,7 +181,21 @@ pub fn merge_auth(edited: AuthMethod, stored: Option<&AuthMethod>) -> Result<Aut
                 Some(p) if !p.is_empty() => Some(p),
                 _ => old_pass.clone(),
             },
+            certificate: certificate.or_else(|| old_cert.clone()),
         }),
+        (
+            AuthMethod::KeyFile { path, passphrase },
+            Some(AuthMethod::KeyFile {
+                passphrase: old_pass,
+                ..
+            }),
+        ) if passphrase.as_deref().unwrap_or("").is_empty() => Ok(AuthMethod::KeyFile {
+            path,
+            passphrase: old_pass.clone(),
+        }),
+        (AuthMethod::KeyFile { path, .. }, _) if path.trim().is_empty() => {
+            Err("Choose a key file".into())
+        }
         (AuthMethod::PrivateKey { private_key, .. }, _) if private_key.is_empty() => {
             Err("Paste a private key".into())
         }
@@ -292,12 +314,14 @@ mod tests {
         let key = AuthMethod::PrivateKey {
             private_key: "K".into(),
             passphrase: Some("P".into()),
+            certificate: None,
         };
         assert_eq!(
             merge_auth(
                 AuthMethod::PrivateKey {
                     private_key: "".into(),
-                    passphrase: None
+                    passphrase: None,
+                    certificate: None
                 },
                 Some(&key)
             ),
@@ -307,20 +331,23 @@ mod tests {
             merge_auth(
                 AuthMethod::PrivateKey {
                     private_key: "".into(),
-                    passphrase: Some("P2".into())
+                    passphrase: Some("P2".into()),
+                    certificate: None
                 },
                 Some(&key)
             ),
             Ok(AuthMethod::PrivateKey {
                 private_key: "K".into(),
-                passphrase: Some("P2".into())
+                passphrase: Some("P2".into()),
+                certificate: None
             })
         );
         // Switching type needs the new secret.
         assert!(merge_auth(
             AuthMethod::PrivateKey {
                 private_key: "".into(),
-                passphrase: None
+                passphrase: None,
+                certificate: None
             },
             Some(&pw)
         )
@@ -336,6 +363,7 @@ mod tests {
         let r = Revealed::from(&AuthMethod::PrivateKey {
             private_key: "K".into(),
             passphrase: None,
+            certificate: None,
         });
         assert_eq!(r.private_key.as_deref(), Some("K"));
         assert_eq!(r.password, None);

@@ -5,6 +5,14 @@ import * as api from "$lib/api";
 import { ui } from "$lib/stores/ui.svelte";
 import {
   errorMessage,
+  isApiError,
+  type CreateResult,
+  type HostGroup,
+  type Proxy,
+  type SshKey,
+  type UnlockReport,
+  type VaultSettings,
+  type Workspace,
   type ForwardRule,
   type Health,
   type HostCredentials,
@@ -25,9 +33,9 @@ function upsert<T>(list: VaultRecord<T>[], incoming: VaultRecord<unknown> | null
     return;
   }
   const rec = incoming as VaultRecord<T>;
-  // Last-writer-wins: never let an older file overwrite a newer in-memory copy.
+  // Never let an older revision overwrite a newer in-memory copy.
   if (idx >= 0) {
-    if (list[idx].updated_at <= rec.updated_at) list[idx] = rec;
+    if ((list[idx].rev ?? 0) <= (rec.rev ?? 0)) list[idx] = rec;
   } else {
     list.push(rec);
   }
@@ -40,6 +48,18 @@ class VaultStore {
   identities = $state<VaultRecord<Identity>[]>([]);
   snippets = $state<VaultRecord<Snippet>[]>([]);
   forwards = $state<VaultRecord<ForwardRule>[]>([]);
+  keys = $state<VaultRecord<SshKey>[]>([]);
+  groups = $state<VaultRecord<HostGroup>[]>([]);
+  proxies = $state<VaultRecord<Proxy>[]>([]);
+  workspaces = $state<VaultRecord<Workspace>[]>([]);
+  /** Settings shared by every device using this vault. */
+  settings = $state<{ rev: number; settings: VaultSettings } | null>(null);
+  /** Sync conflicts waiting for a decision (see the Vault screen). */
+  openConflicts = $state(0);
+  /** What the last unlock did, for a one-time notice. */
+  lastUnlock = $state<UnlockReport | null>(null);
+  /** Shown once after creating a vault or a new recovery key. */
+  pendingRecoveryKey = $state<string | null>(null);
   /** Live status per forwarding rule, pushed by the Rust side. */
   forwardStatus = $state<Record<Uuid, ForwardStatus>>({});
   loading = $state(false);
@@ -48,6 +68,31 @@ class VaultStore {
   unlocked = $derived(this.status.state === "unlocked");
   hostById = $derived(new Map(this.hosts.map((h) => [h.id, h])));
   identityById = $derived(new Map(this.identities.map((i) => [i.id, i])));
+  keyById = $derived(new Map(this.keys.map((k) => [k.id, k])));
+  proxyById = $derived(new Map(this.proxies.map((p) => [p.id, p])));
+  groupByPath = $derived(new Map(this.groups.filter((g) => g.data).map((g) => [g.data!.path, g])));
+
+  /** The nearest group default for `field`, like the backend resolves it. */
+  groupDefault<K extends keyof HostGroup>(host: Host, field: K): HostGroup[K] | undefined {
+    const parts = host.group.split("/").map((p) => p.trim()).filter(Boolean);
+    for (let n = parts.length; n > 0; n--) {
+      const v = this.groupByPath.get(parts.slice(0, n).join("/"))?.data?.[field];
+      if (v) return v;
+    }
+    return undefined;
+  }
+
+  /** A host's environment, falling back to its nearest group's default. */
+  effectiveEnv(host: Host | undefined): string {
+    if (!host) return "";
+    return host.environment || (this.groupDefault(host, "environment") as string | undefined) || "";
+  }
+
+  /** The credential a host logs in with, after group defaults. */
+  effectiveIdentity(host: Host | undefined): Uuid | undefined {
+    if (!host) return undefined;
+    return host.identity_id ?? (this.groupDefault(host, "default_identity_id") as Uuid | undefined);
+  }
 
   #unlisten: UnlistenFn | null = null;
   #unlistenForward: UnlistenFn | null = null;
@@ -77,12 +122,28 @@ class VaultStore {
   async reloadAll() {
     this.loading = true;
     try {
-      [this.hosts, this.identities, this.snippets, this.forwards, this.forwardStatus] = await Promise.all([
+      [
+        this.hosts,
+        this.identities,
+        this.snippets,
+        this.forwards,
+        this.forwardStatus,
+        this.keys,
+        this.groups,
+        this.proxies,
+        this.settings,
+        this.workspaces,
+      ] = await Promise.all([
         api.hosts.list(),
         api.identities.list(),
         api.snippets.list(),
         api.forwards.list(),
         api.forwards.statuses(),
+        api.keys.list(),
+        api.groups.list(),
+        api.proxies.list(),
+        api.vault.getSettings(),
+        api.workspaces.list(),
       ]);
       this.error = null;
     } catch (e) {
@@ -97,12 +158,22 @@ class VaultStore {
     this.identities = [];
     this.snippets = [];
     this.forwards = [];
+    this.keys = [];
+    this.groups = [];
+    this.proxies = [];
+    this.workspaces = [];
+    this.settings = null;
+    this.openConflicts = 0;
     this.forwardStatus = {};
     this.health = {};
   }
 
   /** Called for every record the Rust watcher sees change on disk. */
   applyChange(c: RecordChange) {
+    if (c.conflict_copy) {
+      this.openConflicts += 1;
+      ui.notify("error", "Another device changed the same item at the same time. Review it under Vault → Conflicts.");
+    }
     switch (c.collection) {
       case "hosts":
         upsert(this.hosts, c.record, c.id);
@@ -116,6 +187,22 @@ class VaultStore {
       case "forwards":
         upsert(this.forwards, c.record, c.id);
         break;
+      // Secrets arrive redacted through the list commands only, so re-list.
+      case "keys":
+        void api.keys.list().then((l) => (this.keys = l));
+        break;
+      case "proxies":
+        void api.proxies.list().then((l) => (this.proxies = l));
+        break;
+      case "groups":
+        upsert(this.groups, c.record, c.id);
+        break;
+      case "workspaces":
+        upsert(this.workspaces, c.record, c.id);
+        break;
+      case "settings":
+        void api.vault.getSettings().then((s) => (this.settings = s));
+        break;
     }
   }
 
@@ -126,15 +213,38 @@ class VaultStore {
     this.clearRecords();
   }
 
-  async create(password: string) {
-    this.status = await api.vault.create(password);
+  async create(password: string, withRecovery: boolean, remember: boolean): Promise<CreateResult> {
+    const res = await api.vault.create(password, withRecovery, remember);
+    this.pendingRecoveryKey = res.recovery_key;
+    this.status = res.status;
     await this.reloadAll();
+    return res;
   }
 
-  async unlock(password: string) {
-    this.status = await api.vault.unlock(password);
+  async #afterUnlock(res: { status: VaultStatus; report: UnlockReport; keychain_error: string | null }) {
+    this.status = res.status;
+    this.lastUnlock = res.report;
+    this.openConflicts = res.report.open_conflicts;
     await this.reloadAll();
     await this.#autoStartForwards();
+    const notes: string[] = [];
+    if (res.report.migrated) notes.push("The vault was upgraded to the new format; a backup of the old one was kept.");
+    if (res.report.merged_conflicts) notes.push(`${res.report.merged_conflicts} sync conflict(s) were merged automatically.`);
+    if (res.report.open_conflicts) notes.push(`${res.report.open_conflicts} sync conflict(s) need your decision (Vault screen).`);
+    if (res.keychain_error) notes.push(`Couldn't remember the vault on this device: ${res.keychain_error}`);
+    if (notes.length) ui.notify(res.report.open_conflicts || res.keychain_error ? "error" : "info", notes.join(" "));
+  }
+
+  async unlock(password: string, remember: boolean) {
+    await this.#afterUnlock(await api.vault.unlock(password, remember));
+  }
+
+  async unlockWithDevice() {
+    await this.#afterUnlock(await api.vault.unlockWithDevice());
+  }
+
+  async unlockWithRecovery(recoveryKey: string, newPassword: string, remember: boolean) {
+    await this.#afterUnlock(await api.vault.unlockWithRecovery(recoveryKey, newPassword, remember));
   }
 
   /** Start rules marked auto-start that aren't already running. */
@@ -155,22 +265,41 @@ class VaultStore {
   }
 
   // -- writes (optimistically patch local state with the returned record) --
+  //
+  // `baseRev` is the revision the caller was editing. Forms capture it when
+  // they open, so a change that arrived from another device meanwhile is
+  // merged or refused by the backend instead of silently overwritten.
+  // Omitted, it defaults to the revision currently shown.
 
-  async saveHost(id: Uuid | null, host: Host) {
-    const rec = await api.hosts.save(id, host);
-    upsert(this.hosts, rec, rec.id);
-    return rec;
+  #rev<T>(list: VaultRecord<T>[], id: Uuid | null, baseRev?: number | null): number | null {
+    if (id === null) return null;
+    if (baseRev !== undefined) return baseRev;
+    return list.find((r) => r.id === id)?.rev ?? null;
+  }
+
+  /** After a refused save, pull the other device's version so the UI shows it. */
+  async #onConflict(e: unknown) {
+    if (isApiError(e) && (e.code === "conflict" || e.code === "deleted")) await this.reloadAll();
+    throw e;
+  }
+
+  async saveHost(id: Uuid | null, host: Host, baseRev?: number | null) {
+    const rec = await api.hosts.save(id, this.#rev(this.hosts, id, baseRev), host).catch((e) => this.#onConflict(e));
+    upsert(this.hosts, rec!, rec!.id);
+    return rec!;
   }
   /** Save a host and the credentials from its form; refreshes identities too. */
-  async saveHostWithCredentials(id: Uuid | null, host: Host, credentials: HostCredentials) {
-    const out = await api.hosts.saveWithCredentials(id, host, credentials);
-    upsert(this.hosts, out.host, out.host.id);
-    this.identities = await api.identities.list();
-    return out;
+  async saveHostWithCredentials(id: Uuid | null, host: Host, credentials: HostCredentials, baseRev?: number | null) {
+    const out = await api.hosts
+      .saveWithCredentials(id, this.#rev(this.hosts, id, baseRev), host, credentials)
+      .catch((e) => this.#onConflict(e));
+    upsert(this.hosts, out!.host, out!.host.id);
+    [this.identities, this.keys] = await Promise.all([api.identities.list(), api.keys.list()]);
+    return out!;
   }
 
-  async deleteHost(id: Uuid) {
-    await api.hosts.delete(id);
+  async deleteHost(id: Uuid, baseRev?: number | null) {
+    await api.hosts.delete(id, this.#rev(this.hosts, id, baseRev)).catch((e) => this.#onConflict(e));
     upsert(this.hosts, null, id);
     // The host's own identity may have been removed with it.
     this.identities = await api.identities.list();
@@ -178,38 +307,97 @@ class VaultStore {
     for (const h of this.hosts) if (h.data?.jump_host_id === id) h.data.jump_host_id = undefined;
   }
 
-  async saveIdentity(id: Uuid | null, identity: Identity) {
-    const rec = await api.identities.save(id, identity);
-    upsert(this.identities, rec, rec.id);
-    return rec;
+  async toggleFavorite(id: Uuid) {
+    const rec = this.hostById.get(id);
+    if (!rec?.data) return;
+    await this.saveHost(id, { ...$state.snapshot(rec.data), favorite: !rec.data.favorite });
   }
-  async deleteIdentity(id: Uuid) {
-    await api.identities.delete(id);
+
+  async saveIdentity(id: Uuid | null, identity: Identity, baseRev?: number | null) {
+    const rec = await api.identities
+      .save(id, this.#rev(this.identities, id, baseRev), identity)
+      .catch((e) => this.#onConflict(e));
+    upsert(this.identities, rec!, rec!.id);
+    return rec!;
+  }
+  async deleteIdentity(id: Uuid, baseRev?: number | null) {
+    await api.identities.delete(id, this.#rev(this.identities, id, baseRev)).catch((e) => this.#onConflict(e));
     upsert(this.identities, null, id);
     // Backend detached this identity from hosts; mirror that locally.
     for (const h of this.hosts) if (h.data?.identity_id === id) h.data.identity_id = undefined;
   }
 
-  async saveSnippet(id: Uuid | null, snippet: Snippet) {
-    const rec = await api.snippets.save(id, snippet);
-    upsert(this.snippets, rec, rec.id);
-    return rec;
+  async saveSnippet(id: Uuid | null, snippet: Snippet, baseRev?: number | null) {
+    const rec = await api.snippets
+      .save(id, this.#rev(this.snippets, id, baseRev), snippet)
+      .catch((e) => this.#onConflict(e));
+    upsert(this.snippets, rec!, rec!.id);
+    return rec!;
   }
-  async deleteSnippet(id: Uuid) {
-    await api.snippets.delete(id);
+  async deleteSnippet(id: Uuid, baseRev?: number | null) {
+    await api.snippets.delete(id, this.#rev(this.snippets, id, baseRev)).catch((e) => this.#onConflict(e));
     upsert(this.snippets, null, id);
   }
 
-  async saveForward(id: Uuid | null, rule: ForwardRule) {
-    const rec = await api.forwards.save(id, rule);
-    upsert(this.forwards, rec, rec.id);
-    return rec;
+  async saveForward(id: Uuid | null, rule: ForwardRule, baseRev?: number | null) {
+    const rec = await api.forwards
+      .save(id, this.#rev(this.forwards, id, baseRev), rule)
+      .catch((e) => this.#onConflict(e));
+    upsert(this.forwards, rec!, rec!.id);
+    return rec!;
   }
-  async deleteForward(id: Uuid) {
-    await api.forwards.delete(id);
+  async deleteForward(id: Uuid, baseRev?: number | null) {
+    await api.forwards.delete(id, this.#rev(this.forwards, id, baseRev)).catch((e) => this.#onConflict(e));
     upsert(this.forwards, null, id);
     delete this.forwardStatus[id];
   }
+
+  async saveGroup(id: Uuid | null, group: HostGroup, baseRev?: number | null) {
+    const rec = await api.groups.save(id, this.#rev(this.groups, id, baseRev), group).catch((e) => this.#onConflict(e));
+    upsert(this.groups, rec!, rec!.id);
+    return rec!;
+  }
+  async deleteGroup(id: Uuid, baseRev?: number | null) {
+    await api.groups.delete(id, this.#rev(this.groups, id, baseRev)).catch((e) => this.#onConflict(e));
+    upsert(this.groups, null, id);
+  }
+
+  async saveProxy(id: Uuid | null, proxy: Proxy, baseRev?: number | null) {
+    const rec = await api.proxies.save(id, this.#rev(this.proxies, id, baseRev), proxy).catch((e) => this.#onConflict(e));
+    upsert(this.proxies, rec!, rec!.id);
+    return rec!;
+  }
+  async deleteProxy(id: Uuid, baseRev?: number | null) {
+    await api.proxies.delete(id, this.#rev(this.proxies, id, baseRev)).catch((e) => this.#onConflict(e));
+    upsert(this.proxies, null, id);
+  }
+
+  async saveWorkspace(id: Uuid | null, ws: Workspace, baseRev?: number | null) {
+    const rec = await api.workspaces
+      .save(id, this.#rev(this.workspaces, id, baseRev), ws)
+      .catch((e) => this.#onConflict(e));
+    upsert(this.workspaces, rec!, rec!.id);
+    return rec!;
+  }
+  async deleteWorkspace(id: Uuid, baseRev?: number | null) {
+    await api.workspaces.delete(id, this.#rev(this.workspaces, id, baseRev)).catch((e) => this.#onConflict(e));
+    upsert(this.workspaces, null, id);
+  }
+
+  /** Replace a key record returned by a Key Manager command. */
+  putKey(rec: VaultRecord<SshKey>) {
+    upsert(this.keys, rec, rec.id);
+  }
+  async deleteKey(id: Uuid, baseRev?: number | null) {
+    await api.keys.delete(id, this.#rev(this.keys, id, baseRev)).catch((e) => this.#onConflict(e));
+    upsert(this.keys, null, id);
+  }
+
+  async saveSettings(next: VaultSettings) {
+    const res = await api.vault.saveSettings(this.settings?.rev ?? 0, next).catch((e) => this.#onConflict(e));
+    this.settings = res!;
+  }
+
   async startForward(id: Uuid) {
     this.forwardStatus[id] = { state: "starting" };
     try {

@@ -8,6 +8,13 @@
   import HostTree from "$lib/components/HostTree.svelte";
   import IdentityForm from "$lib/components/IdentityForm.svelte";
   import KeychainPanel from "$lib/components/KeychainPanel.svelte";
+  import KeysPanel from "$lib/components/KeysPanel.svelte";
+  import GroupsPanel from "$lib/components/GroupsPanel.svelte";
+  import KnownHostsPanel from "$lib/components/KnownHostsPanel.svelte";
+  import VaultPanel from "$lib/components/VaultPanel.svelte";
+  import HostKeyDialog from "$lib/components/HostKeyDialog.svelte";
+  import RecoveryKeyDialog from "$lib/components/RecoveryKeyDialog.svelte";
+  import SaveWorkspace from "$lib/components/SaveWorkspace.svelte";
   import SettingsPanel from "$lib/components/SettingsPanel.svelte";
   import SnippetForm from "$lib/components/SnippetForm.svelte";
   import SnippetsPanel from "$lib/components/SnippetsPanel.svelte";
@@ -22,7 +29,7 @@
   import SnippetVarsDialog from "$lib/components/SnippetVarsDialog.svelte";
   import { handleShortcut } from "$lib/shortcuts";
   import { settings } from "$lib/stores/settings.svelte";
-  import { ui } from "$lib/stores/ui.svelte";
+  import { PAGE_VIEWS, ui } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
 
   let ready = $state(false);
@@ -81,6 +88,8 @@
 
     {#if ui.view === "hosts"}
       <HostTree />
+    {:else if ui.view === "favorites"}
+      <HostTree favoritesOnly />
     {:else if ui.view === "keychain"}
       <KeychainPanel />
     {:else if ui.view === "snippets"}
@@ -90,7 +99,7 @@
     {/if}
 
     <!-- Terminals and SFTP stay mounted while hidden so their sessions survive view switches. -->
-    <div class="min-w-0 flex-1 {ui.view === 'settings' || ui.view === 'sftp' ? 'hidden' : 'flex'}">
+    <div class="min-w-0 flex-1 {PAGE_VIEWS.includes(ui.view) || ui.view === 'sftp' ? 'hidden' : 'flex'}">
       <TerminalArea />
     </div>
     {#if ui.sftpVisited}
@@ -100,6 +109,14 @@
     {/if}
     {#if ui.view === "settings"}
       <SettingsPanel />
+    {:else if ui.view === "keys"}
+      <KeysPanel />
+    {:else if ui.view === "groups"}
+      <GroupsPanel />
+    {:else if ui.view === "knownhosts"}
+      <KnownHostsPanel />
+    {:else if ui.view === "vault"}
+      <VaultPanel />
     {/if}
   </div>
 
@@ -127,13 +144,18 @@
     <SnippetVarsDialog command={ui.modal.command} names={ui.modal.names} opts={ui.modal.opts} />
   {:else if ui.modal?.kind === "run-on-hosts"}
     <RunOnHosts command={ui.modal.command} />
+  {:else if ui.modal?.kind === "save-workspace"}
+    <SaveWorkspace />
   {/if}
+
+  <HostKeyDialog />
 
   {#if ui.paletteOpen}
     <CommandPalette />
   {/if}
 
   <MasterPasswordPrompt />
+  <RecoveryKeyDialog />
 
   {#if ui.toast}
     <div

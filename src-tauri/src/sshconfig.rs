@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 /// One importable host, fully resolved.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ImportedHost {
     pub alias: String,
     pub hostname: String,
@@ -34,6 +34,16 @@ pub struct ImportedHost {
     /// Folder inside the import's target group, e.g. an Ansible group path.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub group: Option<String>,
+    /// `ProxyCommand`, imported unapproved: it never runs until the user
+    /// reviews and approves it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proxy_command: Option<String>,
+    /// `ServerAliveInterval`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub keepalive_secs: Option<u32>,
+    /// `LocalForward`, `RemoteForward` and `DynamicForward` lines.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub forwards: Vec<crate::models::ForwardKind>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -118,7 +128,7 @@ fn split_line(line: &str) -> Option<(String, String)> {
 /// joined component by component, so the result uses the platform's own
 /// separator (`C:\Users\me\.ssh\id_ed25519` on Windows) even though ssh
 /// configs are usually written with `/`.
-fn expand_path(p: &str, home: &Path) -> String {
+pub fn expand_path(p: &str, home: &Path) -> String {
     let rest = if p == "~" || p == "%d" {
         Some("")
     } else {
@@ -207,6 +217,16 @@ pub fn parse(text: &str, home: &Path) -> ParseResult {
                 .find(|(k, _)| k == opt)
                 .map(|(_, v)| v.clone())
         };
+        // Forwarding options accumulate rather than first-wins.
+        let get_all = |opt: &str| -> Vec<String> {
+            blocks
+                .iter()
+                .filter(|b| b.matches(&alias))
+                .flat_map(|b| b.options.iter())
+                .filter(|(k, _)| k == opt)
+                .map(|(_, v)| v.clone())
+                .collect()
+        };
 
         let hostname = get("hostname")
             .map(|h| h.replace("%h", &alias))
@@ -239,10 +259,39 @@ pub fn parse(text: &str, home: &Path) -> ParseResult {
             }
             None => None,
         };
-        if get("proxycommand").is_some() {
-            result.warnings.push(format!(
-                "{alias}: ProxyCommand is not supported and was ignored"
-            ));
+        let proxy_command = match get("proxycommand") {
+            Some(c) if c.eq_ignore_ascii_case("none") => None,
+            Some(_) if proxy_jump.is_some() => {
+                result.warnings.push(format!(
+                    "{alias}: both ProxyJump and ProxyCommand are set; using ProxyJump"
+                ));
+                None
+            }
+            Some(c) => {
+                result.warnings.push(format!(
+                    "{alias}: ProxyCommand \"{c}\" was imported but won't run until you approve it"
+                ));
+                Some(c)
+            }
+            None => None,
+        };
+        let keepalive_secs = get("serveraliveinterval").and_then(|v| match v.parse::<u32>() {
+            Ok(n) => Some(n),
+            Err(_) => {
+                result
+                    .warnings
+                    .push(format!("{alias}: invalid ServerAliveInterval \"{v}\""));
+                None
+            }
+        });
+        let mut forwards = Vec::new();
+        for (opt, kind) in [("localforward", 'L'), ("remoteforward", 'R'), ("dynamicforward", 'D')] {
+            for v in get_all(opt) {
+                match parse_forward(kind, &v) {
+                    Ok(f) => forwards.push(f),
+                    Err(e) => result.warnings.push(format!("{alias}: {e}")),
+                }
+            }
         }
 
         result.hosts.push(ImportedHost {
@@ -255,9 +304,68 @@ pub fn parse(text: &str, home: &Path) -> ParseResult {
             forward_agent: get("forwardagent").is_some_and(|v| v.eq_ignore_ascii_case("yes")),
             forward_x11: get("forwardx11").is_some_and(|v| v.eq_ignore_ascii_case("yes")),
             group: None,
+            proxy_command,
+            keepalive_secs,
+            forwards,
         });
     }
     result
+}
+
+/// `[bind_address:]port` → (address, port). No address means loopback,
+/// which is also OpenSSH's default without `GatewayPorts`.
+fn parse_listen(spec: &str) -> Option<(String, u16)> {
+    let (addr, port) = match spec.rsplit_once(':') {
+        Some((a, p)) => (a.trim_matches(['[', ']']).to_string(), p),
+        None => (String::new(), spec),
+    };
+    let port = port.parse::<u16>().ok()?;
+    let addr = match addr.as_str() {
+        "" | "localhost" => "127.0.0.1".to_string(),
+        "*" => "0.0.0.0".to_string(),
+        _ => addr,
+    };
+    Some((addr, port))
+}
+
+/// `host:port` (or `[v6]:port`) → (host, port).
+fn parse_dest(spec: &str) -> Option<(String, u16)> {
+    let (host, port) = spec.rsplit_once(':')?;
+    Some((host.trim_matches(['[', ']']).to_string(), port.parse().ok()?))
+}
+
+fn parse_forward(kind: char, value: &str) -> Result<crate::models::ForwardKind, String> {
+    use crate::models::ForwardKind;
+    let parts: Vec<&str> = value.split_whitespace().collect();
+    let bad = || format!("could not read forward \"{value}\"");
+    match (kind, parts.as_slice()) {
+        ('D', [listen]) => {
+            let (bind_addr, bind_port) = parse_listen(listen).ok_or_else(bad)?;
+            Ok(ForwardKind::Dynamic { bind_addr, bind_port })
+        }
+        ('L' | 'R', [listen, dest]) => {
+            let (bind_addr, bind_port) = parse_listen(listen).ok_or_else(bad)?;
+            let (dest_host, dest_port) = parse_dest(dest).ok_or_else(bad)?;
+            Ok(if kind == 'L' {
+                ForwardKind::Local { bind_addr, bind_port, dest_host, dest_port }
+            } else {
+                ForwardKind::Remote { bind_addr, bind_port, dest_host, dest_port }
+            })
+        }
+        ('R', [_]) => Err(format!("remote dynamic forward \"{value}\" is not supported")),
+        _ => Err(bad()),
+    }
+}
+
+/// How imported `IdentityFile`s are handled.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum KeyImport {
+    /// Reference the file by path; it stays on this computer.
+    #[default]
+    Reference,
+    /// Copy the key into the encrypted vault (Key Manager), with approval.
+    Copy,
 }
 
 /// What an import did.
@@ -265,6 +373,12 @@ pub fn parse(text: &str, home: &Path) -> ParseResult {
 pub struct ImportSummary {
     pub hosts_created: usize,
     pub identities_created: usize,
+    #[serde(default)]
+    pub keys_imported: usize,
+    #[serde(default)]
+    pub proxies_created: usize,
+    #[serde(default)]
+    pub forwards_created: usize,
     pub skipped_existing: Vec<String>,
     pub warnings: Vec<String>,
 }
@@ -272,9 +386,12 @@ pub struct ImportSummary {
 /// Create hosts (and the identities they need) in `vault`.
 ///
 /// * Hosts whose alias matches an existing host label are skipped.
-/// * One identity per distinct (user, IdentityFile) pair. The key file's
-///   contents are copied into the encrypted vault. Without an IdentityFile
-///   the identity uses ssh-agent.
+/// * One identity per distinct (user, IdentityFile) pair. With
+///   [`KeyImport::Copy`] the key goes into the Key Manager (encrypted in the
+///   vault); otherwise the identity references the file by path. Without an
+///   IdentityFile the identity uses ssh-agent.
+/// * ProxyCommands become unapproved proxies; forwards become rules that
+///   don't auto-start.
 /// * A ProxyJump alias is linked to the imported or already-saved host with
 ///   that label, unless doing so would create a loop.
 pub fn import_into_vault(
@@ -282,8 +399,9 @@ pub fn import_into_vault(
     hosts: &[ImportedHost],
     group: &str,
     local_user: Option<&str>,
+    key_import: KeyImport,
 ) -> Result<ImportSummary, crate::vault::VaultError> {
-    use crate::models::{jump_chain, AuthMethod, Host, Identity};
+    use crate::models::{jump_chain, AuthMethod, ForwardRule, Host, Identity, Proxy, ProxySpec};
     use crate::vault::Collection;
     use std::collections::HashMap;
     use uuid::Uuid;
@@ -314,23 +432,41 @@ pub fn import_into_vault(
     }
 
     let mut identities: HashMap<(String, Option<String>), Uuid> = HashMap::new();
+    let mut keys_by_path: HashMap<String, Option<Uuid>> = HashMap::new();
+    let mut proxies: HashMap<String, Uuid> = HashMap::new();
     let mut built: Vec<(Uuid, Host)> = Vec::new();
     for (id, h) in &todo {
         let user = h.user.clone().or_else(|| local_user.map(str::to_string));
-        // Read the key first: an unreadable file falls back to ssh-agent and
+        // Resolve the key first: an unusable file falls back to ssh-agent and
         // shares the agent identity for that user instead of making another.
-        let key_file: Option<(String, String)> = match &h.identity_file {
+        let key_file: Option<(String, AuthMethod)> = match &h.identity_file {
             None => None,
-            Some(path) => match std::fs::read_to_string(path) {
-                Ok(pem) => Some((path.clone(), pem)),
-                Err(e) => {
+            Some(path) if key_import == KeyImport::Reference => {
+                if !Path::new(path).is_file() {
                     summary.warnings.push(format!(
-                        "{}: could not read {path} ({e}); using ssh-agent",
+                        "{}: {path} doesn't exist on this computer; it's referenced anyway",
                         h.alias
                     ));
-                    None
                 }
-            },
+                Some((
+                    path.clone(),
+                    AuthMethod::KeyFile {
+                        path: path.clone(),
+                        passphrase: None,
+                    },
+                ))
+            }
+            Some(path) => {
+                let key_id = match keys_by_path.get(path) {
+                    Some(k) => *k,
+                    None => {
+                        let k = copy_key(vault, path, &h.alias, &mut summary)?;
+                        keys_by_path.insert(path.clone(), k);
+                        k
+                    }
+                };
+                key_id.map(|key_id| (path.clone(), AuthMethod::Key { key_id }))
+            }
         };
         let identity_id = match &user {
             None => None,
@@ -340,18 +476,12 @@ pub fn import_into_vault(
                     Some(*existing)
                 } else {
                     let (label, auth) = match key_file {
-                        Some((path, pem)) => {
+                        Some((path, auth)) => {
                             let file = Path::new(&path)
                                 .file_name()
                                 .map(|f| f.to_string_lossy().into_owned())
                                 .unwrap_or(path);
-                            (
-                                format!("{user} · {file}"),
-                                AuthMethod::PrivateKey {
-                                    private_key: pem,
-                                    passphrase: None,
-                                },
-                            )
+                            (format!("{user} · {file}"), auth)
                         }
                         None => (format!("{user} (ssh-agent)"), AuthMethod::Agent),
                     };
@@ -371,6 +501,39 @@ pub fn import_into_vault(
                 }
             }
         };
+        let proxy_id = match &h.proxy_command {
+            None => None,
+            Some(cmd) => Some(match proxies.get(cmd) {
+                Some(p) => *p,
+                None => {
+                    let rec = vault.insert(
+                        Collection::Proxies,
+                        &Proxy {
+                            name: format!("ProxyCommand ({})", h.alias),
+                            spec: ProxySpec::Command {
+                                command: cmd.clone(),
+                                approved: false,
+                            },
+                        },
+                    )?;
+                    summary.proxies_created += 1;
+                    proxies.insert(cmd.clone(), rec.id);
+                    rec.id
+                }
+            }),
+        };
+        for (n, kind) in h.forwards.iter().enumerate() {
+            vault.insert(
+                Collection::Forwards,
+                &ForwardRule {
+                    label: format!("{} #{}", h.alias, n + 1),
+                    host_id: *id,
+                    auto_start: false,
+                    kind: kind.clone(),
+                },
+            )?;
+            summary.forwards_created += 1;
+        }
         built.push((
             *id,
             Host {
@@ -391,6 +554,9 @@ pub fn import_into_vault(
                 tags: Vec::new(),
                 color: None,
                 notes: String::new(),
+                proxy_id,
+                keepalive_secs: h.keepalive_secs,
+                ..Default::default()
             },
         ));
     }
@@ -419,10 +585,56 @@ pub fn import_into_vault(
     }
 
     for (id, host) in &built {
-        vault.put(Collection::Hosts, *id, host)?;
+        vault.put(Collection::Hosts, *id, host, crate::vault::Base::New)?;
         summary.hosts_created += 1;
     }
     Ok(summary)
+}
+
+/// Copy a key file into the Key Manager. Returns `None` (with a warning)
+/// when the file can't be used, so the host falls back to ssh-agent.
+fn copy_key(
+    vault: &crate::vault::Vault,
+    path: &str,
+    alias: &str,
+    summary: &mut ImportSummary,
+) -> Result<Option<uuid::Uuid>, crate::vault::VaultError> {
+    use crate::models::SshKey;
+    use crate::vault::Collection;
+    let text = match std::fs::read_to_string(path) {
+        Ok(t) => zeroize::Zeroizing::new(t),
+        Err(e) => {
+            summary
+                .warnings
+                .push(format!("{alias}: could not read {path} ({e}); using ssh-agent"));
+            return Ok(None);
+        }
+    };
+    let material = match crate::keys::inspect_private(&text, None) {
+        Ok(m) => m,
+        Err(e) => {
+            summary.warnings.push(format!(
+                "{alias}: {path} could not be imported ({e}); using ssh-agent. Import it in Keys instead."
+            ));
+            return Ok(None);
+        }
+    };
+    // The same key imported earlier (from another path or run) is reused.
+    if let Some(existing) = vault
+        .list::<SshKey>(Collection::Keys)?
+        .records
+        .into_iter()
+        .find(|r| r.data.as_ref().is_some_and(|k| k.fingerprint == material.fingerprint && k.private_key.is_some()))
+    {
+        return Ok(Some(existing.id));
+    }
+    let name = Path::new(path)
+        .file_name()
+        .map(|f| f.to_string_lossy().into_owned())
+        .unwrap_or_else(|| path.to_string());
+    let rec = vault.insert(Collection::Keys, &crate::keymanager::new_key(&name, material, None))?;
+    summary.keys_imported += 1;
+    Ok(Some(rec.id))
 }
 
 /// Render saved hosts as an OpenSSH client config, so `ssh <alias>` works
@@ -492,6 +704,9 @@ pub fn export(
         }
         if h.forward_x11 {
             let _ = writeln!(out, "    ForwardX11 yes");
+        }
+        if let Some(k) = h.keepalive_secs {
+            let _ = writeln!(out, "    ServerAliveInterval {k}");
         }
     }
     out
@@ -630,15 +845,21 @@ Host *
 
     #[test]
     fn import_creates_hosts_identities_and_jumps() {
-        use crate::crypto::KdfParams;
         use crate::models::{AuthMethod, Host, Identity};
         use crate::vault::{Collection, Vault};
 
         let dir = tempfile::TempDir::new().unwrap();
         let key_path = dir.path().join("id_test");
-        std::fs::write(&key_path, "PEM-CONTENTS").unwrap();
-        let vault =
-            Vault::create(dir.path().join("v"), b"pw", KdfParams::insecure_for_tests()).unwrap();
+        let generated = crate::keys::generate(crate::keys::KeyAlgorithm::Ed25519, "ops@laptop", None).unwrap();
+        std::fs::write(&key_path, generated.private_key.as_ref().unwrap().as_bytes()).unwrap();
+        let vault = Vault::create(
+            dir.path().join("v"),
+            b"pw",
+            crate::vault::testutil::opts(false),
+            crate::vault::DeviceInfo::new("t"),
+        )
+        .unwrap()
+        .0;
         // A pre-existing host with the same label as one alias.
         vault
             .insert(
@@ -657,6 +878,7 @@ Host *
                     tags: vec![],
                     color: None,
                     notes: String::new(),
+                    ..Default::default()
                 },
             )
             .unwrap();
@@ -668,9 +890,10 @@ Host *
             key_path.display()
         );
         let parsed = parse(&config, dir.path());
-        let s = import_into_vault(&vault, &parsed.hosts, "Imported", Some("me")).unwrap();
+        let s = import_into_vault(&vault, &parsed.hosts, "Imported", Some("me"), KeyImport::Copy).unwrap();
 
         assert_eq!(s.skipped_existing, ["web"]);
+        assert_eq!(s.keys_imported, 1, "one key file shared by two hosts");
         assert_eq!(s.hosts_created, 4); // bastion, db, lonely, missingkey
                                         // ops+key shared by bastion and db; "me" via agent for lonely; "me" fallback for missingkey.
         assert_eq!(s.identities_created, 2);
@@ -699,9 +922,11 @@ Host *
             .iter()
             .find(|i| i.data.as_ref().unwrap().username == "ops")
             .unwrap();
-        assert!(
-            matches!(&ops.data.as_ref().unwrap().auth, AuthMethod::PrivateKey { private_key, .. } if private_key == "PEM-CONTENTS")
-        );
+        let AuthMethod::Key { key_id } = ops.data.as_ref().unwrap().auth else {
+            panic!("expected a Key Manager reference");
+        };
+        let key = vault.get::<crate::models::SshKey>(Collection::Keys, key_id).unwrap().data.unwrap();
+        assert_eq!(key.fingerprint, generated.fingerprint);
         let me = ids
             .iter()
             .find(|i| i.data.as_ref().unwrap().username == "me")
@@ -709,20 +934,67 @@ Host *
         assert_eq!(me.data.as_ref().unwrap().auth, AuthMethod::Agent);
 
         // Importing again creates nothing new.
-        let again = import_into_vault(&vault, &parsed.hosts, "Imported", Some("me")).unwrap();
+        let again = import_into_vault(&vault, &parsed.hosts, "Imported", Some("me"), KeyImport::Copy).unwrap();
         assert_eq!(again.hosts_created, 0);
     }
 
     #[test]
+    fn proxy_commands_forwards_and_key_references() {
+        use crate::models::{AuthMethod, ForwardKind, ForwardRule, Host, Identity, Proxy, ProxySpec};
+        use crate::vault::Collection;
+        let config = "Host app\n  HostName app.internal\n  User deploy\n  IdentityFile ~/.ssh/id_app\n\
+            ProxyCommand ssh -W %h:%p gw\n  ServerAliveInterval 15\n\
+            LocalForward 5432 db.internal:5432\n  LocalForward 0.0.0.0:8080 [::1]:80\n\
+            RemoteForward 9000 localhost:3000\n  DynamicForward 1080\n  RemoteForward 7000\n\
+            Host both\n  ProxyJump app\n  ProxyCommand nc %h %p\n";
+        let r = parse(config, Path::new("/home/me"));
+        let app = get(&r, "app");
+        assert_eq!(app.proxy_command.as_deref(), Some("ssh -W %h:%p gw"));
+        assert_eq!(app.keepalive_secs, Some(15));
+        assert_eq!(
+            app.forwards,
+            vec![
+                ForwardKind::Local { bind_addr: "127.0.0.1".into(), bind_port: 5432, dest_host: "db.internal".into(), dest_port: 5432 },
+                ForwardKind::Local { bind_addr: "0.0.0.0".into(), bind_port: 8080, dest_host: "::1".into(), dest_port: 80 },
+                ForwardKind::Remote { bind_addr: "127.0.0.1".into(), bind_port: 9000, dest_host: "localhost".into(), dest_port: 3000 },
+                ForwardKind::Dynamic { bind_addr: "127.0.0.1".into(), bind_port: 1080 },
+            ]
+        );
+        assert!(r.warnings.iter().any(|w| w.contains("remote dynamic")));
+        assert!(get(&r, "both").proxy_command.is_none(), "ProxyJump wins");
+
+        let (_d, vault) = crate::vault::testutil::new_vault();
+        let s = import_into_vault(&vault, &r.hosts, "", None, KeyImport::Reference).unwrap();
+        assert_eq!((s.proxies_created, s.forwards_created, s.keys_imported), (1, 4, 0));
+        // The key stays a path reference; nothing secret was copied.
+        let ident = vault.list::<Identity>(Collection::Identities).unwrap().records;
+        assert!(matches!(&ident[0].data.as_ref().unwrap().auth, AuthMethod::KeyFile { path, .. } if path.ends_with("id_app")));
+        // The ProxyCommand is stored but NOT approved to run.
+        let proxies = vault.list::<Proxy>(Collection::Proxies).unwrap().records;
+        assert!(matches!(proxies[0].data.as_ref().unwrap().spec, ProxySpec::Command { approved: false, .. }));
+        let hosts = vault.list::<Host>(Collection::Hosts).unwrap().records;
+        let app = hosts.iter().find(|h| h.data.as_ref().unwrap().label == "app").unwrap();
+        assert_eq!(app.data.as_ref().unwrap().proxy_id, Some(proxies[0].id));
+        assert_eq!(app.data.as_ref().unwrap().keepalive_secs, Some(15));
+        let rules = vault.list::<ForwardRule>(Collection::Forwards).unwrap().records;
+        assert!(rules.iter().all(|r| r.data.as_ref().is_some_and(|f| !f.auto_start && f.host_id == app.id)));
+    }
+
+    #[test]
     fn import_refuses_jump_loops() {
-        use crate::crypto::KdfParams;
         use crate::models::Host;
         use crate::vault::{Collection, Vault};
         let dir = tempfile::TempDir::new().unwrap();
-        let vault =
-            Vault::create(dir.path().join("v"), b"pw", KdfParams::insecure_for_tests()).unwrap();
+        let vault = Vault::create(
+            dir.path().join("v"),
+            b"pw",
+            crate::vault::testutil::opts(false),
+            crate::vault::DeviceInfo::new("t"),
+        )
+        .unwrap()
+        .0;
         let parsed = parse("Host a\n ProxyJump b\nHost b\n ProxyJump a\n", dir.path());
-        let s = import_into_vault(&vault, &parsed.hosts, "", None).unwrap();
+        let s = import_into_vault(&vault, &parsed.hosts, "", None, KeyImport::Reference).unwrap();
         assert_eq!(s.hosts_created, 2);
         assert!(
             s.warnings.iter().any(|w| w.contains("loops")),
@@ -762,6 +1034,7 @@ Host *
             tags: vec![],
             color: None,
             notes: String::new(),
+            ..Default::default()
         };
         let mut web = host("web server", "10.0.0.5", 2222);
         web.jump_host_id = Some(a);

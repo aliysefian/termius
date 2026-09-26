@@ -31,13 +31,20 @@ base64 = "0.22"
 # --- Vault / storage ---
 uuid = { version = "1", features = ["v4", "serde"] }
 thiserror = "2"
+sha2 = "0.10"
+hmac = "0.12"
+# OS RNG for ssh-key generation (RSA/ECDSA), which uses rand_core 0.10.
+getrandom = { version = "0.4", features = ["sys_rng"] }
+# OS credential store for "remember on this device". Pure Rust on Linux
+# (Secret Service over zbus), so no libdbus build dependency.
+keyring = { version = "3.6", features = ["apple-native", "windows-native", "async-secret-service", "crypto-rust", "tokio"] }
 notify = "8"
 
 # --- SSH engine ---
 russh = { version = "0.63", default-features = false, features = ["flate2", "ring", "rsa"] }
 russh-sftp = "3"
 portable-pty = "0.9"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync", "io-util", "fs"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync", "io-util", "fs", "process"] }
 
 [dev-dependencies]
 tempfile = "3"

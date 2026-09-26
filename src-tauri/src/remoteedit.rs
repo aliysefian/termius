@@ -81,12 +81,12 @@ impl EditManager {
         let name = file_name(&remote_path)?;
         let edit_id = Uuid::new_v4().to_string();
         let dir = base.join(&edit_id);
-        std::fs::create_dir_all(&dir).map_err(|e| local_err(&dir, e))?;
-        restrict_permissions(&dir);
+        // Owner-only from creation (no chmod race); the base is per-user.
+        crate::vault::atomic::create_private_dir(&dir).map_err(|e| local_err(&dir, e))?;
         let local = dir.join(&name);
 
         let data = conn.read_file(&remote_path).await?;
-        std::fs::write(&local, &data).map_err(|e| local_err(&local, e))?;
+        write_private(&local, &data).map_err(|e| local_err(&local, e))?;
 
         let (tx, mut rx) = mpsc::unbounded_channel::<()>();
         let mut watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
@@ -180,14 +180,17 @@ impl EditManager {
 }
 
 /// Local copies are plaintext remote files; keep them private on Unix.
-fn restrict_permissions(dir: &Path) {
+/// Create a new owner-only file; never follows or reuses an existing path.
+fn write_private(path: &Path, data: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut o = std::fs::OpenOptions::new();
+    o.write(true).create_new(true);
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
+        use std::os::unix::fs::OpenOptionsExt;
+        o.mode(0o600);
     }
-    #[cfg(not(unix))]
-    let _ = dir;
+    o.open(path)?.write_all(data)
 }
 
 /// Remove leftovers from a previous run that didn't shut down cleanly.

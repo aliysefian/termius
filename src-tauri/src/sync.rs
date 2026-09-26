@@ -29,6 +29,11 @@ pub struct RecordChange {
     pub collection: Collection,
     pub id: Uuid,
     pub record: Option<Record<serde_json::Value>>,
+    /// A sync-service conflicted copy of this record appeared and couldn't
+    /// be merged automatically. `record` is the current version; the UI
+    /// should offer to resolve the conflict, not drop the record.
+    #[serde(default)]
+    pub conflict_copy: bool,
 }
 
 /// Shared handle to the currently unlocked vault. `None` while locked.
@@ -148,7 +153,9 @@ fn load_change(shared: &SharedVault, root: &Path, path: &Path) -> Option<RecordC
 
     let guard = shared.lock().ok()?;
     let vault = guard.as_ref()?;
-    let (collection, id) = vault.parse_record_path(path)?;
+    let Some((collection, id)) = vault.parse_record_path(path) else {
+        return conflict_change(vault, path);
+    };
 
     match fs::read(path) {
         Ok(bytes) => vault
@@ -158,30 +165,56 @@ fn load_change(shared: &SharedVault, root: &Path, path: &Path) -> Option<RecordC
                 collection,
                 id,
                 record: Some(record),
+                conflict_copy: false,
             }),
         Err(e) if e.kind() == io::ErrorKind::NotFound => Some(RecordChange {
             collection,
             id,
             record: None,
+            conflict_copy: false,
         }),
         Err(_) => None,
     }
 }
 
+/// A conflicted copy landed: merge what can be merged now. If it's still
+/// there afterwards (and is a genuine record, not junk), tell the UI.
+fn conflict_change(vault: &Vault, path: &Path) -> Option<RecordChange> {
+    let id = crate::vault::conflicts::copy_id(path)?;
+    let collection = Collection::from_dir_name(path.parent()?.file_name()?.to_str()?)?;
+    let _ = vault.reconcile();
+    if !path.exists() {
+        return None; // merged or discarded; the main record's own event follows
+    }
+    let genuine = fs::read(path).ok().is_some_and(|b| {
+        vault
+            .decode_record::<serde_json::Value>(collection, id, path, &b)
+            .is_ok()
+    });
+    genuine.then(|| RecordChange {
+        collection,
+        id,
+        record: vault.get_raw(collection, id).ok(),
+        conflict_copy: true,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::crypto::KdfParams;
+    use crate::vault::testutil::opts;
+    use crate::vault::{DeviceInfo, Unlock};
     use std::sync::mpsc::channel;
 
     #[test]
     fn detects_record_written_by_another_instance() {
         let dir = tempfile::TempDir::new().unwrap();
         let root = dir.path().join("vault");
-        let kdf = KdfParams::insecure_for_tests();
 
         // "PC 1": the running app with an unlocked vault and a watcher.
-        let pc1 = Vault::create(&root, b"pw", kdf).unwrap();
+        let pc1 = Vault::create(&root, b"pw", opts(false), DeviceInfo::new("PC-1"))
+            .unwrap()
+            .0;
         let shared: SharedVault = Arc::new(Mutex::new(Some(pc1)));
         let (tx, rx) = channel::<RecordChange>();
         let _watcher = watch(
@@ -197,7 +230,7 @@ mod tests {
         thread::sleep(Duration::from_millis(200));
 
         // "PC 2": a second instance (or Dropbox) drops a new file into place.
-        let pc2 = Vault::open(&root, b"pw").unwrap();
+        let pc2 = Vault::open(&root, Unlock::Password(b"pw"), DeviceInfo::new("PC-2")).unwrap();
         let rec = pc2
             .insert(Collection::Hosts, &serde_json::json!({"label": "from-pc2"}))
             .unwrap();
@@ -227,8 +260,9 @@ mod tests {
     fn ignores_clutter_and_undecryptable_files() {
         let dir = tempfile::TempDir::new().unwrap();
         let root = dir.path().join("vault");
-        let kdf = KdfParams::insecure_for_tests();
-        let vault = Vault::create(&root, b"pw", kdf).unwrap();
+        let vault = Vault::create(&root, b"pw", opts(false), DeviceInfo::new("PC-1"))
+            .unwrap()
+            .0;
         let hosts = vault.collection_dir(Collection::Hosts);
         let shared: SharedVault = Arc::new(Mutex::new(Some(vault)));
 

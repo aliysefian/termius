@@ -8,7 +8,9 @@
 
   // Remounted via {#key} when id changes, so capturing the initial value is intended.
   // svelte-ignore state_referenced_locally
-  const existing = id ? vaultStore.forwards.find((f) => f.id === id)?.data : undefined;
+  const existingRec = id ? vaultStore.forwards.find((f) => f.id === id) : undefined;
+  const existing = existingRec?.data;
+  const baseRev = existingRec?.rev ?? null;
   const base = existing ? structuredClone($state.snapshot(existing)) : emptyForward(vaultStore.hosts[0]?.id);
   let label = $state(base.label);
   let autoStart = $state(base.auto_start ?? false);
@@ -21,7 +23,7 @@
   let error = $state<string | null>(null);
   let busy = $state(false);
 
-  const hostHasIdentity = $derived(!!vaultStore.hostById.get(hostId)?.data?.identity_id);
+  const hostHasIdentity = $derived(!!vaultStore.effectiveIdentity(vaultStore.hostById.get(hostId)?.data));
 
   const help: Record<ForwardKind["kind"], string> = {
     local: "Listen on this computer; connections are carried to the destination from the server (ssh -L).",
@@ -38,7 +40,7 @@
         kind === "dynamic"
           ? { label, host_id: hostId, auto_start: autoStart, kind, bind_addr: bindAddr, bind_port: bindPort }
           : { label, host_id: hostId, auto_start: autoStart, kind, bind_addr: bindAddr, bind_port: bindPort, dest_host: destHost, dest_port: destPort };
-      await vaultStore.saveForward(id, rule);
+      await vaultStore.saveForward(id, rule, baseRev);
       ui.modal = null;
     } catch (err) {
       error = errorMessage(err);

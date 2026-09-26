@@ -101,7 +101,7 @@
 
   async function connect(creds: { username: string; password: string } | null = null) {
     if (!hostId) return;
-    if (!creds && host && !host.identity_id) {
+    if (!creds && host && !vaultStore.effectiveIdentity(host)) {
       askCreds = true;
       return;
     }
