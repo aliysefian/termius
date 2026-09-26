@@ -349,6 +349,7 @@ pub fn import_into_vault(
                             username: user.clone(),
                             auth,
                             notes: "Imported from ssh config".into(),
+                            for_host: None,
                         },
                     )?;
                     summary.identities_created += 1;

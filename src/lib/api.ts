@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import type {
+  HostCredentials,
   GeneratedKey,
   ImportedHost,
   ImportSummary,
@@ -35,6 +36,12 @@ export const vault = {
 export const hosts = {
   list: () => invoke<VaultRecord<Host>[]>("list_hosts"),
   save: (id: Uuid | null, host: Host) => invoke<VaultRecord<Host>>("save_host", { id, host }),
+  saveWithCredentials: (id: Uuid | null, host: Host, credentials: HostCredentials) =>
+    invoke<{ host: VaultRecord<Host>; public_key: string | null }>("save_host_with_credentials", {
+      id,
+      host,
+      credentials,
+    }),
   delete: (id: Uuid) => invoke<void>("delete_host", { id }),
 };
 

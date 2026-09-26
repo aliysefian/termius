@@ -4,6 +4,7 @@ pub mod commands;
 pub mod config;
 pub mod crypto;
 pub mod forward;
+pub mod hostcreds;
 pub mod keys;
 pub mod knownhosts;
 pub mod models;
@@ -30,6 +31,7 @@ pub fn run() {
             commands::change_master_password,
             commands::list_hosts,
             commands::save_host,
+            commands::save_host_with_credentials,
             commands::delete_host,
             commands::list_identities,
             commands::get_identity,

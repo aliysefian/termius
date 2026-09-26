@@ -30,6 +30,11 @@ pub struct Identity {
     pub auth: AuthMethod,
     #[serde(default)]
     pub notes: String,
+    /// Set when the credentials were entered in a host's own form rather
+    /// than created in the Keychain. Such an identity belongs to that host:
+    /// it is updated from the host form and removed with the host.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub for_host: Option<Uuid>,
 }
 
 impl Identity {
@@ -249,6 +254,7 @@ mod tests {
                 passphrase: Some("PASS".into()),
             },
             notes: "n".into(),
+            for_host: None,
         };
         let r = serde_json::to_string(&with_key.redacted()).unwrap();
         assert!(!r.contains("SECRET") && !r.contains("PASS"));

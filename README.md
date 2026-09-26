@@ -117,11 +117,21 @@ one. You can change it later under **Settings**.
 
 ### Hosts and identities
 
-- Create an identity under **Keychain** (the key icon). It holds a username
-  and either a password, a private key, or "use ssh-agent".
-- Create a host with the **+** button in the **Hosts** view. Set the hostname,
-  port and identity. If a host has no identity, SSHVault asks for a username
-  and password each time you connect, and does not save them.
+- Create a host with the **+** button in the **Hosts** view. Enter the
+  hostname and port, then choose how to log in under **Credentials**:
+  - **Password**: a username and password.
+  - **SSH key**: a username and a key. You can generate a new Ed25519 key,
+    load a key file, paste a key, or use ssh-agent. A generated key's public
+    half is shown after saving, ready for `~/.ssh/authorized_keys`.
+  - **Keychain**: reuse an identity that several hosts share.
+  - **Ask**: save nothing and prompt at every connection. The prompt has a
+    "Remember for this host" option.
+- Credentials entered in a host's form belong to that host. They are listed
+  under **Keychain → Saved with hosts** and are removed with the host. Tick
+  "Also save to Keychain" in the form to make them shareable instead.
+- When editing a host, leave the password or key empty to keep the saved one.
+- To share one login across many hosts, create an identity under
+  **Keychain** (the key icon) and pick it in each host's form.
 - Put hosts in nested groups by typing a path such as `Production/Databases`
   in the **Group** field.
 - **Double-click** a host to open it in a new terminal tab. Hosts you

@@ -323,6 +323,40 @@ pub fn save_host(
     save_record(&state, Collection::Hosts, id, host)
 }
 
+/// Save a host together with the credentials entered in its form. See
+/// `hostcreds.rs` for the modes and how stored secrets are kept.
+#[tauri::command]
+pub fn save_host_with_credentials(
+    state: State<'_, AppState>,
+    id: Option<Uuid>,
+    host: Host,
+    credentials: crate::hostcreds::HostCredentials,
+) -> ApiResult<crate::hostcreds::SaveOutcome> {
+    if host.label.trim().is_empty() || host.hostname.trim().is_empty() {
+        return Err(ApiError::new(
+            "validation",
+            "label and hostname are required",
+        ));
+    }
+    let hosts = host_jump_map(&state)?;
+    jump_chain(id, host.jump_host_id, MAX_JUMPS, |h| hosts.get(&h).copied())
+        .map_err(|e| ApiError::new("validation", e.to_string()))?;
+
+    let mut error = None;
+    let outcome =
+        state.session.with_vault(|v| {
+            match crate::hostcreds::save_host_with_credentials(v, id, host, credentials) {
+                Ok(o) => Ok(Some(o)),
+                Err(crate::hostcreds::HostCredError::Vault(e)) => Err(e),
+                Err(crate::hostcreds::HostCredError::Validation(msg)) => {
+                    error = Some(msg);
+                    Ok(None)
+                }
+            }
+        })?;
+    outcome.ok_or_else(|| ApiError::new("validation", error.unwrap_or_default()))
+}
+
 /// host id -> that host's jump host id, for chain validation.
 fn host_jump_map(state: &AppState) -> ApiResult<std::collections::HashMap<Uuid, Option<Uuid>>> {
     Ok(list_records::<Host>(state, Collection::Hosts)?
@@ -333,6 +367,15 @@ fn host_jump_map(state: &AppState) -> ApiResult<std::collections::HashMap<Uuid, 
 
 #[tauri::command]
 pub fn delete_host(state: State<'_, AppState>, id: Uuid) -> ApiResult<()> {
+    // Credentials entered in this host's own form go with it.
+    state
+        .session
+        .with_vault(|v| match v.get::<Host>(Collection::Hosts, id) {
+            Ok(Record { data: Some(h), .. }) => {
+                crate::hostcreds::release_for_deleted_host(v, &h, id)
+            }
+            _ => Ok(()),
+        })?;
     // Hosts that tunnelled through this one fall back to direct connections.
     let hosts: Vec<Record<Host>> = list_records(&state, Collection::Hosts)?;
     for h in hosts {

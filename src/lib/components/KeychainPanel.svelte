@@ -8,6 +8,11 @@
 
   const authLabel = { password: "Password", private_key: "Private key", agent: "SSH agent" } as const;
 
+  // Credentials entered in a host's own form are listed apart from the
+  // shared Keychain so the list doesn't fill up with one entry per host.
+  const shared = $derived(vaultStore.identities.filter((i) => !i.data?.for_host));
+  const owned = $derived(vaultStore.identities.filter((i) => !!i.data?.for_host));
+
   function usage(id: string) {
     return vaultStore.hosts.filter((h) => h.data?.identity_id === id).length;
   }
@@ -47,13 +52,15 @@
         </button>
       </div>
     {:else}
-      {#each vaultStore.identities as ident (ident.id)}
+      {#snippet row(ident: (typeof vaultStore.identities)[number], ownerLabel?: string)}
         {@const d = ident.data!}
         <div class="group flex items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-panel-hover">
-          <KeyRound size={16} class="shrink-0 text-accent" />
+          <KeyRound size={16} class="shrink-0 {ownerLabel ? 'text-fg-muted' : 'text-accent'}" />
           <div class="min-w-0 flex-1">
-            <div class="truncate text-sm">{d.label}</div>
-            <div class="truncate text-xs text-fg-muted">{d.username} · {authLabel[d.auth.type]} · {usage(ident.id)} hosts</div>
+            <div class="truncate text-sm">{ownerLabel ?? d.label}</div>
+            <div class="truncate text-xs text-fg-muted">
+              {d.username} · {authLabel[d.auth.type]}{ownerLabel ? "" : ` · ${usage(ident.id)} hosts`}
+            </div>
           </div>
           <div class="flex opacity-0 group-hover:opacity-100">
             {#if d.auth.type === "private_key"}
@@ -63,7 +70,21 @@
             <button class="icon-btn h-6 w-6 hover:text-danger" title="Delete" onclick={() => remove(ident.id, d.label)}><Trash2 size={12} /></button>
           </div>
         </div>
+      {/snippet}
+
+      {#each shared as ident (ident.id)}
+        {@render row(ident)}
       {/each}
+      {#if shared.length === 0}
+        <p class="px-2 py-3 text-xs text-fg-muted">No shared identities yet. Create one to reuse it across hosts.</p>
+      {/if}
+
+      {#if owned.length}
+        <div class="mt-4 px-2 pb-1 text-[11px] font-medium uppercase tracking-wide text-fg-muted">Saved with hosts</div>
+        {#each owned as ident (ident.id)}
+          {@render row(ident, vaultStore.hostById.get(ident.data!.for_host!)?.data?.label ?? "Removed host")}
+        {/each}
+      {/if}
     {/if}
   </div>
 </aside>

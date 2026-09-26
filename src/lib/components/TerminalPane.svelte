@@ -7,7 +7,7 @@
   import { WebLinksAddon } from "@xterm/addon-web-links";
   import "@xterm/xterm/css/xterm.css";
   import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
-  import { ChevronDown, ChevronUp, Loader2, RefreshCw, Search, ShieldAlert, ShieldX, Unplug, X } from "lucide-svelte";
+  import { ChevronDown, ChevronUp, KeyRound, Loader2, RefreshCw, Search, ShieldAlert, ShieldX, Unplug, X } from "lucide-svelte";
   import type { UnlistenFn } from "@tauri-apps/api/event";
   import * as api from "$lib/api";
   import { ssh, type Credentials, type SessionStatus } from "$lib/ssh";
@@ -42,6 +42,8 @@
   let started = $state(false);
   let username = $state("");
   let password = $state("");
+  let remember = $state(true);
+  let credentialError = $state<string | null>(null);
 
   let findOpen = $state(false);
   let findQuery = $state("");
@@ -79,10 +81,26 @@
     }
   }
 
-  function submitCredentials(e: SubmitEvent) {
+  async function submitCredentials(e: SubmitEvent) {
     e.preventDefault();
+    credentialError = null;
     const creds = { username, password };
     password = "";
+    if (remember && target.kind === "host" && host) {
+      // Store them as this host's own credentials, then connect normally.
+      try {
+        await vaultStore.saveHostWithCredentials(target.hostId, $state.snapshot(host), {
+          mode: "inline",
+          username: creds.username,
+          auth: { type: "password", password: creds.password },
+          save_to_keychain: null,
+        });
+        connect(null);
+      } catch (err) {
+        credentialError = errorMessage(err);
+      }
+      return;
+    }
     connect(creds);
   }
 
@@ -284,8 +302,10 @@
 </script>
 
 <div class="relative flex min-h-0 flex-1 flex-col" style:background>
+  <!-- `isolate` keeps xterm's internal z-indexed layers (up to 11) inside
+       this box, so the overlays below always sit on top and stay clickable. -->
   <div
-    class="min-h-0 flex-1 p-1"
+    class="relative isolate z-0 min-h-0 flex-1 p-1"
     bind:this={container}
     role="presentation"
     oncontextmenu={(e) => {
@@ -295,7 +315,7 @@
   ></div>
 
   {#if findOpen}
-    <div class="absolute right-3 top-2 z-10 flex items-center gap-1 rounded-md border border-line bg-panel px-2 py-1 shadow-lg">
+    <div class="absolute right-3 top-2 z-20 flex items-center gap-1 rounded-md border border-line bg-panel px-2 py-1 shadow-lg">
       <Search size={13} class="text-fg-muted" />
       <input
         bind:this={findInput}
@@ -342,7 +362,7 @@
   {/if}
 
   {#if hostKeyNotices.length}
-    <div class="absolute inset-x-2 top-2 flex items-start gap-2 rounded-md border border-line bg-panel/95 px-3 py-2 text-xs shadow-lg">
+    <div class="absolute inset-x-2 top-2 z-10 flex items-start gap-2 rounded-md border border-line bg-panel/95 px-3 py-2 text-xs shadow-lg">
       <ShieldAlert size={14} class="mt-0.5 shrink-0 text-accent" />
       <div class="min-w-0 flex-1 space-y-1">
         {#each hostKeyNotices as k (k.host)}
@@ -357,23 +377,47 @@
   {/if}
 
   {#if !started && needsCredentials}
-    <div class="absolute inset-0 flex items-center justify-center bg-base/90">
-      <form onsubmit={submitCredentials} class="w-72 space-y-3 rounded-xl border border-line bg-panel p-5">
-        <div class="text-sm font-semibold">Credentials for {label}</div>
-        <p class="text-xs text-fg-muted">This host has no identity. Enter one-time credentials.</p>
-        <input class="input font-mono" placeholder="username" bind:value={username} required autocomplete="username" />
-        <input class="input" type="password" placeholder="password" bind:value={password} required autocomplete="current-password" />
-        <button class="btn-primary w-full" type="submit">Connect</button>
+    <div class="absolute inset-0 z-30 flex items-center justify-center bg-base/95 p-4">
+      <form onsubmit={submitCredentials} class="w-full max-w-sm space-y-4 rounded-xl border border-line bg-panel p-6 shadow-2xl">
+        <div class="flex items-center gap-3">
+          <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-accent/15 text-accent"><KeyRound size={18} /></div>
+          <div class="min-w-0">
+            <div class="truncate text-sm font-semibold">Log in to {label}</div>
+            <div class="truncate font-mono text-xs text-fg-muted">{host?.hostname}{host && host.port !== 22 ? `:${host.port}` : ""}</div>
+          </div>
+        </div>
+        <div>
+          <label class="label" for="c-user-{paneId}">Username</label>
+          <!-- svelte-ignore a11y_autofocus -->
+          <input id="c-user-{paneId}" class="input font-mono" bind:value={username} required autocomplete="username" spellcheck="false" autofocus />
+        </div>
+        <div>
+          <label class="label" for="c-pw-{paneId}">Password</label>
+          <input id="c-pw-{paneId}" class="input" type="password" bind:value={password} required autocomplete="current-password" />
+        </div>
+        <label class="flex items-center gap-2 text-xs text-fg-muted">
+          <input type="checkbox" class="accent-[#7b61ff]" bind:checked={remember} />
+          Remember for this host (encrypted in your vault)
+        </label>
+        {#if credentialError}
+          <p class="rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">{credentialError}</p>
+        {/if}
+        <div class="flex gap-2">
+          <button class="btn-ghost flex-1 border border-line" type="button" onclick={() => target.kind === "host" && (ui.modal = { kind: "host", id: target.hostId })}>
+            Edit host
+          </button>
+          <button class="btn-primary flex-1" type="submit">Connect</button>
+        </div>
       </form>
     </div>
   {:else if status.kind === "connecting"}
-    <div class="pointer-events-none absolute inset-0 flex items-center justify-center bg-base/70">
+    <div class="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-base/70">
       <div class="flex items-center gap-2 rounded-md bg-panel px-4 py-2 text-sm text-fg-muted">
         <Loader2 size={16} class="animate-spin text-accent" /> Connecting to {label}…
       </div>
     </div>
   {:else if status.kind === "host_key_changed"}
-    <div class="absolute inset-0 flex items-center justify-center bg-base/90 p-4">
+    <div class="absolute inset-0 z-30 flex items-center justify-center bg-base/95 p-4">
       <div class="w-full max-w-md rounded-xl border border-danger/40 bg-panel p-5">
         <div class="mb-2 flex items-center gap-2 text-sm font-semibold text-danger">
           <ShieldX size={18} /> Host key changed for {status.host}{status.port !== 22 ? `:${status.port}` : ""}
@@ -393,7 +437,7 @@
       </div>
     </div>
   {:else if status.kind === "error" || (status.kind === "disconnected" && started)}
-    <div class="absolute inset-x-0 bottom-0 flex items-center gap-3 border-t border-line bg-panel px-4 py-2 text-xs">
+    <div class="absolute inset-x-0 bottom-0 z-10 flex items-center gap-3 border-t border-line bg-panel px-4 py-2 text-xs">
       {#if status.kind === "error"}
         <ShieldAlert size={14} class="shrink-0 text-danger" />
         <span class="min-w-0 flex-1 truncate text-danger" title={status.message}>{status.message}</span>

@@ -19,7 +19,23 @@ export interface Identity {
   username: string;
   auth: AuthMethod;
   notes: string;
+  /** Set when the credentials were entered in that host's own form. */
+  for_host?: Uuid;
 }
+
+/** Secret-free auth sent from the host form. Empty secrets keep the stored ones. */
+export type InlineAuth =
+  | { type: "password"; password: string | null }
+  | { type: "private_key"; private_key: string | null; passphrase: string | null }
+  | { type: "key_file"; path: string; passphrase: string | null }
+  | { type: "generate_key" }
+  | { type: "agent" };
+
+export type HostCredentials =
+  | { mode: "keep" }
+  | { mode: "ask" }
+  | { mode: "identity"; identity_id: Uuid }
+  | { mode: "inline"; username: string; auth: InlineAuth; save_to_keychain: string | null };
 
 export interface Host {
   label: string;

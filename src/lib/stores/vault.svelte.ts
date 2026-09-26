@@ -6,6 +6,7 @@ import { ui } from "$lib/stores/ui.svelte";
 import {
   errorMessage,
   type ForwardRule,
+  type HostCredentials,
   type ForwardStatus,
   type Host,
   type Identity,
@@ -158,9 +159,19 @@ class VaultStore {
     upsert(this.hosts, rec, rec.id);
     return rec;
   }
+  /** Save a host and the credentials from its form; refreshes identities too. */
+  async saveHostWithCredentials(id: Uuid | null, host: Host, credentials: HostCredentials) {
+    const out = await api.hosts.saveWithCredentials(id, host, credentials);
+    upsert(this.hosts, out.host, out.host.id);
+    this.identities = await api.identities.list();
+    return out;
+  }
+
   async deleteHost(id: Uuid) {
     await api.hosts.delete(id);
     upsert(this.hosts, null, id);
+    // The host's own identity may have been removed with it.
+    this.identities = await api.identities.list();
     // Backend detached this host as a jump; mirror that locally.
     for (const h of this.hosts) if (h.data?.jump_host_id === id) h.data.jump_host_id = undefined;
   }
