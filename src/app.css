@@ -1,0 +1,58 @@
+@import "tailwindcss";
+
+/* Termius-inspired dark palette, exposed as Tailwind utilities
+   (bg-base, bg-panel, text-accent, border-line, ...) */
+@theme {
+  --color-base: #18191e;
+  --color-panel: #20222b;
+  --color-panel-hover: #262833;
+  --color-line: #2c2f3a;
+  --color-accent: #7b61ff;
+  --color-accent-hover: #6a50f0;
+  --color-fg: #e6e6ea;
+  --color-fg-muted: #8b8d98;
+  --color-danger: #ff5c5c;
+  --color-success: #3ddc84;
+  --font-mono: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+}
+
+html,
+body {
+  height: 100%;
+  background-color: var(--color-base);
+  color: var(--color-fg);
+  color-scheme: dark;
+}
+
+@layer components {
+  .input {
+    @apply w-full rounded-md border border-line bg-base px-3 py-2 text-sm text-fg placeholder:text-fg-muted/60 outline-none focus:border-accent focus:ring-1 focus:ring-accent/50;
+  }
+  .label {
+    @apply mb-1 block text-xs font-medium uppercase tracking-wide text-fg-muted;
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 bg-accent text-white hover:bg-accent-hover;
+  }
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 text-fg-muted hover:bg-panel-hover hover:text-fg;
+  }
+  .btn-danger {
+    @apply inline-flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 text-danger hover:bg-danger/10;
+  }
+  .icon-btn {
+    @apply inline-flex h-8 w-8 items-center justify-center rounded-md text-fg-muted transition-colors hover:bg-panel-hover hover:text-fg;
+  }
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-line);
+  border-radius: 4px;
+}
