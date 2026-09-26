@@ -325,6 +325,7 @@ mod tests {
             port: 22,
             identity_id: None,
             jump_host_id: None,
+            forward_agent: false,
             group: String::new(),
             tags: vec![],
             color: None,

@@ -64,17 +64,36 @@ the background.
 - [x] **Draft GitHub Release on `v*` tags** with the Linux and Windows
   installers attached, published by hand after review.
 
-## Later
+## Round two
 
-These are larger pieces of work, not started yet.
+- [x] **Run a snippet on several hosts** in the background, up to eight at a
+  time, with per-host output, exit code, duration and cancel.
+- [x] **Snippet variables**: `{{host}}`, `{{hostname}}`, `{{port}}`,
+  `{{user}}`, `{{date}}`, `{{time}}`, and prompted values for any other name.
+- [x] **Flexible split layout**: up to six panes per tab, split any pane right
+  or down, drag dividers to resize.
+- [x] **Drag to reorder tabs.**
+- [x] **Drag hosts between groups** in the tree.
+- [x] **Edit remote files** from the SFTP pane in the local default editor,
+  uploading on every save.
+- [x] **Session logging** to a file, plain text or raw.
+- [x] **Light theme**, or follow the system setting, plus two light terminal
+  colour themes.
+- [x] **Agent forwarding** per host, refused unless enabled for that host.
+- [x] **macOS build** (Apple Silicon, unsigned) in CI and draft releases.
 
-- Run a snippet on several hosts in the background and collect the output.
-- Snippet variables, such as `{{host}}` or prompted values.
-- More than two panes per tab, and drag to reorder tabs.
-- Drag hosts between groups in the tree.
-- Edit remote files from the SFTP pane in a local editor.
-- Session logging to a file.
-- Light theme.
-- macOS build, and code-signed Windows installers.
-- X11 forwarding and agent forwarding.
-- Mosh support.
+## Needs a decision
+
+These are blocked on something only the project owner can provide, or are
+large enough to plan separately.
+
+- **Code-signed installers.** Windows needs an Authenticode certificate or an
+  Azure Trusted Signing account. macOS needs an Apple Developer ID (paid
+  yearly) plus notarization. Both are recurring costs and account setup, and
+  once the credentials exist in CI secrets, the workflow change is small.
+- **X11 forwarding.** Needs a local X server, which Windows and macOS don't
+  ship. Low demand for a terminal manager.
+- **Mosh.** There is no maintained Rust Mosh client, so this means
+  implementing the SSP protocol from scratch. A project of its own.
+- **Intel Mac build.** A second macOS job on an Intel runner, if anyone needs
+  it.

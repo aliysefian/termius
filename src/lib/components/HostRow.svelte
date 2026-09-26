@@ -1,6 +1,7 @@
 <script lang="ts">
   import { Copy, Pencil, Trash2 } from "lucide-svelte";
   import { errorMessage } from "$lib/types";
+  import { hostDragStart } from "$lib/hostdrag.svelte";
   import { ui } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
   import type { Host, VaultRecord } from "$lib/types";
@@ -39,6 +40,8 @@
   style:padding-left={indent}
   role="button"
   tabindex="0"
+  draggable="true"
+  ondragstart={(e) => hostDragStart(e, host.id)}
   ondblclick={connect}
   onkeydown={(e) => e.key === "Enter" && connect()}
   title="Double-click to connect"

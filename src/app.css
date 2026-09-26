@@ -13,7 +13,25 @@
   --color-fg-muted: #8b8d98;
   --color-danger: #ff5c5c;
   --color-success: #3ddc84;
+  --color-warning: #ffb020;
   --font-mono: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+}
+
+/* Light theme: the same tokens, re-pointed. Every utility reads these
+   variables, so components need no light-specific classes. */
+:root[data-theme="light"] {
+  --color-base: #f4f5f8;
+  --color-panel: #ffffff;
+  --color-panel-hover: #eceef3;
+  --color-line: #dcdfe6;
+  --color-accent: #6246ea;
+  --color-accent-hover: #5236d8;
+  --color-fg: #1c1e26;
+  --color-fg-muted: #5c6170;
+  --color-danger: #d7373f;
+  --color-success: #1a8f50;
+  --color-warning: #a86a00;
+  color-scheme: light;
 }
 
 html,

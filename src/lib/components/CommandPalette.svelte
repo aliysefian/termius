@@ -1,10 +1,11 @@
 <script lang="ts">
   import {
-    ArrowLeftRight, Code, FileInput, FolderSync, KeyRound, Lock, Play, Plus, Server, Settings, SquareSplitHorizontal, SquareSplitVertical, Zap,
+    ArrowLeftRight, ServerCog, Code, FileInput, FolderSync, KeyRound, Lock, Play, Plus, Server, Settings, SquareSplitHorizontal, SquareSplitVertical, Zap,
   } from "lucide-svelte";
   import { fuzzyScore } from "$lib/fuzzy";
   import { parseAdhoc } from "$lib/ssh";
   import { settings } from "$lib/stores/settings.svelte";
+  import { runSnippet } from "$lib/runsnippet";
   import { adhocLabel, ui, type View } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
 
@@ -63,7 +64,15 @@
         hint: d.command.split("\n")[0],
         group: "Snippets",
         icon: Play,
-        run: () => void ui.runSnippet(d.command, { execute: true, scope: "pane" }),
+        run: () => void runSnippet(d.command, { execute: true, scope: "pane" }),
+      });
+      out.push({
+        id: `snip-hosts-${s.id}`,
+        label: `Run on hosts: ${d.label}`,
+        hint: "Several hosts, in the background",
+        group: "Snippets",
+        icon: ServerCog,
+        run: () => (ui.modal = { kind: "run-on-hosts", command: d.command }),
       });
     }
     const actions: [string, typeof Server, () => void, string?][] = [
@@ -73,6 +82,7 @@
       ["New snippet", Code, () => (ui.modal = { kind: "snippet", id: null })],
       ["New port-forwarding rule", ArrowLeftRight, () => (ui.modal = { kind: "forward", id: null })],
       ["Import hosts from ~/.ssh/config", FileInput, () => (ui.modal = { kind: "import-ssh-config" })],
+      ["Run a command on several hosts…", ServerCog, () => (ui.modal = { kind: "run-on-hosts" })],
       ["Split right", SquareSplitHorizontal, () => ui.splitActive("vertical"), "Ctrl+Shift+D"],
       ["Split down", SquareSplitVertical, () => ui.splitActive("horizontal"), "Ctrl+Shift+E"],
       ["Go to Hosts", Server, go("hosts")],

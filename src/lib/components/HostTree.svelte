@@ -5,6 +5,7 @@
   import { ui } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
   import { buildTree } from "$lib/tree";
+  import { acceptsHost, dropHostInto } from "$lib/hostdrag.svelte";
   import HostTreeNode from "./HostTreeNode.svelte";
 
   const filtered = $derived.by(() => {
@@ -17,6 +18,7 @@
     });
   });
   const tree = $derived(buildTree(filtered));
+  let rootDrop = $state(false);
   const recent = $derived(
     settings.recent
       .map((id) => vaultStore.hostById.get(id))
@@ -45,7 +47,25 @@
     </div>
   </div>
 
-  <div class="flex-1 overflow-y-auto px-2 pb-4">
+  <!-- Dropping a host on empty space moves it to the top level. -->
+  <div
+    class="flex-1 overflow-y-auto px-2 pb-4 {rootDrop ? 'bg-accent/5' : ''}"
+    role="tree"
+    tabindex="-1"
+    ondragover={(e) => {
+      if (acceptsHost(e)) {
+        e.preventDefault();
+        rootDrop = true;
+      }
+    }}
+    ondragleave={(e) => {
+      if (e.currentTarget === e.target) rootDrop = false;
+    }}
+    ondrop={(e) => {
+      rootDrop = false;
+      void dropHostInto(e, "");
+    }}
+  >
     {#if vaultStore.loading}
       <p class="px-2 py-6 text-center text-xs text-fg-muted">Decrypting…</p>
     {:else if vaultStore.hosts.length === 0}

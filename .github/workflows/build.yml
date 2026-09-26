@@ -34,6 +34,13 @@ jobs:
             bundles: |
               src-tauri/target/release/bundle/msi/*.msi
               src-tauri/target/release/bundle/nsis/*.exe
+          # Apple Silicon. Unsigned: Gatekeeper asks users to confirm on
+          # first launch until a Developer ID certificate is added.
+          - name: macOS
+            os: macos-latest
+            skip_sshd_tests: "1"
+            bundles: |
+              src-tauri/target/release/bundle/dmg/*.dmg
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
 
@@ -83,6 +90,8 @@ jobs:
       # on Windows they skip themselves and the rest still run.
       - name: Test Rust
         working-directory: src-tauri
+        env:
+          SSHVAULT_SKIP_SSHD_TESTS: ${{ matrix.skip_sshd_tests }}
         run: cargo test
 
       - name: Build app bundles

@@ -78,6 +78,10 @@ pub struct Host {
     /// may have its own jump, forming a chain.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub jump_host_id: Option<Uuid>,
+    /// Forward this computer's ssh-agent to the host (`ssh -A`). Anyone with
+    /// root on the host can use the agent while the session is open.
+    #[serde(default)]
+    pub forward_agent: bool,
     /// Optional accent color as a CSS hex string, e.g. `"#7B61FF"`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color: Option<String>,

@@ -37,12 +37,37 @@ pub const EVENT_SSH_STATUS: &str = "ssh:status";
 /// Event name for port-forward status changes. Payload: [`ForwardStatusEvent`].
 pub const EVENT_FORWARD_STATUS: &str = "forward:status";
 
+/// Event name for remote-edit uploads. Payload: [`EditEventPayload`].
+pub const EVENT_SFTP_EDIT: &str = "sftp:edit";
+
+/// A pane's optional session log, shared between its sink and the commands
+/// that start and stop recording.
+type LogSlot = Arc<std::sync::Mutex<Option<crate::sessionlog::SessionLog>>>;
+
 pub struct AppState {
     pub session: Session,
     pub config_dir: PathBuf,
     pub ssh: Arc<SshManager>,
     pub sftp: Arc<SftpManager>,
     pub forwards: Arc<ForwardManager>,
+    pub runs: Arc<crate::runner::RunManager>,
+    pub edits: Arc<crate::remoteedit::EditManager>,
+    /// Where remote files are downloaded for editing.
+    pub edit_dir: PathBuf,
+    /// Master-password gate for revealing stored secrets.
+    pub reveal: std::sync::Mutex<crate::reveal::RevealGate>,
+    logs: std::sync::Mutex<std::collections::HashMap<String, LogSlot>>,
+}
+
+impl AppState {
+    fn log_slot(&self, pane_id: &str) -> LogSlot {
+        let slot: LogSlot = Arc::new(std::sync::Mutex::new(None));
+        self.logs
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .insert(pane_id.to_string(), Arc::clone(&slot));
+        slot
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -236,6 +261,14 @@ pub async fn lock_vault(state: State<'_, AppState>) -> ApiResult<VaultStatus> {
     state.ssh.disconnect_all().await;
     state.sftp.close_all().await;
     state.forwards.stop_all();
+    state.runs.cancel_all();
+    state.edits.stop_all();
+    state
+        .reveal
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .close();
+    state.logs.lock().unwrap_or_else(|p| p.into_inner()).clear();
     state.session.lock();
     let cfg = AppConfig::load(&state.config_dir)?;
     Ok(state.session.status(cfg.vault_path.as_deref()))
@@ -398,12 +431,101 @@ pub fn list_identities(state: State<'_, AppState>) -> ApiResult<Vec<Record<Ident
     Ok(list)
 }
 
-/// Full identity including secrets, for the edit form only.
+#[derive(Debug, Clone, Serialize)]
+pub struct RevealResponse {
+    pub secret: crate::reveal::Revealed,
+    /// Seconds left before the master password is asked again.
+    pub grace_secs: u64,
+}
+
+/// Show an identity's password, key or passphrase. Requires the master
+/// password unless it was entered within the last couple of minutes. See
+/// `reveal.rs` for the grace window and lockout rules.
 #[tauri::command]
-pub fn get_identity(state: State<'_, AppState>, id: Uuid) -> ApiResult<Record<Identity>> {
-    Ok(state
+pub async fn reveal_identity(
+    state: State<'_, AppState>,
+    id: Uuid,
+    master_password: Option<String>,
+) -> ApiResult<RevealResponse> {
+    use crate::reveal::GateError;
+    use std::time::Instant;
+    let master_password = master_password.map(Zeroizing::new);
+
+    let gate_err = |e: GateError| match e {
+        GateError::ReauthRequired => ApiError::new(
+            "reauth_required",
+            "Enter your master password to reveal this",
+        ),
+        GateError::WrongPassword { attempts_left } => ApiError::new(
+            "wrong_password",
+            format!("Wrong master password. {attempts_left} attempt(s) left before a lockout."),
+        ),
+        GateError::LockedOut { retry_in } => ApiError::new(
+            "locked_out",
+            format!(
+                "Too many wrong attempts. Try again in {} seconds.",
+                retry_in.as_secs().max(1)
+            ),
+        ),
+    };
+
+    let ok = match &master_password {
+        None => None,
+        Some(pw) => {
+            if let Some(wait) = state
+                .reveal
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .locked_out(Instant::now())
+            {
+                return Err(gate_err(GateError::LockedOut { retry_in: wait }));
+            }
+            // Argon2id is slow on purpose: derive off the async executor and
+            // without holding the vault lock.
+            let (salt, kdf) = state.session.with_vault(|v| v.kdf_inputs())?;
+            let pw = pw.clone();
+            let key = tauri::async_runtime::spawn_blocking(move || {
+                crate::crypto::derive_key(pw.as_bytes(), &salt, kdf)
+            })
+            .await
+            .map_err(|e| ApiError::new("reveal", e.to_string()))?
+            .map_err(|e| ApiError::new("crypto", e.to_string()))?;
+            Some(state.session.with_vault(|v| Ok(v.key_matches(&key)))?)
+        }
+    };
+
+    {
+        let mut gate = state.reveal.lock().unwrap_or_else(|p| p.into_inner());
+        let pw = master_password.as_ref().map(|p| p.as_bytes());
+        gate.check(Instant::now(), pw, |_| ok.unwrap_or(false))
+            .map_err(gate_err)?;
+    }
+
+    let identity = state
         .session
-        .with_vault(|v| v.get::<Identity>(Collection::Identities, id))?)
+        .with_vault(|v| v.get::<Identity>(Collection::Identities, id))?
+        .data
+        .ok_or_else(|| ApiError::new("not_found", "identity has no data"))?;
+    let grace_secs = state
+        .reveal
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .remaining(Instant::now())
+        .as_secs();
+    Ok(RevealResponse {
+        secret: crate::reveal::Revealed::from(&identity.auth),
+        grace_secs,
+    })
+}
+
+/// End the reveal grace window early ("Hide" in the UI).
+#[tauri::command]
+pub fn reveal_close(state: State<'_, AppState>) {
+    state
+        .reveal
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .close();
 }
 
 /// Public half of a key-based identity, for `authorized_keys`.
@@ -450,7 +572,29 @@ pub fn save_identity(
             "label and username are required",
         ));
     }
-    // Return the redacted form; the webview only holds secrets while editing.
+    // Secrets left empty keep the stored ones, so the edit form never needs
+    // to load them.
+    let mut identity = identity;
+    if let Some(id) = id {
+        let stored =
+            state
+                .session
+                .with_vault(|v| match v.get::<Identity>(Collection::Identities, id) {
+                    Ok(r) => Ok(r.data),
+                    Err(VaultError::NotFound { .. }) | Err(VaultError::Deleted { .. }) => Ok(None),
+                    Err(e) => Err(e),
+                })?;
+        identity.auth = crate::reveal::merge_auth(identity.auth, stored.as_ref().map(|s| &s.auth))
+            .map_err(|m| ApiError::new("validation", m))?;
+        // Keep host ownership: the form doesn't send it.
+        if identity.for_host.is_none() {
+            identity.for_host = stored.and_then(|s| s.for_host);
+        }
+    } else {
+        identity.auth = crate::reveal::merge_auth(identity.auth, None)
+            .map_err(|m| ApiError::new("validation", m))?;
+    }
+    // Return the redacted form.
     let mut rec = save_record(&state, Collection::Identities, id, identity)?;
     rec.data = rec.data.as_ref().map(Identity::redacted);
     Ok(rec)
@@ -550,6 +694,7 @@ fn resolve_target(
             auth,
             known_hosts: state.config_dir.join("known_hosts"),
             jump,
+            forward_agent: false,
         }));
     }
 
@@ -569,6 +714,7 @@ fn resolve_target(
         auth,
         known_hosts: state.config_dir.join("known_hosts"),
         jump,
+        forward_agent: host.forward_agent,
     })
 }
 
@@ -601,10 +747,15 @@ struct PaneSink {
     app: AppHandle,
     pane_id: String,
     data: Channel<InvokeResponseBody>,
+    log: LogSlot,
 }
 
 impl TermSink for PaneSink {
     fn data(&self, bytes: &[u8]) {
+        if let Some(log) = self.log.lock().unwrap_or_else(|p| p.into_inner()).as_mut() {
+            // A failing log (disk full, file removed) must not break the session.
+            let _ = log.write(bytes);
+        }
         let _ = self.data.send(InvokeResponseBody::Raw(bytes.to_vec()));
     }
     fn status(&self, status: SessionStatus) {
@@ -640,6 +791,7 @@ pub async fn ssh_connect(
         app,
         pane_id: pane_id.clone(),
         data: on_data,
+        log: state.log_slot(&pane_id),
     });
     state.ssh.connect(pane_id, params, sink)?;
     Ok(())
@@ -667,7 +819,100 @@ pub async fn ssh_resize(
 #[tauri::command]
 pub async fn ssh_disconnect(state: State<'_, AppState>, pane_id: String) -> ApiResult<()> {
     state.ssh.disconnect(&pane_id).await;
+    state
+        .logs
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .remove(&pane_id);
     Ok(())
+}
+
+/// Start recording a pane's output to `path` (appending). `plain` strips
+/// colours and control sequences; otherwise the raw stream is kept.
+#[tauri::command]
+pub fn ssh_log_start(
+    state: State<'_, AppState>,
+    pane_id: String,
+    path: String,
+    plain: bool,
+    header: String,
+) -> ApiResult<()> {
+    let slot = state
+        .logs
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .get(&pane_id)
+        .cloned()
+        .ok_or_else(|| ApiError::new("not_connected", "this pane has no session"))?;
+    let log = crate::sessionlog::SessionLog::open(std::path::Path::new(&path), plain, &header)
+        .map_err(|e| ApiError::new("io", format!("{path}: {e}")))?;
+    *slot.lock().unwrap_or_else(|p| p.into_inner()) = Some(log);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn ssh_log_stop(state: State<'_, AppState>, pane_id: String) {
+    if let Some(slot) = state
+        .logs
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .get(&pane_id)
+    {
+        slot.lock().unwrap_or_else(|p| p.into_inner()).take();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Run a command on many hosts
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct RunJob {
+    pub host_id: Uuid,
+    pub command: String,
+}
+
+struct ChannelRunSink(Channel<crate::runner::RunEvent>);
+impl crate::runner::RunSink for ChannelRunSink {
+    fn event(&self, e: crate::runner::RunEvent) {
+        let _ = self.0.send(e);
+    }
+}
+
+/// Run each job's command on its host in the background. Hosts that can't
+/// connect unattended (no saved credentials) fail immediately.
+#[tauri::command]
+pub fn run_on_hosts(
+    state: State<'_, AppState>,
+    run_id: String,
+    jobs: Vec<RunJob>,
+    timeout_secs: u64,
+    on_event: Channel<crate::runner::RunEvent>,
+) -> ApiResult<()> {
+    use crate::runner::{RunEvent, RunSink};
+    let sink: Arc<dyn RunSink> = Arc::new(ChannelRunSink(on_event));
+    let mut ready = Vec::new();
+    for job in jobs {
+        match resolve_target(&state, job.host_id, None) {
+            Ok(t) => ready.push((job.host_id, t, job.command)),
+            Err(e) => sink.event(RunEvent::Failed {
+                host_id: job.host_id,
+                message: e.message,
+            }),
+        }
+    }
+    let timeout = std::time::Duration::from_secs(timeout_secs.clamp(1, 3600));
+    // Spawned inside Tauri's runtime; RunManager needs a tokio context.
+    let runs = Arc::clone(&state.runs);
+    tauri::async_runtime::spawn(async move {
+        runs.start(run_id, ready, timeout, sink);
+    });
+    Ok(())
+}
+
+#[tauri::command]
+pub fn run_cancel(state: State<'_, AppState>, run_id: String) -> bool {
+    state.runs.cancel(&run_id)
 }
 
 /// Connect a pane to an unsaved `user@host:port`. Without a password the
@@ -701,6 +946,7 @@ pub async fn ssh_connect_adhoc(
             auth,
             known_hosts: state.config_dir.join("known_hosts"),
             jump: None,
+            forward_agent: false,
         },
         cols: cols.max(2),
         rows: rows.max(1),
@@ -709,6 +955,7 @@ pub async fn ssh_connect_adhoc(
         app,
         pane_id: pane_id.clone(),
         data: on_data,
+        log: state.log_slot(&pane_id),
     });
     state.ssh.connect(pane_id, params, sink)?;
     Ok(())
@@ -870,6 +1117,64 @@ pub async fn sftp_remove(
     Ok(())
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct EditEventPayload {
+    pub edit_id: String,
+    #[serde(flatten)]
+    pub event: crate::remoteedit::EditEvent,
+}
+
+struct EventEditSink(AppHandle);
+impl crate::remoteedit::EditSink for EventEditSink {
+    fn event(&self, edit_id: &str, event: crate::remoteedit::EditEvent) {
+        let _ = self.0.emit(
+            EVENT_SFTP_EDIT,
+            EditEventPayload {
+                edit_id: edit_id.to_string(),
+                event,
+            },
+        );
+    }
+}
+
+/// Download a remote file, open it in this computer's default editor, and
+/// upload it again on every save until [`sftp_edit_stop`].
+#[tauri::command]
+pub async fn sftp_edit_start(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    session_id: String,
+    remote_path: String,
+) -> ApiResult<crate::remoteedit::EditStarted> {
+    use tauri_plugin_opener::OpenerExt;
+    let conn = state.sftp.get(&session_id)?;
+    let started = state
+        .edits
+        .start(
+            conn,
+            remote_path,
+            &state.edit_dir,
+            Arc::new(EventEditSink(app.clone())),
+        )
+        .await?;
+    if let Err(e) = app
+        .opener()
+        .open_path(started.local_path.clone(), None::<String>)
+    {
+        state.edits.stop(&started.edit_id);
+        return Err(ApiError::new(
+            "open",
+            format!("could not open an editor: {e}"),
+        ));
+    }
+    Ok(started)
+}
+
+#[tauri::command]
+pub fn sftp_edit_stop(state: State<'_, AppState>, edit_id: String) {
+    state.edits.stop(&edit_id);
+}
+
 #[tauri::command]
 pub async fn sftp_close(state: State<'_, AppState>, session_id: String) -> ApiResult<()> {
     state.sftp.close(&session_id).await;
@@ -1027,12 +1332,21 @@ pub fn forward_statuses(
 /// Resolve the per-machine config dir and register [`AppState`].
 pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let config_dir = app.path().app_config_dir()?;
+    // Leftovers from a run that didn't exit cleanly are plaintext copies of
+    // remote files; remove them before anything else.
+    let edit_dir = std::env::temp_dir().join("sshvault-edit");
+    crate::remoteedit::clean_base(&edit_dir);
     app.manage(AppState {
         session: Session::new(),
         config_dir,
         ssh: Arc::new(SshManager::new()),
         sftp: Arc::new(SftpManager::new()),
         forwards: Arc::new(ForwardManager::new()),
+        runs: Arc::new(crate::runner::RunManager::new()),
+        edits: Arc::new(crate::remoteedit::EditManager::new()),
+        edit_dir,
+        reveal: Default::default(),
+        logs: Default::default(),
     });
     Ok(())
 }

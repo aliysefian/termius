@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { ClipboardPaste, Code, Pencil, Play, Plus, Trash2 } from "lucide-svelte";
+  import { ServerCog, ClipboardPaste, Code, Pencil, Play, Plus, Trash2 } from "lucide-svelte";
+  import { runSnippet } from "$lib/runsnippet";
   import { ui } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
 
@@ -32,8 +33,9 @@
           <div class="flex items-center gap-2">
             <div class="min-w-0 flex-1 truncate text-sm">{d.label}</div>
             <div class="flex opacity-0 group-hover:opacity-100">
-              <button class="icon-btn h-6 w-6" title="Paste into active terminal" onclick={() => ui.runSnippet(d.command, { execute: false, scope: "pane" })}><ClipboardPaste size={12} /></button>
-              <button class="icon-btn h-6 w-6 text-accent" title="Run in active terminal" onclick={() => ui.runSnippet(d.command, { execute: true, scope: "pane" })}><Play size={12} /></button>
+              <button class="icon-btn h-6 w-6" title="Run on several hosts…" onclick={() => (ui.modal = { kind: "run-on-hosts", command: d.command })}><ServerCog size={12} /></button>
+              <button class="icon-btn h-6 w-6" title="Paste into active terminal" onclick={() => runSnippet(d.command, { execute: false, scope: "pane" })}><ClipboardPaste size={12} /></button>
+              <button class="icon-btn h-6 w-6 text-accent" title="Run in active terminal" onclick={() => runSnippet(d.command, { execute: true, scope: "pane" })}><Play size={12} /></button>
               <button class="icon-btn h-6 w-6" title="Edit" onclick={() => (ui.modal = { kind: "snippet", id: s.id })}><Pencil size={12} /></button>
               <button class="icon-btn h-6 w-6 hover:text-danger" title="Delete" onclick={() => remove(s.id, d.label)}><Trash2 size={12} /></button>
             </div>

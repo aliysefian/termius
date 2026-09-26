@@ -57,7 +57,14 @@
       </div>
       <p class="mb-4 text-xs text-fg-muted">Saved on this computer only. Changes apply to open terminals immediately.</p>
 
-      <span class="label">Colour theme</span>
+      <label class="label" for="s-app-theme">App theme</label>
+      <select id="s-app-theme" class="input mb-4 max-w-xs" bind:value={settings.prefs.appTheme}>
+        <option value="dark">Dark</option>
+        <option value="light">Light</option>
+        <option value="system">Match system</option>
+      </select>
+
+      <span class="label">Terminal colour theme</span>
       <div class="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
         {#each themes as t (t.id)}
           <button
@@ -107,6 +114,10 @@
         </label>
         <label class="flex items-center gap-2 text-sm">
           <input type="checkbox" class="accent-[#7b61ff]" bind:checked={settings.prefs.copyOnSelect} /> Copy on select
+        </label>
+        <label class="col-span-2 flex items-center gap-2 text-sm">
+          <input type="checkbox" class="accent-[#7b61ff]" bind:checked={settings.prefs.logRaw} /> Session logs keep colours and
+          control codes (raw) instead of plain text
         </label>
       </div>
     </section>

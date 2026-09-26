@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { onMount } from "svelte";
-  import { Copy, KeyRound, Loader2, Sparkles } from "lucide-svelte";
+  import { Copy, Eye, KeyRound, Loader2, Sparkles } from "lucide-svelte";
+  import { revealIdentity } from "$lib/secrets.svelte";
   import { writeText } from "@tauri-apps/plugin-clipboard-manager";
   import Modal from "./Modal.svelte";
   import * as api from "$lib/api";
@@ -10,38 +10,42 @@
 
   let { id }: { id: Uuid | null } = $props();
 
-  let form = $state<Identity>(emptyIdentity());
-  let authType = $state<AuthMethod["type"]>("password");
+  // Lists only carry redacted identities. Secrets stay empty here; leaving
+  // them empty keeps the stored ones, and Reveal fetches them after the
+  // master password is confirmed.
+  // svelte-ignore state_referenced_locally
+  const stored = id ? vaultStore.identityById.get(id)?.data : undefined;
+  let form = $state<Identity>(stored ? structuredClone($state.snapshot(stored)) : emptyIdentity());
+  let authType = $state<AuthMethod["type"]>(stored?.auth.type ?? "password");
   let password = $state("");
   let privateKey = $state("");
   let passphrase = $state("");
+  let showPassword = $state(false);
   let publicKey = $state<string | null>(null);
-  let loading = $state(false);
   let generating = $state(false);
+  let revealing = $state(false);
   let error = $state<string | null>(null);
   let busy = $state(false);
 
-  function fill(identity: Identity) {
-    form = identity;
-    authType = identity.auth.type;
-    password = identity.auth.type === "password" ? identity.auth.password : "";
-    privateKey = identity.auth.type === "private_key" ? identity.auth.private_key : "";
-    passphrase = identity.auth.type === "private_key" ? (identity.auth.passphrase ?? "") : "";
-  }
+  const savedPassword = stored?.auth.type === "password";
+  const savedKey = stored?.auth.type === "private_key";
 
-  // Lists only carry redacted identities; fetch the secrets just for editing.
-  onMount(async () => {
+  async function reveal() {
     if (!id) return;
-    loading = true;
+    revealing = true;
     try {
-      const rec = await api.identities.get(id);
-      if (rec.data) fill(rec.data);
-    } catch (e) {
-      error = errorMessage(e);
+      const s = await revealIdentity(id, `Show the secret for "${form.label}"`);
+      if (!s) return;
+      if (s.password !== null) {
+        password = s.password;
+        showPassword = true;
+      }
+      if (s.private_key !== null) privateKey = s.private_key;
+      if (s.passphrase) passphrase = s.passphrase;
     } finally {
-      loading = false;
+      revealing = false;
     }
-  });
+  }
 
   async function generate() {
     if (privateKey && !confirm("Replace the current private key with a new one?")) return;
@@ -90,11 +94,6 @@
 </script>
 
 <Modal title={id ? "Edit identity" : "New identity"} onclose={() => (ui.modal = null)}>
-  {#if loading}
-    <div class="flex items-center justify-center gap-2 py-10 text-sm text-fg-muted">
-      <Loader2 size={16} class="animate-spin" /> Decrypting…
-    </div>
-  {:else}
     <form id="identity-form" onsubmit={save} class="space-y-4">
       <div class="grid grid-cols-2 gap-3">
         <div>
@@ -124,13 +123,32 @@
 
       {#if authType === "password"}
         <div>
-          <label class="label" for="i-pw">Password</label>
-          <input id="i-pw" class="input" type="password" bind:value={password} autocomplete="off" />
+          <div class="mb-1 flex items-end justify-between">
+            <label class="label mb-0" for="i-pw">Password</label>
+            {#if savedPassword && !password}
+              <button type="button" class="btn-ghost py-0.5 text-xs" onclick={reveal} disabled={revealing}>
+                {#if revealing}<Loader2 size={12} class="animate-spin" />{:else}<Eye size={12} />{/if} Reveal saved
+              </button>
+            {/if}
+          </div>
+          <input
+            id="i-pw"
+            class="input font-mono"
+            type={showPassword ? "text" : "password"}
+            bind:value={password}
+            autocomplete="off"
+            placeholder={savedPassword ? "Saved. Leave empty to keep it." : ""}
+          />
         </div>
       {:else if authType === "private_key"}
         <div>
           <div class="mb-1 flex items-end justify-between">
             <label class="label mb-0" for="i-key">Private key (OpenSSH, PEM or PuTTY)</label>
+            {#if savedKey && !privateKey}
+              <button type="button" class="btn-ghost py-0.5 text-xs" onclick={reveal} disabled={revealing}>
+                {#if revealing}<Loader2 size={12} class="animate-spin" />{:else}<Eye size={12} />{/if} Reveal saved
+              </button>
+            {/if}
             <button type="button" class="btn-ghost py-0.5 text-xs" onclick={generate} disabled={generating}>
               {#if generating}<Loader2 size={12} class="animate-spin" />{:else}<Sparkles size={12} />{/if}
               Generate Ed25519 key
@@ -141,7 +159,7 @@
             class="input font-mono text-xs"
             rows="7"
             bind:value={privateKey}
-            placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
+            placeholder={savedKey ? "Saved. Leave empty to keep it." : "-----BEGIN OPENSSH PRIVATE KEY-----"}
             spellcheck="false"
           ></textarea>
         </div>
@@ -156,7 +174,7 @@
           </div>
         {/if}
         <div>
-          <label class="label" for="i-pass">Key passphrase (optional)</label>
+          <label class="label" for="i-pass">Key passphrase {savedKey ? "(leave empty to keep)" : "(optional)"}</label>
           <input id="i-pass" class="input" type="password" bind:value={passphrase} autocomplete="off" />
         </div>
       {:else}
@@ -172,9 +190,8 @@
         <p class="rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger">{error}</p>
       {/if}
     </form>
-  {/if}
   {#snippet footer()}
     <button class="btn-ghost" type="button" onclick={() => (ui.modal = null)}>Cancel</button>
-    <button class="btn-primary" type="submit" form="identity-form" disabled={busy || loading}>{busy ? "Saving…" : "Save"}</button>
+    <button class="btn-primary" type="submit" form="identity-form" disabled={busy}>{busy ? "Saving…" : "Save"}</button>
   {/snippet}
 </Modal>

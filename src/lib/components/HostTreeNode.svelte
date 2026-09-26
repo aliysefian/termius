@@ -1,20 +1,34 @@
 <script lang="ts">
   import { ChevronDown, ChevronRight, Folder, FolderOpen, Plus } from "lucide-svelte";
   import { ui } from "$lib/stores/ui.svelte";
+  import { acceptsHost, dropHostInto } from "$lib/hostdrag.svelte";
   import type { GroupNode } from "$lib/tree";
   import HostTreeNode from "./HostTreeNode.svelte";
   import HostRow from "./HostRow.svelte";
 
   let { node, depth }: { node: GroupNode; depth: number } = $props();
   const indent = $derived(`${depth * 12 + 8}px`);
+  let dropTarget = $state<string | null>(null);
 </script>
 
 {#each node.children as child (child.path)}
   {@const collapsed = ui.collapsedGroups.has(child.path)}
   <div>
     <div
-      class="group flex items-center gap-1.5 rounded-md py-1 pr-1 text-sm text-fg-muted hover:bg-panel-hover"
+      class="group flex items-center gap-1.5 rounded-md py-1 pr-1 text-sm text-fg-muted hover:bg-panel-hover {dropTarget === child.path ? 'bg-accent/15 ring-1 ring-accent' : ''}"
       style:padding-left={indent}
+      role="group"
+      ondragover={(e) => {
+        if (acceptsHost(e)) {
+          e.preventDefault();
+          dropTarget = child.path;
+        }
+      }}
+      ondragleave={() => (dropTarget = null)}
+      ondrop={(e) => {
+        dropTarget = null;
+        void dropHostInto(e, child.path);
+      }}
     >
       <button class="flex flex-1 items-center gap-1.5 text-left" onclick={() => ui.toggleGroup(child.path)}>
         {#if collapsed}<ChevronRight size={14} />{:else}<ChevronDown size={14} />{/if}

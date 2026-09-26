@@ -9,7 +9,7 @@
       case "active":
         return "bg-success";
       case "starting":
-        return "bg-yellow-400 animate-pulse";
+        return "bg-warning animate-pulse";
       case "error":
         return "bg-danger";
       default:

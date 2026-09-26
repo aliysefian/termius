@@ -278,6 +278,26 @@ impl SftpConn {
         Ok(())
     }
 
+    /// Whole-file read, for editing.
+    pub async fn read_file(&self, path: &str) -> Result<Vec<u8>, SftpError> {
+        Ok(self.sftp.read(path.to_string()).await?)
+    }
+
+    /// Whole-file write. Uses `create`, which truncates: `SftpSession::write`
+    /// does not, and would leave stale bytes after a shorter save.
+    pub async fn write_file(&self, path: &str, data: &[u8]) -> Result<(), SftpError> {
+        let mut f = self.sftp.create(path.to_string()).await?;
+        f.write_all(data).await.map_err(|e| SftpError::Local {
+            path: PathBuf::from(path),
+            source: e,
+        })?;
+        f.shutdown().await.map_err(|e| SftpError::Local {
+            path: PathBuf::from(path),
+            source: e,
+        })?;
+        Ok(())
+    }
+
     pub async fn close(self) {
         let _ = self.sftp.close().await;
         self.client.close().await;

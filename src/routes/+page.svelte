@@ -16,6 +16,10 @@
   import CommandPalette from "$lib/components/CommandPalette.svelte";
   import ImportSshConfig from "$lib/components/ImportSshConfig.svelte";
   import QuickConnect from "$lib/components/QuickConnect.svelte";
+  import MasterPasswordPrompt from "$lib/components/MasterPasswordPrompt.svelte";
+  import { secrets } from "$lib/secrets.svelte";
+  import RunOnHosts from "$lib/components/RunOnHosts.svelte";
+  import SnippetVarsDialog from "$lib/components/SnippetVarsDialog.svelte";
   import { handleShortcut } from "$lib/shortcuts";
   import { settings } from "$lib/stores/settings.svelte";
   import { ui } from "$lib/stores/ui.svelte";
@@ -53,9 +57,10 @@
       for (const ev of events) window.removeEventListener(ev, bump, { capture: true });
     };
   });
-  // Unlocking counts as activity.
+  // Unlocking counts as activity; locking abandons any pending reveal.
   $effect(() => {
     if (vaultStore.unlocked) lastActivity = Date.now();
+    else secrets.cancel();
   });
   $effect(() => {
     if (ui.view === "sftp") ui.sftpVisited = true;
@@ -118,11 +123,17 @@
     <QuickConnect initial={ui.modal.initial} />
   {:else if ui.modal?.kind === "import-ssh-config"}
     <ImportSshConfig />
+  {:else if ui.modal?.kind === "snippet-vars"}
+    <SnippetVarsDialog command={ui.modal.command} names={ui.modal.names} opts={ui.modal.opts} />
+  {:else if ui.modal?.kind === "run-on-hosts"}
+    <RunOnHosts command={ui.modal.command} />
   {/if}
 
   {#if ui.paletteOpen}
     <CommandPalette />
   {/if}
+
+  <MasterPasswordPrompt />
 
   {#if ui.toast}
     <div

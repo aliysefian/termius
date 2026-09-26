@@ -1,7 +1,12 @@
 <script lang="ts">
-  import { Columns2, Command, Plus, Rows2, Terminal, X, Zap } from "lucide-svelte";
+  import { Circle, Columns2, Command, Plus, Rows2, Terminal, X, Zap } from "lucide-svelte";
+  import { save } from "@tauri-apps/plugin-dialog";
+  import * as api from "$lib/api";
+  import { MAX_PANES, layoutRects, type Divider } from "$lib/layout";
+  import { settings } from "$lib/stores/settings.svelte";
   import { adhocLabel, ui, type Pane, type Tab } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
+  import { errorMessage } from "$lib/types";
   import SnippetPicker from "./SnippetPicker.svelte";
   import TerminalPane from "./TerminalPane.svelte";
 
@@ -9,6 +14,8 @@
   let renaming = $state<string | null>(null);
   let renameValue = $state("");
   let tabMenu = $state<{ id: string; x: number; y: number } | null>(null);
+  let dragTab = $state<string | null>(null);
+  let dropIndex = $state<number | null>(null);
 
   function paneLabel(p: Pane) {
     if (p.target.kind === "adhoc") return adhocLabel(p.target.adhoc);
@@ -23,7 +30,7 @@
 
   const dot: Record<string, string> = {
     connected: "bg-success",
-    connecting: "bg-yellow-400 animate-pulse",
+    connecting: "bg-warning animate-pulse",
     error: "bg-danger",
     disconnected: "bg-fg-muted/50",
   };
@@ -37,20 +44,100 @@
     if (renaming) ui.renameTab(renaming, renameValue);
     renaming = null;
   }
+
+  // -- divider dragging ------------------------------------------------------
+
+  function startResize(e: PointerEvent, t: Tab, d: Divider, container: HTMLElement) {
+    e.preventDefault();
+    const el = e.currentTarget as HTMLElement;
+    el.setPointerCapture(e.pointerId);
+    const box = container.getBoundingClientRect();
+    const move = (ev: PointerEvent) => {
+      const ratio =
+        d.dir === "row"
+          ? ((ev.clientX - box.left) / box.width * 100 - d.area.x) / d.area.w
+          : ((ev.clientY - box.top) / box.height * 100 - d.area.y) / d.area.h;
+      ui.resizeSplit(t.id, d.splitId, ratio);
+    };
+    const up = () => {
+      el.removeEventListener("pointermove", move);
+      el.removeEventListener("pointerup", up);
+    };
+    el.addEventListener("pointermove", move);
+    el.addEventListener("pointerup", up);
+  }
+
+  // -- session logs -------------------------------------------------------------
+
+  async function toggleRecording(p: Pane) {
+    const info = ui.paneInfo[p.id];
+    if (info?.recording) {
+      await api.sessionLogs.stop(p.id);
+      ui.paneInfo[p.id] = { ...info, recording: undefined };
+      ui.notify("info", `Session log saved to ${info.recording}`);
+      return;
+    }
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+    const name = paneLabel(p).split(" · ")[0].replace(/[^\w.@-]+/g, "_");
+    const path = await save({
+      title: "Record session to…",
+      defaultPath: `${name}-${stamp}.log`,
+      filters: [{ name: "Log", extensions: ["log", "txt"] }],
+    });
+    if (!path) return;
+    try {
+      const raw = settings.prefs.logRaw;
+      await api.sessionLogs.start(p.id, path, !raw, `# SSHVault session log: ${paneLabel(p)}, started ${new Date().toLocaleString()}`);
+      ui.paneInfo[p.id] = { ...(ui.paneInfo[p.id] ?? { status: "connected" }), recording: path };
+    } catch (e) {
+      ui.notify("error", errorMessage(e));
+    }
+  }
+
+  // -- tab reordering ---------------------------------------------------------
+
+  function onTabDragOver(e: DragEvent, index: number) {
+    if (!dragTab) return;
+    e.preventDefault();
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    dropIndex = e.clientX < r.left + r.width / 2 ? index : index + 1;
+  }
+
+  function onTabDrop(e: DragEvent) {
+    e.preventDefault();
+    if (dragTab && dropIndex !== null) {
+      const from = ui.tabs.findIndex((t) => t.id === dragTab);
+      ui.moveTab(dragTab, dropIndex > from ? dropIndex - 1 : dropIndex);
+    }
+    dragTab = null;
+    dropIndex = null;
+  }
 </script>
 
 <section class="flex min-w-0 flex-1 flex-col bg-base">
   {#if ui.tabs.length > 0}
-    <div class="flex h-10 items-end gap-0.5 overflow-x-auto border-b border-line bg-panel px-2">
+    <div class="flex h-10 items-end gap-0.5 overflow-x-auto border-b border-line bg-panel px-2" role="tablist" tabindex="-1" ondrop={onTabDrop} ondragover={(e) => dragTab && e.preventDefault()}>
       {#each ui.tabs as t, i (t.id)}
         {@const color = tabColor(t)}
         <div
           class="group relative flex h-9 max-w-56 shrink-0 items-center gap-2 rounded-t-md px-3 text-sm
-            {t.id === ui.activeTabId ? 'bg-base text-fg' : 'text-fg-muted hover:bg-panel-hover'}"
+            {t.id === ui.activeTabId ? 'bg-base text-fg' : 'text-fg-muted hover:bg-panel-hover'}
+            {dragTab === t.id ? 'opacity-40' : ''}"
           role="tab"
           tabindex="0"
           aria-selected={t.id === ui.activeTabId}
           title={i < 9 ? `Ctrl+${i + 1}` : undefined}
+          draggable={renaming !== t.id}
+          ondragstart={(e) => {
+            dragTab = t.id;
+            e.dataTransfer?.setData("text/plain", t.id);
+            if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
+          }}
+          ondragend={() => {
+            dragTab = null;
+            dropIndex = null;
+          }}
+          ondragover={(e) => onTabDragOver(e, i)}
           onclick={() => (ui.activeTabId = t.id)}
           ondblclick={() => startRename(t)}
           onkeydown={(e) => e.key === "Enter" && (ui.activeTabId = t.id)}
@@ -60,6 +147,12 @@
             tabMenu = { id: t.id, x: e.clientX, y: e.clientY };
           }}
         >
+          {#if dropIndex === i && dragTab && dragTab !== t.id}
+            <span class="absolute -left-0.5 top-1 bottom-1 w-0.5 rounded bg-accent"></span>
+          {/if}
+          {#if dropIndex === i + 1 && i === ui.tabs.length - 1 && dragTab && dragTab !== t.id}
+            <span class="absolute -right-0.5 top-1 bottom-1 w-0.5 rounded bg-accent"></span>
+          {/if}
           {#if t.id === ui.activeTabId}
             <span class="absolute inset-x-2 top-0 h-0.5 rounded-b" style:background={color ?? "var(--color-accent)"}></span>
           {/if}
@@ -79,6 +172,9 @@
             />
           {:else}
             <span class="truncate">{t.customTitle ?? t.title}</span>
+          {/if}
+          {#if t.panes.some((p) => ui.paneInfo[p.id]?.recording)}
+            <Circle size={8} class="shrink-0 fill-danger text-danger" />
           {/if}
           <button
             class="rounded p-0.5 opacity-0 hover:bg-panel-hover group-hover:opacity-100 {t.id === ui.activeTabId ? 'opacity-60' : ''}"
@@ -118,33 +214,65 @@
     </div>
   {/if}
 
-  <!-- Every tab stays mounted so background sessions keep streaming. -->
+  <!-- Every tab stays mounted so background sessions keep streaming. Within a
+       tab, panes are a flat keyed list placed by the layout's rectangles, so
+       splitting never remounts (and disconnects) an existing terminal. -->
   {#each ui.tabs as t (t.id)}
-    <div class="min-h-0 flex-1 overflow-hidden {t.id === ui.activeTabId ? 'flex' : 'hidden'} {t.split === 'horizontal' ? 'flex-col' : 'flex-row'}">
+    {@const rects = layoutRects(t.layout)}
+    {@const multi = t.panes.length > 1}
+    <div class="relative min-h-0 flex-1 overflow-hidden {t.id === ui.activeTabId ? 'block' : 'hidden'}" data-tab-body={t.id}>
       {#each t.panes as pane (pane.id)}
+        {@const r = rects.panes.get(pane.id)}
         {@const info = ui.paneInfo[pane.id]}
-        <div
-          class="relative flex min-h-0 min-w-0 flex-1 flex-col border-line
-            {t.panes.length > 1 && t.split === 'vertical' ? 'first:border-r' : ''}
-            {t.panes.length > 1 && t.split === 'horizontal' ? 'first:border-b' : ''}
-            {pane.id === t.activePaneId && t.panes.length > 1 ? 'ring-1 ring-inset ring-accent/40' : ''}"
-          role="presentation"
-          onmousedown={() => (t.activePaneId = pane.id)}
-        >
-          <div class="flex h-7 items-center gap-2 border-b border-line bg-panel/40 px-3 text-xs text-fg-muted">
-            <span class="truncate">{paneLabel(pane)}</span>
-            {#if info?.remoteTitle}
-              <span class="truncate text-fg-muted/70">— {info.remoteTitle}</span>
-            {/if}
-            <div class="flex-1"></div>
-            {#if t.panes.length === 1}
-              <button class="icon-btn h-6 w-6" title="Split right (Ctrl+Shift+D)" onclick={() => ui.splitActive("vertical")}><Columns2 size={13} /></button>
-              <button class="icon-btn h-6 w-6" title="Split down (Ctrl+Shift+E)" onclick={() => ui.splitActive("horizontal")}><Rows2 size={13} /></button>
-            {:else}
-              <button class="icon-btn h-6 w-6" title="Close pane" onclick={() => ui.closePane(t.id, pane.id)}><X size={13} /></button>
-            {/if}
+        {#if r}
+          <div
+            class="absolute flex flex-col overflow-hidden {pane.id === t.activePaneId && multi ? 'ring-1 ring-inset ring-accent/40' : ''}"
+            style:left="{r.x}%"
+            style:top="{r.y}%"
+            style:width="{r.w}%"
+            style:height="{r.h}%"
+            role="presentation"
+            onmousedown={() => (t.activePaneId = pane.id)}
+          >
+            <div class="flex h-7 shrink-0 items-center gap-2 border-b border-line bg-panel/40 px-3 text-xs text-fg-muted">
+              <span class="truncate">{paneLabel(pane)}</span>
+              {#if info?.remoteTitle}
+                <span class="truncate text-fg-muted/70">— {info.remoteTitle}</span>
+              {/if}
+              <div class="flex-1"></div>
+              <button
+                class="icon-btn h-6 w-6 {info?.recording ? 'text-danger' : ''}"
+                title={info?.recording ? `Stop recording (${info.recording})` : "Record session to a file"}
+                disabled={info?.status !== "connected" && !info?.recording}
+                onclick={() => toggleRecording(pane)}
+              >
+                <Circle size={11} class={info?.recording ? "fill-danger animate-pulse" : ""} />
+              </button>
+              {#if t.panes.length < MAX_PANES}
+                <button class="icon-btn h-6 w-6" title="Split right (Ctrl+Shift+D)" onclick={() => { t.activePaneId = pane.id; ui.splitActive("vertical"); }}><Columns2 size={13} /></button>
+                <button class="icon-btn h-6 w-6" title="Split down (Ctrl+Shift+E)" onclick={() => { t.activePaneId = pane.id; ui.splitActive("horizontal"); }}><Rows2 size={13} /></button>
+              {/if}
+              {#if multi}
+                <button class="icon-btn h-6 w-6" title="Close pane" onclick={() => ui.closePane(t.id, pane.id)}><X size={13} /></button>
+              {/if}
+            </div>
+            <TerminalPane {pane} active={pane.id === t.activePaneId && t.id === ui.activeTabId} />
           </div>
-          <TerminalPane {pane} active={pane.id === t.activePaneId && t.id === ui.activeTabId} />
+        {/if}
+      {/each}
+
+      {#each rects.dividers as d (d.splitId)}
+        <div
+          class="group absolute z-10 flex items-center justify-center {d.dir === 'row' ? 'cursor-col-resize' : 'cursor-row-resize'}"
+          style:left={d.dir === "row" ? `calc(${d.at.x}% - 3px)` : `${d.at.x}%`}
+          style:top={d.dir === "row" ? `${d.at.y}%` : `calc(${d.at.y}% - 3px)`}
+          style:width={d.dir === "row" ? "6px" : `${d.at.w}%`}
+          style:height={d.dir === "row" ? `${d.at.h}%` : "6px"}
+          role="separator"
+          aria-orientation={d.dir === "row" ? "vertical" : "horizontal"}
+          onpointerdown={(e) => startResize(e, t, d, (e.currentTarget as HTMLElement).parentElement!)}
+        >
+          <div class="bg-line transition-colors group-hover:bg-accent {d.dir === 'row' ? 'h-full w-px' : 'h-px w-full'}"></div>
         </div>
       {/each}
     </div>

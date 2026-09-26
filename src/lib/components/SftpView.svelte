@@ -1,11 +1,13 @@
 <script lang="ts">
   import { onDestroy, onMount } from "svelte";
-  import { CircleStop, HardDrive, Loader2, Monitor, Server, Unplug, X } from "lucide-svelte";
+  import { CircleStop, FilePen, HardDrive, Loader2, Monitor, Server, Unplug, X } from "lucide-svelte";
+  import type { UnlistenFn } from "@tauri-apps/api/event";
+  import * as api from "$lib/api";
   import FilePane from "./FilePane.svelte";
   import { local, remote, sftp, type Direction, type FileSource } from "$lib/sftp";
   import { ui } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
-  import { errorMessage, formatBytes, type TransferProgress, type Uuid } from "$lib/types";
+  import { errorMessage, formatBytes, type FileEntry, type TransferProgress, type Uuid } from "$lib/types";
 
   interface Transfer {
     id: string;
@@ -39,7 +41,61 @@
   onMount(async () => {
     localPath = await local.home();
   });
+  // -- remote editing -------------------------------------------------------
+
+  interface Editing {
+    id: string;
+    name: string;
+    remote: string;
+    uploads: number;
+    lastUpload?: Date;
+    error?: string;
+  }
+  let edits = $state<Editing[]>([]);
+  let unlistenEdit: UnlistenFn | null = null;
+
+  onMount(async () => {
+    unlistenEdit = await api.remoteEdit.onEvent((e) => {
+      const ed = edits.find((x) => x.id === e.edit_id);
+      if (!ed) return;
+      if (e.state === "uploaded") {
+        ed.uploads++;
+        ed.lastUpload = new Date();
+        ed.error = undefined;
+        remoteRefresh++;
+      } else {
+        ed.error = e.message;
+      }
+    });
+  });
+
+  async function edit(entry: FileEntry) {
+    const already = edits.find((e) => e.remote === entry.path);
+    if (already) {
+      ui.notify("info", `${entry.name} is already open for editing.`);
+      return;
+    }
+    try {
+      const started = await api.remoteEdit.start(sessionId, entry.path);
+      edits.push({ id: started.edit_id, name: entry.name, remote: entry.path, uploads: 0 });
+    } catch (e) {
+      ui.notify("error", errorMessage(e));
+    }
+  }
+
+  async function stopEdit(id: string) {
+    await api.remoteEdit.stop(id);
+    edits = edits.filter((e) => e.id !== id);
+  }
+
+  async function stopAllEdits() {
+    await Promise.all(edits.map((e) => api.remoteEdit.stop(e.id)));
+    edits = [];
+  }
+
   onDestroy(() => {
+    unlistenEdit?.();
+    void stopAllEdits();
     if (connectedHost) void sftp.close(sessionId);
   });
 
@@ -67,6 +123,7 @@
   }
 
   async function disconnect() {
+    await stopAllEdits();
     await sftp.close(sessionId);
     connectedHost = null;
     remotePath = "";
@@ -132,6 +189,7 @@
       transferLabel="← Download"
       onTransfer={(paths) => start("download", paths)}
       onDropFrom={(paths) => start("upload", paths)}
+      onEdit={edit}
     >
       {#snippet header()}
         <Server size={14} class="text-accent" />
@@ -176,6 +234,29 @@
       {/snippet}
     </FilePane>
   </div>
+
+  {#if edits.length}
+    <div class="border-t border-line bg-panel">
+      <div class="flex items-center justify-between px-3 py-1.5 text-xs text-fg-muted">
+        <span class="font-medium uppercase tracking-wide">Editing</span>
+        <span>Saves in your editor upload automatically. Stop to delete the local copy.</span>
+      </div>
+      {#each edits as ed (ed.id)}
+        <div class="flex items-center gap-3 px-3 py-1.5 text-xs">
+          <FilePen size={13} class="shrink-0 text-accent" />
+          <span class="min-w-0 flex-1 truncate font-mono" title={ed.remote}>{ed.remote}</span>
+          {#if ed.error}
+            <span class="truncate text-danger" title={ed.error}>Upload failed</span>
+          {:else if ed.lastUpload}
+            <span class="text-success">Uploaded {ed.lastUpload.toLocaleTimeString()}</span>
+          {:else}
+            <span class="text-fg-muted">Open in editor</span>
+          {/if}
+          <button class="btn-ghost py-0.5 text-xs" onclick={() => stopEdit(ed.id)}>Stop</button>
+        </div>
+      {/each}
+    </div>
+  {/if}
 
   {#if transfers.length}
     <div class="max-h-48 overflow-y-auto border-t border-line bg-panel">

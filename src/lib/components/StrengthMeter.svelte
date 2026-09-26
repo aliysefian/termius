@@ -2,7 +2,7 @@
   import { estimate } from "$lib/strength";
   let { password }: { password: string } = $props();
   const s = $derived(estimate(password));
-  const colors = ["bg-danger", "bg-danger", "bg-yellow-400", "bg-success", "bg-success"];
+  const colors = ["bg-danger", "bg-danger", "bg-warning", "bg-success", "bg-success"];
 </script>
 
 {#if password}

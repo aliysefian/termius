@@ -1,6 +1,7 @@
 // Ephemeral UI state: which sidebar view is active, open tabs, modals.
-import { ssh, type AdhocTarget, type SessionStatus } from "$lib/ssh";
-import { errorMessage, type Uuid } from "$lib/types";
+import { MAX_PANES, leaf, paneIds, remove, setRatio, split, type LayoutNode } from "$lib/layout";
+import type { AdhocTarget, SessionStatus } from "$lib/ssh";
+import type { Uuid } from "$lib/types";
 
 export type View = "hosts" | "keychain" | "sftp" | "forwarding" | "snippets" | "settings";
 
@@ -17,9 +18,10 @@ export interface Tab {
   title: string;
   /** Set when the user renames the tab; wins over `title`. */
   customTitle?: string;
-  /** Panes inside the tab. One pane = no split; two = side by side. */
+  /** Every pane in the tab, flat and stable (see lib/layout.ts). */
   panes: Pane[];
-  split: "none" | "vertical" | "horizontal";
+  /** How the panes are arranged. */
+  layout: LayoutNode;
   activePaneId: string;
 }
 
@@ -28,6 +30,8 @@ export interface PaneInfo {
   status: SessionStatus["kind"];
   /** Window title set by the remote shell (OSC 0/2), if any. */
   remoteTitle?: string;
+  /** Path of the session log being written, if recording. */
+  recording?: string;
 }
 
 export type Modal =
@@ -37,7 +41,14 @@ export type Modal =
   | { kind: "forward"; id: Uuid | null }
   | { kind: "quick-connect"; initial?: string }
   | { kind: "import-ssh-config" }
+  | { kind: "snippet-vars"; command: string; names: string[]; opts: SnippetRunOpts }
+  | { kind: "run-on-hosts"; command?: string }
   | null;
+
+export interface SnippetRunOpts {
+  execute: boolean;
+  scope: "pane" | "tab";
+}
 
 let counter = 0;
 const nextId = (prefix: string) => `${prefix}-${++counter}-${Date.now().toString(36)}`;
@@ -79,37 +90,13 @@ class UiStore {
     return "disconnected";
   }
 
-  /**
-   * Send a snippet to terminals. `execute` appends Enter; `scope: "tab"`
-   * broadcasts to every pane in the active tab (e.g. both halves of a split).
-   */
-  async runSnippet(command: string, opts: { execute: boolean; scope: "pane" | "tab" }) {
-    const tab = this.activeTab;
-    if (!tab) {
-      this.notify("error", "Open a terminal first, then run the snippet.");
-      return;
-    }
-    const panes = opts.scope === "tab" ? tab.panes.map((p) => p.id) : [tab.activePaneId];
-    // Terminals expect CR for Enter; normalise multi-line snippets.
-    let text = command.replace(/\r?\n/g, "\r");
-    if (opts.execute && !text.endsWith("\r")) text += "\r";
-    if (!opts.execute) text = text.replace(/\r$/, "");
-    const results = await Promise.allSettled(panes.map((id) => ssh.write(id, text)));
-    const failed = results.filter((r) => r.status === "rejected") as PromiseRejectedResult[];
-    if (failed.length === panes.length) {
-      this.notify("error", `Snippet not sent: ${errorMessage(failed[0].reason)}`);
-    } else if (failed.length) {
-      this.notify("info", `Sent to ${panes.length - failed.length} of ${panes.length} panes.`);
-    }
-  }
-
   #openTab(target: PaneTarget, title: string) {
     const pane: Pane = { id: nextId("pane"), target };
     const tab: Tab = {
       id: nextId("tab"),
       title,
       panes: [pane],
-      split: "none",
+      layout: leaf(pane.id),
       activePaneId: pane.id,
     };
     this.tabs.push(tab);
@@ -164,14 +151,17 @@ class UiStore {
     if (t) this.activeTabId = t.id;
   }
 
-  /** Split the active tab, opening the same target in the new pane. */
+  /**
+   * Split the active pane, opening the same target in the new pane.
+   * "vertical" puts the new pane to the right, "horizontal" below.
+   */
   splitActive(direction: "vertical" | "horizontal") {
     const tab = this.activeTab;
-    if (!tab || tab.panes.length >= 2) return;
+    if (!tab || tab.panes.length >= MAX_PANES) return;
     const source = tab.panes.find((p) => p.id === tab.activePaneId) ?? tab.panes[0];
     const pane: Pane = { id: nextId("pane"), target: structuredClone($state.snapshot(source.target)) as PaneTarget };
     tab.panes.push(pane);
-    tab.split = direction;
+    tab.layout = split($state.snapshot(tab.layout) as LayoutNode, source.id, pane.id, direction === "vertical" ? "row" : "column");
     tab.activePaneId = pane.id;
   }
 
@@ -179,10 +169,24 @@ class UiStore {
     const tab = this.tabs.find((t) => t.id === tabId);
     if (!tab) return;
     delete this.paneInfo[paneId];
+    const layout = remove($state.snapshot(tab.layout) as LayoutNode, paneId);
     tab.panes = tab.panes.filter((p) => p.id !== paneId);
-    if (tab.panes.length === 0) return this.closeTab(tabId);
-    tab.split = "none";
-    tab.activePaneId = tab.panes[0].id;
+    if (!layout || tab.panes.length === 0) return this.closeTab(tabId);
+    tab.layout = layout;
+    if (tab.activePaneId === paneId) tab.activePaneId = paneIds(layout)[0];
+  }
+
+  resizeSplit(tabId: string, splitId: string, ratio: number) {
+    const tab = this.tabs.find((t) => t.id === tabId);
+    if (tab) tab.layout = setRatio($state.snapshot(tab.layout) as LayoutNode, splitId, ratio);
+  }
+
+  /** Move a tab to `toIndex` (drag to reorder). */
+  moveTab(tabId: string, toIndex: number) {
+    const from = this.tabs.findIndex((t) => t.id === tabId);
+    if (from < 0) return;
+    const [tab] = this.tabs.splice(from, 1);
+    this.tabs.splice(Math.max(0, Math.min(toIndex, this.tabs.length)), 0, tab);
   }
 
   /** Forget every open tab and transient UI; used when the vault locks. */

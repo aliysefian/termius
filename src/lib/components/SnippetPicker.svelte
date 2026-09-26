@@ -1,5 +1,6 @@
 <script lang="ts">
   import { ClipboardPaste, Code, Megaphone, Play, Search } from "lucide-svelte";
+  import { runSnippet } from "$lib/runsnippet";
   import { ui } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
 
@@ -17,7 +18,7 @@
 
   function run(command: string, execute: boolean) {
     open = false;
-    void ui.runSnippet(command, { execute, scope: broadcast && canBroadcast ? "tab" : "pane" });
+    void runSnippet(command, { execute, scope: broadcast && canBroadcast ? "tab" : "pane" });
   }
 </script>
 

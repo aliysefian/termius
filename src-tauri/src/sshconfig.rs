@@ -24,6 +24,9 @@ pub struct ImportedHost {
     pub identity_file: Option<String>,
     /// Alias of a single-hop ProxyJump, if any.
     pub proxy_jump: Option<String>,
+    /// `ForwardAgent yes`.
+    #[serde(default)]
+    pub forward_agent: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -242,6 +245,7 @@ pub fn parse(text: &str, home: &Path) -> ParseResult {
             user: get("user"),
             identity_file: get("identityfile").map(|p| expand_path(&p, home)),
             proxy_jump,
+            forward_agent: get("forwardagent").is_some_and(|v| v.eq_ignore_ascii_case("yes")),
         });
     }
     result
@@ -366,6 +370,7 @@ pub fn import_into_vault(
                 port: h.port,
                 identity_id,
                 jump_host_id: None,
+                forward_agent: h.forward_agent,
                 group: group.to_string(),
                 tags: Vec::new(),
                 color: None,
@@ -421,6 +426,7 @@ Host bastion
     HostName bastion.example.com
     User ops
     IdentityFile ~/.ssh/id_ops
+    ForwardAgent yes
 
 Host db1 db2
     HostName %h.internal
@@ -493,6 +499,8 @@ Host *
             Some(home_path("/home/me", &[".ssh", "id_ops"]).as_str())
         );
         assert_eq!(b.port, 22);
+        assert!(b.forward_agent);
+        assert!(!get(&r, "web").forward_agent);
 
         let d = get(&r, "db1");
         assert_eq!(d.hostname, "db1.internal");
@@ -553,6 +561,7 @@ Host *
                     port: 22,
                     identity_id: None,
                     jump_host_id: None,
+                    forward_agent: false,
                     group: String::new(),
                     tags: vec![],
                     color: None,

@@ -3,6 +3,7 @@
   import { open } from "@tauri-apps/plugin-dialog";
   import { writeText } from "@tauri-apps/plugin-clipboard-manager";
   import Modal from "./Modal.svelte";
+  import { revealIdentity } from "$lib/secrets.svelte";
   import { ui } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
   import { emptyHost, errorMessage, type Host, type HostCredentials, type InlineAuth, type Uuid } from "$lib/types";
@@ -52,6 +53,15 @@
 
   let generatedKey = $state<string | null>(null);
   let copied = $state(false);
+
+  async function revealSaved() {
+    if (!existing?.identity_id) return;
+    const s = await revealIdentity(existing.identity_id, `Show the saved password for "${form.label}"`);
+    if (s?.password != null) {
+      password = s.password;
+      showPassword = true;
+    }
+  }
 
   async function chooseKeyFile() {
     const f = await open({ multiple: false, directory: false, title: "Choose a private key file" });
@@ -240,7 +250,12 @@
 
             {#if mode === "password"}
               <div>
-                <label class="label" for="h-pw">Password</label>
+                <div class="mb-1 flex items-end justify-between">
+                  <label class="label mb-0" for="h-pw">Password</label>
+                  {#if hasSavedPassword && !password}
+                    <button type="button" class="btn-ghost py-0.5 text-xs" onclick={revealSaved}><Eye size={12} /> Reveal saved</button>
+                  {/if}
+                </div>
                 <div class="relative">
                   <input
                     id="h-pw"
@@ -361,6 +376,16 @@
             <p class="mt-1 text-xs text-danger">"{jumpMissingIdentity}" has no saved credentials. Jump hosts need them to connect.</p>
           {/if}
         </div>
+        <label class="col-span-2 flex items-start gap-2 text-sm">
+          <input type="checkbox" class="mt-0.5 accent-[#7b61ff]" bind:checked={form.forward_agent} />
+          <span>
+            Forward ssh-agent
+            <span class="block text-xs text-fg-muted">
+              Lets this host use your local keys, for example to reach another server or git. Anyone with root on the
+              host can use them while you're connected, so only enable it for hosts you trust.
+            </span>
+          </span>
+        </label>
         <div>
           <label class="label" for="h-group">Group</label>
           <input id="h-group" class="input" bind:value={form.group} placeholder="Production/Databases" />

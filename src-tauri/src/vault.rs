@@ -383,6 +383,17 @@ impl Vault {
         &self.root
     }
 
+    /// Salt and KDF parameters, to re-derive a key from a password without
+    /// holding the vault (the derivation is deliberately slow).
+    pub fn kdf_inputs(&self) -> Result<([u8; SALT_LEN], KdfParams)> {
+        Ok((self.manifest.salt_bytes()?, self.manifest.kdf))
+    }
+
+    /// Constant-time check that `key` is this vault's key.
+    pub fn key_matches(&self, key: &MasterKey) -> bool {
+        self.key.ct_eq(key)
+    }
+
     pub fn manifest(&self) -> &Manifest {
         &self.manifest
     }
@@ -1003,6 +1014,16 @@ mod tests {
             .list_with_tombstones::<String>(Collection::Snippets)
             .unwrap();
         assert!(l.records.iter().any(|r| r.id == del.id && r.deleted));
+    }
+
+    #[test]
+    fn password_can_be_rechecked_against_the_open_vault() {
+        let (_dir, v) = new_vault();
+        let (salt, kdf) = v.kdf_inputs().unwrap();
+        let right = crypto::derive_key(b"hunter2", &salt, kdf).unwrap();
+        let wrong = crypto::derive_key(b"hunter3", &salt, kdf).unwrap();
+        assert!(v.key_matches(&right));
+        assert!(!v.key_matches(&wrong));
     }
 
     #[test]

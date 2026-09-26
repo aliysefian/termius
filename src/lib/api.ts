@@ -1,8 +1,11 @@
 // Typed wrappers over Tauri IPC. Keep this the only place that knows command names.
-import { invoke } from "@tauri-apps/api/core";
+import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import type {
+  Revealed,
+  EditEvent,
+  RunEvent,
   HostCredentials,
   GeneratedKey,
   ImportedHost,
@@ -50,8 +53,10 @@ export const identities = {
   save: (id: Uuid | null, identity: Identity) =>
     invoke<VaultRecord<Identity>>("save_identity", { id, identity }),
   delete: (id: Uuid) => invoke<void>("delete_identity", { id }),
-  /** Full record including secrets, for the edit form only. */
-  get: (id: Uuid) => invoke<VaultRecord<Identity>>("get_identity", { id }),
+  /** Stored secrets; needs the master password unless recently entered. */
+  reveal: (id: Uuid, masterPassword: string | null) =>
+    invoke<{ secret: Revealed; grace_secs: number }>("reveal_identity", { id, masterPassword }),
+  revealClose: () => invoke<void>("reveal_close"),
   publicKey: (id: Uuid) => invoke<PublicKeyInfo>("identity_public_key", { id }),
 };
 
@@ -88,6 +93,28 @@ export const forwards = {
   statuses: () => invoke<Record<Uuid, ForwardStatus>>("forward_statuses"),
   onStatus: (handler: (e: { rule_id: Uuid; status: ForwardStatus }) => void): Promise<UnlistenFn> =>
     listen<{ rule_id: Uuid; status: ForwardStatus }>("forward:status", (e) => handler(e.payload)),
+};
+
+export const runs = {
+  start(runId: string, jobs: { host_id: Uuid; command: string }[], timeoutSecs: number, onEvent: (e: RunEvent) => void) {
+    const channel = new Channel<RunEvent>(onEvent);
+    return invoke<void>("run_on_hosts", { runId, jobs, timeoutSecs, onEvent: channel });
+  },
+  cancel: (runId: string) => invoke<boolean>("run_cancel", { runId }),
+};
+
+export const sessionLogs = {
+  start: (paneId: string, path: string, plain: boolean, header: string) =>
+    invoke<void>("ssh_log_start", { paneId, path, plain, header }),
+  stop: (paneId: string) => invoke<void>("ssh_log_stop", { paneId }),
+};
+
+export const remoteEdit = {
+  start: (sessionId: string, remotePath: string) =>
+    invoke<{ edit_id: string; local_path: string }>("sftp_edit_start", { sessionId, remotePath }),
+  stop: (editId: string) => invoke<void>("sftp_edit_stop", { editId }),
+  onEvent: (handler: (e: EditEvent) => void): Promise<UnlistenFn> =>
+    listen<EditEvent>("sftp:edit", (e) => handler(e.payload)),
 };
 
 /** Native folder picker. Resolves to null when the user cancels. */

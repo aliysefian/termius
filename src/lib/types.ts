@@ -23,6 +23,13 @@ export interface Identity {
   for_host?: Uuid;
 }
 
+/** An identity's secrets, shown after the master password is confirmed. */
+export interface Revealed {
+  password: string | null;
+  private_key: string | null;
+  passphrase: string | null;
+}
+
 /** Secret-free auth sent from the host form. Empty secrets keep the stored ones. */
 export type InlineAuth =
   | { type: "password"; password: string | null }
@@ -44,6 +51,8 @@ export interface Host {
   identity_id?: Uuid;
   /** Host to tunnel through first, like OpenSSH ProxyJump. May itself have a jump. */
   jump_host_id?: Uuid;
+  /** Forward this computer's ssh-agent (ssh -A). */
+  forward_agent?: boolean;
   /** Slash-separated group path, e.g. "Production/Databases". */
   group: string;
   tags: string[];
@@ -170,7 +179,26 @@ export interface ImportedHost {
   user: string | null;
   identity_file: string | null;
   proxy_jump: string | null;
+  forward_agent: boolean;
 }
+
+export interface ExecOutput {
+  stdout: string;
+  stderr: string;
+  exit_code: number | null;
+  truncated: boolean;
+  duration_ms: number;
+}
+
+export type RunEvent =
+  | { event: "started"; host_id: Uuid }
+  | { event: "finished"; host_id: Uuid; output: ExecOutput }
+  | { event: "failed"; host_id: Uuid; message: string }
+  | { event: "done" };
+
+export type EditEvent =
+  | { edit_id: string; state: "uploaded"; bytes: number }
+  | { edit_id: string; state: "failed"; message: string };
 
 export interface SshConfigPreview {
   path: string;

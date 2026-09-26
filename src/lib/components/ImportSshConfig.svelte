@@ -71,7 +71,7 @@
         <p class="text-fg-muted">Skipped because they already exist: {summary.skipped_existing.join(", ")}</p>
       {/if}
       {#each summary.warnings as w, i (i)}
-        <p class="flex gap-2 text-xs text-yellow-400"><TriangleAlert size={13} class="mt-0.5 shrink-0" /> {w}</p>
+        <p class="flex gap-2 text-xs text-warning"><TriangleAlert size={13} class="mt-0.5 shrink-0" /> {w}</p>
       {/each}
     </div>
   {:else if loading}
@@ -142,12 +142,12 @@
           </div>
 
           <p class="flex gap-2 text-xs text-fg-muted">
-            <TriangleAlert size={13} class="mt-0.5 shrink-0 text-yellow-400" />
+            <TriangleAlert size={13} class="mt-0.5 shrink-0 text-warning" />
             Private key files are copied into the encrypted vault, so they sync to your other computers.
           </p>
         {/if}
         {#each preview.warnings as w, i (i)}
-          <p class="flex gap-2 text-xs text-yellow-400"><TriangleAlert size={13} class="mt-0.5 shrink-0" /> {w}</p>
+          <p class="flex gap-2 text-xs text-warning"><TriangleAlert size={13} class="mt-0.5 shrink-0" /> {w}</p>
         {/each}
       {/if}
     </div>

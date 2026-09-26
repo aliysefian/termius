@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ArrowUp, Eye, EyeOff, File, Folder, FolderPlus, Link, Pencil, RefreshCw, Trash2 } from "lucide-svelte";
+  import { ArrowUp, Eye, EyeOff, File, FilePen, Folder, FolderPlus, Link, RefreshCw, TextCursorInput, Trash2 } from "lucide-svelte";
   import { settings } from "$lib/stores/settings.svelte";
   import type { Snippet as SvelteSnippet } from "svelte";
   import { parentPath, type FileSource } from "$lib/sftp";
@@ -15,6 +15,7 @@
     onDropFrom,
     header,
     placeholder,
+    onEdit,
   }: {
     side: "local" | "remote";
     source: FileSource | null;
@@ -27,6 +28,8 @@
     onDropFrom: (paths: string[]) => void;
     header?: SvelteSnippet;
     placeholder?: SvelteSnippet;
+    /** Open a file for editing (remote pane only). */
+    onEdit?: (entry: FileEntry) => void;
   } = $props();
 
   let entries = $state<FileEntry[]>([]);
@@ -62,7 +65,15 @@
 
   function open(e: FileEntry) {
     if (e.is_dir) path = e.path;
+    else onEdit?.(e);
   }
+
+  const editable = $derived.by(() => {
+    if (!onEdit || selected.size !== 1) return null;
+    const [p] = [...selected];
+    const e = entries.find((x) => x.path === p);
+    return e && !e.is_dir ? e : null;
+  });
 
   function click(ev: MouseEvent, e: FileEntry) {
     const next = new Set(ev.ctrlKey || ev.metaKey ? selected : []);
@@ -172,7 +183,10 @@
         {#if settings.prefs.showHiddenFiles}<Eye size={14} />{:else}<EyeOff size={14} />{/if}
       </button>
       <button class="icon-btn h-7 w-7" title="New folder" onclick={mkdir}><FolderPlus size={14} /></button>
-      <button class="icon-btn h-7 w-7" title="Rename" disabled={selected.size !== 1} onclick={rename}><Pencil size={14} /></button>
+      {#if onEdit}
+        <button class="icon-btn h-7 w-7" title="Edit in local editor (or double-click a file)" disabled={!editable} onclick={() => editable && onEdit?.(editable)}><FilePen size={14} /></button>
+      {/if}
+      <button class="icon-btn h-7 w-7" title="Rename" disabled={selected.size !== 1} onclick={rename}><TextCursorInput size={14} /></button>
       <button class="icon-btn h-7 w-7 hover:text-danger" title="Delete" disabled={selected.size === 0} onclick={remove}><Trash2 size={14} /></button>
     </div>
 

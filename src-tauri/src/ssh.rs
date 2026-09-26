@@ -165,6 +165,9 @@ pub struct Target {
     /// itself have a jump, forming a chain; the outermost hop is dialled
     /// directly.
     pub jump: Option<Box<Target>>,
+    /// Let the remote shell use this computer's ssh-agent (`ssh -A`). Only
+    /// honoured for the final hop's interactive session.
+    pub forward_agent: bool,
 }
 
 /// A host key recorded for the first time during a connection.
@@ -355,6 +358,9 @@ pub struct ClientHandler {
     /// session task, which reports it after authentication succeeds.
     learned_fingerprint: Arc<Mutex<Option<String>>>,
     remote_forwards: Option<RemoteForwards>,
+    /// Whether this connection asked for agent forwarding. The server may
+    /// only open agent channels when it did.
+    forward_agent: bool,
 }
 
 impl ClientHandler {
@@ -401,6 +407,35 @@ impl client::Handler for ClientHandler {
             }
             Err(e) => Err(e.into()),
         }
+    }
+
+    /// russh's default accepts these unconditionally, which would hand our
+    /// agent to any server that asks. Only accept when we requested it.
+    async fn server_channel_open_agent_forward(
+        &mut self,
+        channel: russh::Channel<client::Msg>,
+        reply: client::ChannelOpenHandle,
+        _session: &mut client::Session,
+    ) -> Result<(), Self::Error> {
+        if !self.forward_agent {
+            reply
+                .reject(russh::ChannelOpenFailure::AdministrativelyProhibited)
+                .await;
+            return Ok(());
+        }
+        reply.accept().await;
+        tokio::spawn(async move {
+            match local_agent().await {
+                Ok(mut agent) => {
+                    let mut remote = channel.into_stream();
+                    let _ = tokio::io::copy_bidirectional(&mut agent, &mut remote).await;
+                }
+                Err(_) => {
+                    let _ = channel.close().await;
+                }
+            }
+        });
+        Ok(())
     }
 
     async fn server_channel_open_forwarded_tcpip(
@@ -505,6 +540,7 @@ async fn connect_hop(
         known_hosts: target.known_hosts.clone(),
         learned_fingerprint: Arc::clone(&learned),
         remote_forwards,
+        forward_agent: target.forward_agent,
     };
     let timeout = || SshError::Timeout(addr.clone());
 
@@ -566,6 +602,19 @@ async fn connect_hop(
     Ok((handle, fp))
 }
 
+/// Connect to this computer's ssh-agent, for agent forwarding.
+#[cfg(unix)]
+async fn local_agent() -> std::io::Result<tokio::net::UnixStream> {
+    let path = std::env::var_os("SSH_AUTH_SOCK")
+        .ok_or_else(|| std::io::Error::other("SSH_AUTH_SOCK is not set"))?;
+    tokio::net::UnixStream::connect(path).await
+}
+
+#[cfg(windows)]
+async fn local_agent() -> std::io::Result<tokio::net::windows::named_pipe::NamedPipeClient> {
+    tokio::net::windows::named_pipe::ClientOptions::new().open(r"\\.\pipe\openssh-ssh-agent")
+}
+
 // ---------------------------------------------------------------------------
 // Session task
 // ---------------------------------------------------------------------------
@@ -598,6 +647,9 @@ async fn run_session(
     channel
         .request_pty(true, TERM, params.cols, params.rows, 0, 0, &[])
         .await?;
+    if params.target.forward_agent {
+        channel.agent_forward(true).await?;
+    }
     channel.request_shell(true).await?;
     sink.status(SessionStatus::Connected);
 
@@ -785,8 +837,14 @@ pub(crate) mod testutil {
         }
     }
 
-    /// Returns `None` (and the caller should skip) when sshd is unavailable.
+    /// Returns `None` (and the caller should skip) when sshd is unavailable,
+    /// or when `SSHVAULT_SKIP_SSHD_TESTS` is set (used on macOS CI, whose
+    /// sshd needs a different setup).
     pub fn spawn_sshd(dir: &std::path::Path) -> Option<Sshd> {
+        // CI sets the variable on every OS, empty where tests should run.
+        if std::env::var_os("SSHVAULT_SKIP_SSHD_TESTS").is_some_and(|v| !v.is_empty()) {
+            return None;
+        }
         let sshd = ["/usr/sbin/sshd", "/usr/bin/sshd", "/usr/local/sbin/sshd"]
             .iter()
             .find(|p| std::path::Path::new(p).exists())?;
@@ -867,6 +925,7 @@ pub(crate) mod testutil {
             },
             known_hosts,
             jump: None,
+            forward_agent: false,
         }
     }
 }
@@ -1079,6 +1138,97 @@ mod tests {
         wait_status(&rx, |s| matches!(s, SessionStatus::NewHostKey { .. }));
         wait_status(&rx, |s| matches!(s, SessionStatus::Connected));
         manager.disconnect("p5").await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn agent_is_forwarded_only_when_enabled() {
+        use std::process::{Command, Stdio};
+        let dir = tempfile::TempDir::new().unwrap();
+        let Some(sshd) = spawn_sshd(dir.path()) else {
+            eprintln!("skipping: no usable sshd on this machine");
+            return;
+        };
+        // A private agent holding the test key, so the result doesn't depend
+        // on whatever agent the developer has running.
+        let sock = dir.path().join("agent.sock");
+        let Ok(mut agent) = Command::new("ssh-agent")
+            .args(["-D", "-a"])
+            .arg(&sock)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+        else {
+            eprintln!("skipping: no ssh-agent");
+            return;
+        };
+        for _ in 0..50 {
+            if sock.exists() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        let added = Command::new("ssh-add")
+            .env("SSH_AUTH_SOCK", &sock)
+            .arg(dir.path().join("client_key"))
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if !added {
+            let _ = agent.kill();
+            eprintln!("skipping: ssh-add failed");
+            return;
+        }
+        std::env::set_var("SSH_AUTH_SOCK", &sock);
+
+        let manager = Arc::new(SshManager::new());
+        let kh = dir.path().join("kh");
+
+        let mut forwarded = target(&sshd, &sshd.client_key, kh.clone());
+        forwarded.forward_agent = true;
+        let (tx, rx) = std_mpsc::channel();
+        manager
+            .connect(
+                "fa".into(),
+                ConnectParams {
+                    target: forwarded,
+                    cols: 120,
+                    rows: 24,
+                },
+                Arc::new(TestSink(tx)),
+            )
+            .unwrap();
+        wait_status(&rx, |s| matches!(s, SessionStatus::Connected));
+        manager
+            .write("fa", b"ssh-add -l; echo DONE$((1+1))\n".to_vec())
+            .await
+            .unwrap();
+        let out = wait_output(&rx, "DONE2");
+        assert!(out.contains("SHA256:"), "remote should see the key: {out}");
+        manager.disconnect("fa").await;
+
+        let (tx, rx) = std_mpsc::channel();
+        manager
+            .connect(
+                "na".into(),
+                ConnectParams {
+                    target: target(&sshd, &sshd.client_key, kh),
+                    cols: 120,
+                    rows: 24,
+                },
+                Arc::new(TestSink(tx)),
+            )
+            .unwrap();
+        wait_status(&rx, |s| matches!(s, SessionStatus::Connected));
+        // Exit code 2 means ssh-add could not reach an agent at all.
+        manager
+            .write("na", b"ssh-add -l >/dev/null 2>&1; echo RC=$?\n".to_vec())
+            .await
+            .unwrap();
+        wait_output(&rx, "RC=2");
+        manager.disconnect("na").await;
+        let _ = agent.kill();
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

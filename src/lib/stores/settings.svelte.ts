@@ -12,6 +12,9 @@ export interface Prefs {
   /** 0 disables auto-lock. */
   autoLockMinutes: number;
   showHiddenFiles: boolean;
+  /** Session logs keep colours and control codes instead of plain text. */
+  logRaw: boolean;
+  appTheme: "dark" | "light" | "system";
 }
 
 export const DEFAULT_PREFS: Prefs = {
@@ -25,6 +28,8 @@ export const DEFAULT_PREFS: Prefs = {
   copyOnSelect: false,
   autoLockMinutes: 0,
   showHiddenFiles: false,
+  logRaw: false,
+  appTheme: "dark",
 };
 
 const KEY = "sshvault.prefs.v1";

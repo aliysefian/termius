@@ -8,7 +8,11 @@ pub mod hostcreds;
 pub mod keys;
 pub mod knownhosts;
 pub mod models;
+pub mod remoteedit;
+pub mod reveal;
+pub mod runner;
 pub mod session;
+pub mod sessionlog;
 pub mod sftp;
 pub mod ssh;
 pub mod sshconfig;
@@ -34,7 +38,8 @@ pub fn run() {
             commands::save_host_with_credentials,
             commands::delete_host,
             commands::list_identities,
-            commands::get_identity,
+            commands::reveal_identity,
+            commands::reveal_close,
             commands::identity_public_key,
             commands::generate_key,
             commands::ssh_connect_adhoc,
@@ -52,6 +57,12 @@ pub fn run() {
             commands::ssh_write,
             commands::ssh_resize,
             commands::ssh_disconnect,
+            commands::ssh_log_start,
+            commands::ssh_log_stop,
+            commands::run_on_hosts,
+            commands::run_cancel,
+            commands::sftp_edit_start,
+            commands::sftp_edit_stop,
             commands::sftp_open,
             commands::sftp_list,
             commands::sftp_mkdir,

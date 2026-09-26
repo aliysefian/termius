@@ -1,6 +1,6 @@
 # SSHVault
 
-A cross-platform SSH terminal manager and SFTP client for Linux and Windows,
+A cross-platform SSH terminal manager and SFTP client for Linux, Windows and macOS,
 inspired by Termius. Hosts, keys, snippets and port-forwarding rules are
 encrypted on your machine and synced between computers through a folder you
 already sync, such as Dropbox, Nextcloud or Syncthing. There is no server and no
@@ -21,9 +21,10 @@ Built with [Tauri v2](https://tauri.app), Rust, SvelteKit, Tailwind CSS and
 
 ## Features
 
-- **Terminal**: tabs that stay connected in the background, split panes,
-  WebGL rendering, copy and paste, find, clickable links, seven colour themes,
-  and adjustable font, cursor and scrollback.
+- **Terminal**: tabs that stay connected in the background, up to six
+  resizable split panes per tab, WebGL rendering, copy and paste, find,
+  clickable links, nine colour themes, session recording to a file, and
+  adjustable font, cursor and scrollback.
 - **Command palette** (Ctrl+Shift+P) and keyboard shortcuts for connecting,
   running snippets, splitting, and switching tabs.
 - **Quick connect**: type `user@host:port` to connect without saving a host.
@@ -35,18 +36,21 @@ Built with [Tauri v2](https://tauri.app), Rust, SvelteKit, Tailwind CSS and
 - **Identities separate from hosts**: one key or password can be shared by many
   hosts and rotated in one place. Generate Ed25519 keys and copy public keys
   from the app.
-- **Jump hosts** (like OpenSSH `ProxyJump`), including chains of several hops.
+- **Jump hosts** (like OpenSSH `ProxyJump`), including chains of several
+  hops, and optional **ssh-agent forwarding** per host.
 - **SFTP**: dual-pane browser for this computer and a remote host, with drag
-  and drop, multi-select, rename, delete, new folder, and recursive,
-  cancellable transfers with progress.
+  and drop, multi-select, rename, delete, new folder, recursive, cancellable
+  transfers with progress, and editing remote files in your local editor.
 - **Port forwarding**: local (`-L`), remote (`-R`) and dynamic SOCKS5 (`-D`)
   rules, saved and synced, started and stopped with one click.
-- **Snippets**: saved commands you can run or paste into the active terminal,
-  or broadcast to every pane in a split tab.
+- **Snippets**: saved commands with `{{variables}}`. Run or paste them into
+  the active terminal, broadcast to every pane in a tab, or run them on many
+  hosts at once in the background and compare each host's output.
 - **Zero-knowledge sync**: every record is its own encrypted file, so editing
   on several computers does not create "conflicted copy" files.
-- **Host tree** with nested groups, recent connections, search, tags and
-  colours.
+- **Host tree** with nested groups, drag and drop between groups, recent
+  connections, search, tags and colours.
+- **Light and dark themes**, or follow the system setting.
 - **Security extras**: auto-lock after inactivity, a known-hosts manager, and
   a clear flow when a server's key changes.
 
@@ -57,8 +61,8 @@ GitHub Actions, and you can download them from there:
 
 1. Open the repository's **Actions** tab and select the latest successful
    **Build** run on `main`.
-2. Scroll to **Artifacts** and download `sshvault-Linux-…` or
-   `sshvault-Windows-…`. Artifacts are kept for 14 days.
+2. Scroll to **Artifacts** and download `sshvault-Linux-…`,
+   `sshvault-Windows-…` or `sshvault-macOS-…`. Artifacts are kept for 14 days.
 3. Unzip the download and install the package for your system, as below.
 
 ### Linux
@@ -84,6 +88,13 @@ The packages are built on Ubuntu 22.04, so they need glibc 2.35 or newer.
 Run either the `.msi` installer or the `SSHVault_*_x64-setup.exe` installer.
 The installers are not code-signed yet, so Windows SmartScreen may warn you.
 Choose **More info**, then **Run anyway**.
+
+### macOS
+
+Open the `.dmg` and drag SSHVault to Applications. The build targets Apple
+Silicon and is not signed yet, so the first launch is blocked. Right-click the
+app and choose **Open**, or allow it under **System Settings → Privacy &
+Security**.
 
 SSHVault uses the Microsoft Edge WebView2 runtime, which is already installed
 on Windows 10 and 11. The installer fetches it if it is missing.
@@ -132,11 +143,35 @@ one. You can change it later under **Settings**.
 - When editing a host, leave the password or key empty to keep the saved one.
 - To share one login across many hosts, create an identity under
   **Keychain** (the key icon) and pick it in each host's form.
+
+### Viewing and copying saved passwords
+
+Saved passwords, private keys and passphrases stay hidden until you confirm
+your master password:
+
+- In **Keychain**, hover an identity and press the eye icon to show its
+  secret, or the copy icon to copy the password directly. Credentials saved
+  with a host are under **Saved with hosts**.
+- In the host and identity forms, press **Reveal saved** next to a stored
+  password or key.
+
+After a correct master password, you can reveal more secrets for 2 minutes
+without typing it again. Locking the vault ends that window. Five wrong
+attempts block reveals for 30 seconds, and the wait doubles with each further
+round of failures. Shown secrets hide themselves after a minute. Copied
+secrets are cleared from the clipboard after 30 seconds, if nothing else has
+been copied since.
 - Put hosts in nested groups by typing a path such as `Production/Databases`
   in the **Group** field.
 - **Double-click** a host to open it in a new terminal tab. Hosts you
   connected to recently appear at the top of the tree.
 - Hover a host to duplicate, edit or delete it.
+- Drag a host onto a group to move it there, or onto empty space to move it
+  to the top level.
+- **Forward ssh-agent** in the host form lets that server use the keys in
+  this computer's agent, for example to reach another server or a git
+  remote. Anyone with root on the server can use your agent while you're
+  connected, so only enable it for servers you trust.
 
 ### Importing from `~/.ssh/config`
 
@@ -169,8 +204,13 @@ ask you for one-time credentials. SSHVault refuses to save a chain that loops.
 
 ### Terminals
 
-- Split a tab with the buttons in a pane's header. A tab holds up to two
-  panes.
+- Split any pane right or down with the buttons in its header, up to six
+  panes per tab. Drag the line between panes to resize them.
+- Drag tabs to reorder them.
+- The record button in a pane's header saves everything the session prints
+  to a file you choose, until you press it again. Logs are plain text by
+  default. Under **Settings** you can keep colours and control codes instead,
+  so `cat` replays the session.
 - Double-click a tab to rename it. Right-click it to duplicate it or close
   other tabs. Middle-click to close it.
 - The dot on each tab shows its connection: green connected, yellow
@@ -222,6 +262,31 @@ Add snippets under **Snippets**. To use one, either:
 Paste sends the text without pressing Enter, so you can edit it before running.
 Snippets also appear in the command palette.
 
+#### Variables
+
+Snippets can contain placeholders in double braces:
+
+| Placeholder | Filled with |
+|---|---|
+| `{{host}}` | The host's label |
+| `{{hostname}}` | Its address |
+| `{{port}}` | Its port |
+| `{{user}}` | The username it logs in with |
+| `{{date}}`, `{{time}}` | Today's date and the current time |
+| Any other name, like `{{lines}}` | A value you're asked for when the snippet runs |
+
+When a snippet runs on several panes or hosts, each gets its own `{{host}}`,
+`{{user}}` and so on. Write `{{{{` for a literal `{{`. Typed values are
+remembered until you quit, and never written to disk.
+
+#### Running on several hosts
+
+Choose **Run on several hosts** on a snippet, or "Run a command on several
+hosts" in the command palette. Pick hosts, adjust the command if needed, and
+run it. Up to eight hosts run at a time, each with a timeout. Every host's
+exit code, duration and output appear in the results, and you can copy any of
+them. Hosts need saved credentials to run unattended.
+
 ### SFTP
 
 Open the **SFTP** view. The left pane is this computer and the right pane is
@@ -232,7 +297,14 @@ the remote host.
 3. Select files with click, **Ctrl**+click or **Shift**+click.
 4. Drag files to the other pane, or use **Upload →** and **← Download**.
 
-The eye icon in each pane's toolbar shows or hides dotfiles. Folders are copied recursively. Symbolic links are listed, but not followed
+The eye icon in each pane's toolbar shows or hides dotfiles. Folders are copied recursively.
+
+To edit a remote file, double-click it, or select it and press the edit
+button. It opens in this computer's default app for that file type. Each time
+you save, it's uploaded back, and the list at the bottom of the SFTP view
+shows the last upload. Press **Stop** when you're done. The local copy lives
+in a private temporary folder and is deleted when you stop, disconnect, lock
+the vault or quit. Symbolic links are listed, but not followed
 during recursive copies. Transfers appear at the bottom with progress and a
 cancel button.
 
@@ -367,9 +439,11 @@ Output goes to `src-tauri/target/release/bundle/`:
 ### Continuous integration
 
 `.github/workflows/build.yml` runs on pushes to `main`, pull requests, `v*`
-tags, and manual dispatch. On Ubuntu 22.04 and Windows it type-checks and
-tests the frontend, runs clippy and the Rust tests, builds the installers, and
-uploads them as artifacts.
+tags, and manual dispatch. On Ubuntu 22.04, Windows and macOS it
+type-checks and tests the frontend, runs clippy and the Rust tests, builds the
+installers, and uploads them as artifacts. The end-to-end SSH tests run on
+Linux. macOS skips them through `SSHVAULT_SKIP_SSHD_TESTS`, and Windows has no
+`sshd` to run them against.
 
 Pushing a tag such as `v0.2.0` also creates a **draft** GitHub Release with
 both platforms' installers attached. Review the draft on GitHub and publish it
@@ -400,6 +474,14 @@ when ready.
 │   │   ├── ssh.rs              Connections, jump chains, terminal sessions
 │   │   ├── sftp.rs             SFTP browsing and transfers
 │   │   ├── forward.rs          Local, remote and SOCKS5 forwarding
+│   │   ├── runner.rs           Run a command on many hosts
+│   │   ├── remoteedit.rs       Edit remote files in a local editor
+│   │   ├── sessionlog.rs       Session recording and escape stripping
+│   │   ├── hostcreds.rs        Credentials entered in the host form
+│   │   ├── reveal.rs           Master-password gate for showing secrets
+│   │   ├── sshconfig.rs        ~/.ssh/config import
+│   │   ├── keys.rs             Key generation and public keys
+│   │   ├── knownhosts.rs       Pinned server keys
 │   │   ├── commands.rs         Tauri IPC commands and events
 │   │   └── lib.rs              App entry point, command registration
 │   ├── capabilities/           Tauri permission sets
@@ -427,8 +509,9 @@ To connect, the frontend sends only a host id. The backend decrypts that
 host's identity and any jump-host identities itself, so terminal, SFTP and
 forwarding connections never send credentials through the webview.
 Identity lists and live sync events are redacted too: they carry the label,
-username and auth type, but no password, key or passphrase. The identity form
-fetches the secrets for that one identity when you open it.
+username and auth type, but no password, key or passphrase. The only way a
+secret reaches the webview is a reveal, which the Rust side allows only after
+the master password is re-entered (see `reveal.rs`).
 
 ### Type-checking the Tauri crate without GTK
 
@@ -514,7 +597,10 @@ These files stay outside the vault, in the OS config directory:
 - **In memory.** The master key is zeroed when the vault is locked. While
   the vault is unlocked, decrypted hosts, snippets and rules are held in
   memory so the interface can show them. Identity secrets stay on the Rust
-  side except while an identity is open for editing.
+  side unless you reveal one with the master password.
+- **Revealing secrets.** Re-checking the master password re-derives the key
+  with Argon2id and compares it in constant time. Wrong guesses are rate
+  limited with a growing lockout, checked before the slow derivation runs.
 - **Tombstones.** Deleted-record markers older than 90 days are removed on
   unlock. A computer offline for longer than that could bring back a record
   deleted elsewhere.
@@ -565,11 +651,10 @@ a real OpenSSH server, but the desktop app has had little real-world use.
 
 Known limitations:
 
-- There are no signed releases yet. Installers come from CI artifacts.
-- macOS is not built or tested.
-- A tab holds at most two panes.
-- Snippets are sent to open terminals. They are not run on several hosts in
-  the background.
+- Installers are not code-signed, so Windows and macOS warn on first launch.
+- The macOS build targets Apple Silicon only, and its SSH tests are skipped in
+  CI.
+- X11 forwarding and Mosh are not supported.
 
 See [ROADMAP.md](ROADMAP.md) for planned work.
 - The SFTP pane can reach any path your user account can, since the app is a
