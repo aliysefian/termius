@@ -122,6 +122,45 @@
     }
   }
 
+  // "Browse here" from a terminal pane: connect to that host, then go there.
+  let handledRequest = 0;
+  $effect(() => {
+    const r = ui.sftpRequest;
+    if (!r || r.n === handledRequest) return;
+    handledRequest = r.n;
+    void (async () => {
+      if (connectedHost !== r.hostId) {
+        if (connectedHost) await disconnect();
+        hostId = r.hostId;
+        await connect();
+      }
+      if (connectedHost === r.hostId) {
+        remotePath = r.path;
+        remoteRefresh++;
+      }
+    })();
+  });
+
+  // Files dragged in from the OS file manager upload to the remote folder.
+  let osDrop = $state(false);
+  $effect(() => {
+    let off: (() => void) | undefined;
+    void import("@tauri-apps/api/webview").then(async ({ getCurrentWebview }) => {
+      off = await getCurrentWebview().onDragDropEvent((ev) => {
+        if (ui.view !== "sftp") return;
+        const p = ev.payload;
+        if (p.type === "enter" || p.type === "over") osDrop = !!connectedHost;
+        else if (p.type === "leave") osDrop = false;
+        else if (p.type === "drop") {
+          osDrop = false;
+          if (connectedHost && p.paths.length) void start("upload", p.paths);
+          else if (p.paths.length) ui.notify("error", "Connect to a host first, then drop files to upload them.");
+        }
+      });
+    });
+    return () => off?.();
+  });
+
   async function disconnect() {
     await stopAllEdits();
     await sftp.close(sessionId);
@@ -164,7 +203,12 @@
   const active = (p: TransferProgress) => p.state === "started" || p.state === "progress";
 </script>
 
-<div class="flex min-w-0 flex-1 flex-col">
+<div class="relative flex min-w-0 flex-1 flex-col">
+  {#if osDrop}
+    <div class="pointer-events-none absolute inset-0 z-30 flex items-center justify-center border-2 border-dashed border-accent bg-accent/10 text-sm font-medium text-accent">
+      Drop to upload to {remotePath || "the remote folder"} on {connectedLabel}
+    </div>
+  {/if}
   <div class="flex min-h-0 flex-1 divide-x divide-line">
     <FilePane
       side="local"

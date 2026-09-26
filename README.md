@@ -321,6 +321,10 @@ connection too. Outside a terminal, **Ctrl+K** also opens it.
 | Ctrl+Shift+L | Lock vault |
 | Ctrl+Shift+B | Type into all panes of the tab (toggle) |
 | Ctrl+Shift+H | Hide or show the list panel |
+| Ctrl+Shift+Enter | Maximize or restore the active pane |
+| Ctrl+Shift+U | Focus mode: only the terminal |
+| Ctrl+Shift+/ | Keyboard shortcuts (and rebinding them) |
+| Ctrl+Shift+↑ / ↓ | Previous / next prompt (with shell integration) |
 | Ctrl+Shift+` | New local terminal |
 
 Plain Ctrl shortcuts such as Ctrl+W, Ctrl+T and Ctrl+K go to the remote

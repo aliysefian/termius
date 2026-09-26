@@ -81,6 +81,9 @@ export const vault = {
 // Saves take the revision being edited (null for new records), so a change
 // made meanwhile on another device is merged or reported, never overwritten.
 
+/** Put back something deleted in the last few minutes, secrets included. */
+export const undelete = (collection: Collection, id: Uuid) => invoke<void>("undelete_record", { collection, id });
+
 export const hosts = {
   list: () => invoke<VaultRecord<Host>[]>("list_hosts"),
   save: (id: Uuid | null, baseRev: number | null, host: Host) =>
@@ -207,11 +210,11 @@ export const remoteEdit = {
 };
 
 export const localTerm = {
-  spawn(paneId: string, cols: number, rows: number, onData: (bytes: Uint8Array) => void) {
+  spawn(paneId: string, cols: number, rows: number, onData: (bytes: Uint8Array) => void, shell: string | null = null, cwd: string | null = null) {
     const channel = new Channel<ArrayBuffer | number[]>((msg) =>
       onData(msg instanceof ArrayBuffer ? new Uint8Array(msg) : Uint8Array.from(msg)),
     );
-    return invoke<void>("local_spawn", { paneId, cols, rows, onData: channel });
+    return invoke<void>("local_spawn", { paneId, cols, rows, shell, cwd, onData: channel });
   },
   write: (paneId: string, data: Uint8Array) => invoke<void>("local_write", { paneId, data: Array.from(data) }),
   resize: (paneId: string, cols: number, rows: number) => invoke<void>("local_resize", { paneId, cols, rows }),
@@ -221,6 +224,17 @@ export const localTerm = {
 export const health = {
   check: (hostIds: Uuid[] | null) => invoke<HealthResult[]>("check_hosts", { hostIds }),
 };
+
+export const putty = {
+  sessions: () => invoke<SshConfigPreview>("putty_sessions"),
+};
+
+/** A picked CSV file as a header row and data rows. */
+export const csv = {
+  preview: (path: string) => invoke<{ headers: string[]; rows: string[][] }>("csv_preview", { path }),
+};
+
+export const readTextFile = (path: string) => invoke<string>("read_text_file", { path });
 
 export const ansible = {
   preview: (path: string) => invoke<SshConfigPreview>("ansible_preview", { path }),

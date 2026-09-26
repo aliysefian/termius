@@ -971,7 +971,7 @@ fn read_record_file(path: &Path) -> io::Result<Vec<u8>> {
     read_regular_file(path, MAX_RECORD_BYTES)
 }
 
-pub(crate) fn read_regular_file(path: &Path, max: u64) -> io::Result<Vec<u8>> {
+pub fn read_regular_file(path: &Path, max: u64) -> io::Result<Vec<u8>> {
     let meta = fs::symlink_metadata(path)?;
     if !meta.file_type().is_file() {
         return Err(io::Error::new(io::ErrorKind::InvalidData, "not a regular file"));

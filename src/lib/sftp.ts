@@ -5,12 +5,23 @@ import type { FileEntry, TransferProgress, Uuid } from "./types";
 
 export type Direction = "upload" | "download";
 
+/** The start of a file, for a quick look. */
+export interface Preview {
+  kind: "text" | "binary";
+  text: string | null;
+  base64: string | null;
+  truncated: boolean;
+}
+
 /** Operations common to both panes so the UI can treat them uniformly. */
 export interface FileSource {
   list(path: string): Promise<FileEntry[]>;
   mkdir(dir: string, name: string): Promise<void>;
   rename(path: string, newName: string): Promise<void>;
   remove(paths: string[]): Promise<void>;
+  preview(path: string): Promise<Preview>;
+  /** Change permission bits. Remote only. */
+  chmod?(path: string, mode: number): Promise<void>;
   /** Path separator for display and parent navigation. */
   sep: string;
 }
@@ -22,6 +33,7 @@ export const local: FileSource & { home(): Promise<string> } = {
   mkdir: (dir, name) => invoke<void>("local_mkdir", { dir, name }),
   rename: (path, newName) => invoke<void>("local_rename", { path, newName }),
   remove: (paths) => invoke<void>("local_remove", { paths }),
+  preview: (path) => invoke<Preview>("local_preview", { path }),
 };
 
 export function remote(sessionId: string): FileSource {
@@ -31,6 +43,8 @@ export function remote(sessionId: string): FileSource {
     mkdir: (dir, name) => invoke<void>("sftp_mkdir", { sessionId, dir, name }),
     rename: (path, newName) => invoke<void>("sftp_rename", { sessionId, path, newName }),
     remove: (paths) => invoke<void>("sftp_remove", { sessionId, paths }),
+    preview: (path) => invoke<Preview>("sftp_preview", { sessionId, path }),
+    chmod: (path, mode) => invoke<void>("sftp_chmod", { sessionId, path, mode }),
   };
 }
 

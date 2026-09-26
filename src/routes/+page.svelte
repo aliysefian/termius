@@ -15,6 +15,9 @@
   import HostKeyDialog from "$lib/components/HostKeyDialog.svelte";
   import RecoveryKeyDialog from "$lib/components/RecoveryKeyDialog.svelte";
   import SaveWorkspace from "$lib/components/SaveWorkspace.svelte";
+  import ShortcutsDialog from "$lib/components/ShortcutsDialog.svelte";
+  import BulkEditForm from "$lib/components/BulkEditForm.svelte";
+  import HostDetails from "$lib/components/HostDetails.svelte";
   import SettingsPanel from "$lib/components/SettingsPanel.svelte";
   import SnippetForm from "$lib/components/SnippetForm.svelte";
   import SnippetsPanel from "$lib/components/SnippetsPanel.svelte";
@@ -83,10 +86,19 @@
 {:else if !vaultStore.unlocked}
   <UnlockScreen />
 {:else}
-  <div class="flex h-screen overflow-hidden">
-    <ActivityBar />
+  <div class="flex h-screen overflow-hidden {settings.prefs.density === 'compact' ? 'density-compact' : ''} {settings.prefs.focusMode ? 'focus-mode' : ''}">
+    {#if settings.prefs.focusMode}
+      <button
+        class="fixed right-2 top-1 z-40 rounded-md border border-line bg-panel/80 px-2 py-0.5 text-[11px] text-fg-muted opacity-40 hover:opacity-100"
+        onclick={() => (settings.prefs.focusMode = false)}
+        title="Leave focus mode (Ctrl+Shift+U)">Exit focus</button
+      >
+    {/if}
+    {#if !settings.prefs.focusMode}
+      <ActivityBar />
+    {/if}
 
-    {#if settings.prefs.sidebarHidden}
+    {#if settings.prefs.sidebarHidden || settings.prefs.focusMode}
       <!-- List panel hidden (Ctrl+Shift+H) -->
     {:else if ui.view === "hosts"}
       <HostTree />
@@ -148,6 +160,14 @@
     <RunOnHosts command={ui.modal.command} />
   {:else if ui.modal?.kind === "save-workspace"}
     <SaveWorkspace />
+  {:else if ui.modal?.kind === "shortcuts"}
+    <ShortcutsDialog />
+  {:else if ui.modal?.kind === "bulk-edit"}
+    <BulkEditForm />
+  {:else if ui.modal?.kind === "host-details"}
+    {#key ui.modal.id}
+      <HostDetails id={ui.modal.id} />
+    {/key}
   {/if}
 
   <HostKeyDialog />
@@ -166,6 +186,9 @@
       role="status"
     >
       {ui.toast.text}
+      {#if ui.toast.action}
+        <button class="ml-3 font-semibold text-accent hover:underline" onclick={() => ui.runToastAction()}>{ui.toast.action.label}</button>
+      {/if}
     </div>
   {/if}
 

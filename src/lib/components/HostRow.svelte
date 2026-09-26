@@ -1,5 +1,8 @@
 <script lang="ts">
-  import { Copy, Pencil, Star, Trash2 } from "lucide-svelte";
+  import { Copy, Info, Pencil, Star, TerminalSquare, Trash2 } from "lucide-svelte";
+  import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+  import { settings } from "$lib/stores/settings.svelte";
+  import { sshCommand, timeAgo } from "$lib/sshcmd";
   import { envInfo, errorMessage } from "$lib/types";
   import { hostDragStart } from "$lib/hostdrag.svelte";
   import { ui } from "$lib/stores/ui.svelte";
@@ -14,9 +17,40 @@
   const env = $derived(envInfo(d.environment));
   const health = $derived(vaultStore.health[host.id]);
   const indent = $derived(`${depth * 12 + 8}px`);
+  const usage = $derived(settings.usage[host.id]);
+  const usageText = $derived(usage ? `Last connected ${timeAgo(usage.last)} · ${usage.count} time${usage.count === 1 ? "" : "s"}` : "Never connected from this computer");
+
+  async function copyCommand(e: MouseEvent) {
+    e.stopPropagation();
+    const cmd = sshCommand({
+      host: d,
+      hostById: vaultStore.hostById,
+      identityById: vaultStore.identityById,
+      identityFor: (h) => vaultStore.effectiveIdentity(h),
+      jumpFor: (h) => h.jump_host_id ?? (vaultStore.groupDefault(h, "default_jump_host_id") as string | undefined),
+    });
+    try {
+      await writeText(cmd);
+      ui.notify("info", `Copied: ${cmd}`);
+    } catch (err) {
+      ui.notify("error", errorMessage(err));
+    }
+  }
 
   function connect() {
     ui.openTerminal(host.id, d.label);
+  }
+
+  const selected = $derived(ui.selectedHosts.has(host.id));
+
+  /** Ctrl/Shift+click ticks hosts for bulk edit; a plain click clears. */
+  function click(e: MouseEvent) {
+    if (e.ctrlKey || e.metaKey || e.shiftKey) {
+      e.preventDefault();
+      ui.toggleHostSelected(host.id);
+    } else if (ui.selectedHosts.size) {
+      ui.selectedHosts = new Set();
+    }
   }
 
   async function duplicate(e: MouseEvent) {
@@ -39,15 +73,23 @@
 </script>
 
 <div
-  class="group flex cursor-pointer items-center gap-2.5 rounded-md py-1.5 pr-1 hover:bg-panel-hover"
+  class="host-row group flex cursor-pointer items-center gap-2.5 rounded-md py-1.5 pr-1 {selected ? 'bg-accent/15 ring-1 ring-inset ring-accent/40' : 'hover:bg-panel-hover'}"
+  aria-pressed={selected}
+  onclick={click}
   style:padding-left={indent}
   role="button"
   tabindex="0"
   draggable="true"
   ondragstart={(e) => hostDragStart(e, host.id)}
   ondblclick={connect}
-  onkeydown={(e) => e.key === "Enter" && connect()}
-  title="Double-click to connect"
+  onkeydown={(e) => {
+    if (e.key === "Enter") connect();
+    else if (e.key === " ") {
+      e.preventDefault();
+      ui.modal = { kind: "host-details", id: host.id };
+    }
+  }}
+  title="Double-click to connect, Space for details, Ctrl+click to select. {usageText}"
 >
   <span class="ml-4 h-2 w-2 shrink-0 rounded-full" style:background={d.color ?? "#7B61FF"}></span>
   <div class="min-w-0 flex-1">
@@ -85,6 +127,12 @@
     <Star size={12} fill={d.favorite ? "currentColor" : "none"} />
   </button>
   <div class="flex opacity-0 group-hover:opacity-100">
+    <button class="icon-btn h-6 w-6" title="Details" onclick={(e) => { e.stopPropagation(); ui.modal = { kind: "host-details", id: host.id }; }}>
+      <Info size={12} />
+    </button>
+    <button class="icon-btn h-6 w-6" title="Copy as ssh command" onclick={copyCommand}>
+      <TerminalSquare size={12} />
+    </button>
     <button class="icon-btn h-6 w-6" title="Duplicate" onclick={duplicate}>
       <Copy size={12} />
     </button>

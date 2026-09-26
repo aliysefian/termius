@@ -22,7 +22,7 @@ export const PAGE_VIEWS: View[] = ["groups", "keys", "knownhosts", "vault", "set
 
 /** What a pane connects to: a saved host, or an unsaved quick connection. */
 export type PaneTarget =
-  | { kind: "host"; hostId: Uuid }
+  | { kind: "host"; hostId: Uuid; /** Typed into the shell once connected, after the host's own startup command. */ command?: string }
   | { kind: "adhoc"; adhoc: AdhocTarget }
   | { kind: "local" };
 
@@ -43,6 +43,8 @@ export interface Tab {
   /** Typing in one pane goes to every pane in the tab. */
   syncInput?: boolean;
   activePaneId: string;
+  /** One pane shown full size; the others stay connected underneath. */
+  zoomedPaneId?: string;
 }
 
 /** Live per-pane info, written by TerminalPane and read by tabs and palette. */
@@ -52,6 +54,8 @@ export interface PaneInfo {
   remoteTitle?: string;
   /** Path of the session log being written, if recording. */
   recording?: string;
+  /** Remote working directory, when the shell reports it (OSC 7). */
+  cwd?: string;
   /** The remote program (tmux, vim, htop…) asked for mouse events. */
   mouseTracked?: boolean;
   /** Mouse selects text even while the program wants the mouse. */
@@ -68,7 +72,15 @@ export type Modal =
   | { kind: "snippet-vars"; command: string; names: string[]; opts: SnippetRunOpts }
   | { kind: "run-on-hosts"; command?: string }
   | { kind: "save-workspace" }
+  | { kind: "shortcuts" }
+  | { kind: "bulk-edit" }
+  | { kind: "host-details"; id: Uuid }
   | null;
+
+export interface ToastAction {
+  label: string;
+  run: () => void;
+}
 
 /** A tab as saved in a workspace: what each pane connects to, never secrets. */
 export interface WorkspaceTab {
@@ -104,13 +116,34 @@ class UiStore {
   activeTab = $derived(this.tabs.find((t) => t.id === this.activeTabId) ?? null);
   /** Mounted lazily on first visit, then kept alive so sessions survive view switches. */
   sftpVisited = $state(false);
-  toast = $state<{ kind: "info" | "error"; text: string } | null>(null);
+  toast = $state<{ kind: "info" | "error"; text: string; action?: ToastAction } | null>(null);
   #toastTimer: ReturnType<typeof setTimeout> | undefined;
 
-  notify(kind: "info" | "error", text: string) {
-    this.toast = { kind, text };
+  notify(kind: "info" | "error", text: string, action?: ToastAction, ms = action ? 8000 : 4000) {
+    this.toast = { kind, text, action };
     clearTimeout(this.#toastTimer);
-    this.#toastTimer = setTimeout(() => (this.toast = null), 4000);
+    this.#toastTimer = setTimeout(() => (this.toast = null), ms);
+  }
+
+  /** Run the toast's action (e.g. Undo) and dismiss it. */
+  runToastAction() {
+    const a = this.toast?.action;
+    this.toast = null;
+    clearTimeout(this.#toastTimer);
+    a?.run();
+  }
+
+  /** Show one pane full size, or restore the split. */
+  toggleZoom(tabId: string, paneId: string) {
+    const tab = this.tabs.find((t) => t.id === tabId);
+    if (!tab || tab.panes.length < 2) return;
+    tab.zoomedPaneId = tab.zoomedPaneId === paneId ? undefined : paneId;
+    tab.activePaneId = paneId;
+  }
+
+  toggleZoomActive() {
+    const tab = this.activeTab;
+    if (tab) this.toggleZoom(tab.id, tab.activePaneId);
   }
 
   /** Aggregate connection state for a tab's status dot. */
@@ -137,8 +170,26 @@ class UiStore {
     if (this.view === "sftp" || PAGE_VIEWS.includes(this.view)) this.view = "hosts";
   }
 
-  openTerminal(hostId: Uuid, title: string) {
-    this.#openTab({ kind: "host", hostId }, title);
+  openTerminal(hostId: Uuid, title: string, command?: string) {
+    this.#openTab(command ? { kind: "host", hostId, command } : { kind: "host", hostId }, title);
+  }
+
+  /** Hosts ticked in the tree for bulk actions (Ctrl/Shift+click). */
+  selectedHosts = $state<Set<Uuid>>(new Set());
+
+  toggleHostSelected(id: Uuid) {
+    const next = new Set(this.selectedHosts);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    this.selectedHosts = next;
+  }
+
+  /** Ask the SFTP view to connect to a host and show a directory. */
+  sftpRequest = $state<{ hostId: Uuid; path: string; n: number } | null>(null);
+  openSftpAt(hostId: Uuid, path: string) {
+    this.sftpRequest = { hostId, path, n: (this.sftpRequest?.n ?? 0) + 1 };
+    this.sftpVisited = true;
+    this.view = "sftp";
   }
 
   openLocal() {
@@ -265,6 +316,7 @@ class UiStore {
     const tab = this.tabs.find((t) => t.id === tabId);
     if (!tab) return;
     delete this.paneInfo[paneId];
+    if (tab.zoomedPaneId === paneId) tab.zoomedPaneId = undefined;
     const layout = remove($state.snapshot(tab.layout) as LayoutNode, paneId);
     tab.panes = tab.panes.filter((p) => p.id !== paneId);
     if (!layout || tab.panes.length === 0) return this.closeTab(tabId);

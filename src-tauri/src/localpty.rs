@@ -54,6 +54,7 @@ impl LocalManager {
         cols: u32,
         rows: u32,
         command: Option<Vec<String>>,
+        cwd: Option<std::path::PathBuf>,
         sink: Arc<dyn TermSink>,
     ) -> Result<(), LocalError> {
         let pair = native_pty_system()
@@ -69,8 +70,11 @@ impl LocalManager {
         };
         cmd.env("TERM", "xterm-256color");
         cmd.env("COLORTERM", "truecolor");
-        if let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")) {
-            cmd.cwd(home);
+        let start = cwd
+            .filter(|d| d.is_dir())
+            .or_else(|| std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(Into::into));
+        if let Some(dir) = start {
+            cmd.cwd(dir);
         }
         let mut child = pair
             .slave
@@ -226,6 +230,7 @@ mod tests {
             80,
             24,
             Some(vec!["sh".into()]),
+            None,
             Arc::new(Sink(tx)),
         )
         .unwrap();
@@ -258,6 +263,7 @@ mod tests {
             80,
             24,
             Some(vec!["sh".into()]),
+            None,
             Arc::new(Sink(tx)),
         )
         .unwrap();

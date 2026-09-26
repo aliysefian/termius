@@ -1,14 +1,42 @@
 <script lang="ts">
-  import { Lock, Palette, RotateCcw, ShieldAlert } from "lucide-svelte";
+  import { Copy, Lock, Palette, RotateCcw, ShieldAlert, TerminalSquare } from "lucide-svelte";
+  import { SHELL_SNIPPETS } from "$lib/shellintegration";
+  import { ui } from "$lib/stores/ui.svelte";
   import { save } from "@tauri-apps/plugin-dialog";
   import { writeText } from "@tauri-apps/plugin-clipboard-manager";
   import { settings } from "$lib/stores/settings.svelte";
-  import { themes } from "$lib/themes";
+  import { allThemes } from "$lib/themes";
+  import { importTheme } from "$lib/themeimport";
+  import { open as openFile } from "@tauri-apps/plugin-dialog";
   import * as api from "$lib/api";
   import { vaultStore } from "$lib/stores/vault.svelte";
   import { errorMessage, type VaultSettings } from "$lib/types";
 
   let msg = $state<{ ok: boolean; text: string } | null>(null);
+
+  async function importThemeFile() {
+    const f = await openFile({
+      multiple: false,
+      directory: false,
+      title: "Import a colour scheme (VS Code .json, Windows Terminal .json, iTerm2 .itermcolors)",
+      filters: [{ name: "Colour schemes", extensions: ["json", "itermcolors"] }],
+    });
+    if (typeof f !== "string") return;
+    try {
+      const t = importTheme(await api.readTextFile(f), f.split(/[\\/]/).pop());
+      if (!t) throw new Error("That file isn't a VS Code, Windows Terminal or iTerm2 colour scheme.");
+      settings.prefs.customThemes = [...settings.prefs.customThemes.filter((x) => x.id !== t.id), t];
+      settings.prefs.themeId = t.id;
+      msg = { ok: true, text: `Imported "${t.name}".` };
+    } catch (e) {
+      msg = { ok: false, text: errorMessage(e) };
+    }
+  }
+
+  function removeTheme(id: string) {
+    settings.prefs.customThemes = settings.prefs.customThemes.filter((t) => t.id !== id);
+    if (settings.prefs.themeId === id) settings.prefs.themeId = "sshvault";
+  }
 
   // Vault-wide safety settings, edited as a draft and saved together.
   let draft = $state<VaultSettings | null>(null);
@@ -87,7 +115,7 @@
 
       <span class="label">Terminal colour theme</span>
       <div class="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-        {#each themes as t (t.id)}
+        {#each allThemes(settings.prefs.customThemes) as t (t.id)}
           <button
             class="overflow-hidden rounded-md border text-left text-xs {settings.prefs.themeId === t.id ? 'border-accent ring-1 ring-accent' : 'border-line hover:border-fg-muted'}"
             onclick={() => (settings.prefs.themeId = t.id)}
@@ -100,9 +128,20 @@
                 {/each}
               </span>
             </div>
-            <div class="bg-base px-2 py-1">{t.name}</div>
+            <div class="flex items-center justify-between bg-base px-2 py-1">
+              <span class="truncate">{t.name}</span>
+              {#if t.id.startsWith("custom-")}
+                <span role="button" tabindex="0" class="text-fg-muted hover:text-danger" title="Remove" onclick={(e) => { e.stopPropagation(); removeTheme(t.id); }} onkeydown={(e) => e.key === "Enter" && removeTheme(t.id)}>✕</span>
+              {/if}
+            </div>
           </button>
         {/each}
+      </div>
+      <div class="-mt-2 mb-4 flex flex-wrap items-center gap-3 text-xs">
+        <button class="btn-ghost border border-line py-1 text-xs" onclick={importThemeFile}>Import colour scheme…</button>
+        <label class="flex items-center gap-2 text-fg-muted">
+          <input type="checkbox" class="accent-[#7b61ff]" bind:checked={settings.prefs.prodTint} /> Tint production terminals red
+        </label>
       </div>
 
       <div class="grid grid-cols-2 gap-3">
@@ -156,6 +195,93 @@
         {/each}
       </select>
       <p class="mt-2 text-xs text-fg-muted">Lock now, change the master password or manage backups on the <strong>Vault</strong> screen.</p>
+    </section>
+
+    <section class="rounded-xl border border-line bg-panel p-5">
+      <h2 class="mb-1 text-sm font-semibold">Layout</h2>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="label" for="s-density">Density</label>
+          <select id="s-density" class="input" bind:value={settings.prefs.density}>
+            <option value="comfortable">Comfortable</option>
+            <option value="compact">Compact</option>
+          </select>
+        </div>
+        <label class="mt-5 flex items-center gap-2 text-sm">
+          <input type="checkbox" class="accent-[#7b61ff]" bind:checked={settings.prefs.focusMode} />
+          Focus mode <span class="text-xs text-fg-muted">(Ctrl+Shift+U)</span>
+        </label>
+      </div>
+      <p class="mt-2 text-xs text-fg-muted">
+        Focus mode hides everything but the terminal. <button class="text-accent hover:underline" onclick={() => (ui.modal = { kind: "shortcuts" })}>Change keyboard shortcuts…</button>
+      </p>
+    </section>
+
+    <section class="rounded-xl border border-line bg-panel p-5">
+      <h2 class="mb-1 text-sm font-semibold">Local terminal</h2>
+      <p class="mb-3 text-xs text-fg-muted">Which program local tabs run, and where they start. Empty uses your system's default shell in your home folder.</p>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="label" for="s-shell">Shell</label>
+          <input id="s-shell" class="input font-mono text-xs" list="s-shells" bind:value={settings.prefs.localShell} placeholder="default" spellcheck="false" />
+          <datalist id="s-shells">
+            {#each ["bash", "zsh", "fish", "pwsh -NoLogo", "powershell -NoLogo", "cmd", "wsl"] as sh (sh)}<option value={sh}></option>{/each}
+          </datalist>
+        </div>
+        <div>
+          <label class="label" for="s-cwd">Start in</label>
+          <input id="s-cwd" class="input font-mono text-xs" bind:value={settings.prefs.localCwd} placeholder="~" spellcheck="false" />
+        </div>
+      </div>
+    </section>
+
+    <section class="rounded-xl border border-line bg-panel p-5">
+      <h2 class="mb-1 text-sm font-semibold">Connections</h2>
+      <label class="flex items-start gap-2 text-sm">
+        <input type="checkbox" class="mt-0.5 accent-[#7b61ff]" bind:checked={settings.prefs.autoReconnect} />
+        <span>
+          Reconnect automatically when a connection drops
+          <span class="block text-xs text-fg-muted">Up to three attempts, a few seconds apart. Typing <code>exit</code> or closing the tab never reconnects.</span>
+        </span>
+      </label>
+      <label class="mt-3 flex items-start gap-2 text-sm">
+        <input type="checkbox" class="mt-0.5 accent-[#7b61ff]" bind:checked={settings.prefs.notifyBackground} />
+        <span>
+          Notify me when a long command finishes in a background tab
+          <span class="block text-xs text-fg-muted">Needs shell integration (below) to know when commands end; the terminal bell always notifies.</span>
+        </span>
+      </label>
+      <label class="mt-3 flex items-start gap-2 text-sm">
+        <input type="checkbox" class="mt-0.5 accent-[#7b61ff]" bind:checked={settings.prefs.commandHistory} />
+        <span>
+          Remember the commands I run on each host
+          <span class="block text-xs text-fg-muted">
+            Kept on this computer only, never in the vault, and offered in the command palette. Commands can contain secrets; clear it any time.
+          </span>
+        </span>
+      </label>
+      <button class="btn-ghost mt-2 border border-line py-1 text-xs" onclick={() => { settings.clearHistory(); ui.notify("info", "Command history cleared."); }}>Clear command history</button>
+    </section>
+
+    <section class="rounded-xl border border-line bg-panel p-5">
+      <h2 class="mb-1 flex items-center gap-2 text-sm font-semibold"><TerminalSquare size={15} class="text-accent" /> Shell integration</h2>
+      <p class="mb-3 text-xs text-fg-muted">
+        Add this to the shell startup file <em>on the servers you connect to</em>. SSHVault then shows the current
+        directory in the pane header (with "browse in SFTP" and "new tab here"), records command history with exit
+        codes, jumps between prompts (Ctrl+Shift+↑/↓), copies the last command's output, and can notify you when a
+        long command finishes. It's the same OSC 133 / OSC 7 convention VS Code, WezTerm and Kitty use.
+      </p>
+      <div class="space-y-3">
+        {#each SHELL_SNIPPETS as s (s.shell)}
+          <div>
+            <div class="mb-1 flex items-center justify-between text-xs">
+              <span><strong>{s.shell}</strong> <span class="text-fg-muted">· {s.file}</span></span>
+              <button class="btn-ghost py-0.5 text-xs" onclick={() => { void writeText(s.text); ui.notify("info", `${s.shell} snippet copied.`); }}><Copy size={12} /> Copy</button>
+            </div>
+            <pre class="overflow-x-auto rounded-md border border-line bg-base p-2 font-mono text-[11px] leading-snug">{s.text}</pre>
+          </div>
+        {/each}
+      </div>
     </section>
 
     {#if draft}

@@ -6,6 +6,7 @@ pub mod ansible;
 pub mod commands;
 pub mod config;
 pub mod crypto;
+pub mod csvimport;
 pub mod dial;
 pub mod forward;
 pub mod health;
@@ -17,6 +18,7 @@ pub mod keys;
 pub mod knownhosts;
 pub mod localpty;
 pub mod models;
+pub mod putty;
 pub mod remoteedit;
 pub mod reveal;
 pub mod runner;
@@ -35,6 +37,8 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(tauri_plugin_notification::init())
         .setup(commands::setup)
         .invoke_handler(tauri::generate_handler![
             commands::get_status,
@@ -61,6 +65,7 @@ pub fn run() {
             commands::save_host,
             commands::save_host_with_credentials,
             commands::delete_host,
+            commands::undelete_record,
             commands::list_identities,
             commands::reveal_identity,
             commands::reveal_close,
@@ -79,6 +84,12 @@ pub fn run() {
             commands::ssh_connect_adhoc,
             commands::known_hosts_list,
             commands::known_hosts_import,
+            commands::sftp_chmod,
+            commands::sftp_preview,
+            commands::local_preview,
+            commands::read_text_file,
+            commands::csv_preview,
+            commands::putty_sessions,
             commands::list_groups,
             commands::save_group,
             commands::delete_group,

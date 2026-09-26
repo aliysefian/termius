@@ -118,6 +118,11 @@ export const themes: TerminalTheme[] = [
   },
 ];
 
-export function themeById(id: string): TerminalTheme {
-  return themes.find((t) => t.id === id) ?? themes[0];
+/** Built-in themes plus the ones the user imported (see settings). */
+export function allThemes(custom: TerminalTheme[] = []): TerminalTheme[] {
+  return [...themes, ...custom];
+}
+
+export function themeById(id: string, custom: TerminalTheme[] = []): TerminalTheme {
+  return allThemes(custom).find((t) => t.id === id) ?? themes[0];
 }

@@ -74,3 +74,39 @@ body {
   background: var(--color-line);
   border-radius: 4px;
 }
+
+/* Keyboard focus is always visible; mouse clicks don't draw rings. */
+:where(button, a, input, select, textarea, [role="button"], [tabindex]):focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+  border-radius: 0.375rem;
+}
+.xterm-helper-textarea:focus-visible {
+  outline: none;
+}
+
+/* Respect "reduce motion": no spinners spinning, no smooth transitions. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Compact density: tighter rows in lists and headers. */
+.density-compact .host-row {
+  padding-top: 0.125rem;
+  padding-bottom: 0.125rem;
+}
+.density-compact .icon-btn {
+  height: 1.625rem;
+  width: 1.625rem;
+}
+.density-compact td {
+  padding-top: 0.0625rem;
+  padding-bottom: 0.0625rem;
+}

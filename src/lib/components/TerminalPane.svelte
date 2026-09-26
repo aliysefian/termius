@@ -18,8 +18,11 @@
   import { adhocLabel, ui, type Pane } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
   import { themeById } from "$lib/themes";
+  import { mix } from "$lib/themeimport";
   import { errorMessage } from "$lib/types";
   import { LineTracker, matchDestructive, pastedLines, pasteNeedsConfirm } from "$lib/guard";
+  import { CommandTracker, parseOsc133, parseOsc7 } from "$lib/shellintegration";
+  import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
 
   let {
     pane,
@@ -59,6 +62,8 @@
 
   /** Typed input: hold Enter on production when the line looks destructive. */
   function typed(d: string) {
+    // Without shell integration, history comes from what was typed.
+    if ((d === "\r" || d === "\n") && hostId && !commands.active && tracker.line) settings.recordCommand(hostId, tracker.line, null);
     if (production && shared && (d === "\r" || d === "\n")) {
       const line = tracker.line;
       const pattern = line === null ? null : matchDestructive(line, shared.destructive_patterns);
@@ -117,10 +122,83 @@
   let remember = $state(true);
   let credentialError = $state<string | null>(null);
 
+  // -- shell integration (OSC 7 and 133) --------------------------------------
+  const commands = new CommandTracker((line) => term.buffer.active.getLine(line)?.translateToString(true) ?? "");
+  const cursor = () => ({ line: term.buffer.active.baseY + term.buffer.active.cursorY, col: term.buffer.active.cursorX });
+  const hostId = target.kind === "host" ? target.hostId : null;
+  /** Long enough that the user probably switched away while it ran. */
+  const NOTIFY_AFTER_MS = 8000;
+
+  function onMark(data: string): boolean {
+    const mark = parseOsc133(data);
+    if (!mark) return false;
+    const rec = commands.feed(mark, cursor());
+    if (rec && hostId) settings.recordCommand(hostId, rec.command, rec.exit);
+    if (rec && rec.endedAt - rec.startedAt >= NOTIFY_AFTER_MS) {
+      void notifyDone(`${rec.command.split("\n")[0].slice(0, 80)} finished${rec.exit ? ` (exit ${rec.exit})` : ""} on ${label}`);
+    }
+    if (mark.kind === "command") tracker.reset();
+    return true;
+  }
+
+  async function notifyDone(body: string) {
+    if (!settings.prefs.notifyBackground) return;
+    if (active && document.hasFocus() && !document.hidden) return;
+    try {
+      let ok = await isPermissionGranted();
+      if (!ok) ok = (await requestPermission()) === "granted";
+      if (ok) sendNotification({ title: "SSHVault", body });
+    } catch {
+      // No notification service; nothing to do.
+    }
+  }
+
+  /** Select the last command's output and copy it. */
+  async function copyLastOutput() {
+    const last = commands.last;
+    if (!last || last.outputStart === null || last.outputEnd === null) return ui.notify("error", "No command output recorded yet.");
+    term.selectLines(last.outputStart, last.outputEnd);
+    const text = term.getSelection();
+    term.clearSelection();
+    if (!text.trim()) return ui.notify("info", "The last command printed nothing.");
+    try {
+      await writeText(text);
+      ui.notify("info", `Copied the output of "${last.command.split("\n")[0].slice(0, 40)}".`);
+    } catch (e) {
+      ui.notify("error", `Copy failed: ${errorMessage(e)}`);
+    }
+  }
+
+  function jumpPrompt(dir: -1 | 1) {
+    const here = term.buffer.active.viewportY;
+    const line = commands.nearestPrompt(dir === -1 ? here : here + 1, dir);
+    if (line !== null) term.scrollToLine(line);
+  }
+
+  // Reconnect by itself after a dropped connection (never after `exit`).
+  let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+  let reconnectAttempts = 0;
+  const MAX_RECONNECTS = 3;
+
+  function scheduleReconnect() {
+    if (target.kind === "local" || !settings.prefs.autoReconnect || needsCredentials || reconnectAttempts >= MAX_RECONNECTS) return;
+    reconnectAttempts += 1;
+    const secs = 2 * reconnectAttempts;
+    term.write(`\r\n\x1b[90m[connection lost; reconnecting in ${secs} s (${reconnectAttempts}/${MAX_RECONNECTS})…]\x1b[0m\r\n`);
+    reconnectTimer = setTimeout(() => void connect(null), secs * 1000);
+  }
+
   let findOpen = $state(false);
   let findQuery = $state("");
   let findInput = $state<HTMLInputElement>();
   let menu = $state<{ x: number; y: number } | null>(null);
+
+  /** The chosen theme, with a red cast on production hosts if enabled. */
+  function paneTheme() {
+    const base = themeById(settings.prefs.themeId, settings.prefs.customThemes).theme;
+    if (!production || !settings.prefs.prodTint || !base.background) return base;
+    return { ...base, background: mix(base.background, "#ff0000", 0.08) };
+  }
 
   function setInfo(s: SessionStatus["kind"]) {
     ui.paneInfo[paneId] = { ...(ui.paneInfo[paneId] ?? {}), status: s };
@@ -213,7 +291,7 @@
       } else if (target.kind === "adhoc") {
         await ssh.connectAdhoc(paneId, target.adhoc, term.cols, term.rows, onData);
       } else {
-        await api.localTerm.spawn(paneId, term.cols, term.rows, onData);
+        await api.localTerm.spawn(paneId, term.cols, term.rows, onData, settings.prefs.localShell.trim() || null, settings.prefs.localCwd.trim() || null);
       }
     } catch (e) {
       status = { kind: "error", message: errorMessage(e) };
@@ -306,7 +384,7 @@
   onMount(async () => {
     const p = settings.prefs;
     term = new Terminal({
-      theme: themeById(p.themeId).theme,
+      theme: paneTheme(),
       fontFamily: p.fontFamily,
       fontSize: p.fontSize,
       lineHeight: p.lineHeight,
@@ -346,9 +424,22 @@
         case "KeyF":
           openFind();
           return false;
+        case "ArrowUp":
+          jumpPrompt(-1);
+          return false;
+        case "ArrowDown":
+          jumpPrompt(1);
+          return false;
       }
       return true;
     });
+    term.parser.registerOscHandler(133, onMark);
+    term.parser.registerOscHandler(7, (data) => {
+      const cwd = parseOsc7(data);
+      if (cwd !== null) ui.paneInfo[paneId] = { ...(ui.paneInfo[paneId] ?? { status: status.kind }), cwd };
+      return cwd !== null;
+    });
+    term.onBell(() => void notifyDone(`Bell from ${label}`));
 
     // Native paste (Ctrl+V, middle click): intercept before xterm sends it.
     container.addEventListener(
@@ -401,17 +492,20 @@
       status = e.status;
       setInfo(e.status.kind);
       if (e.status.kind === "connected") {
+        reconnectAttempts = 0;
         safeFit();
         term.focus();
         if (target.kind === "host") {
           settings.markRecent(target.hostId);
-          const startup = host?.startup_command?.trim();
+          const startup = [host?.startup_command?.trim(), target.command?.trim()].filter(Boolean).join(" && ");
           // Give the remote shell a moment to print its prompt first.
           if (startup) setTimeout(() => void writeToPane(pane, render(startup, hostContextFor(target.hostId), {}) + "\r"), 300);
         }
       } else if (e.status.kind === "disconnected") {
         term.write(`\r\n\x1b[90m[session closed${e.status.code != null ? `, exit ${e.status.code}` : ""}]\x1b[0m\r\n`);
         if (wasConnected && !active) ui.notify("info", `Session to ${label} closed.`);
+        // No exit code means the link dropped rather than the shell ending.
+        if (wasConnected && e.status.code == null) scheduleReconnect();
       }
     });
 
@@ -420,6 +514,7 @@
   });
 
   onDestroy(() => {
+    clearTimeout(reconnectTimer);
     unlisten?.();
     resizeObserver?.disconnect();
     void closePane(pane);
@@ -429,7 +524,7 @@
   // Apply appearance changes from Settings to the live terminal.
   $effect(() => {
     const p = settings.prefs;
-    const theme = themeById(p.themeId).theme;
+    const theme = paneTheme();
     const { fontFamily, fontSize, lineHeight, cursorStyle, cursorBlink, scrollback } = p;
     if (!term) return;
     term.options.theme = theme;
@@ -456,7 +551,7 @@
     }
   });
 
-  const background = $derived(themeById(settings.prefs.themeId).theme.background);
+  const background = $derived(paneTheme().background);
 </script>
 
 <div class="relative flex min-h-0 flex-1 flex-col" style:background>
@@ -515,6 +610,8 @@
         { label: "Paste", keys: "Ctrl+Shift+V", run: paste, disabled: status.kind !== "connected" },
         { label: "Select all", keys: "", run: () => term.selectAll(), disabled: false },
         { label: "Find…", keys: "Ctrl+Shift+F", run: openFind, disabled: false },
+        { label: "Copy last command output", keys: "", run: copyLastOutput, disabled: !commands.last },
+        { label: "Previous / next prompt", keys: "Ctrl+Shift+↑ / ↓", run: () => jumpPrompt(-1), disabled: !commands.active },
         { label: selectMode ? "Give the mouse back to the program" : "Select text with the mouse", keys: "", run: toggleSelectMode, disabled: !mouseTracked },
         { label: "Clear scrollback", keys: "", run: () => term.clear(), disabled: false },
       ] as item (item.label)}

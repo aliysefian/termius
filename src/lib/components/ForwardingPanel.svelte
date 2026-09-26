@@ -1,8 +1,17 @@
 <script lang="ts">
-  import { ArrowLeftRight, Loader2, Pencil, Play, Plus, Square, Trash2 } from "lucide-svelte";
+  import { ArrowLeftRight, Globe, Loader2, Pencil, Play, Plus, Square, Trash2 } from "lucide-svelte";
+  import { openUrl } from "@tauri-apps/plugin-opener";
   import { ui } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
-  import { describeForward, type ForwardStatus } from "$lib/types";
+  import { describeForward, errorMessage, type ForwardRule, type ForwardStatus } from "$lib/types";
+
+  /** Local rules usually front a web UI; open it in the browser. */
+  function browserUrl(d: ForwardRule, st: ForwardStatus | undefined): string | null {
+    if (d.kind !== "local" || st?.state !== "active") return null;
+    const host = d.bind_addr === "0.0.0.0" || d.bind_addr === "::" ? "127.0.0.1" : d.bind_addr;
+    const port = d.bind_port || st.port;
+    return `${port === 443 || d.dest_port === 443 ? "https" : "http"}://${host.includes(":") ? `[${host}]` : host}:${port}`;
+  }
 
   function dot(s: ForwardStatus | undefined) {
     switch (s?.state) {
@@ -53,6 +62,11 @@
               <button class="icon-btn h-6 w-6" title="Edit" disabled={running} onclick={() => (ui.modal = { kind: "forward", id: f.id })}><Pencil size={12} /></button>
               <button class="icon-btn h-6 w-6 hover:text-danger" title="Delete" onclick={() => remove(f.id, d.label)}><Trash2 size={12} /></button>
             </div>
+            {#if browserUrl(d, st)}
+              <button class="icon-btn h-7 w-7" title="Open {browserUrl(d, st)} in the browser" onclick={() => openUrl(browserUrl(d, st)!).catch((e) => ui.notify("error", errorMessage(e)))}>
+                <Globe size={14} />
+              </button>
+            {/if}
             {#if running}
               <button class="icon-btn h-7 w-7 text-success" title="Stop" onclick={() => vaultStore.stopForward(f.id)}>
                 {#if st?.state === "starting"}<Loader2 size={14} class="animate-spin" />{:else}<Square size={14} />{/if}

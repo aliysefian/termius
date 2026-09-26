@@ -31,7 +31,9 @@
   const envChoices = $derived([
     ...new Set([...ENVIRONMENTS.map((e) => e.value), ...vaultStore.hosts.map((h) => h.data?.environment ?? "")]),
   ].filter(Boolean));
-  const tree = $derived(buildTree(filtered, sortBy));
+  const byLastUsed = (a: (typeof filtered)[number], b: (typeof filtered)[number]) =>
+    (settings.usage[b.id]?.last ?? 0) - (settings.usage[a.id]?.last ?? 0) || (a.data?.label ?? "").localeCompare(b.data?.label ?? "");
+  const tree = $derived(buildTree(filtered, sortBy === "lastused" ? byLastUsed : sortBy));
   const paths = $derived(groupPaths(tree));
   const anyExpanded = $derived(paths.some((p) => !ui.collapsedGroups.has(p)));
   let rootDrop = $state(false);
@@ -86,9 +88,26 @@
         <option value="name">Name</option>
         <option value="hostname">Address</option>
         <option value="updated">Recent edits</option>
+        <option value="lastused">Last used</option>
       </select>
     </div>
   </div>
+
+  {#if ui.selectedHosts.size}
+    <div class="mx-3 mb-2 flex items-center gap-2 rounded-md border border-accent/40 bg-accent/10 px-2 py-1.5 text-xs">
+      <span class="flex-1">{ui.selectedHosts.size} selected</span>
+      <button class="btn-primary py-0.5 text-xs" onclick={() => (ui.modal = { kind: "bulk-edit" })}>Edit…</button>
+      <button
+        class="btn-ghost py-0.5 text-xs"
+        onclick={() => {
+          const hs = [...ui.selectedHosts].map((id) => ({ id, label: vaultStore.hostById.get(id)?.data?.label ?? "" }));
+          ui.openMany(hs, "tabs", "Selection");
+        }}>Open</button
+      >
+      <button class="btn-ghost py-0.5 text-xs" onclick={() => (ui.selectedHosts = new Set(filtered.map((h) => h.id)))} title="Select every host shown">All</button>
+      <button class="btn-ghost py-0.5 text-xs" onclick={() => (ui.selectedHosts = new Set())}>Clear</button>
+    </div>
+  {/if}
 
   <!-- Dropping a host on empty space moves it to the top level. -->
   <div

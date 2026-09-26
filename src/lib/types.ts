@@ -425,6 +425,9 @@ export interface ImportedHost {
   proxy_command?: string | null;
   keepalive_secs?: number | null;
   forwards?: ForwardKind[];
+  /** CSV import only: applied after the hosts are created. */
+  tags?: string[];
+  notes?: string;
 }
 
 export type KeyImport = "reference" | "copy";

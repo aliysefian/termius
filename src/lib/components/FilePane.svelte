@@ -1,5 +1,8 @@
 <script lang="ts">
-  import { ArrowUp, Eye, EyeOff, File, FilePen, Folder, FolderPlus, Link, RefreshCw, TextCursorInput, Trash2 } from "lucide-svelte";
+  import { ArrowUp, Eye, EyeOff, File, FilePen, FileSearch, Folder, FolderOpen, FolderPlus, KeyRound, Link, RefreshCw, TextCursorInput, Trash2 } from "lucide-svelte";
+  import { revealItemInDir } from "@tauri-apps/plugin-opener";
+  import PreviewDialog from "./PreviewDialog.svelte";
+  import type { Preview } from "$lib/sftp";
   import { settings } from "$lib/stores/settings.svelte";
   import type { Snippet as SvelteSnippet } from "svelte";
   import { parentPath, type FileSource } from "$lib/sftp";
@@ -39,6 +42,64 @@
   let pathInput = $state("");
   let dragOver = $state(false);
   let lastClicked: string | null = null;
+
+  // -- quick look, permissions, reveal ---------------------------------------
+  let previewing = $state<{ entry: FileEntry; data: Preview | null } | null>(null);
+
+  const one = $derived.by(() => {
+    if (selected.size !== 1) return null;
+    const [p] = [...selected];
+    return entries.find((x) => x.path === p) ?? null;
+  });
+
+  async function quickLook(e: FileEntry | null = one) {
+    if (!e || e.is_dir || !source) return;
+    previewing = { entry: e, data: null };
+    try {
+      const data = await source.preview(e.path);
+      if (previewing?.entry.path === e.path) previewing = { entry: e, data };
+    } catch (err) {
+      previewing = null;
+      error = errorMessage(err);
+    }
+  }
+
+  function modeString(m: number | null) {
+    if (m == null) return "";
+    const r = (b: number, c: string) => (m & b ? c : "-");
+    return [0o400, 0o200, 0o100, 0o40, 0o20, 0o10, 0o4, 0o2, 0o1].map((b, i) => r(b, "rwx"[i % 3])).join("");
+  }
+
+  async function chmod() {
+    const e = one;
+    if (!e || !source?.chmod) return;
+    const cur = e.permissions != null ? (e.permissions & 0o7777).toString(8).padStart(3, "0") : "644";
+    const v = prompt(`Permissions for ${e.name} (octal, e.g. 644 or 755)`, cur);
+    if (v == null) return;
+    if (!/^[0-7]{3,4}$/.test(v.trim())) return void (error = "Enter permissions as 3 or 4 octal digits, like 644.");
+    try {
+      await source.chmod(e.path, parseInt(v.trim(), 8));
+      await load(path);
+    } catch (err) {
+      error = errorMessage(err);
+    }
+  }
+
+  async function reveal() {
+    const target = one?.path ?? path;
+    try {
+      await revealItemInDir(target);
+    } catch (err) {
+      error = errorMessage(err);
+    }
+  }
+
+  function onKey(ev: KeyboardEvent) {
+    if (ev.key === " " && one && !one.is_dir) {
+      ev.preventDefault();
+      void quickLook();
+    }
+  }
 
   const visible = $derived(settings.prefs.showHiddenFiles ? entries : entries.filter((e) => !e.name.startsWith(".")));
   const hiddenCount = $derived(entries.length - visible.length);
@@ -186,6 +247,13 @@
       {#if onEdit}
         <button class="icon-btn h-7 w-7" title="Edit in local editor (or double-click a file)" disabled={!editable} onclick={() => editable && onEdit?.(editable)}><FilePen size={14} /></button>
       {/if}
+      <button class="icon-btn h-7 w-7" title="Quick look (Space)" disabled={!one || one.is_dir} onclick={() => quickLook()}><FileSearch size={14} /></button>
+      {#if source.chmod}
+        <button class="icon-btn h-7 w-7" title="Permissions (chmod)" disabled={!one} onclick={chmod}><KeyRound size={14} /></button>
+      {/if}
+      {#if side === "local"}
+        <button class="icon-btn h-7 w-7" title="Show in file manager" onclick={reveal}><FolderOpen size={14} /></button>
+      {/if}
       <button class="icon-btn h-7 w-7" title="Rename" disabled={selected.size !== 1} onclick={rename}><TextCursorInput size={14} /></button>
       <button class="icon-btn h-7 w-7 hover:text-danger" title="Delete" disabled={selected.size === 0} onclick={remove}><Trash2 size={14} /></button>
     </div>
@@ -194,13 +262,14 @@
       <div class="border-b border-danger/30 bg-danger/10 px-3 py-1.5 text-xs text-danger">{error}</div>
     {/if}
 
-    <div class="min-h-0 flex-1 overflow-auto">
+    <div class="min-h-0 flex-1 overflow-auto" tabindex="-1" role="grid" aria-label="{side} file list" onkeydown={onKey}>
       <table class="w-full table-fixed text-sm">
         <thead class="sticky top-0 bg-base text-left text-xs text-fg-muted">
           <tr class="border-b border-line">
             <th class="px-3 py-1.5 font-medium">Name</th>
             <th class="w-24 px-2 py-1.5 text-right font-medium">Size</th>
             <th class="hidden w-36 px-3 py-1.5 font-medium lg:table-cell">Modified</th>
+            <th class="hidden w-24 px-2 py-1.5 font-medium xl:table-cell">Mode</th>
           </tr>
         </thead>
         <tbody>
@@ -221,10 +290,11 @@
               </td>
               <td class="px-2 py-1 text-right font-mono text-xs text-fg-muted">{e.is_dir ? "" : formatBytes(e.size)}</td>
               <td class="hidden px-3 py-1 text-xs text-fg-muted lg:table-cell">{fmtDate(e.modified)}</td>
+              <td class="hidden px-2 py-1 font-mono text-[11px] text-fg-muted xl:table-cell">{modeString(e.permissions)}</td>
             </tr>
           {:else}
             {#if !loading && !error}
-              <tr><td colspan="3" class="px-3 py-8 text-center text-xs text-fg-muted">Empty folder</td></tr>
+              <tr><td colspan="4" class="px-3 py-8 text-center text-xs text-fg-muted">Empty folder</td></tr>
             {/if}
           {/each}
         </tbody>
@@ -239,3 +309,7 @@
     </div>
   {/if}
 </div>
+
+{#if previewing}
+  <PreviewDialog entry={previewing.entry} preview={previewing.data} onclose={() => (previewing = null)} />
+{/if}

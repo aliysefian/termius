@@ -7,6 +7,7 @@
   import { ui } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
   import { describeForward, errorMessage, type ImportSummary, type KeyImport, type SshConfigPreview } from "$lib/types";
+  import { guessMapping, rowsToHosts, secretColumns, type Field, type Mapping } from "$lib/csvhosts";
 
   let preview = $state<SshConfigPreview | null>(null);
   let picked = $state<Set<string>>(new Set());
@@ -37,7 +38,79 @@
   }
   onMount(() => load(null));
 
-  let source = $state<"ssh" | "ansible">("ssh");
+  let source = $state<"ssh" | "ansible" | "putty" | "csv">("ssh");
+
+  function existingOf(hosts: { alias: string }[]) {
+    const labels = new Set(vaultStore.hosts.map((h) => h.data?.label.toLowerCase()));
+    return hosts.filter((h) => labels.has(h.alias.toLowerCase())).map((h) => h.alias);
+  }
+
+  function show(p: SshConfigPreview) {
+    preview = p;
+    const existing = new Set(p.existing);
+    picked = new Set(p.hosts.filter((h) => !existing.has(h.alias)).map((h) => h.alias));
+  }
+
+  async function choosePutty() {
+    source = "putty";
+    loading = true;
+    error = null;
+    try {
+      show(await api.putty.sessions());
+      if (!preview?.hosts.length) error = "No saved PuTTY SSH sessions were found on this computer.";
+    } catch (e) {
+      error = errorMessage(e);
+      preview = null;
+    } finally {
+      loading = false;
+    }
+  }
+
+  // -- CSV: pick columns, then build the same preview -----------------------
+  let csvPath = $state("");
+  let csvHeaders = $state<string[]>([]);
+  let csvRows = $state<string[][]>([]);
+  let mapping = $state<Mapping>({ label: null, hostname: null, port: null, user: null, group: null, tags: null, notes: null });
+  const fields: [Field, string][] = [
+    ["hostname", "Address"],
+    ["label", "Label"],
+    ["port", "Port"],
+    ["user", "User"],
+    ["group", "Group"],
+    ["tags", "Tags"],
+    ["notes", "Notes"],
+  ];
+
+  function rebuildCsv() {
+    const { hosts, skipped } = rowsToHosts(csvRows, mapping);
+    const secrets = secretColumns(csvHeaders);
+    const warnings = [
+      ...(skipped ? [`${skipped} row(s) had no address and were skipped.`] : []),
+      ...(secrets.length ? [`Column(s) ${secrets.join(", ")} look secret and are never imported. Add credentials in SSHVault instead.`] : []),
+    ];
+    show({ path: csvPath, hosts, warnings, existing: existingOf(hosts) });
+  }
+
+  async function chooseCsv() {
+    const f = await open({ multiple: false, directory: false, title: "Choose a CSV file (Termius export, spreadsheet…)", filters: [{ name: "CSV", extensions: ["csv", "tsv", "txt"] }] });
+    if (typeof f !== "string") return;
+    source = "csv";
+    loading = true;
+    error = null;
+    try {
+      const t = await api.csv.preview(f);
+      csvPath = f;
+      csvHeaders = t.headers;
+      csvRows = t.rows;
+      mapping = guessMapping(t.headers);
+      rebuildCsv();
+    } catch (e) {
+      error = errorMessage(e);
+      preview = null;
+    } finally {
+      loading = false;
+    }
+  }
 
   async function chooseFile() {
     const f = await open({ multiple: false, directory: false, title: "Choose an OpenSSH config file" });
@@ -79,6 +152,15 @@
     try {
       const hosts = preview.hosts.filter((h) => picked.has(h.alias));
       summary = await api.sshConfig.import(hosts, group, keyImport);
+      // CSV tags and notes have no ssh-config equivalent; apply them now.
+      if (source === "csv") {
+        await vaultStore.reloadAll();
+        for (const h of hosts) {
+          if (!h.tags?.length && !h.notes) continue;
+          const rec = vaultStore.hosts.find((r) => r.data?.label === h.alias);
+          if (rec?.data) await vaultStore.saveHost(rec.id, { ...$state.snapshot(rec.data), tags: h.tags ?? [], notes: h.notes ?? "" }, rec.rev);
+        }
+      }
       await vaultStore.reloadAll();
     } catch (e) {
       error = errorMessage(e);
@@ -88,7 +170,7 @@
   }
 </script>
 
-<Modal title={source === "ansible" ? "Import from Ansible inventory" : "Import from SSH config"} onclose={() => (ui.modal = null)} width="max-w-3xl">
+<Modal title={source === "ansible" ? "Import from Ansible inventory" : source === "putty" ? "Import PuTTY sessions" : source === "csv" ? "Import from CSV" : "Import hosts"} onclose={() => (ui.modal = null)} width="max-w-3xl">
   {#if summary}
     <div class="space-y-3 text-sm">
       <p>
@@ -118,11 +200,27 @@
       <div class="flex items-center gap-2">
         <div class="input flex-1 truncate font-mono text-xs">{preview?.path ?? "~/.ssh/config"}</div>
         <button class="btn-ghost border border-line" onclick={chooseFile}><FileInput size={14} /> SSH config…</button>
-        <button class="btn-ghost border border-line" onclick={chooseInventory}><FileInput size={14} /> Ansible inventory…</button>
+        <button class="btn-ghost border border-line" onclick={chooseInventory}><FileInput size={14} /> Ansible…</button>
+        <button class="btn-ghost border border-line" onclick={choosePutty}><FileInput size={14} /> PuTTY</button>
+        <button class="btn-ghost border border-line" onclick={chooseCsv} title="Termius export or any spreadsheet"><FileInput size={14} /> CSV…</button>
       </div>
 
       {#if error}
         <p class="rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger">{error}</p>
+      {/if}
+
+      {#if source === "csv" && csvHeaders.length}
+        <div class="grid grid-cols-4 gap-2 rounded-md border border-line p-3 text-xs">
+          {#each fields as [f, name] (f)}
+            <label class="flex flex-col gap-1">
+              <span class="text-fg-muted">{name}</span>
+              <select class="input py-1 text-xs" value={mapping[f] ?? ""} onchange={(e) => { mapping[f] = e.currentTarget.value === "" ? null : Number(e.currentTarget.value); rebuildCsv(); }}>
+                <option value="">—</option>
+                {#each csvHeaders as h, i (i)}<option value={i}>{h || `Column ${i + 1}`}</option>{/each}
+              </select>
+            </label>
+          {/each}
+        </div>
       {/if}
 
       {#if preview}

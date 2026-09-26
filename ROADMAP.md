@@ -109,6 +109,96 @@ the background.
   ProxyJump.
 - [x] **Export to OpenSSH config** for use with `ssh`, `scp`, Ansible and git.
 
+## Round five: the portable vault (0.5.0)
+
+- [x] **Portable encrypted vault**: a random vault key wrapped by the master
+  password and an optional recovery key, per-record revisions, field-level
+  merge, conflict detection, atomic writes, encrypted backups and restore,
+  read-only integrity checks, a crash-safe upgrade from the old format, and
+  "remember on this device" through the OS credential store.
+- [x] **Key Manager**, group defaults, proxies (SOCKS5, HTTP CONNECT,
+  approved ProxyCommand), server keys trusted explicitly and shared through
+  the vault, richer `~/.ssh/config` import.
+- [x] **Guard rails**: multi-line paste confirmation, destructive-command
+  warnings and a red banner on production hosts, clipboard clearing.
+- [x] **Hideable list panel**, collapse-all groups, favorites, filters and
+  sorting, snippet folders and tags, saved workspaces.
+- [x] **tmux and friends**: select text while a program has the mouse, and
+  scroll full-screen programs with the wheel.
+
+## Round six: daily-driver polish
+
+Small things that make the app feel finished, ordered by how often they
+matter in a working day.
+
+- [x] **Undo delete.** Deleting a host, credential, snippet or rule shows a
+  toast with **Undo** for eight seconds. The record (including its secrets,
+  and a host's own credential) is held in memory on the Rust side, never
+  written anywhere, and put back exactly.
+- [x] **Maximize a pane** in a split tab (double-click its header or
+  Ctrl+Shift+Enter) and restore it; the other panes stay connected.
+- [x] **Auto-reconnect** when a connection drops (not after `exit`), up to
+  three attempts, switchable in Settings.
+- [x] **Copy as `ssh` command** from a host's row, with `-p`, `-J` for the
+  jump chain, `-A` and `-X`. Never includes secrets.
+- [x] **Last used**: each host remembers when it was last connected to from
+  this computer and how often; sort the tree by it.
+- [x] **Open in browser** for an active local forward (`http://127.0.0.1:port`).
+- [x] **Keyboard cheat sheet** (Ctrl+Shift+/).
+- [x] **Remember the window size and position** between launches.
+- [x] **Shell integration** (OSC 7 and OSC 133, the VS Code / WezTerm /
+  Kitty convention; snippets for bash and zsh under Settings): the pane
+  header shows the remote directory with **Browse in SFTP** and **New tab
+  here**, Ctrl+Shift+↑/↓ jumps between prompts, and **Copy last command
+  output** is in the terminal menu.
+- [x] **Command history per host**, kept on this computer only (never in the
+  vault), with exit codes when shell integration is on. Recent commands
+  appear in the palette and re-run in the right host; clearable in Settings.
+- [x] **Notify when a background tab finishes**: a command that ran 8 s or
+  longer, or the terminal bell, raises a system notification if you're not
+  looking at that pane.
+- [x] **Bulk edit**: Ctrl/Shift+click hosts, then change group, environment,
+  credential, jump host, proxy or tags for all of them, or open them all.
+- [x] **Host details card** (Space on a host, or its info button): route,
+  credential, proxy, custom fields, notes rendered as Markdown (HTML is
+  escaped), reachability, last connected, recent commands, and the `ssh`
+  command.
+- [x] **Local terminal profiles**: choose the shell (bash, zsh, fish,
+  PowerShell, `wsl`, …) and start folder.
+- [x] **Custom terminal themes**: import VS Code, Windows Terminal or iTerm2
+  colour schemes; optional red tint on production terminals.
+- [x] **Custom keyboard shortcuts**: rebind or unbind any action from the
+  cheat sheet (Ctrl+Shift+/).
+- [x] **SFTP**: chmod, quick look at text and images (Space), a
+  permissions column, drag files in from the OS file manager to upload, and
+  "show in file manager" for local files.
+- [ ] **SFTP transfer queue** with pause, resume and retry.
+- [x] **Migrate from other tools**: PuTTY saved sessions (Windows registry,
+  or `~/.putty/sessions`) and any CSV (Termius exports, spreadsheets) with
+  column mapping. Password columns are detected and never imported.
+- [ ] **MobaXterm** session import.
+- [x] **Focus mode** (Ctrl+Shift+U hides everything but the terminal) and a
+  **compact density** option.
+- [x] **Accessibility pass**: visible keyboard focus rings everywhere,
+  reduced-motion support, and every icon button has an accessible name.
+
+## Later: bigger developer features
+
+- [ ] **Vault-backed SSH agent.** Serve the Key Manager's keys on
+  `SSH_AUTH_SOCK` (Unix socket, Windows named pipe) while the vault is
+  unlocked, so `git`, `ssh`, `scp` and IDEs on this computer use vault keys
+  without any file on disk. Per-key approval, and forwarding uses it too.
+- [ ] **Auto-update** through the Tauri updater. Needs the update-signing key
+  pair and a release channel decision.
+- [ ] **Hardware keys**: FIDO2 (`sk-ssh-ed25519`) and PKCS#11 keys through
+  the local agent; and unlocking the vault with a hardware-backed key.
+- [ ] **Team sharing**: a second vault (or a group inside one) encrypted to
+  several people's public keys, so a team can share hosts without sharing a
+  master password.
+- [ ] **Serial and Telnet** sessions for network gear.
+- [ ] **Scripting**: a small CLI (`sshvault connect web-01`, `sshvault run
+  --group prod "uptime"`) that talks to the running app.
+
 ## Needs a decision
 
 - **macOS builds were dropped from CI** at the owner's request, along with

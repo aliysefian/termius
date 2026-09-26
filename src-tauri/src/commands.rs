@@ -62,6 +62,8 @@ pub struct AppState {
     /// Host keys trusted in the vault; unknown or changed keys ask the UI.
     pub host_keys: crate::ssh::HostKeyPolicy,
     host_key_prompts: PromptMap,
+    /// Recently deleted records, kept in memory for a short undo window.
+    trash: std::sync::Mutex<Vec<Trashed>>,
     logs: std::sync::Mutex<std::collections::HashMap<String, LogSlot>>,
 }
 
@@ -894,16 +896,98 @@ where
         .with_vault(|v| v.put(collection, id, &data, base))?)
 }
 
+/// A deleted record, held in memory (never written anywhere) so "Undo" can
+/// put it back exactly, secrets included, without those secrets ever
+/// reaching the webview.
+struct Trashed {
+    collection: Collection,
+    id: Uuid,
+    data: serde_json::Value,
+    at: std::time::Instant,
+    /// Records removed along with it (a host's own credential), restored first.
+    along: Vec<(Collection, Uuid, serde_json::Value)>,
+    /// Hosts this credential was detached from, re-attached on undo.
+    detached_from: Vec<Uuid>,
+}
+
+const UNDO_WINDOW: std::time::Duration = std::time::Duration::from_secs(10 * 60);
+const TRASH_MAX: usize = 50;
+
+fn stash(state: &AppState, t: Trashed) {
+    let mut trash = state.trash.lock().unwrap_or_else(|p| p.into_inner());
+    trash.retain(|x| x.at.elapsed() < UNDO_WINDOW && !(x.collection == t.collection && x.id == t.id));
+    trash.push(t);
+    if trash.len() > TRASH_MAX {
+        trash.remove(0);
+    }
+}
+
 fn delete_record(
     state: &AppState,
     collection: Collection,
     id: Uuid,
     base_rev: Option<u64>,
 ) -> ApiResult<()> {
+    delete_record_with(state, collection, id, base_rev, Vec::new(), Vec::new())
+}
+
+fn delete_record_with(
+    state: &AppState,
+    collection: Collection,
+    id: Uuid,
+    base_rev: Option<u64>,
+    along: Vec<(Collection, Uuid, serde_json::Value)>,
+    detached_from: Vec<Uuid>,
+) -> ApiResult<()> {
     let base = base_for(Some(id), base_rev);
-    Ok(state
-        .session
-        .with_vault(|v| v.delete(collection, id, base))?)
+    let data = state.session.with_vault(|v| {
+        let data = v.get::<serde_json::Value>(collection, id)?.data;
+        v.delete(collection, id, base)?;
+        Ok(data)
+    })?;
+    if let Some(data) = data {
+        stash(
+            state,
+            Trashed {
+                collection,
+                id,
+                data,
+                at: std::time::Instant::now(),
+                along,
+                detached_from,
+            },
+        );
+    }
+    Ok(())
+}
+
+/// Put back a record deleted in the last few minutes, exactly as it was.
+#[tauri::command]
+pub fn undelete_record(state: State<'_, AppState>, collection: Collection, id: Uuid) -> ApiResult<()> {
+    let t = {
+        let mut trash = state.trash.lock().unwrap_or_else(|p| p.into_inner());
+        let idx = trash
+            .iter()
+            .position(|x| x.collection == collection && x.id == id && x.at.elapsed() < UNDO_WINDOW)
+            .ok_or_else(|| ApiError::new("expired", "that can no longer be undone"))?;
+        trash.remove(idx)
+    };
+    state.session.with_vault(|v| {
+        for (c, i, d) in &t.along {
+            v.put(*c, *i, d, crate::vault::Base::Latest)?;
+        }
+        v.put(t.collection, t.id, &t.data, crate::vault::Base::Latest)?;
+        for hid in &t.detached_from {
+            if let Ok(Record { data: Some(mut h), rev, .. }) = v.get::<Host>(Collection::Hosts, *hid) {
+                if h.identity_id.is_none() {
+                    h.identity_id = Some(t.id);
+                    v.put(Collection::Hosts, *hid, &h, crate::vault::Base::Rev(rev))?;
+                }
+            }
+        }
+        Ok(())
+    })?;
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -986,14 +1070,22 @@ fn host_jump_map(state: &AppState) -> ApiResult<std::collections::HashMap<Uuid, 
 pub fn delete_host(state: State<'_, AppState>, id: Uuid, base_rev: Option<u64>) -> ApiResult<()> {
     // Refuse before touching anything if another device changed it meanwhile.
     check_unchanged(&state, Collection::Hosts, id, base_rev)?;
-    // Credentials entered in this host's own form go with it.
-    state
+    // Credentials entered in this host's own form go with it (and come back
+    // with it on undo).
+    let along = state
         .session
         .with_vault(|v| match v.get::<Host>(Collection::Hosts, id) {
             Ok(Record { data: Some(h), .. }) => {
-                crate::hostcreds::release_for_deleted_host(v, &h, id)
+                let owned = h
+                    .identity_id
+                    .and_then(|iid| v.get::<serde_json::Value>(Collection::Identities, iid).ok().map(|r| (iid, r.data)))
+                    .and_then(|(iid, d)| d.map(|d| (iid, d)))
+                    .filter(|(_, d)| d.get("for_host").and_then(|f| f.as_str()) == Some(&id.to_string()))
+                    .map(|(iid, d)| (Collection::Identities, iid, d));
+                crate::hostcreds::release_for_deleted_host(v, &h, id)?;
+                Ok(owned.into_iter().collect::<Vec<_>>())
             }
-            _ => Ok(()),
+            _ => Ok(Vec::new()),
         })?;
     // Hosts that tunnelled through this one fall back to direct connections.
     let hosts: Vec<Record<Host>> = list_records(&state, Collection::Hosts)?;
@@ -1005,7 +1097,7 @@ pub fn delete_host(state: State<'_, AppState>, id: Uuid, base_rev: Option<u64>) 
             }
         }
     }
-    delete_record(&state, Collection::Hosts, id, None)
+    delete_record_with(&state, Collection::Hosts, id, None, along, Vec::new())
 }
 
 /// Fail with a conflict if `id` moved past `base_rev` since the UI loaded it.
@@ -1452,15 +1544,17 @@ pub fn delete_identity(
     // Detach the identity from any host that references it so the UI never
     // shows a dangling reference.
     let hosts: Vec<Record<Host>> = list_records(&state, Collection::Hosts)?;
+    let mut detached = Vec::new();
     for h in hosts {
         if let Some(mut data) = h.data {
             if data.identity_id == Some(id) {
                 data.identity_id = None;
                 save_record(&state, Collection::Hosts, Some(h.id), Some(h.rev), data)?;
+                detached.push(h.id);
             }
         }
     }
-    delete_record(&state, Collection::Identities, id, None)
+    delete_record_with(&state, Collection::Identities, id, None, Vec::new(), detached)
 }
 
 #[tauri::command]
@@ -1624,12 +1718,15 @@ pub async fn ssh_disconnect(state: State<'_, AppState>, pane_id: String) -> ApiR
 
 /// Start the user's shell in a local terminal pane.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub fn local_spawn(
     app: AppHandle,
     state: State<'_, AppState>,
     pane_id: String,
     cols: u32,
     rows: u32,
+    shell: Option<String>,
+    cwd: Option<String>,
     on_data: Channel<InvokeResponseBody>,
 ) -> ApiResult<()> {
     let sink = Arc::new(PaneSink {
@@ -1638,9 +1735,17 @@ pub fn local_spawn(
         data: on_data,
         log: state.log_slot(&pane_id),
     });
+    // "pwsh -NoLogo" style: the first word is the program.
+    let argv: Option<Vec<String>> = shell
+        .map(|s| s.split_whitespace().map(str::to_string).collect::<Vec<_>>())
+        .filter(|v| !v.is_empty());
+    let home = sftp::local::home();
+    let cwd = cwd
+        .filter(|c| !c.trim().is_empty())
+        .map(|c| PathBuf::from(crate::sshconfig::expand_path(&c, &home)));
     state
         .local
-        .spawn(pane_id, cols, rows, None, sink)
+        .spawn(pane_id, cols, rows, argv, cwd, sink)
         .map_err(|e| ApiError::new("local", e.to_string()))
 }
 
@@ -2399,6 +2504,97 @@ pub fn sftp_edit_stop(state: State<'_, AppState>, edit_id: String) {
 }
 
 #[tauri::command]
+pub async fn sftp_chmod(state: State<'_, AppState>, session_id: String, path: String, mode: u32) -> ApiResult<()> {
+    Ok(state.sftp.get(&session_id)?.chmod(&path, mode).await?)
+}
+
+/// A file's beginning, for a quick look: text when it decodes as UTF-8,
+/// otherwise base64 (images). Capped so huge files stay cheap.
+#[derive(Debug, Clone, Serialize)]
+pub struct Preview {
+    pub kind: &'static str,
+    pub text: Option<String>,
+    pub base64: Option<String>,
+    pub truncated: bool,
+}
+
+const PREVIEW_MAX: usize = 512 * 1024;
+
+fn preview_of(bytes: Vec<u8>, truncated: bool) -> Preview {
+    use base64::Engine;
+    match String::from_utf8(bytes) {
+        Ok(text) if !text.contains('\0') => Preview {
+            kind: "text",
+            text: Some(text),
+            base64: None,
+            truncated,
+        },
+        Ok(text) => Preview {
+            kind: "binary",
+            text: None,
+            base64: Some(base64::engine::general_purpose::STANDARD.encode(text.as_bytes())),
+            truncated,
+        },
+        Err(e) => Preview {
+            kind: "binary",
+            text: None,
+            base64: Some(base64::engine::general_purpose::STANDARD.encode(e.into_bytes())),
+            truncated,
+        },
+    }
+}
+
+#[tauri::command]
+pub async fn sftp_preview(state: State<'_, AppState>, session_id: String, path: String) -> ApiResult<Preview> {
+    let (bytes, truncated) = state.sftp.get(&session_id)?.read_head(&path, PREVIEW_MAX).await?;
+    Ok(preview_of(bytes, truncated))
+}
+
+#[tauri::command]
+pub fn local_preview(path: String) -> ApiResult<Preview> {
+    use std::io::Read;
+    let f = std::fs::File::open(&path).map_err(|e| ApiError::new("io", format!("{path}: {e}")))?;
+    let mut buf = Vec::new();
+    f.take(PREVIEW_MAX as u64 + 1)
+        .read_to_end(&mut buf)
+        .map_err(|e| ApiError::new("io", format!("{path}: {e}")))?;
+    let truncated = buf.len() > PREVIEW_MAX;
+    buf.truncate(PREVIEW_MAX);
+    Ok(preview_of(buf, truncated))
+}
+
+/// A small local text file the user picked (a theme, a CSV), at most 1 MiB.
+#[tauri::command]
+pub fn read_text_file(path: String) -> ApiResult<String> {
+    let p = PathBuf::from(crate::sshconfig::expand_path(&path, &sftp::local::home()));
+    let bytes = crate::vault::read_regular_file(&p, 1024 * 1024)
+        .map_err(|e| ApiError::new("io", format!("{}: {e}", p.display())))?;
+    String::from_utf8(bytes).map_err(|_| ApiError::new("io", "the file is not UTF-8 text"))
+}
+
+#[tauri::command]
+pub fn csv_preview(path: String) -> ApiResult<crate::csvimport::CsvTable> {
+    Ok(crate::csvimport::parse(&read_text_file(path)?))
+}
+
+/// Saved PuTTY sessions on this computer, as importable hosts.
+#[tauri::command]
+pub fn putty_sessions(state: State<'_, AppState>) -> ApiResult<SshConfigPreview> {
+    let hosts = crate::putty::saved_sessions(&sftp::local::home());
+    let labels: std::collections::HashSet<String> = list_records::<Host>(&state, Collection::Hosts)?
+        .into_iter()
+        .filter_map(|r| r.data.map(|d| d.label.to_lowercase()))
+        .collect();
+    let existing = hosts.iter().filter(|h| labels.contains(&h.alias.to_lowercase())).map(|h| h.alias.clone()).collect();
+    Ok(SshConfigPreview {
+        path: if cfg!(windows) { "PuTTY sessions (registry)".into() } else { "~/.putty/sessions".into() },
+        hosts,
+        warnings: Vec::new(),
+        existing,
+    })
+}
+
+#[tauri::command]
 pub async fn sftp_close(state: State<'_, AppState>, session_id: String) -> ApiResult<()> {
     state.sftp.close(&session_id).await;
     Ok(())
@@ -2589,6 +2785,7 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             })),
         },
         host_key_prompts: prompts,
+        trash: Default::default(),
         logs: Default::default(),
     });
     Ok(())

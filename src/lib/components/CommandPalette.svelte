@@ -58,6 +58,34 @@
         run: () => ui.openTerminal(h.id, d.label),
       });
     }
+    // Recent commands on the active pane's host, then on recent hosts.
+    const activeHost = ui.activeTab?.panes.find((p) => p.id === ui.activeTab?.activePaneId)?.target;
+    const historyHosts = [activeHost?.kind === "host" ? activeHost.hostId : null, ...settings.recent].filter((x): x is string => !!x);
+    const seenCmd = new Set<string>();
+    for (const hid of [...new Set(historyHosts)].slice(0, 5)) {
+      const h = vaultStore.hostById.get(hid)?.data;
+      if (!h) continue;
+      for (const e of (settings.history[hid] ?? []).slice(0, 15)) {
+        const key = `${hid}\n${e.command}`;
+        if (seenCmd.has(key)) continue;
+        seenCmd.add(key);
+        out.push({
+          id: `hist-${key}`,
+          label: e.command.split("\n")[0],
+          hint: `on ${h.label}${e.exit ? ` · last exit ${e.exit}` : ""}`,
+          group: "History",
+          icon: Play,
+          run: () => {
+            const pane = ui.activeTab?.panes.find((p) => p.id === ui.activeTab?.activePaneId);
+            if (pane?.target.kind === "host" && pane.target.hostId === hid && ui.paneInfo[pane.id]?.status === "connected") {
+              void runSnippet(e.command, { execute: true, scope: "pane" });
+            } else {
+              ui.openTerminal(hid, h.label, e.command);
+            }
+          },
+        });
+      }
+    }
     for (const w of vaultStore.workspaces) {
       const d = w.data!;
       out.push({
@@ -110,6 +138,10 @@
       ["Import hosts from an Ansible inventory", FileInput, () => (ui.modal = { kind: "import-ssh-config" })],
       ["Save open tabs as a workspace…", SquareSplitHorizontal, () => (ui.modal = { kind: "save-workspace" })],
       ["Hide or show the list panel", SquareSplitHorizontal, () => ui.toggleSidebar(), "Ctrl+Shift+H"],
+      ["Maximize or restore the pane", SquareSplitHorizontal, () => ui.toggleZoomActive(), "Ctrl+Shift+Enter"],
+      ["Keyboard shortcuts", Keyboard, () => (ui.modal = { kind: "shortcuts" }), "Ctrl+Shift+/"],
+      ["Focus mode (toggle)", Keyboard, () => (settings.prefs.focusMode = !settings.prefs.focusMode), "Ctrl+Shift+U"],
+      ["Import PuTTY sessions or a CSV of hosts…", FileInput, () => (ui.modal = { kind: "import-ssh-config" })],
       ["Split right", SquareSplitHorizontal, () => ui.splitActive("vertical"), "Ctrl+Shift+D"],
       ["Split down", SquareSplitVertical, () => ui.splitActive("horizontal"), "Ctrl+Shift+E"],
       ["Go to Hosts", Server, go("hosts")],

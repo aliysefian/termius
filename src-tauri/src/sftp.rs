@@ -278,6 +278,30 @@ impl SftpConn {
         Ok(())
     }
 
+    /// Change permission bits (`chmod`).
+    pub async fn chmod(&self, path: &str, mode: u32) -> Result<(), SftpError> {
+        let mut meta = self.sftp.metadata(path.to_string()).await?;
+        meta.permissions = Some((meta.permissions.unwrap_or(0) & !0o7777) | (mode & 0o7777));
+        Ok(self.sftp.set_metadata(path.to_string(), meta).await?)
+    }
+
+    /// The first `max` bytes of a file, and whether there was more.
+    pub async fn read_head(&self, path: &str, max: usize) -> Result<(Vec<u8>, bool), SftpError> {
+        let mut f = self.sftp.open(path.to_string()).await?;
+        let mut buf = Vec::with_capacity(max.min(1 << 20));
+        (&mut f)
+            .take(max as u64 + 1)
+            .read_to_end(&mut buf)
+            .await
+            .map_err(|e| SftpError::Local {
+                path: PathBuf::from(path),
+                source: e,
+            })?;
+        let truncated = buf.len() > max;
+        buf.truncate(max);
+        Ok((buf, truncated))
+    }
+
     /// Whole-file read, for editing.
     pub async fn read_file(&self, path: &str) -> Result<Vec<u8>, SftpError> {
         Ok(self.sftp.read(path.to_string()).await?)

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Circle, Columns2, Command, Keyboard, Plus, Rows2, SquareTerminal, Terminal, TextSelect, X, Zap } from "lucide-svelte";
+  import { Circle, Columns2, Command, FolderSync, Keyboard, Maximize2, Minimize2, Plus, Rows2, SquareTerminal, Terminal, TextSelect, X, Zap } from "lucide-svelte";
   import { save } from "@tauri-apps/plugin-dialog";
   import * as api from "$lib/api";
   import { MAX_PANES, layoutRects, type Divider } from "$lib/layout";
@@ -33,6 +33,11 @@
   const hasProd = (t: Tab) => t.panes.some((p) => paneEnv(p).value === "production");
 
   /** Synchronized input: type once, every pane in the tab receives it. */
+  /** Single-quote a path for POSIX shells. */
+  function shellQuote(s: string) {
+    return `'${s.replace(/'/g, "'\\''")}'`;
+  }
+
   function toggleSync(t: Tab) {
     if (!t.syncInput && hasProd(t)) {
       const names = t.panes.filter((p) => paneEnv(p).value === "production").map((p) => paneLabel(p).split(" · ")[0]);
@@ -149,7 +154,7 @@
 </script>
 
 <section class="flex min-w-0 flex-1 flex-col bg-base">
-  {#if ui.tabs.length > 0}
+  {#if ui.tabs.length > 0 && !settings.prefs.focusMode}
     <div class="flex h-10 items-end gap-0.5 overflow-x-auto border-b border-line bg-panel px-2" role="tablist" tabindex="-1" ondrop={onTabDrop} ondragover={(e) => dragTab && e.preventDefault()}>
       {#each ui.tabs as t, i (t.id)}
         {@const color = tabColor(t)}
@@ -263,25 +268,31 @@
   {#each ui.tabs as t (t.id)}
     {@const rects = layoutRects(t.layout)}
     {@const multi = t.panes.length > 1}
+    {@const zoomed = multi ? t.zoomedPaneId : undefined}
     <div class="relative min-h-0 flex-1 overflow-hidden {t.id === ui.activeTabId ? 'block' : 'hidden'}" data-tab-body={t.id}>
       {#each t.panes as pane (pane.id)}
         {@const r = rects.panes.get(pane.id)}
         {@const info = ui.paneInfo[pane.id]}
         {@const env = paneEnv(pane)}
         {#if r}
+          {@const full = zoomed === pane.id}
           <div
             class="absolute flex flex-col overflow-hidden
-              {t.syncInput && multi ? 'ring-1 ring-inset ring-warning/60' : pane.id === t.activePaneId && multi ? 'ring-1 ring-inset ring-accent/40' : ''}"
-            style:left="{r.x}%"
-            style:top="{r.y}%"
-            style:width="{r.w}%"
-            style:height="{r.h}%"
+              {zoomed && !full ? 'invisible' : ''}
+              {t.syncInput && multi ? 'ring-1 ring-inset ring-warning/60' : pane.id === t.activePaneId && multi && !full ? 'ring-1 ring-inset ring-accent/40' : ''}"
+            style:left="{full ? 0 : r.x}%"
+            style:top="{full ? 0 : r.y}%"
+            style:width="{full ? 100 : r.w}%"
+            style:height="{full ? 100 : r.h}%"
             role="presentation"
             onmousedown={() => (t.activePaneId = pane.id)}
           >
             <div
-              class="flex h-7 shrink-0 items-center gap-2 border-b px-3 text-xs text-fg-muted
+              class="{settings.prefs.focusMode ? 'hidden' : 'flex'} h-7 shrink-0 items-center gap-2 border-b px-3 text-xs text-fg-muted
                 {env.value === 'production' ? 'border-danger/40 bg-danger/10' : 'border-line bg-panel/40'}"
+              role="presentation"
+              ondblclick={() => multi && ui.toggleZoom(t.id, pane.id)}
+              title={multi ? "Double-click to maximize or restore (Ctrl+Shift+Enter)" : undefined}
             >
               {#if env.value}
                 <span class="shrink-0 rounded px-1 text-[9px] font-bold {'cls' in env ? env.cls : ''}">{"short" in env ? env.short : ""}</span>
@@ -289,6 +300,13 @@
               <span class="truncate">{paneLabel(pane)}</span>
               {#if info?.remoteTitle}
                 <span class="truncate text-fg-muted/70">— {info.remoteTitle}</span>
+              {/if}
+              {#if info?.cwd && pane.target.kind === "host"}
+                {@const hid = pane.target.hostId}
+                {@const cwd = info.cwd}
+                <span class="truncate font-mono text-fg-muted/70" title={cwd}>{cwd.replace(/^\/home\/[^/]+/, "~")}</span>
+                <button class="icon-btn h-6 w-6" title="Browse {cwd} in SFTP" onclick={() => ui.openSftpAt(hid, cwd)}><FolderSync size={12} /></button>
+                <button class="icon-btn h-6 w-6" title="New tab in {cwd}" onclick={() => ui.openTerminal(hid, paneLabel(pane), `cd ${shellQuote(cwd)}`)}><SquareTerminal size={12} /></button>
               {/if}
               <div class="flex-1"></div>
               {#if info?.mouseTracked}
@@ -318,6 +336,11 @@
               >
                 <Circle size={11} class={info?.recording ? "fill-danger animate-pulse" : ""} />
               </button>
+              {#if multi}
+                <button class="icon-btn h-6 w-6 {full ? 'text-accent' : ''}" title={full ? "Restore the split (Ctrl+Shift+Enter)" : "Maximize this pane (Ctrl+Shift+Enter)"} onclick={() => ui.toggleZoom(t.id, pane.id)}>
+                  {#if full}<Minimize2 size={13} />{:else}<Maximize2 size={13} />{/if}
+                </button>
+              {/if}
               {#if t.panes.length < MAX_PANES}
                 <button class="icon-btn h-6 w-6" title="Split right (Ctrl+Shift+D)" onclick={() => { t.activePaneId = pane.id; ui.splitActive("vertical"); }}><Columns2 size={13} /></button>
                 <button class="icon-btn h-6 w-6" title="Split down (Ctrl+Shift+E)" onclick={() => { t.activePaneId = pane.id; ui.splitActive("horizontal"); }}><Rows2 size={13} /></button>
@@ -335,7 +358,7 @@
         {/if}
       {/each}
 
-      {#each rects.dividers as d (d.splitId)}
+      {#each zoomed ? [] : rects.dividers as d (d.splitId)}
         <div
           class="group absolute z-10 flex items-center justify-center {d.dir === 'row' ? 'cursor-col-resize' : 'cursor-row-resize'}"
           style:left={d.dir === "row" ? `calc(${d.at.x}% - 3px)` : `${d.at.x}%`}

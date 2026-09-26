@@ -6,6 +6,7 @@ import { ui } from "$lib/stores/ui.svelte";
 import {
   errorMessage,
   isApiError,
+  type Collection,
   type CreateResult,
   type HostGroup,
   type Proxy,
@@ -298,9 +299,23 @@ class VaultStore {
     return out!;
   }
 
+  /** Offer to put a just-deleted record back. The backend kept the secrets. */
+  #offerUndo(collection: Collection, id: Uuid, what: string) {
+    ui.notify("info", `${what} deleted.`, {
+      label: "Undo",
+      run: () =>
+        void api
+          .undelete(collection, id)
+          .then(() => this.reloadAll())
+          .catch((e) => ui.notify("error", errorMessage(e))),
+    });
+  }
+
   async deleteHost(id: Uuid, baseRev?: number | null) {
+    const label = this.hostById.get(id)?.data?.label ?? "Host";
     await api.hosts.delete(id, this.#rev(this.hosts, id, baseRev)).catch((e) => this.#onConflict(e));
     upsert(this.hosts, null, id);
+    this.#offerUndo("hosts", id, `"${label}"`);
     // The host's own identity may have been removed with it.
     this.identities = await api.identities.list();
     // Backend detached this host as a jump; mirror that locally.
@@ -321,8 +336,10 @@ class VaultStore {
     return rec!;
   }
   async deleteIdentity(id: Uuid, baseRev?: number | null) {
+    const label = this.identityById.get(id)?.data?.label ?? "Credential";
     await api.identities.delete(id, this.#rev(this.identities, id, baseRev)).catch((e) => this.#onConflict(e));
     upsert(this.identities, null, id);
+    this.#offerUndo("identities", id, `"${label}"`);
     // Backend detached this identity from hosts; mirror that locally.
     for (const h of this.hosts) if (h.data?.identity_id === id) h.data.identity_id = undefined;
   }
@@ -335,8 +352,10 @@ class VaultStore {
     return rec!;
   }
   async deleteSnippet(id: Uuid, baseRev?: number | null) {
+    const label = this.snippets.find((s) => s.id === id)?.data?.label ?? "Snippet";
     await api.snippets.delete(id, this.#rev(this.snippets, id, baseRev)).catch((e) => this.#onConflict(e));
     upsert(this.snippets, null, id);
+    this.#offerUndo("snippets", id, `"${label}"`);
   }
 
   async saveForward(id: Uuid | null, rule: ForwardRule, baseRev?: number | null) {
@@ -347,9 +366,11 @@ class VaultStore {
     return rec!;
   }
   async deleteForward(id: Uuid, baseRev?: number | null) {
+    const label = this.forwards.find((f) => f.id === id)?.data?.label ?? "Rule";
     await api.forwards.delete(id, this.#rev(this.forwards, id, baseRev)).catch((e) => this.#onConflict(e));
     upsert(this.forwards, null, id);
     delete this.forwardStatus[id];
+    this.#offerUndo("forwards", id, `"${label}"`);
   }
 
   async saveGroup(id: Uuid | null, group: HostGroup, baseRev?: number | null) {

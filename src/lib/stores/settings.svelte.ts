@@ -17,6 +17,38 @@ export interface Prefs {
   appTheme: "dark" | "light" | "system";
   /** The list panel next to the activity bar is hidden (Ctrl+Shift+H). */
   sidebarHidden: boolean;
+  /** Reconnect by itself when a connection drops (not when you exit). */
+  autoReconnect: boolean;
+  /** Keep a per-computer history of commands run on each host. */
+  commandHistory: boolean;
+  /** System notification when a long command finishes in a background tab. */
+  notifyBackground: boolean;
+  /** Hide the activity bar, list panel, tab strip and pane headers. */
+  focusMode: boolean;
+  /** Row spacing across lists and headers. */
+  density: "comfortable" | "compact";
+  /** Shortcut overrides by action id ("" = unbound). */
+  keybindings: Record<string, string>;
+  /** Terminal colour schemes imported by the user. */
+  customThemes: import("$lib/themes").TerminalTheme[];
+  /** Tint the terminal background of production hosts red. */
+  prodTint: boolean;
+  /** Local terminal program (e.g. "zsh", "pwsh -NoLogo", "wsl"); empty = system default. */
+  localShell: string;
+  /** Local terminal start folder; empty = home. */
+  localCwd: string;
+}
+
+export interface HistoryEntry {
+  command: string;
+  at: number;
+  exit: number | null;
+}
+
+/** When and how often a host was connected to, per computer. */
+export interface HostUsage {
+  last: number;
+  count: number;
 }
 
 export const DEFAULT_PREFS: Prefs = {
@@ -33,11 +65,24 @@ export const DEFAULT_PREFS: Prefs = {
   logRaw: false,
   appTheme: "dark",
   sidebarHidden: false,
+  autoReconnect: true,
+  commandHistory: true,
+  notifyBackground: true,
+  focusMode: false,
+  density: "comfortable",
+  keybindings: {},
+  customThemes: [],
+  prodTint: true,
+  localShell: "",
+  localCwd: "",
 };
 
 const KEY = "sshvault.prefs.v1";
 const RECENT_KEY = "sshvault.recent.v1";
 const COLLAPSED_KEY = "sshvault.collapsed.v1";
+const USAGE_KEY = "sshvault.usage.v1";
+const HISTORY_KEY = "sshvault.history.v1";
+const HISTORY_PER_HOST = 200;
 
 function load<T>(key: string, fallback: T): T {
   try {
@@ -64,17 +109,35 @@ class SettingsStore {
   recent = $state<string[]>(load<string[]>(RECENT_KEY, []));
   /** Collapsed host-group paths, remembered per computer. */
   collapsedGroups = $state<string[]>(load<string[]>(COLLAPSED_KEY, []));
+  usage = $state<Record<string, HostUsage>>(load<Record<string, HostUsage>>(USAGE_KEY, {}));
+  /** Commands run per host, newest first. Never synced. */
+  history = $state<Record<string, HistoryEntry[]>>(load<Record<string, HistoryEntry[]>>(HISTORY_KEY, {}));
 
   constructor() {
     $effect.root(() => {
       $effect(() => save(KEY, $state.snapshot(this.prefs)));
       $effect(() => save(RECENT_KEY, $state.snapshot(this.recent)));
       $effect(() => save(COLLAPSED_KEY, $state.snapshot(this.collapsedGroups)));
+      $effect(() => save(USAGE_KEY, $state.snapshot(this.usage)));
+      $effect(() => save(HISTORY_KEY, $state.snapshot(this.history)));
     });
   }
 
   markRecent(hostId: string) {
     this.recent = [hostId, ...this.recent.filter((id) => id !== hostId)].slice(0, 20);
+    const u = this.usage[hostId];
+    this.usage[hostId] = { last: Date.now(), count: (u?.count ?? 0) + 1 };
+  }
+
+  recordCommand(hostId: string, command: string, exit: number | null) {
+    if (!this.prefs.commandHistory || !command.trim()) return;
+    const prev = (this.history[hostId] ?? []).filter((h) => h.command !== command);
+    this.history[hostId] = [{ command, at: Date.now(), exit }, ...prev].slice(0, HISTORY_PER_HOST);
+  }
+
+  clearHistory(hostId?: string) {
+    if (hostId) delete this.history[hostId];
+    else this.history = {};
   }
 
   zoom(delta: number) {
