@@ -37,7 +37,8 @@ Built with [Tauri v2](https://tauri.app), Rust, SvelteKit, Tailwind CSS and
   hosts and rotated in one place. Generate Ed25519 keys and copy public keys
   from the app.
 - **Jump hosts** (like OpenSSH `ProxyJump`), including chains of several
-  hops, and optional **ssh-agent forwarding** per host.
+  hops, plus optional **ssh-agent forwarding** and **X11 forwarding** per
+  host.
 - **SFTP**: dual-pane browser for this computer and a remote host, with drag
   and drop, multi-select, rename, delete, new folder, recursive, cancellable
   transfers with progress, and editing remote files in your local editor.
@@ -91,10 +92,10 @@ Choose **More info**, then **Run anyway**.
 
 ### macOS
 
-Open the `.dmg` and drag SSHVault to Applications. The build targets Apple
-Silicon and is not signed yet, so the first launch is blocked. Right-click the
-app and choose **Open**, or allow it under **System Settings → Privacy &
-Security**.
+Open the `.dmg` and drag SSHVault to Applications. It's a universal app that
+runs on Apple Silicon and Intel Macs. Until the project adds an Apple signing
+certificate, the first launch is blocked: right-click the app and choose
+**Open**, or allow it under **System Settings → Privacy & Security**.
 
 SSHVault uses the Microsoft Edge WebView2 runtime, which is already installed
 on Windows 10 and 11. The installer fetches it if it is missing.
@@ -172,6 +173,12 @@ been copied since.
   this computer's agent, for example to reach another server or a git
   remote. Anyone with root on the server can use your agent while you're
   connected, so only enable it for servers you trust.
+- **Forward X11** shows the server's graphical programs on this computer.
+  You need an X server here: most Linux desktops have one, macOS needs
+  XQuartz, and Windows needs VcXsrv or X410. The server needs `xauth` and
+  `X11Forwarding yes`. As with `ssh -X`, the server only ever gets a random
+  stand-in cookie. SSHVault checks it on every connection and swaps in your
+  real X cookie locally, so the real one never leaves your computer.
 
 ### Importing from `~/.ssh/config`
 
@@ -436,6 +443,33 @@ Output goes to `src-tauri/target/release/bundle/`:
 - Linux: `deb/`, `rpm/`, `appimage/`
 - Windows: `msi/`, `nsis/`
 
+### Code signing
+
+Builds are unsigned until you add signing secrets to the GitHub repository
+(**Settings → Secrets and variables → Actions**). The workflow picks them up
+by itself. Without them, it keeps building unsigned installers.
+
+**macOS** needs a Developer ID Application certificate from the Apple
+Developer Program:
+
+| Secret | Value |
+|---|---|
+| `APPLE_CERTIFICATE` | The exported `.p12`, base64-encoded |
+| `APPLE_CERTIFICATE_PASSWORD` | The `.p12` export password |
+| `APPLE_SIGNING_IDENTITY` | For example `Developer ID Application: Your Name (TEAMID)` |
+| `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID` | For notarization. The password is an app-specific password. |
+
+**Windows** needs a code-signing certificate as a `.pfx` file:
+
+| Secret | Value |
+|---|---|
+| `WINDOWS_CERTIFICATE` | The `.pfx`, base64-encoded |
+| `WINDOWS_CERTIFICATE_PASSWORD` | Its password |
+
+To base64-encode a file: `base64 -i cert.p12 | pbcopy` on macOS, or
+`[Convert]::ToBase64String([IO.File]::ReadAllBytes("cert.pfx"))` in
+PowerShell.
+
 ### Continuous integration
 
 `.github/workflows/build.yml` runs on pushes to `main`, pull requests, `v*`
@@ -479,6 +513,7 @@ when ready.
 │   │   ├── sessionlog.rs       Session recording and escape stripping
 │   │   ├── hostcreds.rs        Credentials entered in the host form
 │   │   ├── reveal.rs           Master-password gate for showing secrets
+│   │   ├── x11.rs              X11 forwarding with cookie substitution
 │   │   ├── sshconfig.rs        ~/.ssh/config import
 │   │   ├── keys.rs             Key generation and public keys
 │   │   ├── knownhosts.rs       Pinned server keys
@@ -651,10 +686,10 @@ a real OpenSSH server, but the desktop app has had little real-world use.
 
 Known limitations:
 
-- Installers are not code-signed, so Windows and macOS warn on first launch.
-- The macOS build targets Apple Silicon only, and its SSH tests are skipped in
-  CI.
-- X11 forwarding and Mosh are not supported.
+- Installers are unsigned until signing secrets are added (see
+  [Code signing](#code-signing)), so Windows and macOS warn on first launch.
+- The end-to-end SSH tests are skipped on macOS in CI.
+- Mosh is not supported.
 
 See [ROADMAP.md](ROADMAP.md) for planned work.
 - The SFTP pane can reach any path your user account can, since the app is a

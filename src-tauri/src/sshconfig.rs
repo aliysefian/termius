@@ -27,6 +27,9 @@ pub struct ImportedHost {
     /// `ForwardAgent yes`.
     #[serde(default)]
     pub forward_agent: bool,
+    /// `ForwardX11 yes`.
+    #[serde(default)]
+    pub forward_x11: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -246,6 +249,7 @@ pub fn parse(text: &str, home: &Path) -> ParseResult {
             identity_file: get("identityfile").map(|p| expand_path(&p, home)),
             proxy_jump,
             forward_agent: get("forwardagent").is_some_and(|v| v.eq_ignore_ascii_case("yes")),
+            forward_x11: get("forwardx11").is_some_and(|v| v.eq_ignore_ascii_case("yes")),
         });
     }
     result
@@ -371,6 +375,7 @@ pub fn import_into_vault(
                 identity_id,
                 jump_host_id: None,
                 forward_agent: h.forward_agent,
+                forward_x11: h.forward_x11,
                 group: group.to_string(),
                 tags: Vec::new(),
                 color: None,
@@ -562,6 +567,7 @@ Host *
                     identity_id: None,
                     jump_host_id: None,
                     forward_agent: false,
+                    forward_x11: false,
                     group: String::new(),
                     tags: vec![],
                     color: None,

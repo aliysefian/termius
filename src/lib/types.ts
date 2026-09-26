@@ -53,6 +53,8 @@ export interface Host {
   jump_host_id?: Uuid;
   /** Forward this computer's ssh-agent (ssh -A). */
   forward_agent?: boolean;
+  /** Show the host's graphical programs on this computer (ssh -X). */
+  forward_x11?: boolean;
   /** Slash-separated group path, e.g. "Production/Databases". */
   group: string;
   tags: string[];
@@ -180,6 +182,7 @@ export interface ImportedHost {
   identity_file: string | null;
   proxy_jump: string | null;
   forward_agent: boolean;
+  forward_x11: boolean;
 }
 
 export interface ExecOutput {

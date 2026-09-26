@@ -18,6 +18,7 @@ pub mod ssh;
 pub mod sshconfig;
 pub mod sync;
 pub mod vault;
+pub mod x11;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {

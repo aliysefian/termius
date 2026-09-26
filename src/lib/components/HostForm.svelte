@@ -386,6 +386,16 @@
             </span>
           </span>
         </label>
+        <label class="col-span-2 flex items-start gap-2 text-sm">
+          <input type="checkbox" class="mt-0.5 accent-[#7b61ff]" bind:checked={form.forward_x11} />
+          <span>
+            Forward X11
+            <span class="block text-xs text-fg-muted">
+              Show the host's graphical programs on this computer. Needs an X server here (built into most Linux
+              desktops, XQuartz on macOS, VcXsrv or X410 on Windows) and <code>xauth</code> on the host.
+            </span>
+          </span>
+        </label>
         <div>
           <label class="label" for="h-group">Group</label>
           <input id="h-group" class="input" bind:value={form.group} placeholder="Production/Databases" />

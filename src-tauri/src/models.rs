@@ -82,6 +82,9 @@ pub struct Host {
     /// root on the host can use the agent while the session is open.
     #[serde(default)]
     pub forward_agent: bool,
+    /// Show the host's graphical programs on this computer (`ssh -X`).
+    #[serde(default)]
+    pub forward_x11: bool,
     /// Optional accent color as a CSS hex string, e.g. `"#7B61FF"`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color: Option<String>,

@@ -168,6 +168,9 @@ pub struct Target {
     /// Let the remote shell use this computer's ssh-agent (`ssh -A`). Only
     /// honoured for the final hop's interactive session.
     pub forward_agent: bool,
+    /// Show the host's graphical programs on this computer's X server
+    /// (`ssh -X`). Only honoured for the final hop's interactive session.
+    pub forward_x11: bool,
 }
 
 /// A host key recorded for the first time during a connection.
@@ -183,6 +186,8 @@ pub struct Client {
     handle: Handle<ClientHandler>,
     /// Outermost first. Must outlive `handle`, which rides on their channels.
     jumps: Vec<(String, Handle<ClientHandler>)>,
+    /// X11 forwarding state when requested, or why it couldn't be set up.
+    x11: Option<Result<Arc<crate::x11::X11Setup>, String>>,
 }
 
 impl Deref for Client {
@@ -361,6 +366,9 @@ pub struct ClientHandler {
     /// Whether this connection asked for agent forwarding. The server may
     /// only open agent channels when it did.
     forward_agent: bool,
+    /// Set only when this connection asked for X11 forwarding. The server may
+    /// only open X11 channels when it is.
+    x11: Option<Arc<crate::x11::X11Setup>>,
 }
 
 impl ClientHandler {
@@ -407,6 +415,35 @@ impl client::Handler for ClientHandler {
             }
             Err(e) => Err(e.into()),
         }
+    }
+
+    /// Like agent channels, russh accepts X11 channels by default. Only accept
+    /// them when this connection requested X11 forwarding.
+    async fn server_channel_open_x11(
+        &mut self,
+        channel: russh::Channel<client::Msg>,
+        _originator_address: &str,
+        _originator_port: u32,
+        reply: client::ChannelOpenHandle,
+        _session: &mut client::Session,
+    ) -> Result<(), Self::Error> {
+        let Some(setup) = self.x11.clone() else {
+            reply
+                .reject(russh::ChannelOpenFailure::AdministrativelyProhibited)
+                .await;
+            return Ok(());
+        };
+        reply.accept().await;
+        tokio::spawn(async move {
+            let _ = crate::x11::forward(
+                channel.into_stream(),
+                setup.display.clone(),
+                setup.fake.clone(),
+                setup.real.clone(),
+            )
+            .await;
+        });
+        Ok(())
     }
 
     /// russh's default accepts these unconditionally, which would hand our
@@ -500,22 +537,28 @@ pub async fn open_client(
     let mut jumps: Vec<(String, Handle<ClientHandler>)> = Vec::new();
     for hop in hops {
         let via = jumps.last().map(|(name, h)| (name.as_str(), h));
-        let (h, fp) = connect_hop(hop, via, None).await.map_err(|e| match e {
-            // Already names the jump that failed to reach this hop.
-            e @ SshError::JumpUnreachable { .. } => e,
-            e => SshError::Jump {
-                host: display_host(hop),
-                source: Box::new(e),
-            },
-        })?;
+        let (h, fp) = connect_hop(hop, via, None, None)
+            .await
+            .map_err(|e| match e {
+                // Already names the jump that failed to reach this hop.
+                e @ SshError::JumpUnreachable { .. } => e,
+                e => SshError::Jump {
+                    host: display_host(hop),
+                    source: Box::new(e),
+                },
+            })?;
         learned.extend(fp);
         jumps.push((display_host(hop), h));
     }
 
+    let x11 = target
+        .forward_x11
+        .then(|| crate::x11::X11Setup::from_env().map(Arc::new));
+    let x11_setup = x11.as_ref().and_then(|r| r.as_ref().ok()).cloned();
     let via = jumps.last().map(|(name, h)| (name.as_str(), h));
-    let (handle, fp) = connect_hop(target, via, remote_forwards).await?;
+    let (handle, fp) = connect_hop(target, via, remote_forwards, x11_setup).await?;
     learned.extend(fp);
-    Ok((Client { handle, jumps }, learned))
+    Ok((Client { handle, jumps, x11 }, learned))
 }
 
 fn display_host(t: &Target) -> String {
@@ -531,6 +574,7 @@ async fn connect_hop(
     target: &Target,
     via: Option<(&str, &Handle<ClientHandler>)>,
     remote_forwards: Option<RemoteForwards>,
+    x11: Option<Arc<crate::x11::X11Setup>>,
 ) -> Result<(Handle<ClientHandler>, Option<LearnedKey>), SshError> {
     let addr = format!("{}:{}", target.hostname, target.port);
     let learned = Arc::new(Mutex::new(None));
@@ -541,6 +585,7 @@ async fn connect_hop(
         learned_fingerprint: Arc::clone(&learned),
         remote_forwards,
         forward_agent: target.forward_agent,
+        x11,
     };
     let timeout = || SshError::Timeout(addr.clone());
 
@@ -649,6 +694,23 @@ async fn run_session(
         .await?;
     if params.target.forward_agent {
         channel.agent_forward(true).await?;
+    }
+    match &handle.x11 {
+        Some(Ok(x)) => {
+            channel
+                .request_x11(
+                    true,
+                    false,
+                    crate::x11::PROTO,
+                    crate::x11::hex_encode(&x.fake),
+                    x.display.screen(),
+                )
+                .await?;
+        }
+        Some(Err(why)) => {
+            sink.data(format!("\x1b[33m[X11 forwarding is off: {why}]\x1b[0m\r\n").as_bytes())
+        }
+        None => {}
     }
     channel.request_shell(true).await?;
     sink.status(SessionStatus::Connected);
@@ -878,7 +940,7 @@ pub(crate) mod testutil {
         let config = format!(
             "Port {port}\nListenAddress 127.0.0.1\nHostKey {d}/host_key\nAuthorizedKeysFile {d}/authorized_keys\n\
              PasswordAuthentication no\nKbdInteractiveAuthentication no\nUsePAM no\nStrictModes no\nPidFile none\n\
-             AllowTcpForwarding yes\n{sftp_server}",
+             AllowTcpForwarding yes\nX11Forwarding yes\nX11UseLocalhost yes\n{sftp_server}",
             d = dir.display()
         );
         std::fs::write(dir.join("sshd_config"), config).ok()?;
@@ -926,6 +988,7 @@ pub(crate) mod testutil {
             known_hosts,
             jump: None,
             forward_agent: false,
+            forward_x11: false,
         }
     }
 }
@@ -1138,6 +1201,124 @@ mod tests {
         wait_status(&rx, |s| matches!(s, SessionStatus::NewHostKey { .. }));
         wait_status(&rx, |s| matches!(s, SessionStatus::Connected));
         manager.disconnect("p5").await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn x11_reaches_the_local_display_only_when_enabled() {
+        use std::process::{Command, Stdio};
+        let dir = tempfile::TempDir::new().unwrap();
+        let tools = ["Xvfb", "xauth", "xkbcomp"].iter().all(|t| {
+            Command::new("sh")
+                .args(["-c", &format!("command -v {t}")])
+                .stdout(Stdio::null())
+                .status()
+                .is_ok_and(|s| s.success())
+        });
+        if !tools {
+            eprintln!("skipping: needs Xvfb, xauth and xkbcomp");
+            return;
+        }
+        let Some(sshd) = spawn_sshd(dir.path()) else {
+            eprintln!("skipping: no usable sshd on this machine");
+            return;
+        };
+
+        // A private X server that only accepts our real cookie.
+        let n = (90..200)
+            .find(|n| {
+                !std::path::Path::new(&format!("/tmp/.X11-unix/X{n}")).exists()
+                    && !std::path::Path::new(&format!("/tmp/.X{n}-lock")).exists()
+            })
+            .unwrap();
+        let display = format!(":{n}");
+        let xauthority = dir.path().join("Xauthority");
+        let cookie = crate::x11::hex_encode(&crate::x11::fake_cookie());
+        let added = Command::new("xauth")
+            .arg("-f")
+            .arg(&xauthority)
+            .args(["add", &display, ".", &cookie])
+            .status()
+            .unwrap()
+            .success();
+        assert!(added);
+        let mut xvfb = Command::new("Xvfb")
+            .arg(&display)
+            .arg("-auth")
+            .arg(&xauthority)
+            .args(["-nolisten", "tcp"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let sock = format!("/tmp/.X11-unix/X{n}");
+        for _ in 0..100 {
+            if std::path::Path::new(&sock).exists() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        std::env::set_var("DISPLAY", &display);
+        std::env::set_var("XAUTHORITY", &xauthority);
+
+        // The real cookie was read and differs from what the server gets.
+        let setup = crate::x11::X11Setup::from_env().unwrap();
+        assert_eq!(
+            setup.real.as_deref().map(crate::x11::hex_encode),
+            Some(cookie.clone())
+        );
+        assert_ne!(setup.real.as_deref(), Some(setup.fake.as_slice()));
+
+        let manager = Arc::new(SshManager::new());
+        let kh = dir.path().join("kh");
+        let run = |pane: &'static str, x11: bool| {
+            let mut t = target(&sshd, &sshd.client_key, kh.clone());
+            t.forward_x11 = x11;
+            let (tx, rx) = std_mpsc::channel();
+            manager
+                .connect(
+                    pane.into(),
+                    ConnectParams {
+                        target: t,
+                        cols: 120,
+                        rows: 24,
+                    },
+                    Arc::new(TestSink(tx)),
+                )
+                .unwrap();
+            rx
+        };
+
+        // Remote xkbcomp reads the keymap from $DISPLAY: through the tunnel,
+        // with the fake cookie swapped for the real one on the way.
+        let rx = run("x1", true);
+        wait_status(&rx, |s| matches!(s, SessionStatus::Connected));
+        manager
+            .write(
+                "x1",
+                format!(
+                    "xkbcomp -w0 \"$DISPLAY\" {}/km.xkb >/dev/null 2>&1; echo XRC=$?\n",
+                    dir.path().display()
+                )
+                .into_bytes(),
+            )
+            .await
+            .unwrap();
+        wait_output(&rx, "XRC=0");
+        assert!(dir.path().join("km.xkb").exists());
+        manager.disconnect("x1").await;
+
+        // Without X11, the remote shell has no DISPLAY at all.
+        let rx = run("x2", false);
+        wait_status(&rx, |s| matches!(s, SessionStatus::Connected));
+        manager
+            .write("x2", b"echo D=[${DISPLAY:-none}]\n".to_vec())
+            .await
+            .unwrap();
+        wait_output(&rx, "D=[none]");
+        manager.disconnect("x2").await;
+
+        let _ = xvfb.kill();
+        let _ = xvfb.wait();
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

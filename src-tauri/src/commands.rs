@@ -695,6 +695,7 @@ fn resolve_target(
             known_hosts: state.config_dir.join("known_hosts"),
             jump,
             forward_agent: false,
+            forward_x11: false,
         }));
     }
 
@@ -715,6 +716,7 @@ fn resolve_target(
         known_hosts: state.config_dir.join("known_hosts"),
         jump,
         forward_agent: host.forward_agent,
+        forward_x11: host.forward_x11,
     })
 }
 
@@ -947,6 +949,7 @@ pub async fn ssh_connect_adhoc(
             known_hosts: state.config_dir.join("known_hosts"),
             jump: None,
             forward_agent: false,
+            forward_x11: false,
         },
         cols: cols.max(2),
         rows: rows.max(1),

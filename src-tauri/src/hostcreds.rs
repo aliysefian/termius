@@ -326,6 +326,7 @@ mod tests {
             identity_id: None,
             jump_host_id: None,
             forward_agent: false,
+            forward_x11: false,
             group: String::new(),
             tags: vec![],
             color: None,

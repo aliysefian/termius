@@ -82,18 +82,22 @@ the background.
 - [x] **Agent forwarding** per host, refused unless enabled for that host.
 - [x] **macOS build** (Apple Silicon, unsigned) in CI and draft releases.
 
+## Round three
+
+- [x] **X11 forwarding** per host, with OpenSSH-style fake cookies: the
+  server gets a random cookie, each forwarded connection is checked against
+  it, and the real local cookie is substituted on this computer.
+- [x] **Intel Macs**: the macOS build is now a universal app.
+- [x] **Code-signing pipeline**: CI signs Windows installers and signs and
+  notarizes the macOS app automatically once certificates are added as
+  secrets (see "Code signing" in the README). Buying the certificates is
+  still the owner's decision.
+
 ## Needs a decision
 
-These are blocked on something only the project owner can provide, or are
-large enough to plan separately.
-
-- **Code-signed installers.** Windows needs an Authenticode certificate or an
-  Azure Trusted Signing account. macOS needs an Apple Developer ID (paid
-  yearly) plus notarization. Both are recurring costs and account setup, and
-  once the credentials exist in CI secrets, the workflow change is small.
-- **X11 forwarding.** Needs a local X server, which Windows and macOS don't
-  ship. Low demand for a terminal manager.
-- **Mosh.** There is no maintained Rust Mosh client, so this means
-  implementing the SSP protocol from scratch. A project of its own.
-- **Intel Mac build.** A second macOS job on an Intel runner, if anyone needs
-  it.
+- **Certificates for signing.** The pipeline is ready. It needs a Windows
+  code-signing certificate and an Apple Developer ID, both recurring costs.
+- **Mosh.** There is no maintained Rust Mosh client. The options are
+  implementing the SSP protocol (UDP, AES-OCB, state sync and local echo),
+  which is a project of its own, or adding a local terminal that runs the
+  system's `mosh` command, which Windows doesn't have.
