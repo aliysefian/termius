@@ -36,7 +36,11 @@ export function remote(sessionId: string): FileSource {
 
 export const sftp = {
   open: (sessionId: string, hostId: Uuid, credentials: Credentials | null) =>
-    invoke<{ home: string; new_host_key: string | null }>("sftp_open", { sessionId, hostId, credentials }),
+    invoke<{ home: string; new_host_keys: { host: string; fingerprint: string }[] }>("sftp_open", {
+      sessionId,
+      hostId,
+      credentials,
+    }),
   close: (sessionId: string) => invoke<void>("sftp_close", { sessionId }),
   transfer(
     sessionId: string,

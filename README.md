@@ -45,6 +45,14 @@ There is no server.
 | `forward.rs` | `-L`, `-R` and SOCKS5 `-D` forwarding, one SSH connection per rule |
 | `commands.rs` | Tauri IPC commands, `vault:changed`, `ssh:status`, `forward:status` events |
 
+## Jump hosts
+
+Any host can name another saved host as its jump host, like OpenSSH
+`ProxyJump`, and jump hosts can chain. Terminals, SFTP and port forwarding all
+tunnel through the chain. Each hop logs in with its own identity and has its
+host key pinned separately. Loops are rejected when saving, and deleting a host
+makes anything that jumped through it connect directly.
+
 ## Host keys
 
 Server keys are pinned on first use in `<app config dir>/known_hosts` (not the

@@ -17,12 +17,14 @@ use zeroize::Zeroizing;
 use crate::config::{AppConfig, ConfigError};
 use crate::crypto::KdfParams;
 use crate::forward::{ForwardManager, ForwardStatus, StatusSink};
-use crate::models::{AuthMethod, ForwardRule, Host, Identity, Snippet};
+use crate::models::{jump_chain, AuthMethod, ForwardRule, Host, Identity, Snippet};
 use crate::session::{Session, SessionError, VaultStatus};
 use crate::sftp::{
     self, Direction, FileEntry, ProgressSink, SftpError, SftpManager, TransferProgress,
 };
-use crate::ssh::{ConnectParams, SessionStatus, SshError, SshManager, Target, TermSink};
+use crate::ssh::{
+    ConnectParams, LearnedKey, SessionStatus, SshError, SshManager, Target, TermSink, MAX_JUMPS,
+};
 use crate::sync::RecordChange;
 use crate::vault::{Collection, Record, VaultError};
 
@@ -90,6 +92,8 @@ impl From<SshError> for ApiError {
         let code = match &e {
             SshError::AuthFailed { .. } => "auth_failed",
             SshError::HostKeyChanged { .. } => "host_key_changed",
+            SshError::JumpUnreachable { .. } => "unreachable",
+            SshError::Jump { .. } | SshError::JumpChainTooLong => "jump",
             SshError::AlreadyConnected => "already_connected",
             SshError::NotConnected => "not_connected",
             SshError::Timeout(_) | SshError::Connect { .. } => "unreachable",
@@ -284,11 +288,33 @@ pub fn save_host(
             "label and hostname are required",
         ));
     }
+    // Reject loops and dangling references before they reach the vault.
+    let hosts = host_jump_map(&state)?;
+    jump_chain(id, host.jump_host_id, MAX_JUMPS, |h| hosts.get(&h).copied())
+        .map_err(|e| ApiError::new("validation", e.to_string()))?;
     save_record(&state, Collection::Hosts, id, host)
+}
+
+/// host id -> that host's jump host id, for chain validation.
+fn host_jump_map(state: &AppState) -> ApiResult<std::collections::HashMap<Uuid, Option<Uuid>>> {
+    Ok(list_records::<Host>(state, Collection::Hosts)?
+        .into_iter()
+        .filter_map(|r| r.data.map(|d| (r.id, d.jump_host_id)))
+        .collect())
 }
 
 #[tauri::command]
 pub fn delete_host(state: State<'_, AppState>, id: Uuid) -> ApiResult<()> {
+    // Hosts that tunnelled through this one fall back to direct connections.
+    let hosts: Vec<Record<Host>> = list_records(&state, Collection::Hosts)?;
+    for h in hosts {
+        if let Some(mut data) = h.data {
+            if data.jump_host_id == Some(id) {
+                data.jump_host_id = None;
+                save_record(&state, Collection::Hosts, Some(h.id), data)?;
+            }
+        }
+    }
     delete_record(&state, Collection::Hosts, id)
 }
 
@@ -370,41 +396,53 @@ pub struct Credentials {
     pub password: String,
 }
 
-/// Build a login [`Target`] for a host: one-time credentials win, otherwise
-/// the host's linked identity is decrypted from the vault. Secrets never
-/// round-trip through the webview.
+/// Build a login [`Target`] for a host, including its jump chain. One-time
+/// credentials apply to the final host only; every jump host must have an
+/// identity. Secrets never round-trip through the webview.
 fn resolve_target(
     state: &AppState,
     host_id: Uuid,
     credentials: Option<Credentials>,
 ) -> ApiResult<Target> {
-    let host = state
-        .session
-        .with_vault(|v| v.get::<Host>(Collection::Hosts, host_id))?
-        .data
-        .ok_or_else(|| ApiError::new("not_found", "host has no data"))?;
+    let host = load_host(state, host_id)?;
+    let hosts = host_jump_map(state)?;
+    let chain = jump_chain(Some(host_id), host.jump_host_id, MAX_JUMPS, |h| {
+        hosts.get(&h).copied()
+    })
+    .map_err(|e| ApiError::new("jump_chain", e.to_string()))?;
 
-    let (username, auth) = match (credentials, host.identity_id) {
-        (Some(c), _) => (
+    // Build from the outermost hop inwards so each Target owns its jump.
+    let mut jump: Option<Box<Target>> = None;
+    for jid in chain.into_iter().rev() {
+        let jh = load_host(state, jid)?;
+        let (username, auth) = identity_login(state, &jh).map_err(|e| {
+            if e.code == "credentials_required" {
+                ApiError::new(
+                    "credentials_required",
+                    format!("jump host \"{}\" needs an identity attached", jh.label),
+                )
+            } else {
+                e
+            }
+        })?;
+        jump = Some(Box::new(Target {
+            hostname: jh.hostname,
+            port: jh.port,
+            username,
+            auth,
+            known_hosts: state.config_dir.join("known_hosts"),
+            jump,
+        }));
+    }
+
+    let (username, auth) = match credentials {
+        Some(c) => (
             c.username,
             AuthMethod::Password {
                 password: c.password,
             },
         ),
-        (None, Some(identity_id)) => {
-            let identity = state
-                .session
-                .with_vault(|v| v.get::<Identity>(Collection::Identities, identity_id))?
-                .data
-                .ok_or_else(|| ApiError::new("not_found", "identity has no data"))?;
-            (identity.username, identity.auth)
-        }
-        (None, None) => {
-            return Err(ApiError::new(
-                "credentials_required",
-                "this host has no identity; supply credentials",
-            ))
-        }
+        None => identity_login(state, &host)?,
     };
     Ok(Target {
         hostname: host.hostname,
@@ -412,7 +450,31 @@ fn resolve_target(
         username,
         auth,
         known_hosts: state.config_dir.join("known_hosts"),
+        jump,
     })
+}
+
+fn load_host(state: &AppState, id: Uuid) -> ApiResult<Host> {
+    state
+        .session
+        .with_vault(|v| v.get::<Host>(Collection::Hosts, id))?
+        .data
+        .ok_or_else(|| ApiError::new("not_found", "host has no data"))
+}
+
+fn identity_login(state: &AppState, host: &Host) -> ApiResult<(String, AuthMethod)> {
+    let Some(identity_id) = host.identity_id else {
+        return Err(ApiError::new(
+            "credentials_required",
+            "this host has no identity; supply credentials",
+        ));
+    };
+    let identity = state
+        .session
+        .with_vault(|v| v.get::<Identity>(Collection::Identities, identity_id))?
+        .data
+        .ok_or_else(|| ApiError::new("not_found", "identity has no data"))?;
+    Ok((identity.username, identity.auth))
 }
 
 /// Bridges the engine to the webview: raw PTY bytes over an IPC channel,
@@ -497,8 +559,8 @@ pub async fn ssh_disconnect(state: State<'_, AppState>, pane_id: String) -> ApiR
 #[derive(Debug, Clone, Serialize)]
 pub struct SftpOpened {
     pub home: String,
-    /// Set when the host key was seen for the first time.
-    pub new_host_key: Option<String>,
+    /// Host keys (target and jumps) seen for the first time.
+    pub new_host_keys: Vec<LearnedKey>,
 }
 
 #[tauri::command]
@@ -509,8 +571,11 @@ pub async fn sftp_open(
     credentials: Option<Credentials>,
 ) -> ApiResult<SftpOpened> {
     let target = resolve_target(&state, host_id, credentials)?;
-    let (home, new_host_key) = state.sftp.open(session_id, &target).await?;
-    Ok(SftpOpened { home, new_host_key })
+    let (home, new_host_keys) = state.sftp.open(session_id, &target).await?;
+    Ok(SftpOpened {
+        home,
+        new_host_keys,
+    })
 }
 
 #[tauri::command]

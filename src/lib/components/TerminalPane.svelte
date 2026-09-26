@@ -23,7 +23,7 @@
   let resizeObserver: ResizeObserver | null = null;
 
   let status = $state<SessionStatus>({ kind: "disconnected", code: null });
-  let hostKeyNotice = $state<string | null>(null);
+  let hostKeyNotices = $state<{ host: string; fingerprint: string }[]>([]);
   let started = $state(false);
   let username = $state("");
   let password = $state("");
@@ -55,7 +55,7 @@
   async function connect(credentials: Credentials | null) {
     if (!host) return;
     started = true;
-    hostKeyNotice = null;
+    hostKeyNotices = [];
     status = { kind: "connecting" };
     term.clear();
     fit.fit();
@@ -117,7 +117,7 @@
     unlisten = await ssh.onStatus((e) => {
       if (e.pane_id !== paneId) return;
       if (e.status.kind === "new_host_key") {
-        hostKeyNotice = e.status.fingerprint;
+        hostKeyNotices = [...hostKeyNotices, { host: e.status.host, fingerprint: e.status.fingerprint }];
         return;
       }
       status = e.status;
@@ -147,14 +147,18 @@
 <div class="relative flex min-h-0 flex-1 flex-col">
   <div class="min-h-0 flex-1 p-1" bind:this={container}></div>
 
-  {#if hostKeyNotice}
+  {#if hostKeyNotices.length}
     <div class="absolute inset-x-2 top-2 flex items-start gap-2 rounded-md border border-line bg-panel/95 px-3 py-2 text-xs shadow-lg">
       <ShieldAlert size={14} class="mt-0.5 shrink-0 text-accent" />
-      <div class="min-w-0 flex-1">
-        <div class="font-medium">New host key recorded</div>
-        <div class="truncate font-mono text-fg-muted">{hostKeyNotice}</div>
+      <div class="min-w-0 flex-1 space-y-1">
+        {#each hostKeyNotices as k (k.host)}
+          <div>
+            <div class="font-medium">New host key recorded for {k.host}</div>
+            <div class="truncate font-mono text-fg-muted">{k.fingerprint}</div>
+          </div>
+        {/each}
       </div>
-      <button class="text-fg-muted hover:text-fg" onclick={() => (hostKeyNotice = null)}>✕</button>
+      <button class="text-fg-muted hover:text-fg" aria-label="Dismiss" onclick={() => (hostKeyNotices = [])}>✕</button>
     </div>
   {/if}
 

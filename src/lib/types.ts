@@ -26,6 +26,8 @@ export interface Host {
   hostname: string;
   port: number;
   identity_id?: Uuid;
+  /** Host to tunnel through first, like OpenSSH ProxyJump. May itself have a jump. */
+  jump_host_id?: Uuid;
   /** Slash-separated group path, e.g. "Production/Databases". */
   group: string;
   tags: string[];

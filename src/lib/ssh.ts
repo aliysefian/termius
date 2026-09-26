@@ -5,7 +5,7 @@ import type { Uuid } from "./types";
 
 export type SessionStatus =
   | { kind: "connecting" }
-  | { kind: "new_host_key"; fingerprint: string }
+  | { kind: "new_host_key"; host: string; fingerprint: string }
   | { kind: "connected" }
   | { kind: "disconnected"; code: number | null }
   | { kind: "error"; message: string };

@@ -15,9 +15,7 @@ use tokio::sync::oneshot;
 use uuid::Uuid;
 
 use crate::models::ForwardKind;
-use crate::ssh::{open_client, ClientHandler, RemoteForwards, SshError, Target};
-use russh::client::Handle;
-use russh::Disconnect;
+use crate::ssh::{open_client, Client, RemoteForwards, SshError, Target};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "state", rename_all = "snake_case")]
@@ -222,7 +220,7 @@ async fn run_rule(
         }
     };
 
-    let _ = handle.disconnect(Disconnect::ByApplication, "", "en").await;
+    handle.close().await;
     result
 }
 
@@ -235,10 +233,7 @@ async fn bind(addr: &str, port: u16) -> Result<TcpListener, ForwardError> {
         })
 }
 
-async fn wait_until_stopped_or_closed(
-    handle: &Handle<ClientHandler>,
-    stop: &mut oneshot::Receiver<()>,
-) {
+async fn wait_until_stopped_or_closed(handle: &Client, stop: &mut oneshot::Receiver<()>) {
     loop {
         tokio::select! {
             _ = &mut *stop => return,
@@ -253,7 +248,7 @@ async fn wait_until_stopped_or_closed(
 /// a plain forward, or `None` to run a SOCKS5 handshake per client.
 async fn accept_loop<F>(
     listener: TcpListener,
-    handle: &Arc<Handle<ClientHandler>>,
+    handle: &Arc<Client>,
     stop: &mut oneshot::Receiver<()>,
     fixed_dest: F,
 ) -> Result<(), ForwardError>
@@ -290,7 +285,7 @@ async fn tunnel(
     mut sock: TcpStream,
     peer: std::net::SocketAddr,
     dest: Option<(String, u16)>,
-    handle: &Handle<ClientHandler>,
+    handle: &Client,
 ) -> std::io::Result<()> {
     let (host, port) = match dest {
         Some(d) => d,
@@ -508,6 +503,28 @@ mod tests {
         roundtrip(
             TcpStream::connect(("127.0.0.1", rport)).await.unwrap(),
             b"via -R",
+        )
+        .await;
+
+        // -L through a jump host (the test server bastions for itself).
+        let mut jumped = t.clone();
+        jumped.jump = Some(Box::new(t.clone()));
+        mgr.start(
+            Uuid::new_v4(),
+            jumped,
+            ForwardKind::Local {
+                bind_addr: "127.0.0.1".into(),
+                bind_port: 0,
+                dest_host: "127.0.0.1".into(),
+                dest_port: echo,
+            },
+            Arc::clone(&sink),
+        )
+        .unwrap();
+        let jport = wait_active(&rx);
+        roundtrip(
+            TcpStream::connect(("127.0.0.1", jport)).await.unwrap(),
+            b"via jump -L",
         )
         .await;
 

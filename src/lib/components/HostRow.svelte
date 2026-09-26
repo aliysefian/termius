@@ -7,6 +7,7 @@
   let { host, depth }: { host: VaultRecord<Host>; depth: number } = $props();
   const d = $derived(host.data!);
   const identity = $derived(d.identity_id ? vaultStore.identityById.get(d.identity_id)?.data : undefined);
+  const jump = $derived(d.jump_host_id ? vaultStore.hostById.get(d.jump_host_id)?.data : undefined);
   const indent = $derived(`${depth * 12 + 8}px`);
 
   function connect() {
@@ -15,7 +16,9 @@
 
   async function remove(e: MouseEvent) {
     e.stopPropagation();
-    if (!confirm(`Delete host "${d.label}"?`)) return;
+    const dependents = vaultStore.hosts.filter((h) => h.data?.jump_host_id === host.id).length;
+    const note = dependents ? ` ${dependents} host(s) use it as a jump host and will connect directly instead.` : "";
+    if (!confirm(`Delete host "${d.label}"?${note}`)) return;
     await vaultStore.deleteHost(host.id);
   }
 </script>
@@ -33,7 +36,7 @@
   <div class="min-w-0 flex-1">
     <div class="truncate text-sm">{d.label}</div>
     <div class="truncate text-xs text-fg-muted">
-      {identity ? `${identity.username}@` : ""}{d.hostname}{d.port !== 22 ? `:${d.port}` : ""}
+      {identity ? `${identity.username}@` : ""}{d.hostname}{d.port !== 22 ? `:${d.port}` : ""}{jump ? ` via ${jump.label}` : ""}
     </div>
   </div>
   <div class="flex opacity-0 group-hover:opacity-100">

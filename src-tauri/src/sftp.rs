@@ -10,13 +10,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
-use russh::client::Handle;
-use russh::Disconnect;
 use russh_sftp::client::SftpSession;
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-use crate::ssh::{open_client, ClientHandler, SshError, Target};
+use crate::ssh::{open_client, Client, LearnedKey, SshError, Target};
 
 const CHUNK: usize = 256 * 1024;
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(150);
@@ -181,17 +179,17 @@ pub mod local {
 // ---------------------------------------------------------------------------
 
 pub struct SftpConn {
-    handle: Handle<ClientHandler>,
+    client: Client,
     sftp: SftpSession,
 }
 
 impl SftpConn {
-    pub async fn open(target: &Target) -> Result<(Self, Option<String>), SftpError> {
-        let (handle, fingerprint) = open_client(target, None).await?;
-        let channel = handle.channel_open_session().await?;
+    pub async fn open(target: &Target) -> Result<(Self, Vec<LearnedKey>), SftpError> {
+        let (client, learned) = open_client(target, None).await?;
+        let channel = client.channel_open_session().await?;
         channel.request_subsystem(true, "sftp").await?;
         let sftp = SftpSession::new(channel.into_stream()).await?;
-        Ok((Self { handle, sftp }, fingerprint))
+        Ok((Self { client, sftp }, learned))
     }
 
     pub async fn home(&self) -> Result<String, SftpError> {
@@ -282,10 +280,7 @@ impl SftpConn {
 
     pub async fn close(self) {
         let _ = self.sftp.close().await;
-        let _ = self
-            .handle
-            .disconnect(Disconnect::ByApplication, "", "en")
-            .await;
+        self.client.close().await;
     }
 }
 
@@ -385,12 +380,12 @@ impl SftpManager {
     }
 
     /// Open (or replace) the session `id`. Returns the remote home directory
-    /// and the fingerprint of a newly learned host key, if any.
+    /// and any host keys learned for the first time (jump hosts included).
     pub async fn open(
         &self,
         id: String,
         target: &Target,
-    ) -> Result<(String, Option<String>), SftpError> {
+    ) -> Result<(String, Vec<LearnedKey>), SftpError> {
         let (conn, fp) = SftpConn::open(target).await?;
         let home = conn.home().await?;
         let old = self
@@ -730,7 +725,7 @@ mod tests {
         let m = SftpManager::new();
         let (home, fp) = m.open("s1".into(), &t).await.unwrap();
         assert!(home.starts_with('/'));
-        assert!(fp.is_some());
+        assert_eq!(fp.len(), 1);
         let conn = m.get("s1").unwrap();
 
         // Work inside a scratch dir on the "remote" (same machine).

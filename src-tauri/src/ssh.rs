@@ -9,6 +9,7 @@
 //! on its own; `commands.rs` adapts it to IPC channels and events.
 
 use std::collections::HashMap;
+use std::ops::Deref;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -28,6 +29,8 @@ use crate::models::AuthMethod;
 const TERM: &str = "xterm-256color";
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
 const KEEPALIVE: Duration = Duration::from_secs(30);
+/// Longest jump chain we will follow (a sanity bound against misconfiguration).
+pub const MAX_JUMPS: usize = 8;
 
 #[derive(Debug, thiserror::Error)]
 pub enum SshError {
@@ -61,6 +64,23 @@ pub enum SshError {
         known_hosts: PathBuf,
     },
 
+    #[error("via jump host {host}: {source}")]
+    Jump {
+        host: String,
+        #[source]
+        source: Box<SshError>,
+    },
+
+    #[error("jump host {jump} could not reach {addr}: {reason}")]
+    JumpUnreachable {
+        jump: String,
+        addr: String,
+        reason: String,
+    },
+
+    #[error("jump chain is longer than {MAX_JUMPS} hops")]
+    JumpChainTooLong,
+
     #[error("no ssh-agent available: {0}")]
     NoAgent(String),
 
@@ -89,8 +109,10 @@ pub trait TermSink: Send + Sync + 'static {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SessionStatus {
     Connecting,
-    /// Emitted once when a host key is seen for the first time and recorded.
+    /// Emitted once per host (target or jump) whose key is seen for the first
+    /// time and recorded.
     NewHostKey {
+        host: String,
         fingerprint: String,
     },
     Connected,
@@ -114,6 +136,55 @@ pub struct Target {
     pub auth: AuthMethod,
     /// App-private known_hosts file used for trust-on-first-use.
     pub known_hosts: PathBuf,
+    /// Optional bastion to tunnel through (like OpenSSH `ProxyJump`). May
+    /// itself have a jump, forming a chain; the outermost hop is dialled
+    /// directly.
+    pub jump: Option<Box<Target>>,
+}
+
+/// A host key recorded for the first time during a connection.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LearnedKey {
+    pub host: String,
+    pub fingerprint: String,
+}
+
+/// A live, authenticated connection plus any jump-host connections it is
+/// tunnelled through. Derefs to the final hop's russh handle.
+pub struct Client {
+    handle: Handle<ClientHandler>,
+    /// Outermost first. Must outlive `handle`, which rides on their channels.
+    jumps: Vec<(String, Handle<ClientHandler>)>,
+}
+
+impl Deref for Client {
+    type Target = Handle<ClientHandler>;
+    fn deref(&self) -> &Self::Target {
+        &self.handle
+    }
+}
+
+impl Client {
+    /// True if the final hop or any jump in front of it has gone away.
+    pub fn is_closed(&self) -> bool {
+        self.handle.is_closed() || self.jumps.iter().any(|(_, j)| j.is_closed())
+    }
+
+    /// Names of the jump hosts, outermost first.
+    pub fn jump_hosts(&self) -> Vec<String> {
+        self.jumps.iter().map(|(h, _)| h.clone()).collect()
+    }
+
+    /// Disconnect the final hop, then each jump from the inside out.
+    pub async fn close(&self) {
+        let _ = self
+            .handle
+            .disconnect(Disconnect::ByApplication, "", "en")
+            .await;
+        for (_, j) in self.jumps.iter().rev() {
+            let _ = j.disconnect(Disconnect::ByApplication, "", "en").await;
+        }
+    }
 }
 
 /// Everything needed to open one interactive shell.
@@ -338,12 +409,61 @@ impl client::Handler for ClientHandler {
     }
 }
 
-/// Connect, verify the host key, and authenticate. Returns the live handle
-/// and, if the host key was seen for the first time, its SHA256 fingerprint.
+/// Connect, verify host keys, and authenticate, tunnelling through the
+/// target's jump chain if it has one. Returns the live client and every host
+/// key learned along the way (jumps first).
 pub async fn open_client(
     target: &Target,
     remote_forwards: Option<RemoteForwards>,
-) -> Result<(Handle<ClientHandler>, Option<String>), SshError> {
+) -> Result<(Client, Vec<LearnedKey>), SshError> {
+    // Flatten the chain, outermost hop first.
+    let mut hops: Vec<&Target> = Vec::new();
+    let mut cur = target;
+    while let Some(j) = cur.jump.as_deref() {
+        hops.push(j);
+        if hops.len() > MAX_JUMPS {
+            return Err(SshError::JumpChainTooLong);
+        }
+        cur = j;
+    }
+    hops.reverse();
+
+    let mut learned = Vec::new();
+    let mut jumps: Vec<(String, Handle<ClientHandler>)> = Vec::new();
+    for hop in hops {
+        let via = jumps.last().map(|(name, h)| (name.as_str(), h));
+        let (h, fp) = connect_hop(hop, via, None).await.map_err(|e| match e {
+            // Already names the jump that failed to reach this hop.
+            e @ SshError::JumpUnreachable { .. } => e,
+            e => SshError::Jump {
+                host: display_host(hop),
+                source: Box::new(e),
+            },
+        })?;
+        learned.extend(fp);
+        jumps.push((display_host(hop), h));
+    }
+
+    let via = jumps.last().map(|(name, h)| (name.as_str(), h));
+    let (handle, fp) = connect_hop(target, via, remote_forwards).await?;
+    learned.extend(fp);
+    Ok((Client { handle, jumps }, learned))
+}
+
+fn display_host(t: &Target) -> String {
+    if t.port == 22 {
+        t.hostname.clone()
+    } else {
+        format!("{}:{}", t.hostname, t.port)
+    }
+}
+
+/// One hop: dial directly, or through `via` with a `direct-tcpip` channel.
+async fn connect_hop(
+    target: &Target,
+    via: Option<(&str, &Handle<ClientHandler>)>,
+    remote_forwards: Option<RemoteForwards>,
+) -> Result<(Handle<ClientHandler>, Option<LearnedKey>), SshError> {
     let addr = format!("{}:{}", target.hostname, target.port);
     let learned = Arc::new(Mutex::new(None));
     let handler = ClientHandler {
@@ -353,28 +473,63 @@ pub async fn open_client(
         learned_fingerprint: Arc::clone(&learned),
         remote_forwards,
     };
+    let timeout = || SshError::Timeout(addr.clone());
 
-    let stream = tokio::time::timeout(
-        CONNECT_TIMEOUT,
-        tokio::net::TcpStream::connect((target.hostname.as_str(), target.port)),
-    )
-    .await
-    .map_err(|_| SshError::Timeout(addr.clone()))?
-    .map_err(|source| SshError::Connect {
-        addr: addr.clone(),
-        source,
-    })?;
-    let _ = stream.set_nodelay(true);
-
-    let mut handle = tokio::time::timeout(
-        CONNECT_TIMEOUT,
-        client::connect_stream(client_config(), stream, handler),
-    )
-    .await
-    .map_err(|_| SshError::Timeout(addr.clone()))??;
+    let mut handle = match via {
+        None => {
+            let stream = tokio::time::timeout(
+                CONNECT_TIMEOUT,
+                tokio::net::TcpStream::connect((target.hostname.as_str(), target.port)),
+            )
+            .await
+            .map_err(|_| timeout())?
+            .map_err(|source| SshError::Connect {
+                addr: addr.clone(),
+                source,
+            })?;
+            let _ = stream.set_nodelay(true);
+            tokio::time::timeout(
+                CONNECT_TIMEOUT,
+                client::connect_stream(client_config(), stream, handler),
+            )
+            .await
+            .map_err(|_| timeout())??
+        }
+        Some((jump_name, jump)) => {
+            let channel = tokio::time::timeout(
+                CONNECT_TIMEOUT,
+                jump.channel_open_direct_tcpip(
+                    target.hostname.clone(),
+                    u32::from(target.port),
+                    "127.0.0.1",
+                    0,
+                ),
+            )
+            .await
+            .map_err(|_| timeout())?
+            .map_err(|e| SshError::JumpUnreachable {
+                jump: jump_name.to_string(),
+                addr: addr.clone(),
+                reason: e.to_string(),
+            })?;
+            tokio::time::timeout(
+                CONNECT_TIMEOUT,
+                client::connect_stream(client_config(), channel.into_stream(), handler),
+            )
+            .await
+            .map_err(|_| timeout())??
+        }
+    };
 
     authenticate(&mut handle, target).await?;
-    let fp = learned.lock().unwrap_or_else(|p| p.into_inner()).take();
+    let fp = learned
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .take()
+        .map(|fingerprint| LearnedKey {
+            host: display_host(target),
+            fingerprint,
+        });
     Ok((handle, fp))
 }
 
@@ -398,9 +553,12 @@ async fn run_session(
 ) -> Result<Option<u32>, SshError> {
     let (handle, learned) = open_client(&params.target, None).await?;
 
-    // Host key notice is only worth showing once we know the login worked.
-    if let Some(fp) = learned {
-        sink.status(SessionStatus::NewHostKey { fingerprint: fp });
+    // Host key notices are only worth showing once we know the login worked.
+    for k in learned {
+        sink.status(SessionStatus::NewHostKey {
+            host: k.host,
+            fingerprint: k.fingerprint,
+        });
     }
 
     let channel = handle.channel_open_session().await?;
@@ -438,7 +596,7 @@ async fn run_session(
         }
     }
 
-    let _ = handle.disconnect(Disconnect::ByApplication, "", "en").await;
+    handle.close().await;
     Ok(exit_code)
 }
 
@@ -675,6 +833,7 @@ pub(crate) mod testutil {
                 passphrase: None,
             },
             known_hosts,
+            jump: None,
         }
     }
 }
@@ -778,7 +937,7 @@ mod tests {
         wait_status(&rx, |s| matches!(s, SessionStatus::Connecting));
         let new_key = wait_status(&rx, |s| matches!(s, SessionStatus::NewHostKey { .. }));
         assert!(
-            matches!(new_key, SessionStatus::NewHostKey { ref fingerprint } if fingerprint.starts_with("SHA256:"))
+            matches!(new_key, SessionStatus::NewHostKey { ref fingerprint, .. } if fingerprint.starts_with("SHA256:"))
         );
         wait_status(&rx, |s| matches!(s, SessionStatus::Connected));
         assert!(manager.is_connected("p1"));
@@ -866,5 +1025,79 @@ mod tests {
             }
         };
         assert!(err.contains("CHANGED"), "{err}");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn shell_through_one_and_two_jump_hosts() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let Some(sshd) = spawn_sshd(dir.path()) else {
+            eprintln!("skipping: no usable sshd on this machine");
+            return;
+        };
+        let kh = dir.path().join("kh");
+        let direct = target(&sshd, &sshd.client_key, kh.clone());
+        // The test server doubles as its own bastion: the final hop is dialled
+        // from inside the jump, so it must use an address the jump can reach.
+        let mut via_one = direct.clone();
+        via_one.jump = Some(Box::new(direct.clone()));
+        let mut via_two = direct.clone();
+        via_two.jump = Some(Box::new(via_one.clone()));
+
+        let (client, learned) = open_client(&via_one, None).await.unwrap();
+        // Both hops share host:port, so the key is learned once, at the jump.
+        assert_eq!(learned.len(), 1);
+        assert_eq!(
+            client.jump_hosts(),
+            vec![format!("127.0.0.1:{}", sshd.port)]
+        );
+        client.close().await;
+
+        let manager = Arc::new(SshManager::new());
+        let (tx, rx) = std_mpsc::channel();
+        manager
+            .connect(
+                "j2".into(),
+                ConnectParams {
+                    target: via_two,
+                    cols: 80,
+                    rows: 24,
+                },
+                Arc::new(TestSink(tx)),
+            )
+            .unwrap();
+        wait_status(&rx, |s| matches!(s, SessionStatus::Connected));
+        manager
+            .write("j2", b"echo J$((1+1))MP\n".to_vec())
+            .await
+            .unwrap();
+        wait_output(&rx, "J2MP");
+        manager.disconnect("j2").await;
+        wait_status(&rx, |s| matches!(s, SessionStatus::Disconnected { .. }));
+
+        // Destination unreachable from the jump names the jump in the error.
+        let dead_port = std::net::TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let mut unreachable = direct.clone();
+        unreachable.port = dead_port;
+        unreachable.jump = Some(Box::new(direct.clone()));
+        let err = open_client(&unreachable, None)
+            .await
+            .err()
+            .expect("should fail");
+        assert!(matches!(err, SshError::JumpUnreachable { .. }), "{err}");
+        assert!(err.to_string().contains("could not reach"), "{err}");
+
+        // Bad credentials on the jump are attributed to the jump.
+        let mut bad_jump = direct.clone();
+        bad_jump.jump = Some(Box::new(target(&sshd, &sshd.other_key, kh.clone())));
+        let err = open_client(&bad_jump, None)
+            .await
+            .err()
+            .expect("should fail");
+        assert!(matches!(err, SshError::Jump { .. }), "{err}");
+        assert!(err.to_string().contains("authentication failed"), "{err}");
     }
 }

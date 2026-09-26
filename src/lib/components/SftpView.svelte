@@ -57,7 +57,7 @@
       connectedHost = hostId;
       remotePath = res.home;
       remoteRefresh++;
-      if (res.new_host_key) ui.notify("info", `New host key recorded: ${res.new_host_key}`);
+      for (const k of res.new_host_keys) ui.notify("info", `New host key recorded for ${k.host}: ${k.fingerprint}`);
     } catch (e) {
       connectError = errorMessage(e);
     } finally {

@@ -15,6 +15,47 @@
   let error = $state<string | null>(null);
   let busy = $state(false);
 
+  // Hosts whose own chain passes through this one would create a loop.
+  function reachesThis(startId: Uuid): boolean {
+    const seen = new Set<Uuid>();
+    let cur: Uuid | undefined = startId;
+    while (cur && !seen.has(cur)) {
+      if (cur === id) return true;
+      seen.add(cur);
+      cur = vaultStore.hostById.get(cur)?.data?.jump_host_id;
+    }
+    return false;
+  }
+  const jumpCandidates = $derived(vaultStore.hosts.filter((h) => h.id !== id && !(id && reachesThis(h.id))));
+
+  /** "jump2 → jump1 → this host", outermost first. */
+  const chainLabel = $derived.by(() => {
+    const names: string[] = [];
+    const seen = new Set<Uuid>();
+    let cur = form.jump_host_id;
+    while (cur && !seen.has(cur)) {
+      seen.add(cur);
+      const h = vaultStore.hostById.get(cur)?.data;
+      if (!h) break;
+      names.unshift(h.label);
+      cur = h.jump_host_id;
+    }
+    return names.length ? `${names.join(" → ")} → ${form.label || "this host"}` : "";
+  });
+
+  const jumpMissingIdentity = $derived.by(() => {
+    const seen = new Set<Uuid>();
+    let cur = form.jump_host_id;
+    while (cur && !seen.has(cur)) {
+      seen.add(cur);
+      const h = vaultStore.hostById.get(cur)?.data;
+      if (!h) return null;
+      if (!h.identity_id) return h.label;
+      cur = h.jump_host_id;
+    }
+    return null;
+  });
+
   const colors = ["#7B61FF", "#3DDC84", "#FFB020", "#FF5C5C", "#38BDF8", "#F472B6"];
 
   async function save(e: SubmitEvent) {
@@ -24,6 +65,7 @@
     try {
       form.tags = tags.split(",").map((t) => t.trim()).filter(Boolean);
       form.identity_id = form.identity_id || undefined;
+      form.jump_host_id = form.jump_host_id || undefined;
       await vaultStore.saveHost(id, $state.snapshot(form));
       ui.modal = null;
     } catch (err) {
@@ -59,6 +101,21 @@
         </select>
         {#if vaultStore.identities.length === 0}
           <p class="mt-1 text-xs text-fg-muted">No identities yet. Add one under Keychain.</p>
+        {/if}
+      </div>
+      <div class="col-span-2">
+        <label class="label" for="h-jump">Jump host</label>
+        <select id="h-jump" class="input" bind:value={form.jump_host_id}>
+          <option value={undefined}>None, connect directly</option>
+          {#each jumpCandidates as h (h.id)}
+            <option value={h.id}>{h.data?.label} ({h.data?.hostname})</option>
+          {/each}
+        </select>
+        {#if chainLabel}
+          <p class="mt-1 text-xs text-fg-muted">Route: {chainLabel}</p>
+        {/if}
+        {#if jumpMissingIdentity}
+          <p class="mt-1 text-xs text-danger">"{jumpMissingIdentity}" has no identity. Jump hosts must have one to connect.</p>
         {/if}
       </div>
       <div>

@@ -48,6 +48,10 @@ pub struct Host {
     pub group: String,
     #[serde(default)]
     pub tags: Vec<String>,
+    /// Host to tunnel through first, like OpenSSH `ProxyJump`. The jump host
+    /// may have its own jump, forming a chain.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub jump_host_id: Option<Uuid>,
     /// Optional accent color as a CSS hex string, e.g. `"#7B61FF"`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color: Option<String>,
@@ -65,6 +69,42 @@ pub struct Snippet {
     pub command: String,
     #[serde(default)]
     pub description: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum JumpChainError {
+    #[error("jump chain loops back to a host already in the chain")]
+    Loop,
+    #[error("jump host {0} no longer exists")]
+    Missing(Uuid),
+    #[error("jump chain is longer than {0} hops")]
+    TooLong(usize),
+}
+
+/// Walk the jump chain starting at `host_id`, whose own jump is `first`.
+/// `lookup(id)` returns `Some(jump_of_id)` for an existing host or `None` if
+/// it is missing. Returns jump host ids nearest-first (the last element is
+/// the one dialled directly).
+pub fn jump_chain(
+    host_id: Option<Uuid>,
+    first: Option<Uuid>,
+    max: usize,
+    lookup: impl Fn(Uuid) -> Option<Option<Uuid>>,
+) -> Result<Vec<Uuid>, JumpChainError> {
+    let mut chain = Vec::new();
+    let mut seen: std::collections::HashSet<Uuid> = host_id.into_iter().collect();
+    let mut next = first;
+    while let Some(id) = next {
+        if !seen.insert(id) {
+            return Err(JumpChainError::Loop);
+        }
+        if chain.len() == max {
+            return Err(JumpChainError::TooLong(max));
+        }
+        chain.push(id);
+        next = lookup(id).ok_or(JumpChainError::Missing(id))?;
+    }
+    Ok(chain)
 }
 
 /// A saved port-forwarding rule, bound to a host (and through it, an identity).
@@ -109,6 +149,53 @@ mod tests {
         assert_eq!(h.port, 22);
         assert!(h.identity_id.is_none());
         assert_eq!(h.group, "");
+    }
+
+    #[test]
+    fn jump_chain_walks_detects_loops_and_missing() {
+        let (a, b, c, d) = (
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+        );
+        // a -> b -> c (c dials directly)
+        let jumps = |id: Uuid| -> Option<Option<Uuid>> {
+            if id == b {
+                Some(Some(c))
+            } else if id == c {
+                Some(None)
+            } else if id == a {
+                Some(Some(b))
+            } else {
+                None
+            }
+        };
+        assert_eq!(jump_chain(Some(a), Some(b), 8, jumps).unwrap(), vec![b, c]);
+        assert_eq!(
+            jump_chain(Some(a), None, 8, jumps).unwrap(),
+            Vec::<Uuid>::new()
+        );
+        // Saving c with jump a would close the loop c -> a -> b -> c.
+        assert_eq!(
+            jump_chain(Some(c), Some(a), 8, jumps),
+            Err(JumpChainError::Loop)
+        );
+        // Self-jump.
+        assert_eq!(
+            jump_chain(Some(a), Some(a), 8, jumps),
+            Err(JumpChainError::Loop)
+        );
+        assert_eq!(
+            jump_chain(Some(a), Some(d), 8, jumps),
+            Err(JumpChainError::Missing(d))
+        );
+        assert_eq!(
+            jump_chain(Some(a), Some(b), 1, jumps),
+            Err(JumpChainError::TooLong(1))
+        );
+        // New (unsaved) host: no id of its own yet.
+        assert_eq!(jump_chain(None, Some(b), 8, jumps).unwrap(), vec![b, c]);
     }
 
     #[test]

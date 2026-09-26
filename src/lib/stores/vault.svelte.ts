@@ -147,6 +147,8 @@ class VaultStore {
   async deleteHost(id: Uuid) {
     await api.hosts.delete(id);
     upsert(this.hosts, null, id);
+    // Backend detached this host as a jump; mirror that locally.
+    for (const h of this.hosts) if (h.data?.jump_host_id === id) h.data.jump_host_id = undefined;
   }
 
   async saveIdentity(id: Uuid | null, identity: Identity) {
