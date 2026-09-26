@@ -93,10 +93,29 @@ the background.
   secrets (see "Code signing" in the README). Buying the certificates is
   still the owner's decision.
 
+## Round four: for DevOps and senior developers
+
+- [x] **Local terminal tabs** next to SSH sessions (PTY on Linux and macOS,
+  ConPTY on Windows).
+- [x] **Open a whole group** in tabs, or tiled in one tab.
+- [x] **Synchronized typing** across a tab's panes, like cluster SSH.
+- [x] **Environment labels** (production, staging, development) with red
+  production markers and confirmation before synchronized typing or
+  multi-host runs reach production.
+- [x] **Startup command** per host, with snippet variables.
+- [x] **Reachability check**: TCP latency and SSH server version for every
+  host, no login needed.
+- [x] **Ansible INI inventory import**, with ranges, group vars, children and
+  ProxyJump.
+- [x] **Export to OpenSSH config** for use with `ssh`, `scp`, Ansible and git.
+
 ## Needs a decision
 
-- **Certificates for signing.** The pipeline is ready. It needs a Windows
-  code-signing certificate and an Apple Developer ID, both recurring costs.
+- **macOS builds were dropped from CI** at the owner's request, along with
+  the macOS signing step. The universal-build and Apple signing setup can be
+  recovered from git history (commit d391c53) if macOS is wanted again.
+- **Certificates for signing.** The Windows signing pipeline is ready. It
+  needs a code-signing certificate, a recurring cost.
 - **Mosh.** There is no maintained Rust Mosh client. The options are
   implementing the SSP protocol (UDP, AES-OCB, state sync and local echo),
   which is a project of its own, or adding a local terminal that runs the

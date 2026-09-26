@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MIN_RATIO, layoutRects, leaf, paneIds, remove, setRatio, split, type LayoutNode } from "$lib/layout";
+import { MIN_RATIO, grid, layoutRects, leaf, paneIds, remove, setRatio, split, type LayoutNode } from "$lib/layout";
 
 describe("pane layout", () => {
   it("splits, lists and removes panes", () => {
@@ -30,5 +30,23 @@ describe("pane layout", () => {
     t = setRatio(t, id, 0.01);
     expect(t.type === "split" && t.ratio).toBe(MIN_RATIO);
     expect(setRatio(t, "other", 0.9)).toEqual(t);
+  });
+});
+
+describe("grid", () => {
+  it("tiles panes evenly in rows", () => {
+    const r4 = layoutRects(grid(["a", "b", "c", "d"])).panes;
+    expect(r4.get("a")).toEqual({ x: 0, y: 0, w: 50, h: 50 });
+    expect(r4.get("d")).toEqual({ x: 50, y: 50, w: 50, h: 50 });
+
+    const r5 = layoutRects(grid(["a", "b", "c", "d", "e"])).panes;
+    // Three across the top, two across the bottom, every row full width.
+    for (const id of ["a", "b", "c"]) expect(r5.get(id)!.h).toBeCloseTo(50);
+    expect(r5.get("a")!.w).toBeCloseTo(100 / 3);
+    expect(r5.get("d")!.w).toBeCloseTo(50);
+    expect(r5.get("e")).toEqual({ x: 50, y: 50, w: 50, h: 50 });
+
+    expect(paneIds(grid(["x"]))).toEqual(["x"]);
+    expect(paneIds(grid(["1", "2", "3", "4", "5", "6"]))).toEqual(["1", "2", "3", "4", "5", "6"]);
   });
 });

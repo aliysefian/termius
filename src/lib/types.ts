@@ -55,6 +55,10 @@ export interface Host {
   forward_agent?: boolean;
   /** Show the host's graphical programs on this computer (ssh -X). */
   forward_x11?: boolean;
+  /** "production", "staging", "development", or empty. */
+  environment?: string;
+  /** Typed into the shell right after connecting. */
+  startup_command?: string;
   /** Slash-separated group path, e.g. "Production/Databases". */
   group: string;
   tags: string[];
@@ -183,6 +187,26 @@ export interface ImportedHost {
   proxy_jump: string | null;
   forward_agent: boolean;
   forward_x11: boolean;
+  /** Folder inside the import group, e.g. an Ansible group path. */
+  group?: string | null;
+}
+
+export type Health =
+  | { state: "up"; latency_ms: number; banner: string | null }
+  | { state: "down"; reason: string }
+  | { state: "via_jump" };
+
+export type HealthResult = { host_id: Uuid } & Health;
+
+export const ENVIRONMENTS = [
+  { value: "", label: "None" },
+  { value: "production", label: "Production", short: "PROD", cls: "bg-danger/15 text-danger" },
+  { value: "staging", label: "Staging", short: "STG", cls: "bg-warning/15 text-warning" },
+  { value: "development", label: "Development", short: "DEV", cls: "bg-success/15 text-success" },
+] as const;
+
+export function envInfo(value: string | undefined) {
+  return ENVIRONMENTS.find((e) => e.value === (value ?? "")) ?? ENVIRONMENTS[0];
 }
 
 export interface ExecOutput {

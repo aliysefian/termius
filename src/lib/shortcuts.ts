@@ -39,6 +39,12 @@ export function handleShortcut(e: KeyboardEvent): boolean {
       case "KeyL":
         void vaultStore.lock();
         return true;
+      case "KeyB":
+        ui.syncRequest++;
+        return true;
+      case "Backquote":
+        ui.openLocal();
+        return true;
       case "Tab":
         ui.cycleTab(-1);
         return true;

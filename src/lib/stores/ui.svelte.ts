@@ -1,12 +1,15 @@
 // Ephemeral UI state: which sidebar view is active, open tabs, modals.
-import { MAX_PANES, leaf, paneIds, remove, setRatio, split, type LayoutNode } from "$lib/layout";
+import { MAX_PANES, grid, leaf, paneIds, remove, setRatio, split, type LayoutNode } from "$lib/layout";
 import type { AdhocTarget, SessionStatus } from "$lib/ssh";
 import type { Uuid } from "$lib/types";
 
 export type View = "hosts" | "keychain" | "sftp" | "forwarding" | "snippets" | "settings";
 
 /** What a pane connects to: a saved host, or an unsaved quick connection. */
-export type PaneTarget = { kind: "host"; hostId: Uuid } | { kind: "adhoc"; adhoc: AdhocTarget };
+export type PaneTarget =
+  | { kind: "host"; hostId: Uuid }
+  | { kind: "adhoc"; adhoc: AdhocTarget }
+  | { kind: "local" };
 
 export interface Pane {
   id: string;
@@ -22,6 +25,8 @@ export interface Tab {
   panes: Pane[];
   /** How the panes are arranged. */
   layout: LayoutNode;
+  /** Typing in one pane goes to every pane in the tab. */
+  syncInput?: boolean;
   activePaneId: string;
 }
 
@@ -109,6 +114,34 @@ class UiStore {
     this.#openTab({ kind: "host", hostId }, title);
   }
 
+  openLocal() {
+    this.#openTab({ kind: "local" }, "Local");
+  }
+
+  /**
+   * Open several hosts at once: one tab each, or tiled in a single tab
+   * (at most MAX_PANES) with synchronized input, like cluster SSH.
+   */
+  openMany(hosts: { id: Uuid; label: string }[], mode: "tabs" | "tiled", title = "Cluster") {
+    if (mode === "tabs") {
+      for (const h of hosts) this.openTerminal(h.id, h.label);
+      return;
+    }
+    const picked = hosts.slice(0, MAX_PANES);
+    const panes: Pane[] = picked.map((h) => ({ id: nextId("pane"), target: { kind: "host", hostId: h.id } }));
+    const tab: Tab = {
+      id: nextId("tab"),
+      title,
+      panes,
+      layout: grid(panes.map((p) => p.id)),
+      activePaneId: panes[0].id,
+      syncInput: true,
+    };
+    this.tabs.push(tab);
+    this.activeTabId = tab.id;
+    if (this.view === "sftp" || this.view === "settings") this.view = "hosts";
+  }
+
   openAdhoc(adhoc: AdhocTarget) {
     this.#openTab({ kind: "adhoc", adhoc }, adhocLabel(adhoc));
   }
@@ -175,6 +208,9 @@ class UiStore {
     tab.layout = layout;
     if (tab.activePaneId === paneId) tab.activePaneId = paneIds(layout)[0];
   }
+
+  /** Asks the tab area to toggle synchronized input (it owns the prod check). */
+  syncRequest = $state(0);
 
   resizeSplit(tabId: string, splitId: string, ratio: number) {
     const tab = this.tabs.find((t) => t.id === tabId);

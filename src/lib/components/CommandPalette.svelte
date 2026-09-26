@@ -1,8 +1,10 @@
 <script lang="ts">
   import {
-    ArrowLeftRight, ServerCog, Code, FileInput, FolderSync, KeyRound, Lock, Play, Plus, Server, Settings, SquareSplitHorizontal, SquareSplitVertical, Zap,
+    Activity, FileOutput, Keyboard, SquareTerminal, ArrowLeftRight, ServerCog, Code, FileInput, FolderSync, KeyRound, Lock, Play, Plus, Server, Settings, SquareSplitHorizontal, SquareSplitVertical, Zap,
   } from "lucide-svelte";
+  import * as api from "$lib/api";
   import { fuzzyScore } from "$lib/fuzzy";
+  import { errorMessage } from "$lib/types";
   import { parseAdhoc } from "$lib/ssh";
   import { settings } from "$lib/stores/settings.svelte";
   import { runSnippet } from "$lib/runsnippet";
@@ -83,6 +85,11 @@
       ["New port-forwarding rule", ArrowLeftRight, () => (ui.modal = { kind: "forward", id: null })],
       ["Import hosts from ~/.ssh/config", FileInput, () => (ui.modal = { kind: "import-ssh-config" })],
       ["Run a command on several hosts…", ServerCog, () => (ui.modal = { kind: "run-on-hosts" })],
+      ["New local terminal", SquareTerminal, () => ui.openLocal(), "Ctrl+Shift+`"],
+      ["Check which hosts are reachable", Activity, () => void vaultStore.checkHealth()],
+      ["Type into all panes in this tab (toggle)", Keyboard, () => ui.syncRequest++, "Ctrl+Shift+B"],
+      ["Export hosts as ~/.ssh/config…", FileOutput, () => void exportConfig()],
+      ["Import hosts from an Ansible inventory", FileInput, () => (ui.modal = { kind: "import-ssh-config" })],
       ["Split right", SquareSplitHorizontal, () => ui.splitActive("vertical"), "Ctrl+Shift+D"],
       ["Split down", SquareSplitVertical, () => ui.splitActive("horizontal"), "Ctrl+Shift+E"],
       ["Go to Hosts", Server, go("hosts")],
@@ -117,6 +124,18 @@
   $effect(() => {
     input?.focus();
   });
+
+  async function exportConfig() {
+    const { save } = await import("@tauri-apps/plugin-dialog");
+    const path = await save({ title: "Export hosts as SSH config", defaultPath: "sshvault.config" });
+    if (!path) return;
+    try {
+      await api.exportSshConfig(path);
+      ui.notify("info", `Exported. Add "Include ${path}" to ~/.ssh/config to use these names with ssh.`);
+    } catch (e) {
+      ui.notify("error", errorMessage(e));
+    }
+  }
 
   function close() {
     ui.paletteOpen = false;

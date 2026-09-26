@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Clock, FileInput, Plus, Search, Server } from "lucide-svelte";
+  import { Activity, Clock, FileInput, Plus, Search, Server } from "lucide-svelte";
   import { settings } from "$lib/stores/settings.svelte";
   import HostRow from "./HostRow.svelte";
   import { ui } from "$lib/stores/ui.svelte";
@@ -31,7 +31,10 @@
   <div class="flex items-center justify-between px-4 pt-4 pb-2">
     <h2 class="text-sm font-semibold">Hosts</h2>
     <div class="flex">
-      <button class="icon-btn" title="Import from ~/.ssh/config" onclick={() => (ui.modal = { kind: "import-ssh-config" })}>
+      <button class="icon-btn" title="Check which hosts are reachable" disabled={vaultStore.checking} onclick={() => vaultStore.checkHealth()}>
+        <Activity size={16} class={vaultStore.checking ? "animate-pulse text-accent" : ""} />
+      </button>
+      <button class="icon-btn" title="Import from ~/.ssh/config or an Ansible inventory" onclick={() => (ui.modal = { kind: "import-ssh-config" })}>
         <FileInput size={16} />
       </button>
       <button class="icon-btn" title="New host" onclick={() => (ui.modal = { kind: "host", id: null })}>

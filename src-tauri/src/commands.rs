@@ -51,6 +51,7 @@ pub struct AppState {
     pub sftp: Arc<SftpManager>,
     pub forwards: Arc<ForwardManager>,
     pub runs: Arc<crate::runner::RunManager>,
+    pub local: Arc<crate::localpty::LocalManager>,
     pub edits: Arc<crate::remoteedit::EditManager>,
     /// Where remote files are downloaded for editing.
     pub edit_dir: PathBuf,
@@ -262,6 +263,7 @@ pub async fn lock_vault(state: State<'_, AppState>) -> ApiResult<VaultStatus> {
     state.sftp.close_all().await;
     state.forwards.stop_all();
     state.runs.cancel_all();
+    state.local.close_all();
     state.edits.stop_all();
     state
         .reveal
@@ -829,6 +831,132 @@ pub async fn ssh_disconnect(state: State<'_, AppState>, pane_id: String) -> ApiR
     Ok(())
 }
 
+// ---------------------------------------------------------------------------
+// Local terminals
+// ---------------------------------------------------------------------------
+
+/// Start the user's shell in a local terminal pane.
+#[tauri::command]
+pub fn local_spawn(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    pane_id: String,
+    cols: u32,
+    rows: u32,
+    on_data: Channel<InvokeResponseBody>,
+) -> ApiResult<()> {
+    let sink = Arc::new(PaneSink {
+        app,
+        pane_id: pane_id.clone(),
+        data: on_data,
+        log: state.log_slot(&pane_id),
+    });
+    state
+        .local
+        .spawn(pane_id, cols, rows, None, sink)
+        .map_err(|e| ApiError::new("local", e.to_string()))
+}
+
+#[tauri::command]
+pub fn local_write(state: State<'_, AppState>, pane_id: String, data: Vec<u8>) -> ApiResult<()> {
+    state
+        .local
+        .write(&pane_id, &data)
+        .map_err(|e| ApiError::new("not_connected", e.to_string()))
+}
+
+#[tauri::command]
+pub fn local_resize(
+    state: State<'_, AppState>,
+    pane_id: String,
+    cols: u32,
+    rows: u32,
+) -> ApiResult<()> {
+    state
+        .local
+        .resize(&pane_id, cols, rows)
+        .map_err(|e| ApiError::new("not_connected", e.to_string()))
+}
+
+#[tauri::command]
+pub fn local_close(state: State<'_, AppState>, pane_id: String) {
+    state.local.close(&pane_id);
+    state
+        .logs
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .remove(&pane_id);
+}
+
+// ---------------------------------------------------------------------------
+// Reachability, Ansible import, ssh config export
+// ---------------------------------------------------------------------------
+
+/// Probe the SSH port of the given hosts (all hosts if `None`). Hosts behind
+/// a jump host are reported as such rather than probed.
+#[tauri::command]
+pub async fn check_hosts(
+    state: State<'_, AppState>,
+    host_ids: Option<Vec<Uuid>>,
+) -> ApiResult<Vec<crate::health::HealthResult>> {
+    let hosts: Vec<Record<Host>> = list_records(&state, Collection::Hosts)?;
+    let targets = hosts
+        .into_iter()
+        .filter(|r| host_ids.as_ref().is_none_or(|ids| ids.contains(&r.id)))
+        .filter_map(|r| {
+            let d = r.data?;
+            let addr = d.jump_host_id.is_none().then_some((d.hostname, d.port));
+            Some((r.id, addr))
+        })
+        .collect();
+    Ok(crate::health::probe_all(targets).await)
+}
+
+/// Read an Ansible INI inventory for the import preview.
+#[tauri::command]
+pub fn ansible_preview(state: State<'_, AppState>, path: String) -> ApiResult<SshConfigPreview> {
+    let text =
+        std::fs::read_to_string(&path).map_err(|e| ApiError::new("io", format!("{path}: {e}")))?;
+    let parsed = crate::ansible::parse(&text, &sftp::local::home());
+    let labels: std::collections::HashSet<String> =
+        list_records::<Host>(&state, Collection::Hosts)?
+            .into_iter()
+            .filter_map(|r| r.data.map(|d| d.label.to_lowercase()))
+            .collect();
+    let existing = parsed
+        .hosts
+        .iter()
+        .filter(|h| labels.contains(&h.alias.to_lowercase()))
+        .map(|h| h.alias.clone())
+        .collect();
+    Ok(SshConfigPreview {
+        path,
+        hosts: parsed.hosts,
+        warnings: parsed.warnings,
+        existing,
+    })
+}
+
+/// Render all hosts as an OpenSSH config. Writes it to `path` if given and
+/// returns the text either way.
+#[tauri::command]
+pub fn export_ssh_config(state: State<'_, AppState>, path: Option<String>) -> ApiResult<String> {
+    let hosts: Vec<(Uuid, Host)> = list_records::<Host>(&state, Collection::Hosts)?
+        .into_iter()
+        .filter_map(|r| r.data.map(|d| (r.id, d)))
+        .collect();
+    let identities: std::collections::HashMap<Uuid, Identity> =
+        list_records::<Identity>(&state, Collection::Identities)?
+            .into_iter()
+            .filter_map(|r| r.data.map(|d| (r.id, d.redacted())))
+            .collect();
+    let text = crate::sshconfig::export(&hosts, &identities);
+    if let Some(path) = path {
+        std::fs::write(&path, &text).map_err(|e| ApiError::new("io", format!("{path}: {e}")))?;
+    }
+    Ok(text)
+}
+
 /// Start recording a pane's output to `path` (appending). `plain` strips
 /// colours and control sequences; otherwise the raw stream is kept.
 #[tauri::command]
@@ -1346,6 +1474,7 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         sftp: Arc::new(SftpManager::new()),
         forwards: Arc::new(ForwardManager::new()),
         runs: Arc::new(crate::runner::RunManager::new()),
+        local: Arc::new(crate::localpty::LocalManager::new()),
         edits: Arc::new(crate::remoteedit::EditManager::new()),
         edit_dir,
         reveal: Default::default(),

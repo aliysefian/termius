@@ -1,10 +1,12 @@
 <script lang="ts">
-  import { Circle, Columns2, Command, Plus, Rows2, Terminal, X, Zap } from "lucide-svelte";
+  import { Circle, Columns2, Command, Keyboard, Plus, Rows2, SquareTerminal, Terminal, X, Zap } from "lucide-svelte";
   import { save } from "@tauri-apps/plugin-dialog";
   import * as api from "$lib/api";
   import { MAX_PANES, layoutRects, type Divider } from "$lib/layout";
   import { settings } from "$lib/stores/settings.svelte";
   import { adhocLabel, ui, type Pane, type Tab } from "$lib/stores/ui.svelte";
+  import { writeToPane } from "$lib/terminalio";
+  import { envInfo } from "$lib/types";
   import { vaultStore } from "$lib/stores/vault.svelte";
   import { errorMessage } from "$lib/types";
   import SnippetPicker from "./SnippetPicker.svelte";
@@ -19,8 +21,40 @@
 
   function paneLabel(p: Pane) {
     if (p.target.kind === "adhoc") return adhocLabel(p.target.adhoc);
+    if (p.target.kind === "local") return "Local shell";
     const h = vaultStore.hostById.get(p.target.hostId)?.data;
     return h ? `${h.label} · ${h.hostname}` : "host removed";
+  }
+
+  function paneEnv(p: Pane) {
+    return p.target.kind === "host" ? envInfo(vaultStore.hostById.get(p.target.hostId)?.data?.environment) : envInfo("");
+  }
+
+  const hasProd = (t: Tab) => t.panes.some((p) => paneEnv(p).value === "production");
+
+  /** Synchronized input: type once, every pane in the tab receives it. */
+  function toggleSync(t: Tab) {
+    if (!t.syncInput && hasProd(t)) {
+      const names = t.panes.filter((p) => paneEnv(p).value === "production").map((p) => paneLabel(p).split(" · ")[0]);
+      if (!confirm(`This tab includes production hosts:\n\n${names.join("\n")}\n\nType into all panes at once anyway?`)) return;
+    }
+    t.syncInput = !t.syncInput;
+  }
+
+  // Ctrl+Shift+B from anywhere toggles sync for the active tab.
+  let lastSync = ui.syncRequest;
+  $effect(() => {
+    const n = ui.syncRequest;
+    if (n === lastSync) return;
+    lastSync = n;
+    const t = ui.activeTab;
+    if (t && t.panes.length > 1) toggleSync(t);
+  });
+
+  function broadcastFor(t: Tab) {
+    return (data: string | Uint8Array) => {
+      for (const p of t.panes) if (ui.paneInfo[p.id]?.status === "connected") void writeToPane(p, data);
+    };
   }
 
   function tabColor(t: Tab) {
@@ -173,6 +207,12 @@
           {:else}
             <span class="truncate">{t.customTitle ?? t.title}</span>
           {/if}
+          {#if hasProd(t)}
+            <span class="shrink-0 rounded bg-danger/15 px-1 text-[9px] font-bold text-danger">PROD</span>
+          {/if}
+          {#if t.syncInput}
+            <span class="shrink-0 rounded bg-warning/15 px-1 text-[9px] font-bold text-warning" title="Typing goes to every pane">SYNC</span>
+          {/if}
           {#if t.panes.some((p) => ui.paneInfo[p.id]?.recording)}
             <Circle size={8} class="shrink-0 fill-danger text-danger" />
           {/if}
@@ -188,6 +228,9 @@
       {/each}
       <button class="icon-btn mb-1 h-7 w-7 shrink-0" title="New connection (Ctrl+Shift+T)" onclick={() => (ui.modal = { kind: "quick-connect" })}>
         <Plus size={15} />
+      </button>
+      <button class="icon-btn mb-1 h-7 w-7 shrink-0" title="Local terminal (Ctrl+Shift+`)" onclick={() => ui.openLocal()}>
+        <SquareTerminal size={15} />
       </button>
       <div class="flex-1"></div>
       <div class="flex h-10 items-center gap-0.5">
@@ -224,9 +267,11 @@
       {#each t.panes as pane (pane.id)}
         {@const r = rects.panes.get(pane.id)}
         {@const info = ui.paneInfo[pane.id]}
+        {@const env = paneEnv(pane)}
         {#if r}
           <div
-            class="absolute flex flex-col overflow-hidden {pane.id === t.activePaneId && multi ? 'ring-1 ring-inset ring-accent/40' : ''}"
+            class="absolute flex flex-col overflow-hidden
+              {t.syncInput && multi ? 'ring-1 ring-inset ring-warning/60' : pane.id === t.activePaneId && multi ? 'ring-1 ring-inset ring-accent/40' : ''}"
             style:left="{r.x}%"
             style:top="{r.y}%"
             style:width="{r.w}%"
@@ -234,12 +279,27 @@
             role="presentation"
             onmousedown={() => (t.activePaneId = pane.id)}
           >
-            <div class="flex h-7 shrink-0 items-center gap-2 border-b border-line bg-panel/40 px-3 text-xs text-fg-muted">
+            <div
+              class="flex h-7 shrink-0 items-center gap-2 border-b px-3 text-xs text-fg-muted
+                {env.value === 'production' ? 'border-danger/40 bg-danger/10' : 'border-line bg-panel/40'}"
+            >
+              {#if env.value}
+                <span class="shrink-0 rounded px-1 text-[9px] font-bold {'cls' in env ? env.cls : ''}">{"short" in env ? env.short : ""}</span>
+              {/if}
               <span class="truncate">{paneLabel(pane)}</span>
               {#if info?.remoteTitle}
                 <span class="truncate text-fg-muted/70">— {info.remoteTitle}</span>
               {/if}
               <div class="flex-1"></div>
+              {#if multi}
+                <button
+                  class="icon-btn h-6 w-6 {t.syncInput ? 'text-warning' : ''}"
+                  title={t.syncInput ? "Stop typing into all panes (Ctrl+Shift+B)" : "Type into all panes at once (Ctrl+Shift+B)"}
+                  onclick={() => toggleSync(t)}
+                >
+                  <Keyboard size={13} />
+                </button>
+              {/if}
               <button
                 class="icon-btn h-6 w-6 {info?.recording ? 'text-danger' : ''}"
                 title={info?.recording ? `Stop recording (${info.recording})` : "Record session to a file"}
@@ -256,7 +316,11 @@
                 <button class="icon-btn h-6 w-6" title="Close pane" onclick={() => ui.closePane(t.id, pane.id)}><X size={13} /></button>
               {/if}
             </div>
-            <TerminalPane {pane} active={pane.id === t.activePaneId && t.id === ui.activeTabId} />
+            <TerminalPane
+              {pane}
+              active={pane.id === t.activePaneId && t.id === ui.activeTabId}
+              broadcast={t.syncInput && multi ? broadcastFor(t) : null}
+            />
           </div>
         {/if}
       {/each}

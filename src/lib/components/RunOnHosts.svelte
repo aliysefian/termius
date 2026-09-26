@@ -56,6 +56,11 @@
   async function run() {
     const ids = [...picked];
     if (!command.trim() || ids.length === 0) return;
+    const prod = ids
+      .map((h) => vaultStore.hostById.get(h)?.data)
+      .filter((d) => d?.environment === "production")
+      .map((d) => d!.label);
+    if (prod.length && !confirm(`This will run on ${prod.length} production host(s):\n\n${prod.join("\n")}\n\nRun anyway?`)) return;
     for (const [k, v] of Object.entries(values)) lastValues.set(k, v);
     const id = crypto.randomUUID();
     runId = id;

@@ -89,3 +89,29 @@ export function layoutRects(
   }
   return out;
 }
+
+/** Balance a list into a binary tree along one direction. */
+function chain(nodes: LayoutNode[], dir: Dir): LayoutNode {
+  if (nodes.length === 1) return nodes[0];
+  const mid = Math.ceil(nodes.length / 2);
+  return {
+    type: "split",
+    id: splitId(),
+    dir,
+    ratio: mid / nodes.length,
+    a: chain(nodes.slice(0, mid), dir),
+    b: chain(nodes.slice(mid), dir),
+  };
+}
+
+/**
+ * Tile panes in a near-square grid (rows of equal-width panes), e.g. for
+ * opening a whole host group at once. 4 → 2x2, 5 → 3 over 2, 6 → 3x2.
+ */
+export function grid(ids: string[]): LayoutNode {
+  if (ids.length === 0) throw new Error("grid needs at least one pane");
+  const cols = Math.ceil(Math.sqrt(ids.length));
+  const rows: LayoutNode[] = [];
+  for (let i = 0; i < ids.length; i += cols) rows.push(chain(ids.slice(i, i + cols).map(leaf), "row"));
+  return chain(rows, "column");
+}

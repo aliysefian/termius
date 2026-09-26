@@ -6,6 +6,7 @@ import { ui } from "$lib/stores/ui.svelte";
 import {
   errorMessage,
   type ForwardRule,
+  type Health,
   type HostCredentials,
   type ForwardStatus,
   type Host,
@@ -97,6 +98,7 @@ class VaultStore {
     this.snippets = [];
     this.forwards = [];
     this.forwardStatus = {};
+    this.health = {};
   }
 
   /** Called for every record the Rust watcher sees change on disk. */
@@ -218,6 +220,28 @@ class VaultStore {
   }
   async stopForward(id: Uuid) {
     await api.forwards.stop(id);
+  }
+
+  /** Latest reachability result per host, and when it was taken. */
+  health = $state<Record<Uuid, Health & { at: number }>>({});
+  checking = $state(false);
+
+  async checkHealth(hostIds: Uuid[] | null = null) {
+    this.checking = true;
+    try {
+      const results = await api.health.check(hostIds);
+      const at = Date.now();
+      for (const r of results) {
+        const { host_id, ...h } = r;
+        this.health[host_id] = { ...(h as Health), at };
+      }
+      const down = results.filter((r) => r.state === "down").length;
+      ui.notify(down ? "error" : "info", `${results.length - down} of ${results.length} hosts reachable${down ? `, ${down} down` : ""}.`);
+    } catch (e) {
+      ui.notify("error", errorMessage(e));
+    } finally {
+      this.checking = false;
+    }
   }
 }
 

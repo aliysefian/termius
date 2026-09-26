@@ -34,15 +34,6 @@ jobs:
             bundles: |
               src-tauri/target/release/bundle/msi/*.msi
               src-tauri/target/release/bundle/nsis/*.exe
-          # One universal app for Apple Silicon and Intel Macs. Signed and
-          # notarized when the APPLE_* secrets exist, unsigned otherwise.
-          - name: macOS
-            os: macos-latest
-            skip_sshd_tests: "1"
-            rust_targets: aarch64-apple-darwin,x86_64-apple-darwin
-            build_args: --target universal-apple-darwin
-            bundles: |
-              src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
 
@@ -70,7 +61,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
-          targets: ${{ matrix.rust_targets }}
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -93,35 +83,10 @@ jobs:
       # on Windows they skip themselves and the rest still run.
       - name: Test Rust
         working-directory: src-tauri
-        env:
-          SSHVAULT_SKIP_SSHD_TESTS: ${{ matrix.skip_sshd_tests }}
         run: cargo test
 
       # Code signing switches on by itself once the secrets are added (see
       # "Code signing" in README.md). Without them, builds are unsigned.
-      - name: Prepare macOS signing
-        if: runner.os == 'macOS'
-        env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: |
-          # Tauri treats a set-but-empty APPLE_CERTIFICATE as a certificate to
-          # import, so only export variables that actually have values.
-          if [ -z "$APPLE_CERTIFICATE" ]; then
-            echo "No APPLE_CERTIFICATE secret: building an unsigned app."
-            exit 0
-          fi
-          for v in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
-            if [ -n "${!v}" ]; then echo "$v=${!v}" >> "$GITHUB_ENV"; fi
-          done
-          if [ -z "$APPLE_ID" ]; then
-            echo "::warning::Signing without APPLE_ID/APPLE_PASSWORD/APPLE_TEAM_ID: the app won't be notarized."
-          fi
-
       - name: Prepare Windows signing
         if: runner.os == 'Windows'
         shell: pwsh
@@ -149,7 +114,7 @@ jobs:
 
       - name: Build app bundles
         shell: bash
-        run: pnpm tauri build ${{ matrix.build_args }} ${SIGN_CONFIG:+--config "$SIGN_CONFIG"}
+        run: pnpm tauri build ${SIGN_CONFIG:+--config "$SIGN_CONFIG"}
 
       - name: Upload bundles
         uses: actions/upload-artifact@v7

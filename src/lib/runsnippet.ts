@@ -1,5 +1,5 @@
 // Send snippets to open terminals, filling in {{variables}} per pane.
-import { ssh } from "$lib/ssh";
+import { writeToPane } from "$lib/terminalio";
 import { promptedVariables, render, type HostContext } from "$lib/snippetvars";
 import { adhocLabel, ui, type PaneTarget, type SnippetRunOpts } from "$lib/stores/ui.svelte";
 import { vaultStore } from "$lib/stores/vault.svelte";
@@ -19,6 +19,7 @@ export function hostContextFor(hostId: Uuid): HostContext {
 
 function contextFor(target: PaneTarget): HostContext {
   if (target.kind === "host") return hostContextFor(target.hostId);
+  if (target.kind === "local") return { host: "local", hostname: "localhost", port: 0, user: "" };
   const a = target.adhoc;
   return { host: adhocLabel(a), hostname: a.hostname, port: a.port, user: a.username };
 }
@@ -46,7 +47,7 @@ export async function runSnippet(command: string, opts: SnippetRunOpts, values?:
       let text = render(command, contextFor(p.target), values ?? {}).replace(/\r?\n/g, "\r");
       if (opts.execute && !text.endsWith("\r")) text += "\r";
       if (!opts.execute) text = text.replace(/\r$/, "");
-      return ssh.write(p.id, text);
+      return writeToPane(p, text);
     }),
   );
   const failed = results.filter((r) => r.status === "rejected") as PromiseRejectedResult[];

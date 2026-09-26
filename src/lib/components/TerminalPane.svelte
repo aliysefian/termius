@@ -11,13 +11,25 @@
   import type { UnlistenFn } from "@tauri-apps/api/event";
   import * as api from "$lib/api";
   import { ssh, type Credentials, type SessionStatus } from "$lib/ssh";
+  import { closePane, resizePane, writeToPane } from "$lib/terminalio";
+  import { hostContextFor } from "$lib/runsnippet";
+  import { render } from "$lib/snippetvars";
   import { settings } from "$lib/stores/settings.svelte";
   import { adhocLabel, ui, type Pane } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
   import { themeById } from "$lib/themes";
   import { errorMessage } from "$lib/types";
 
-  let { pane, active = true }: { pane: Pane; active?: boolean } = $props();
+  let {
+    pane,
+    active = true,
+    broadcast = null,
+  }: {
+    pane: Pane;
+    active?: boolean;
+    /** When set, input goes here (to every pane in the tab) instead of just this pane. */
+    broadcast?: ((data: string | Uint8Array) => void) | null;
+  } = $props();
 
   // Target and id never change for a mounted pane (panes are keyed by id).
   // svelte-ignore state_referenced_locally
@@ -25,7 +37,9 @@
   // svelte-ignore state_referenced_locally
   const paneId = pane.id;
   const host = $derived(target.kind === "host" ? vaultStore.hostById.get(target.hostId)?.data : undefined);
-  const label = $derived(target.kind === "host" ? (host?.label ?? "host") : adhocLabel(target.adhoc));
+  const label = $derived(
+    target.kind === "host" ? (host?.label ?? "host") : target.kind === "adhoc" ? adhocLabel(target.adhoc) : "Local",
+  );
   const needsCredentials = $derived(target.kind === "host" && !!host && !host.identity_id);
 
   let container: HTMLDivElement;
@@ -72,8 +86,10 @@
     try {
       if (target.kind === "host") {
         await ssh.connect(paneId, target.hostId, term.cols, term.rows, credentials, onData);
-      } else {
+      } else if (target.kind === "adhoc") {
         await ssh.connectAdhoc(paneId, target.adhoc, term.cols, term.rows, onData);
+      } else {
+        await api.localTerm.spawn(paneId, term.cols, term.rows, onData);
       }
     } catch (e) {
       status = { kind: "error", message: errorMessage(e) };
@@ -220,13 +236,18 @@
     });
 
     term.onData((d) => {
-      if (status.kind === "connected") void ssh.write(paneId, d);
+      if (status.kind !== "connected") return;
+      if (broadcast) broadcast(d);
+      else void writeToPane(pane, d);
     });
     term.onBinary((d) => {
-      if (status.kind === "connected") void ssh.write(paneId, Uint8Array.from(d, (c) => c.charCodeAt(0)));
+      if (status.kind !== "connected") return;
+      const bytes = Uint8Array.from(d, (c) => c.charCodeAt(0));
+      if (broadcast) broadcast(bytes);
+      else void writeToPane(pane, bytes);
     });
     term.onResize(({ cols, rows }) => {
-      if (status.kind === "connected") void ssh.resize(paneId, cols, rows);
+      if (status.kind === "connected") void resizePane(pane, cols, rows);
     });
     term.onSelectionChange(() => {
       if (settings.prefs.copyOnSelect && term.hasSelection()) void copySelection();
@@ -250,7 +271,12 @@
       if (e.status.kind === "connected") {
         safeFit();
         term.focus();
-        if (target.kind === "host") settings.markRecent(target.hostId);
+        if (target.kind === "host") {
+          settings.markRecent(target.hostId);
+          const startup = host?.startup_command?.trim();
+          // Give the remote shell a moment to print its prompt first.
+          if (startup) setTimeout(() => void writeToPane(pane, render(startup, hostContextFor(target.hostId), {}) + "\r"), 300);
+        }
       } else if (e.status.kind === "disconnected") {
         term.write(`\r\n\x1b[90m[session closed${e.status.code != null ? `, exit ${e.status.code}` : ""}]\x1b[0m\r\n`);
         if (wasConnected && !active) ui.notify("info", `Session to ${label} closed.`);
@@ -264,7 +290,7 @@
   onDestroy(() => {
     unlisten?.();
     resizeObserver?.disconnect();
-    void ssh.disconnect(paneId);
+    void closePane(pane);
     term?.dispose();
   });
 

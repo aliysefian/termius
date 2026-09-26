@@ -6,7 +6,7 @@
   import { revealIdentity } from "$lib/secrets.svelte";
   import { ui } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
-  import { emptyHost, errorMessage, type Host, type HostCredentials, type InlineAuth, type Uuid } from "$lib/types";
+  import { ENVIRONMENTS, emptyHost, errorMessage, type Host, type HostCredentials, type InlineAuth, type Uuid } from "$lib/types";
 
   let { id, group }: { id: Uuid | null; group?: string } = $props();
 
@@ -157,6 +157,8 @@
     try {
       form.tags = tags.split(",").map((t) => t.trim()).filter(Boolean);
       form.jump_host_id = form.jump_host_id || undefined;
+      form.environment = form.environment || undefined;
+      form.startup_command = form.startup_command?.trim() || undefined;
       const out = await vaultStore.saveHostWithCredentials(id, $state.snapshot(form), credentials());
       password = keyText = passphrase = "";
       if (out.public_key) generatedKey = out.public_key;
@@ -386,6 +388,27 @@
             </span>
           </span>
         </label>
+        <div>
+          <label class="label" for="h-env">Environment</label>
+          <select id="h-env" class="input" bind:value={form.environment}>
+            {#each ENVIRONMENTS as e (e.value)}
+              <option value={e.value}>{e.label}</option>
+            {/each}
+          </select>
+          {#if form.environment === "production"}
+            <p class="mt-1 text-xs text-danger">Marked in red, and bulk actions ask before touching it.</p>
+          {/if}
+        </div>
+        <div>
+          <label class="label" for="h-startup">Run after connecting</label>
+          <input
+            id="h-startup"
+            class="input font-mono text-xs"
+            bind:value={form.startup_command}
+            placeholder="sudo -i, cd /srv/app, tmux attach"
+            spellcheck="false"
+          />
+        </div>
         <label class="col-span-2 flex items-start gap-2 text-sm">
           <input type="checkbox" class="mt-0.5 accent-[#7b61ff]" bind:checked={form.forward_x11} />
           <span>

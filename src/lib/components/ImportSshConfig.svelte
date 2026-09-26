@@ -32,9 +32,32 @@
   }
   onMount(() => load(null));
 
+  let source = $state<"ssh" | "ansible">("ssh");
+
   async function chooseFile() {
     const f = await open({ multiple: false, directory: false, title: "Choose an OpenSSH config file" });
-    if (typeof f === "string") await load(f);
+    if (typeof f === "string") {
+      source = "ssh";
+      await load(f);
+    }
+  }
+
+  async function chooseInventory() {
+    const f = await open({ multiple: false, directory: false, title: "Choose an Ansible inventory (INI)" });
+    if (typeof f !== "string") return;
+    source = "ansible";
+    loading = true;
+    error = null;
+    try {
+      preview = await api.ansible.preview(f);
+      const existing = new Set(preview.existing);
+      picked = new Set(preview.hosts.filter((h) => !existing.has(h.alias)).map((h) => h.alias));
+    } catch (e) {
+      error = errorMessage(e);
+      preview = null;
+    } finally {
+      loading = false;
+    }
   }
 
   function toggle(alias: string) {
@@ -60,7 +83,7 @@
   }
 </script>
 
-<Modal title="Import from SSH config" onclose={() => (ui.modal = null)} width="max-w-2xl">
+<Modal title={source === "ansible" ? "Import from Ansible inventory" : "Import from SSH config"} onclose={() => (ui.modal = null)} width="max-w-3xl">
   {#if summary}
     <div class="space-y-3 text-sm">
       <p>
@@ -80,7 +103,8 @@
     <div class="space-y-4">
       <div class="flex items-center gap-2">
         <div class="input flex-1 truncate font-mono text-xs">{preview?.path ?? "~/.ssh/config"}</div>
-        <button class="btn-ghost border border-line" onclick={chooseFile}><FileInput size={14} /> Other file…</button>
+        <button class="btn-ghost border border-line" onclick={chooseFile}><FileInput size={14} /> SSH config…</button>
+        <button class="btn-ghost border border-line" onclick={chooseInventory}><FileInput size={14} /> Ansible inventory…</button>
       </div>
 
       {#if error}
@@ -113,6 +137,7 @@
                   <th class="px-2 py-1.5 font-medium">Address</th>
                   <th class="px-2 py-1.5 font-medium">User</th>
                   <th class="px-2 py-1.5 font-medium">Key / jump</th>
+                  {#if source === "ansible"}<th class="px-2 py-1.5 font-medium">Group</th>{/if}
                 </tr>
               </thead>
               <tbody>
@@ -128,6 +153,7 @@
                     <td class="max-w-48 truncate px-2 py-1.5 font-mono text-fg-muted" title={h.identity_file ?? ""}>
                       {h.identity_file ? h.identity_file.split(/[\\/]/).pop() : "agent"}{h.proxy_jump ? ` · via ${h.proxy_jump}` : ""}
                     </td>
+                    {#if source === "ansible"}<td class="px-2 py-1.5 text-fg-muted">{h.group ?? "—"}</td>{/if}
                   </tr>
                 {/each}
               </tbody>

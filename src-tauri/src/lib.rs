@@ -1,12 +1,15 @@
 //! SSHVault: zero-knowledge, folder-synced SSH manager.
 
+pub mod ansible;
 pub mod commands;
 pub mod config;
 pub mod crypto;
 pub mod forward;
+pub mod health;
 pub mod hostcreds;
 pub mod keys;
 pub mod knownhosts;
+pub mod localpty;
 pub mod models;
 pub mod remoteedit;
 pub mod reveal;
@@ -58,6 +61,13 @@ pub fn run() {
             commands::ssh_write,
             commands::ssh_resize,
             commands::ssh_disconnect,
+            commands::local_spawn,
+            commands::local_write,
+            commands::local_resize,
+            commands::local_close,
+            commands::check_hosts,
+            commands::ansible_preview,
+            commands::export_ssh_config,
             commands::ssh_log_start,
             commands::ssh_log_stop,
             commands::run_on_hosts,

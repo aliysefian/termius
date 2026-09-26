@@ -36,6 +36,7 @@ notify = "8"
 # --- SSH engine ---
 russh = { version = "0.63", default-features = false, features = ["flate2", "ring", "rsa"] }
 russh-sftp = "3"
+portable-pty = "0.9"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync", "io-util", "fs"] }
 
 [dev-dependencies]

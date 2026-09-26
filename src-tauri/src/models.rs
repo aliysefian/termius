@@ -58,7 +58,7 @@ impl Identity {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Host {
     pub label: String,
     pub hostname: String,
@@ -85,6 +85,14 @@ pub struct Host {
     /// Show the host's graphical programs on this computer (`ssh -X`).
     #[serde(default)]
     pub forward_x11: bool,
+    /// Deployment environment: "production", "staging", "development", or
+    /// empty. Production hosts get warnings before bulk actions.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub environment: String,
+    /// Typed into the shell right after connecting, e.g. `sudo -i` or
+    /// `cd /srv/app && tmux attach`.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub startup_command: String,
     /// Optional accent color as a CSS hex string, e.g. `"#7B61FF"`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color: Option<String>,

@@ -1,6 +1,6 @@
 # SSHVault
 
-A cross-platform SSH terminal manager and SFTP client for Linux, Windows and macOS,
+A cross-platform SSH terminal manager and SFTP client for Linux and Windows,
 inspired by Termius. Hosts, keys, snippets and port-forwarding rules are
 encrypted on your machine and synced between computers through a folder you
 already sync, such as Dropbox, Nextcloud or Syncthing. There is no server and no
@@ -27,6 +27,12 @@ Built with [Tauri v2](https://tauri.app), Rust, SvelteKit, Tailwind CSS and
   adjustable font, cursor and scrollback.
 - **Command palette** (Ctrl+Shift+P) and keyboard shortcuts for connecting,
   running snippets, splitting, and switching tabs.
+- **Built for fleets**: open a whole group tiled with synchronized typing,
+  label hosts as production, staging or development with guard rails, run a
+  startup command on connect, check which hosts are reachable, and keep
+  local shells in tabs next to your SSH sessions.
+- **Plays well with your tooling**: import Ansible INI inventories, and
+  export every host as an OpenSSH config for `ssh`, `scp`, Ansible and git.
 - **Quick connect**: type `user@host:port` to connect without saving a host.
 - **Import from `~/.ssh/config`**, including `Host *` defaults, keys and
   ProxyJump.
@@ -63,7 +69,7 @@ GitHub Actions, and you can download them from there:
 1. Open the repository's **Actions** tab and select the latest successful
    **Build** run on `main`.
 2. Scroll to **Artifacts** and download `sshvault-Linux-…`,
-   `sshvault-Windows-…` or `sshvault-macOS-…`. Artifacts are kept for 14 days.
+   or `sshvault-Windows-…`. Artifacts are kept for 14 days.
 3. Unzip the download and install the package for your system, as below.
 
 ### Linux
@@ -89,13 +95,6 @@ The packages are built on Ubuntu 22.04, so they need glibc 2.35 or newer.
 Run either the `.msi` installer or the `SSHVault_*_x64-setup.exe` installer.
 The installers are not code-signed yet, so Windows SmartScreen may warn you.
 Choose **More info**, then **Run anyway**.
-
-### macOS
-
-Open the `.dmg` and drag SSHVault to Applications. It's a universal app that
-runs on Apple Silicon and Intel Macs. Until the project adds an Apple signing
-certificate, the first launch is blocked: right-click the app and choose
-**Open**, or allow it under **System Settings → Privacy & Security**.
 
 SSHVault uses the Microsoft Edge WebView2 runtime, which is already installed
 on Windows 10 and 11. The installer fetches it if it is missing.
@@ -180,6 +179,50 @@ been copied since.
   stand-in cookie. SSHVault checks it on every connection and swaps in your
   real X cookie locally, so the real one never leaves your computer.
 
+### Working with many servers
+
+- **Open a whole group.** Hover a group in the host tree. The list icon opens
+  every host in its own tab. The grid icon tiles up to six of them in one tab
+  with **synchronized typing** turned on, so each keystroke goes to every
+  pane, like `tmux synchronize-panes` or cluster SSH.
+- **Synchronized typing** can be switched on for any split tab with the
+  keyboard icon in a pane header, or **Ctrl+Shift+B**. Synced tabs show a
+  yellow **SYNC** badge and a yellow outline.
+- **Environments.** Set a host's environment to Production, Staging or
+  Development in its form. Production hosts get a red **PROD** badge in the
+  tree, the tab and the pane header. SSHVault asks before synchronized typing
+  or "Run on hosts" touches a production host.
+- **Run after connecting.** A host's startup command, such as `sudo -i`,
+  `cd /srv/app` or `tmux attach -t main`, is typed for you once the shell is
+  ready. Snippet variables like `{{user}}` work there too.
+- **Reachability.** The pulse icon at the top of the host list opens a TCP
+  connection to every host's SSH port, 32 at a time, without logging in. Each
+  host shows its latency or "down". Hover it to see the server's version
+  line, such as `SSH-2.0-OpenSSH_9.6p1`, handy for spotting outdated servers.
+  Hosts behind a jump host are marked "jump" rather than probed.
+- **Local terminals.** **Ctrl+Shift+`**, or the terminal icon next to the tabs,
+  opens your own shell in a tab: your login shell on Linux and macOS, the
+  default shell on Windows. Local tabs work with splits, recording, snippets
+  and synchronized typing like SSH tabs.
+
+### Importing from an Ansible inventory
+
+In the import dialog, choose **Ansible inventory…** and pick an INI
+inventory. SSHVault reads groups, `[group:vars]`, `[group:children]`,
+`[all:vars]`, host ranges like `web[01:03]`, and the variables
+`ansible_host`, `ansible_port`, `ansible_user` and
+`ansible_ssh_private_key_file`, including their older `ansible_ssh_*` names.
+A `ProxyJump` or `-J` in `ansible_ssh_common_args` becomes the jump host.
+Hosts land in folders that mirror the group tree, such as `prod/web`.
+
+### Exporting to `~/.ssh/config`
+
+**Settings → Use your hosts from the command line** saves every host as an
+OpenSSH config file, or copies it. Add `Include /path/to/sshvault.config` to
+`~/.ssh/config`, and `ssh web-1` works from any shell with the same names,
+users, ports and jump hosts. Private keys stay in the vault, so the file has
+no `IdentityFile` lines, and `ssh` uses your agent or default keys.
+
 ### Importing from `~/.ssh/config`
 
 Click the import icon at the top of the host list, or run "Import hosts from
@@ -253,6 +296,8 @@ connection too. Outside a terminal, **Ctrl+K** also opens it.
 | Ctrl+Shift+C, Ctrl+Shift+V | Copy, paste |
 | Ctrl+=, Ctrl+-, Ctrl+0 | Zoom in, out, reset |
 | Ctrl+Shift+L | Lock vault |
+| Ctrl+Shift+B | Type into all panes of the tab (toggle) |
+| Ctrl+Shift+` | New local terminal |
 
 Plain Ctrl shortcuts such as Ctrl+W, Ctrl+T and Ctrl+K go to the remote
 shell, where editors and readline use them.
@@ -449,35 +494,25 @@ Builds are unsigned until you add signing secrets to the GitHub repository
 (**Settings → Secrets and variables → Actions**). The workflow picks them up
 by itself. Without them, it keeps building unsigned installers.
 
-**macOS** needs a Developer ID Application certificate from the Apple
-Developer Program:
-
-| Secret | Value |
-|---|---|
-| `APPLE_CERTIFICATE` | The exported `.p12`, base64-encoded |
-| `APPLE_CERTIFICATE_PASSWORD` | The `.p12` export password |
-| `APPLE_SIGNING_IDENTITY` | For example `Developer ID Application: Your Name (TEAMID)` |
-| `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID` | For notarization. The password is an app-specific password. |
-
-**Windows** needs a code-signing certificate as a `.pfx` file:
+Windows signing needs a code-signing certificate as a `.pfx` file:
 
 | Secret | Value |
 |---|---|
 | `WINDOWS_CERTIFICATE` | The `.pfx`, base64-encoded |
 | `WINDOWS_CERTIFICATE_PASSWORD` | Its password |
 
-To base64-encode a file: `base64 -i cert.p12 | pbcopy` on macOS, or
+To base64-encode it, run
 `[Convert]::ToBase64String([IO.File]::ReadAllBytes("cert.pfx"))` in
-PowerShell.
+PowerShell, or `base64 -w0 cert.pfx` on Linux.
 
 ### Continuous integration
 
 `.github/workflows/build.yml` runs on pushes to `main`, pull requests, `v*`
-tags, and manual dispatch. On Ubuntu 22.04, Windows and macOS it
-type-checks and tests the frontend, runs clippy and the Rust tests, builds the
-installers, and uploads them as artifacts. The end-to-end SSH tests run on
-Linux. macOS skips them through `SSHVAULT_SKIP_SSHD_TESTS`, and Windows has no
-`sshd` to run them against.
+tags, and manual dispatch. On Ubuntu 22.04 and Windows it type-checks and
+tests the frontend, runs clippy and the Rust tests, builds the installers, and
+uploads them as artifacts. The end-to-end SSH tests run on Linux. Windows has
+no `sshd`, so they skip themselves there. Set `SSHVAULT_SKIP_SSHD_TESTS=1` to
+skip them anywhere else.
 
 Pushing a tag such as `v0.2.0` also creates a **draft** GitHub Release with
 both platforms' installers attached. Review the draft on GitHub and publish it
@@ -514,6 +549,9 @@ when ready.
 │   │   ├── hostcreds.rs        Credentials entered in the host form
 │   │   ├── reveal.rs           Master-password gate for showing secrets
 │   │   ├── x11.rs              X11 forwarding with cookie substitution
+│   │   ├── localpty.rs         Local shell tabs (PTY / ConPTY)
+│   │   ├── health.rs           Reachability and SSH banner checks
+│   │   ├── ansible.rs          Ansible INI inventory import
 │   │   ├── sshconfig.rs        ~/.ssh/config import
 │   │   ├── keys.rs             Key generation and public keys
 │   │   ├── knownhosts.rs       Pinned server keys
@@ -687,8 +725,9 @@ a real OpenSSH server, but the desktop app has had little real-world use.
 Known limitations:
 
 - Installers are unsigned until signing secrets are added (see
-  [Code signing](#code-signing)), so Windows and macOS warn on first launch.
-- The end-to-end SSH tests are skipped on macOS in CI.
+  [Code signing](#code-signing)), so Windows warns on first launch.
+- macOS is not built or tested. The code is portable, but there is no CI job
+  or installer for it.
 - Mosh is not supported.
 
 See [ROADMAP.md](ROADMAP.md) for planned work.

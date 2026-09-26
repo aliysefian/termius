@@ -9,6 +9,7 @@
 //! used for matching but never imported. `Match` blocks and `Include` are not
 //! evaluated and are reported as warnings.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -30,6 +31,9 @@ pub struct ImportedHost {
     /// `ForwardX11 yes`.
     #[serde(default)]
     pub forward_x11: bool,
+    /// Folder inside the import's target group, e.g. an Ansible group path.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -250,6 +254,7 @@ pub fn parse(text: &str, home: &Path) -> ParseResult {
             proxy_jump,
             forward_agent: get("forwardagent").is_some_and(|v| v.eq_ignore_ascii_case("yes")),
             forward_x11: get("forwardx11").is_some_and(|v| v.eq_ignore_ascii_case("yes")),
+            group: None,
         });
     }
     result
@@ -376,7 +381,13 @@ pub fn import_into_vault(
                 jump_host_id: None,
                 forward_agent: h.forward_agent,
                 forward_x11: h.forward_x11,
-                group: group.to_string(),
+                environment: String::new(),
+                startup_command: String::new(),
+                group: match (h.group.as_deref(), group.trim()) {
+                    (Some(sub), "") => sub.to_string(),
+                    (Some(sub), base) => format!("{base}/{sub}"),
+                    (None, base) => base.to_string(),
+                },
                 tags: Vec::new(),
                 color: None,
                 notes: String::new(),
@@ -412,6 +423,78 @@ pub fn import_into_vault(
         summary.hosts_created += 1;
     }
     Ok(summary)
+}
+
+/// Render saved hosts as an OpenSSH client config, so `ssh <alias>` works
+/// from a shell with the same names. Keys stay in the vault, so no
+/// `IdentityFile` lines are written; ssh-agent or the user's own keys apply.
+pub fn export(
+    hosts: &[(uuid::Uuid, crate::models::Host)],
+    identities: &HashMap<uuid::Uuid, crate::models::Identity>,
+) -> String {
+    use std::fmt::Write as _;
+    // Aliases must be single words and unique.
+    let mut alias_of: HashMap<uuid::Uuid, String> = HashMap::new();
+    let mut used: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for (id, h) in hosts {
+        let base: String = h
+            .label
+            .trim()
+            .chars()
+            .map(|c| {
+                if c.is_whitespace() || c == '*' || c == '?' || c == '!' {
+                    '-'
+                } else {
+                    c
+                }
+            })
+            .collect();
+        let base = if base.is_empty() {
+            h.hostname.clone()
+        } else {
+            base
+        };
+        let mut alias = base.clone();
+        let mut n = 2;
+        while !used.insert(alias.to_lowercase()) {
+            alias = format!("{base}-{n}");
+            n += 1;
+        }
+        alias_of.insert(*id, alias);
+    }
+
+    let mut out = String::from(
+        "# Exported from SSHVault. Private keys stay in the encrypted vault, so\n\
+         # there are no IdentityFile lines: ssh uses your agent or default keys.\n",
+    );
+    for (id, h) in hosts {
+        let _ = writeln!(out);
+        if !h.group.is_empty() {
+            let _ = writeln!(out, "# {}", h.group);
+        }
+        let _ = writeln!(out, "Host {}", alias_of[id]);
+        let _ = writeln!(out, "    HostName {}", h.hostname);
+        if h.port != 22 {
+            let _ = writeln!(out, "    Port {}", h.port);
+        }
+        if let Some(user) = h
+            .identity_id
+            .and_then(|i| identities.get(&i))
+            .map(|i| &i.username)
+        {
+            let _ = writeln!(out, "    User {user}");
+        }
+        if let Some(j) = h.jump_host_id.and_then(|j| alias_of.get(&j)) {
+            let _ = writeln!(out, "    ProxyJump {j}");
+        }
+        if h.forward_agent {
+            let _ = writeln!(out, "    ForwardAgent yes");
+        }
+        if h.forward_x11 {
+            let _ = writeln!(out, "    ForwardX11 yes");
+        }
+    }
+    out
 }
 
 /// Default config location for the current user.
@@ -568,6 +651,8 @@ Host *
                     jump_host_id: None,
                     forward_agent: false,
                     forward_x11: false,
+                    environment: String::new(),
+                    startup_command: String::new(),
                     group: String::new(),
                     tags: vec![],
                     color: None,
@@ -652,6 +737,64 @@ Host *
                 .count(),
             1
         );
+    }
+
+    #[test]
+    fn export_round_trips_through_the_parser() {
+        use crate::models::{AuthMethod, Host, Identity};
+        let ident = uuid::Uuid::new_v4();
+        let (a, b, c) = (
+            uuid::Uuid::new_v4(),
+            uuid::Uuid::new_v4(),
+            uuid::Uuid::new_v4(),
+        );
+        let host = |label: &str, hostname: &str, port: u16| Host {
+            label: label.into(),
+            hostname: hostname.into(),
+            port,
+            identity_id: Some(ident),
+            jump_host_id: None,
+            forward_agent: false,
+            forward_x11: false,
+            environment: String::new(),
+            startup_command: String::new(),
+            group: "Prod".into(),
+            tags: vec![],
+            color: None,
+            notes: String::new(),
+        };
+        let mut web = host("web server", "10.0.0.5", 2222);
+        web.jump_host_id = Some(a);
+        web.forward_agent = true;
+        let hosts = vec![
+            (a, host("bastion", "bastion.example.com", 22)),
+            (b, web),
+            (c, host("bastion", "other.example.com", 22)), // duplicate label
+        ];
+        let ids = HashMap::from([(
+            ident,
+            Identity {
+                label: "ops".into(),
+                username: "ops".into(),
+                auth: AuthMethod::Agent,
+                notes: String::new(),
+                for_host: None,
+            },
+        )]);
+        let text = export(&hosts, &ids);
+        // Keys never leave the vault: no IdentityFile settings (the header
+        // comment mentions the word, so check lines that set it).
+        assert!(!text
+            .lines()
+            .any(|l| l.trim_start().starts_with("IdentityFile")));
+        let r = parse(&text, Path::new("/h"));
+        assert_eq!(r.hosts.len(), 3);
+        let w = get(&r, "web-server");
+        assert_eq!((w.hostname.as_str(), w.port), ("10.0.0.5", 2222));
+        assert_eq!(w.user.as_deref(), Some("ops"));
+        assert_eq!(w.proxy_jump.as_deref(), Some("bastion"));
+        assert!(w.forward_agent);
+        assert_eq!(get(&r, "bastion-2").hostname, "other.example.com");
     }
 
     #[test]

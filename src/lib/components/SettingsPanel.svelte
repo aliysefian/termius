@@ -1,6 +1,8 @@
 <script lang="ts">
   import { FolderSearch, Lock, Palette, RefreshCw, RotateCcw } from "lucide-svelte";
   import KnownHostsSection from "./KnownHostsSection.svelte";
+  import { save } from "@tauri-apps/plugin-dialog";
+  import { writeText } from "@tauri-apps/plugin-clipboard-manager";
   import StrengthMeter from "./StrengthMeter.svelte";
   import { settings } from "$lib/stores/settings.svelte";
   import { themes } from "$lib/themes";
@@ -15,6 +17,26 @@
   let confirmNext = $state("");
   let msg = $state<{ ok: boolean; text: string } | null>(null);
   let busy = $state(false);
+
+  async function exportToFile() {
+    const path = await save({ title: "Export hosts as SSH config", defaultPath: "sshvault.config" });
+    if (!path) return;
+    try {
+      await api.exportSshConfig(path);
+      msg = { ok: true, text: `Exported to ${path}. Add "Include ${path}" to ~/.ssh/config.` };
+    } catch (e) {
+      msg = { ok: false, text: errorMessage(e) };
+    }
+  }
+
+  async function exportToClipboard() {
+    try {
+      await writeText(await api.exportSshConfig(null));
+      msg = { ok: true, text: "SSH config copied to the clipboard." };
+    } catch (e) {
+      msg = { ok: false, text: errorMessage(e) };
+    }
+  }
 
   async function changeFolder() {
     const dir = await pickFolder("Choose a different vault folder");
@@ -163,6 +185,19 @@
         <input class="input" type="password" placeholder="Confirm new password" bind:value={confirmNext} required autocomplete="new-password" />
         <button class="btn-primary" type="submit" disabled={busy}>{busy ? "Re-encrypting…" : "Change password"}</button>
       </form>
+    </section>
+
+    <section class="rounded-xl border border-line bg-panel p-5">
+      <h2 class="mb-1 text-sm font-semibold">Use your hosts from the command line</h2>
+      <p class="mb-3 text-xs text-fg-muted">
+        Export every host as an OpenSSH config, then add <code>Include /path/to/file</code> to <code>~/.ssh/config</code>
+        so <code>ssh</code>, <code>scp</code>, Ansible and git use the same names. Keys stay in the vault; the file only has
+        names, addresses, users, ports and jump hosts.
+      </p>
+      <div class="flex gap-2">
+        <button class="btn-ghost border border-line" onclick={exportToFile}>Save to file…</button>
+        <button class="btn-ghost border border-line" onclick={exportToClipboard}>Copy to clipboard</button>
+      </div>
     </section>
 
     <KnownHostsSection />

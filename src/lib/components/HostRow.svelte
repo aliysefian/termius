@@ -1,6 +1,6 @@
 <script lang="ts">
   import { Copy, Pencil, Trash2 } from "lucide-svelte";
-  import { errorMessage } from "$lib/types";
+  import { envInfo, errorMessage } from "$lib/types";
   import { hostDragStart } from "$lib/hostdrag.svelte";
   import { ui } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
@@ -10,6 +10,8 @@
   const d = $derived(host.data!);
   const identity = $derived(d.identity_id ? vaultStore.identityById.get(d.identity_id)?.data : undefined);
   const jump = $derived(d.jump_host_id ? vaultStore.hostById.get(d.jump_host_id)?.data : undefined);
+  const env = $derived(envInfo(d.environment));
+  const health = $derived(vaultStore.health[host.id]);
   const indent = $derived(`${depth * 12 + 8}px`);
 
   function connect() {
@@ -48,7 +50,24 @@
 >
   <span class="ml-4 h-2 w-2 shrink-0 rounded-full" style:background={d.color ?? "#7B61FF"}></span>
   <div class="min-w-0 flex-1">
-    <div class="truncate text-sm">{d.label}</div>
+    <div class="flex items-center gap-1.5">
+      <span class="truncate text-sm">{d.label}</span>
+      {#if env.value}
+        <span class="shrink-0 rounded px-1 text-[9px] font-bold {'cls' in env ? env.cls : ''}">{"short" in env ? env.short : ""}</span>
+      {/if}
+      {#if health}
+        <span
+          class="ml-auto shrink-0 font-mono text-[10px] {health.state === 'up' ? 'text-success' : health.state === 'down' ? 'text-danger' : 'text-fg-muted'}"
+          title={health.state === "up"
+            ? `Reachable in ${health.latency_ms} ms${health.banner ? `\n${health.banner}` : ""}`
+            : health.state === "down"
+              ? `Unreachable: ${health.reason}`
+              : "Behind a jump host, not probed"}
+        >
+          {health.state === "up" ? `${health.latency_ms}ms` : health.state === "down" ? "down" : "jump"}
+        </span>
+      {/if}
+    </div>
     <div class="truncate text-xs text-fg-muted">
       {identity ? `${identity.username}@` : ""}{d.hostname}{d.port !== 22 ? `:${d.port}` : ""}{jump ? ` via ${jump.label}` : ""}
     </div>

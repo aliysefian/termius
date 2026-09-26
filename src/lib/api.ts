@@ -3,6 +3,7 @@ import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import type {
+  HealthResult,
   Revealed,
   EditEvent,
   RunEvent,
@@ -116,6 +117,28 @@ export const remoteEdit = {
   onEvent: (handler: (e: EditEvent) => void): Promise<UnlistenFn> =>
     listen<EditEvent>("sftp:edit", (e) => handler(e.payload)),
 };
+
+export const localTerm = {
+  spawn(paneId: string, cols: number, rows: number, onData: (bytes: Uint8Array) => void) {
+    const channel = new Channel<ArrayBuffer | number[]>((msg) =>
+      onData(msg instanceof ArrayBuffer ? new Uint8Array(msg) : Uint8Array.from(msg)),
+    );
+    return invoke<void>("local_spawn", { paneId, cols, rows, onData: channel });
+  },
+  write: (paneId: string, data: Uint8Array) => invoke<void>("local_write", { paneId, data: Array.from(data) }),
+  resize: (paneId: string, cols: number, rows: number) => invoke<void>("local_resize", { paneId, cols, rows }),
+  close: (paneId: string) => invoke<void>("local_close", { paneId }),
+};
+
+export const health = {
+  check: (hostIds: Uuid[] | null) => invoke<HealthResult[]>("check_hosts", { hostIds }),
+};
+
+export const ansible = {
+  preview: (path: string) => invoke<SshConfigPreview>("ansible_preview", { path }),
+};
+
+export const exportSshConfig = (path: string | null) => invoke<string>("export_ssh_config", { path });
 
 /** Native folder picker. Resolves to null when the user cancels. */
 export async function pickFolder(title: string): Promise<string | null> {
