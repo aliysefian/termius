@@ -477,4 +477,4 @@ Known limitations:
 
 ## License
 
-MIT, as declared in `package.json`.
+Released under the [MIT License](LICENSE).
