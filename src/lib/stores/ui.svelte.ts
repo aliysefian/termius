@@ -1,9 +1,24 @@
 // Ephemeral UI state: which sidebar view is active, open tabs, modals.
 import { MAX_PANES, grid, leaf, paneIds, remove, setRatio, split, type LayoutNode } from "$lib/layout";
+import { settings } from "$lib/stores/settings.svelte";
 import type { AdhocTarget, SessionStatus } from "$lib/ssh";
 import type { Uuid } from "$lib/types";
 
-export type View = "hosts" | "keychain" | "sftp" | "forwarding" | "snippets" | "settings";
+export type View =
+  | "hosts"
+  | "favorites"
+  | "groups"
+  | "keys"
+  | "keychain"
+  | "forwarding"
+  | "snippets"
+  | "knownhosts"
+  | "sftp"
+  | "vault"
+  | "settings";
+
+/** Views that fill the window instead of sitting beside the terminals. */
+export const PAGE_VIEWS: View[] = ["groups", "keys", "knownhosts", "vault", "settings"];
 
 /** What a pane connects to: a saved host, or an unsaved quick connection. */
 export type PaneTarget =
@@ -37,6 +52,10 @@ export interface PaneInfo {
   remoteTitle?: string;
   /** Path of the session log being written, if recording. */
   recording?: string;
+  /** The remote program (tmux, vim, htop…) asked for mouse events. */
+  mouseTracked?: boolean;
+  /** Mouse selects text even while the program wants the mouse. */
+  selectMode?: boolean;
 }
 
 export type Modal =
@@ -48,7 +67,15 @@ export type Modal =
   | { kind: "import-ssh-config" }
   | { kind: "snippet-vars"; command: string; names: string[]; opts: SnippetRunOpts }
   | { kind: "run-on-hosts"; command?: string }
+  | { kind: "save-workspace" }
   | null;
+
+/** A tab as saved in a workspace: what each pane connects to, never secrets. */
+export interface WorkspaceTab {
+  title: string;
+  targets: PaneTarget[];
+  syncInput?: boolean;
+}
 
 export interface SnippetRunOpts {
   execute: boolean;
@@ -69,7 +96,7 @@ class UiStore {
   modal = $state<Modal>(null);
   paletteOpen = $state(false);
   search = $state("");
-  collapsedGroups = $state<Set<string>>(new Set());
+  collapsedGroups = $derived(new Set(settings.collapsedGroups));
   paneInfo = $state<Record<string, PaneInfo>>({});
   /** Bumped to ask the active pane to open its find bar. */
   findRequest = $state(0);
@@ -107,7 +134,7 @@ class UiStore {
     this.tabs.push(tab);
     this.activeTabId = tab.id;
     // Terminals live in the Hosts/Keychain/... layouts, not SFTP or Settings.
-    if (this.view === "sftp" || this.view === "settings") this.view = "hosts";
+    if (this.view === "sftp" || PAGE_VIEWS.includes(this.view)) this.view = "hosts";
   }
 
   openTerminal(hostId: Uuid, title: string) {
@@ -139,7 +166,43 @@ class UiStore {
     };
     this.tabs.push(tab);
     this.activeTabId = tab.id;
-    if (this.view === "sftp" || this.view === "settings") this.view = "hosts";
+    if (this.view === "sftp" || PAGE_VIEWS.includes(this.view)) this.view = "hosts";
+  }
+
+  /** The open tabs as a workspace. Quick-connect passwords are never saved. */
+  snapshotWorkspace(): WorkspaceTab[] {
+    return this.tabs.map((t) => ({
+      title: t.customTitle ?? t.title,
+      syncInput: t.syncInput || undefined,
+      targets: t.panes.map((p) => {
+        const target = $state.snapshot(p.target) as PaneTarget;
+        if (target.kind === "adhoc") {
+          const { password: _omit, ...rest } = target.adhoc;
+          return { kind: "adhoc", adhoc: rest } as PaneTarget;
+        }
+        return target;
+      }),
+    }));
+  }
+
+  /** Reopen a saved workspace's tabs next to the ones already open. */
+  openWorkspace(tabs: WorkspaceTab[]) {
+    for (const wt of tabs) {
+      const targets = wt.targets.slice(0, MAX_PANES);
+      if (!targets.length) continue;
+      const panes: Pane[] = targets.map((target) => ({ id: nextId("pane"), target }));
+      const tab: Tab = {
+        id: nextId("tab"),
+        title: wt.title,
+        panes,
+        layout: panes.length === 1 ? leaf(panes[0].id) : grid(panes.map((p) => p.id)),
+        activePaneId: panes[0].id,
+        syncInput: wt.syncInput,
+      };
+      this.tabs.push(tab);
+      this.activeTabId = tab.id;
+    }
+    if (this.view === "sftp" || PAGE_VIEWS.includes(this.view)) this.view = "hosts";
   }
 
   openAdhoc(adhoc: AdhocTarget) {
@@ -236,10 +299,22 @@ class UiStore {
   }
 
   toggleGroup(path: string) {
-    const next = new Set(this.collapsedGroups);
+    const next = new Set(settings.collapsedGroups);
     if (next.has(path)) next.delete(path);
     else next.add(path);
-    this.collapsedGroups = next;
+    settings.collapsedGroups = [...next];
+  }
+
+  collapseGroups(paths: string[]) {
+    settings.collapsedGroups = [...new Set([...settings.collapsedGroups, ...paths])];
+  }
+
+  expandAllGroups() {
+    settings.collapsedGroups = [];
+  }
+
+  toggleSidebar() {
+    settings.prefs.sidebarHidden = !settings.prefs.sidebarHidden;
   }
 }
 

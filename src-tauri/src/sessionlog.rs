@@ -76,7 +76,15 @@ pub struct SessionLog {
 impl SessionLog {
     /// Open (append to) `path`. `plain` strips escape sequences.
     pub fn open(path: &Path, plain: bool, header: &str) -> io::Result<Self> {
-        let file = OpenOptions::new().create(true).append(true).open(path)?;
+        let mut opts = OpenOptions::new();
+        opts.create(true).append(true);
+        // Logs can contain anything shown on screen: owner-only when created.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            opts.mode(0o600);
+        }
+        let file = opts.open(path)?;
         let mut log = Self {
             file: BufWriter::new(file),
             stripper: plain.then(AnsiStripper::new),

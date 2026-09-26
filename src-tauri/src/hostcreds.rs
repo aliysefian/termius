@@ -19,7 +19,7 @@ use uuid::Uuid;
 
 use crate::keys;
 use crate::models::{AuthMethod, Host, Identity};
-use crate::vault::{Collection, Record, Vault, VaultError};
+use crate::vault::{Base, Collection, Record, Vault, VaultError};
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "mode", rename_all = "snake_case")]
@@ -58,6 +58,10 @@ pub enum InlineAuth {
     },
     /// Generate a new Ed25519 key; its public half is returned.
     GenerateKey,
+    /// A key from the Key Manager.
+    Key {
+        key_id: Uuid,
+    },
     Agent,
 }
 
@@ -91,6 +95,7 @@ fn validated_key(pem: String, passphrase: Option<String>) -> Result<AuthMethod, 
     Ok(AuthMethod::PrivateKey {
         private_key: pem,
         passphrase: passphrase.filter(|p| !p.is_empty()),
+        certificate: None,
     })
 }
 
@@ -122,6 +127,7 @@ fn resolve_auth(
                 Some(AuthMethod::PrivateKey {
                     private_key: old_key,
                     passphrase: old_pass,
+                    ..
                 }),
             ) => {
                 // Keep the key; a newly typed passphrase replaces the old one.
@@ -149,10 +155,12 @@ fn resolve_auth(
                 AuthMethod::PrivateKey {
                     private_key: k.private_key,
                     passphrase: None,
+                    certificate: None,
                 },
                 Some(k.public_key),
             )
         }
+        InlineAuth::Key { key_id } => (AuthMethod::Key { key_id }, None),
         InlineAuth::Agent => (AuthMethod::Agent, None),
     })
 }
@@ -167,26 +175,40 @@ fn release_owned(vault: &Vault, identity_id: Uuid, host_id: Uuid) -> Result<(), 
         .any(|r| {
             r.id != host_id && r.data.as_ref().and_then(|d| d.identity_id) == Some(identity_id)
         });
+    let rec = match vault.get::<Identity>(Collection::Identities, identity_id) {
+        Ok(r) => r,
+        Err(VaultError::NotFound { .. }) | Err(VaultError::Deleted { .. }) => return Ok(()),
+        Err(e) => return Err(e),
+    };
     if still_used {
-        let mut rec = vault.get::<Identity>(Collection::Identities, identity_id)?;
-        if let Some(mut data) = rec.data.take() {
+        if let Some(mut data) = rec.data {
             data.for_host = None;
-            vault.put(Collection::Identities, identity_id, &data)?;
+            vault.put(
+                Collection::Identities,
+                identity_id,
+                &data,
+                Base::Rev(rec.rev),
+            )?;
         }
         Ok(())
     } else {
-        vault.delete(Collection::Identities, identity_id)
+        vault.delete(Collection::Identities, identity_id, Base::Rev(rec.rev))
     }
 }
 
 /// Save `host` under `id` (new if `None`) with the chosen credentials.
+/// `base` is the host revision the form was opened from; if another device
+/// changed the host since, the save is merged or refused before any
+/// credential is touched.
 pub fn save_host_with_credentials(
     vault: &Vault,
     id: Option<Uuid>,
+    base: Base,
     mut host: Host,
     creds: HostCredentials,
 ) -> Result<SaveOutcome, HostCredError> {
     let host_id = id.unwrap_or_else(Uuid::new_v4);
+    let base = if id.is_none() { Base::New } else { base };
 
     // What the host has now, and whether that identity belongs to it.
     let previous_identity = match id {
@@ -197,22 +219,25 @@ pub fn save_host_with_credentials(
         },
         None => None,
     };
-    let owned: Option<(Uuid, Identity)> = previous_identity.and_then(|iid| {
+    let owned: Option<(Uuid, u64, Identity)> = previous_identity.and_then(|iid| {
         vault
             .get::<Identity>(Collection::Identities, iid)
             .ok()
-            .and_then(|r| r.data)
-            .filter(|d| d.for_host == Some(host_id))
-            .map(|d| (iid, d))
+            .and_then(|r| r.data.map(|d| (r.rev, d)))
+            .filter(|(_, d)| d.for_host == Some(host_id))
+            .map(|(rev, d)| (iid, rev, d))
     });
 
     let mut public_key = None;
     let mut release: Option<Uuid> = None;
+    // The identity write is decided now but done after the host save, so a
+    // host conflict leaves the credentials untouched.
+    let mut identity_write: Option<(Uuid, Base, Identity)> = None;
 
     host.identity_id = match creds {
         HostCredentials::Keep => previous_identity,
         HostCredentials::Ask => {
-            release = owned.map(|(iid, _)| iid);
+            release = owned.as_ref().map(|(iid, _, _)| *iid);
             None
         }
         HostCredentials::Identity { identity_id } => {
@@ -221,7 +246,7 @@ pub fn save_host_with_credentials(
                 .map_err(|_| invalid("That identity no longer exists"))?;
             release = owned
                 .as_ref()
-                .map(|(iid, _)| *iid)
+                .map(|(iid, _, _)| *iid)
                 .filter(|iid| *iid != identity_id);
             Some(identity_id)
         }
@@ -235,7 +260,7 @@ pub fn save_host_with_credentials(
                 return Err(invalid("Enter a username"));
             }
             let comment = format!("{username}@{}", host.label.trim());
-            let (auth, pk) = resolve_auth(auth, owned.as_ref().map(|(_, d)| &d.auth), &comment)?;
+            let (auth, pk) = resolve_auth(auth, owned.as_ref().map(|(_, _, d)| &d.auth), &comment)?;
             public_key = pk;
 
             match save_to_keychain
@@ -244,42 +269,47 @@ pub fn save_host_with_credentials(
                 .filter(|l| !l.is_empty())
             {
                 Some(label) => {
-                    let rec = vault.insert(
-                        Collection::Identities,
-                        &Identity {
+                    let iid = Uuid::new_v4();
+                    identity_write = Some((
+                        iid,
+                        Base::New,
+                        Identity {
                             label: label.to_string(),
                             username,
                             auth,
                             notes: String::new(),
                             for_host: None,
                         },
-                    )?;
-                    release = owned.map(|(iid, _)| iid);
-                    Some(rec.id)
+                    ));
+                    release = owned.as_ref().map(|(iid, _, _)| *iid);
+                    Some(iid)
                 }
                 None => {
-                    let iid = owned
-                        .as_ref()
-                        .map(|(iid, _)| *iid)
-                        .unwrap_or_else(Uuid::new_v4);
-                    vault.put(
-                        Collection::Identities,
+                    let (iid, ibase, notes) = match &owned {
+                        Some((iid, rev, d)) => (*iid, Base::Rev(*rev), d.notes.clone()),
+                        None => (Uuid::new_v4(), Base::New, String::new()),
+                    };
+                    identity_write = Some((
                         iid,
-                        &Identity {
+                        ibase,
+                        Identity {
                             label: host.label.trim().to_string(),
                             username,
                             auth,
-                            notes: owned.map(|(_, d)| d.notes).unwrap_or_default(),
+                            notes,
                             for_host: Some(host_id),
                         },
-                    )?;
+                    ));
                     Some(iid)
                 }
             }
         }
     };
 
-    let rec = vault.put(Collection::Hosts, host_id, &host)?;
+    let rec = vault.put(Collection::Hosts, host_id, &host, base)?;
+    if let Some((iid, ibase, identity)) = identity_write {
+        vault.put(Collection::Identities, iid, &identity, ibase)?;
+    }
     if let Some(iid) = release {
         release_owned(vault, iid, host_id)?;
     }
@@ -309,12 +339,17 @@ pub fn release_for_deleted_host(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::crypto::KdfParams;
 
     fn vault() -> (tempfile::TempDir, Vault) {
         let dir = tempfile::TempDir::new().unwrap();
-        let v =
-            Vault::create(dir.path().join("v"), b"pw", KdfParams::insecure_for_tests()).unwrap();
+        let v = Vault::create(
+            dir.path().join("v"),
+            b"pw",
+            crate::vault::testutil::opts(false),
+            crate::vault::DeviceInfo::new("t"),
+        )
+        .unwrap()
+        .0;
         (dir, v)
     }
 
@@ -333,6 +368,7 @@ mod tests {
             tags: vec![],
             color: None,
             notes: String::new(),
+            ..Default::default()
         }
     }
 
@@ -357,9 +393,14 @@ mod tests {
     #[test]
     fn inline_password_creates_then_updates_one_owned_identity() {
         let (_d, v) = vault();
-        let out =
-            save_host_with_credentials(&v, None, host("web"), inline_pw("root", Some("s3cret")))
-                .unwrap();
+        let out = save_host_with_credentials(
+            &v,
+            None,
+            Base::Latest,
+            host("web"),
+            inline_pw("root", Some("s3cret")),
+        )
+        .unwrap();
         let id = identity_of(&v, &out.host);
         assert_eq!(id.username, "root");
         assert_eq!(id.for_host, Some(out.host.id));
@@ -374,6 +415,7 @@ mod tests {
         let again = save_host_with_credentials(
             &v,
             Some(out.host.id),
+            Base::Latest,
             host("web"),
             inline_pw("admin", None),
         )
@@ -402,18 +444,37 @@ mod tests {
     #[test]
     fn empty_secret_without_a_stored_one_is_rejected() {
         let (_d, v) = vault();
-        let err = save_host_with_credentials(&v, None, host("h"), inline_pw("root", Some("")))
-            .unwrap_err();
+        let err = save_host_with_credentials(
+            &v,
+            None,
+            Base::Latest,
+            host("h"),
+            inline_pw("root", Some("")),
+        )
+        .unwrap_err();
         assert!(err.to_string().contains("password"), "{err}");
-        let err =
-            save_host_with_credentials(&v, None, host("h"), inline_pw(" ", Some("x"))).unwrap_err();
+        let err = save_host_with_credentials(
+            &v,
+            None,
+            Base::Latest,
+            host("h"),
+            inline_pw(" ", Some("x")),
+        )
+        .unwrap_err();
         assert!(err.to_string().contains("username"), "{err}");
         // Switching an owned password identity to key auth needs a key.
-        let out =
-            save_host_with_credentials(&v, None, host("h"), inline_pw("root", Some("x"))).unwrap();
+        let out = save_host_with_credentials(
+            &v,
+            None,
+            Base::Latest,
+            host("h"),
+            inline_pw("root", Some("x")),
+        )
+        .unwrap();
         let err = save_host_with_credentials(
             &v,
             Some(out.host.id),
+            Base::Latest,
             host("h"),
             HostCredentials::Inline {
                 username: "root".into(),
@@ -434,6 +495,7 @@ mod tests {
         let out = save_host_with_credentials(
             &v,
             None,
+            Base::Latest,
             host("db"),
             HostCredentials::Inline {
                 username: "ops".into(),
@@ -452,6 +514,7 @@ mod tests {
         let kept = save_host_with_credentials(
             &v,
             Some(out.host.id),
+            Base::Latest,
             host("db"),
             HostCredentials::Inline {
                 username: "ops".into(),
@@ -473,6 +536,7 @@ mod tests {
         let from_file = save_host_with_credentials(
             &v,
             None,
+            Base::Latest,
             host("db2"),
             HostCredentials::Inline {
                 username: "ops".into(),
@@ -492,6 +556,7 @@ mod tests {
         let err = save_host_with_credentials(
             &v,
             None,
+            Base::Latest,
             host("db3"),
             HostCredentials::Inline {
                 username: "ops".into(),
@@ -521,13 +586,20 @@ mod tests {
                 },
             )
             .unwrap();
-        let out =
-            save_host_with_credentials(&v, None, host("h"), inline_pw("root", Some("x"))).unwrap();
+        let out = save_host_with_credentials(
+            &v,
+            None,
+            Base::Latest,
+            host("h"),
+            inline_pw("root", Some("x")),
+        )
+        .unwrap();
         let owned = out.host.data.as_ref().unwrap().identity_id.unwrap();
 
         let linked = save_host_with_credentials(
             &v,
             Some(out.host.id),
+            Base::Latest,
             host("h"),
             HostCredentials::Identity {
                 identity_id: shared.id,
@@ -543,17 +615,27 @@ mod tests {
             Err(VaultError::Deleted { .. })
         ));
 
-        let asked =
-            save_host_with_credentials(&v, Some(out.host.id), host("h"), HostCredentials::Ask)
-                .unwrap();
+        let asked = save_host_with_credentials(
+            &v,
+            Some(out.host.id),
+            Base::Latest,
+            host("h"),
+            HostCredentials::Ask,
+        )
+        .unwrap();
         assert_eq!(asked.host.data.as_ref().unwrap().identity_id, None);
         // The shared identity is never deleted by host edits.
         assert!(v.get::<Identity>(Collection::Identities, shared.id).is_ok());
 
         // Keep leaves things as they are.
-        let kept =
-            save_host_with_credentials(&v, Some(out.host.id), host("h"), HostCredentials::Keep)
-                .unwrap();
+        let kept = save_host_with_credentials(
+            &v,
+            Some(out.host.id),
+            Base::Latest,
+            host("h"),
+            HostCredentials::Keep,
+        )
+        .unwrap();
         assert_eq!(kept.host.data.as_ref().unwrap().identity_id, None);
     }
 
@@ -563,6 +645,7 @@ mod tests {
         let out = save_host_with_credentials(
             &v,
             None,
+            Base::Latest,
             host("h"),
             HostCredentials::Inline {
                 username: "root".into(),
@@ -581,8 +664,14 @@ mod tests {
     #[test]
     fn deleting_a_host_removes_its_own_identity_unless_shared_by_a_duplicate() {
         let (_d, v) = vault();
-        let a =
-            save_host_with_credentials(&v, None, host("a"), inline_pw("root", Some("x"))).unwrap();
+        let a = save_host_with_credentials(
+            &v,
+            None,
+            Base::Latest,
+            host("a"),
+            inline_pw("root", Some("x")),
+        )
+        .unwrap();
         let iid = a.host.data.as_ref().unwrap().identity_id.unwrap();
         // A duplicate of `a` points at the same owned identity.
         let mut dup = host("a (copy)");
@@ -590,7 +679,8 @@ mod tests {
         let b = v.insert(Collection::Hosts, &dup).unwrap();
 
         release_for_deleted_host(&v, a.host.data.as_ref().unwrap(), a.host.id).unwrap();
-        v.delete(Collection::Hosts, a.host.id).unwrap();
+        v.delete(Collection::Hosts, a.host.id, Base::Latest)
+            .unwrap();
         // Still used by the duplicate: kept, but no longer owned by `a`.
         let kept = v
             .get::<Identity>(Collection::Identities, iid)
@@ -600,7 +690,14 @@ mod tests {
         assert_eq!(kept.for_host, None);
 
         // A host with its own identity and no duplicates takes it along.
-        let c = save_host_with_credentials(&v, None, host("c"), inline_pw("u", Some("p"))).unwrap();
+        let c = save_host_with_credentials(
+            &v,
+            None,
+            Base::Latest,
+            host("c"),
+            inline_pw("u", Some("p")),
+        )
+        .unwrap();
         let ciid = c.host.data.as_ref().unwrap().identity_id.unwrap();
         release_for_deleted_host(&v, c.host.data.as_ref().unwrap(), c.host.id).unwrap();
         assert!(matches!(

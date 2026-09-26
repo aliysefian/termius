@@ -1,22 +1,50 @@
 <script lang="ts">
-  import { FolderSearch, Lock, Palette, RefreshCw, RotateCcw } from "lucide-svelte";
-  import KnownHostsSection from "./KnownHostsSection.svelte";
+  import { Lock, Palette, RotateCcw, ShieldAlert } from "lucide-svelte";
   import { save } from "@tauri-apps/plugin-dialog";
   import { writeText } from "@tauri-apps/plugin-clipboard-manager";
-  import StrengthMeter from "./StrengthMeter.svelte";
   import { settings } from "$lib/stores/settings.svelte";
   import { themes } from "$lib/themes";
-  import { pickFolder } from "$lib/api";
   import * as api from "$lib/api";
   import { vaultStore } from "$lib/stores/vault.svelte";
-  import { errorMessage } from "$lib/types";
+  import { errorMessage, type VaultSettings } from "$lib/types";
 
-  const status = $derived(vaultStore.status);
-  let current = $state("");
-  let next = $state("");
-  let confirmNext = $state("");
   let msg = $state<{ ok: boolean; text: string } | null>(null);
-  let busy = $state(false);
+
+  // Vault-wide safety settings, edited as a draft and saved together.
+  let draft = $state<VaultSettings | null>(null);
+  let patternsText = $state("");
+  $effect(() => {
+    const s = vaultStore.settings?.settings;
+    if (s && !draft) {
+      draft = structuredClone($state.snapshot(s));
+      patternsText = s.destructive_patterns.join("\n");
+    }
+  });
+  let savingShared = $state(false);
+
+  async function saveShared(e: SubmitEvent) {
+    e.preventDefault();
+    if (!draft) return;
+    savingShared = true;
+    msg = null;
+    try {
+      const patterns = patternsText.split("\n").map((p) => p.trim()).filter(Boolean);
+      for (const p of patterns) {
+        try {
+          new RegExp(p.startsWith("(?i)") ? p.slice(4) : p);
+        } catch {
+          throw new Error(`Not a valid pattern: ${p}`);
+        }
+      }
+      await vaultStore.saveSettings({ ...$state.snapshot(draft), destructive_patterns: patterns });
+      msg = { ok: true, text: "Saved. Every device using this vault picks it up." };
+    } catch (err) {
+      msg = { ok: false, text: errorMessage(err) };
+      draft = null; // reload what's stored
+    } finally {
+      savingShared = false;
+    }
+  }
 
   async function exportToFile() {
     const path = await save({ title: "Export hosts as SSH config", defaultPath: "sshvault.config" });
@@ -35,35 +63,6 @@
       msg = { ok: true, text: "SSH config copied to the clipboard." };
     } catch (e) {
       msg = { ok: false, text: errorMessage(e) };
-    }
-  }
-
-  async function changeFolder() {
-    const dir = await pickFolder("Choose a different vault folder");
-    if (!dir) return;
-    try {
-      await vaultStore.setPath(dir);
-    } catch (e) {
-      msg = { ok: false, text: errorMessage(e) };
-    }
-  }
-
-  async function changePassword(e: SubmitEvent) {
-    e.preventDefault();
-    msg = null;
-    if (next !== confirmNext) {
-      msg = { ok: false, text: "New passwords do not match" };
-      return;
-    }
-    busy = true;
-    try {
-      await api.vault.changePassword(current, next);
-      current = next = confirmNext = "";
-      msg = { ok: true, text: "Master password changed. Every record was re-encrypted." };
-    } catch (err) {
-      msg = { ok: false, text: errorMessage(err) };
-    } finally {
-      busy = false;
     }
   }
 </script>
@@ -152,40 +151,47 @@
       </p>
       <select class="input max-w-xs" bind:value={settings.prefs.autoLockMinutes}>
         <option value={0}>Never</option>
-        {#each [5, 15, 30, 60, 240] as m (m)}
-          <option value={m}>After {m < 60 ? `${m} minutes` : `${m / 60} hour${m > 60 ? "s" : ""}`}</option>
+        {#each [5, 15, 30, 60] as m (m)}
+          <option value={m}>After {m < 60 ? `${m} minutes` : "1 hour"}</option>
         {/each}
       </select>
+      <p class="mt-2 text-xs text-fg-muted">Lock now, change the master password or manage backups on the <strong>Vault</strong> screen.</p>
     </section>
 
-    <section class="rounded-xl border border-line bg-panel p-5">
-      <h2 class="mb-1 text-sm font-semibold">Vault folder</h2>
-      <p class="mb-3 text-xs text-fg-muted">Encrypted records are written here and synced by your file-sync client.</p>
-      <div class="flex gap-2">
-        <div class="input flex-1 truncate font-mono text-xs">{"path" in status ? status.path : "—"}</div>
-        <button class="btn-ghost border border-line" onclick={changeFolder}><FolderSearch size={16} /> Change</button>
-      </div>
-      {#if status.state === "unlocked"}
-        <p class="mt-2 font-mono text-xs text-fg-muted">vault id {status.vault_id}</p>
-      {/if}
-      <button class="btn-ghost mt-3" onclick={() => vaultStore.reloadAll()}><RefreshCw size={14} /> Reload from disk</button>
-    </section>
-
-    <section class="rounded-xl border border-line bg-panel p-5">
-      <h2 class="mb-1 text-sm font-semibold">Master password</h2>
-      <p class="mb-3 text-xs text-fg-muted">
-        Rotating re-encrypts every record with a fresh salt. Other machines will need the new password next time they unlock.
-      </p>
-      <form onsubmit={changePassword} class="grid max-w-sm gap-3">
-        <input class="input" type="password" placeholder="Current password" bind:value={current} required autocomplete="current-password" />
-        <div>
-          <input class="input" type="password" placeholder="New password (min 8 chars)" bind:value={next} required minlength="8" autocomplete="new-password" />
-          <StrengthMeter password={next} />
+    {#if draft}
+      <form class="rounded-xl border border-line bg-panel p-5" onsubmit={saveShared}>
+        <h2 class="mb-1 flex items-center gap-2 text-sm font-semibold"><ShieldAlert size={15} class="text-accent" /> Safety</h2>
+        <p class="mb-4 text-xs text-fg-muted">Stored in the vault and shared by every device that opens it.</p>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="label" for="s-clip">Clear copied secrets after</label>
+            <select id="s-clip" class="input" bind:value={draft.clipboard_clear_secs}>
+              {#each [10, 20, 30, 45, 60, 120] as n (n)}<option value={n}>{n} seconds</option>{/each}
+            </select>
+          </div>
+          <div>
+            <label class="label" for="s-paste">Confirm pastes of</label>
+            <select id="s-paste" class="input" bind:value={draft.paste_confirm_lines}>
+              <option value={0}>Never ask</option>
+              {#each [2, 3, 5, 10] as n (n)}<option value={n}>{n} or more lines</option>{/each}
+            </select>
+          </div>
+          <div>
+            <label class="label" for="s-ret">Keep backups</label>
+            <input id="s-ret" class="input" type="number" min="1" max="1000" bind:value={draft.backup_retention} />
+          </div>
+          <div class="col-span-2">
+            <label class="label" for="s-pat">Ask before running these on production hosts <span class="font-normal text-fg-muted">(one regular expression per line)</span></label>
+            <textarea id="s-pat" class="input font-mono text-xs" rows="6" bind:value={patternsText} spellcheck="false"></textarea>
+            <p class="mt-1 text-xs text-fg-muted">
+              A safety net, not a guarantee: typed commands are matched as best the app can see them, so aliases, scripts and
+              shell history can bypass it.
+            </p>
+          </div>
         </div>
-        <input class="input" type="password" placeholder="Confirm new password" bind:value={confirmNext} required autocomplete="new-password" />
-        <button class="btn-primary" type="submit" disabled={busy}>{busy ? "Re-encrypting…" : "Change password"}</button>
+        <button class="btn-primary mt-4" type="submit" disabled={savingShared}>{savingShared ? "Saving…" : "Save"}</button>
       </form>
-    </section>
+    {/if}
 
     <section class="rounded-xl border border-line bg-panel p-5">
       <h2 class="mb-1 text-sm font-semibold">Use your hosts from the command line</h2>
@@ -199,8 +205,6 @@
         <button class="btn-ghost border border-line" onclick={exportToClipboard}>Copy to clipboard</button>
       </div>
     </section>
-
-    <KnownHostsSection />
 
     {#if msg}
       <p class="rounded-md border px-3 py-2 text-sm {msg.ok ? 'border-success/30 bg-success/10 text-success' : 'border-danger/30 bg-danger/10 text-danger'}">

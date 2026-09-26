@@ -9,8 +9,10 @@
 //! on its own; `commands.rs` adapts it to IPC channels and events.
 
 use std::collections::HashMap;
+use std::future::Future;
 use std::ops::Deref;
 use std::path::PathBuf;
+use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -57,13 +59,21 @@ pub enum SshError {
         method: &'static str,
     },
 
-    #[error("host key for {host} has CHANGED (fingerprint {fingerprint}). Possible man-in-the-middle; remove the old entry from {known_hosts} if this is expected")]
+    #[error("host key for {host} has CHANGED (fingerprint {fingerprint}). Possible man-in-the-middle; the connection was stopped")]
     HostKeyChanged {
         host: String,
         port: u16,
         fingerprint: String,
-        known_hosts: PathBuf,
     },
+
+    #[error("proxy {proxy}: {reason}")]
+    Proxy { proxy: String, reason: String },
+
+    #[error("{host} is not a trusted host yet (key {fingerprint}); the connection was stopped")]
+    HostKeyUnknown { host: String, fingerprint: String },
+
+    #[error("could not check the host key of {host}: {reason}")]
+    HostKeyStore { host: String, reason: String },
 
     #[error("via jump host {host}: {source}")]
     Jump {
@@ -81,6 +91,9 @@ pub enum SshError {
 
     #[error("jump chain is longer than {MAX_JUMPS} hops")]
     JumpChainTooLong,
+
+    #[error("could not use key {path}: {reason}")]
+    KeyFile { path: String, reason: String },
 
     #[error("no ssh-agent available: {0}")]
     NoAgent(String),
@@ -159,8 +172,8 @@ pub struct Target {
     pub port: u16,
     pub username: String,
     pub auth: AuthMethod,
-    /// App-private known_hosts file used for trust-on-first-use.
-    pub known_hosts: PathBuf,
+    /// Where trusted host keys live and who to ask about new or changed ones.
+    pub host_keys: HostKeyPolicy,
     /// Optional bastion to tunnel through (like OpenSSH `ProxyJump`). May
     /// itself have a jump, forming a chain; the outermost hop is dialled
     /// directly.
@@ -171,6 +184,10 @@ pub struct Target {
     /// Show the host's graphical programs on this computer's X server
     /// (`ssh -X`). Only honoured for the final hop's interactive session.
     pub forward_x11: bool,
+    /// How to reach this hop when it's dialled directly (the outermost hop).
+    pub proxy: Option<crate::models::ProxySpec>,
+    /// Keep-alive interval (OpenSSH `ServerAliveInterval`); default 30 s.
+    pub keepalive_secs: Option<u32>,
 }
 
 /// A host key recorded for the first time during a connection.
@@ -352,13 +369,159 @@ impl SshManager {
 }
 
 // ---------------------------------------------------------------------------
-// Host key verification (trust on first use)
+// Host key verification
 // ---------------------------------------------------------------------------
+
+/// A server's host key as presented during the handshake.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct PresentedKey {
+    pub host: String,
+    pub port: u16,
+    pub algorithm: String,
+    pub fingerprint: String,
+    /// OpenSSH public key line (`ssh-ed25519 AAAA...`).
+    pub public_key: String,
+}
+
+impl PresentedKey {
+    pub fn new(host: &str, port: u16, key: &PublicKey) -> Result<Self, keys::ssh_key::Error> {
+        Ok(Self {
+            host: host.to_string(),
+            port,
+            algorithm: key.algorithm().to_string(),
+            fingerprint: key.fingerprint(HashAlg::Sha256).to_string(),
+            public_key: PublicKey::new(key.key_data().clone(), "").to_openssh()?,
+        })
+    }
+}
+
+/// The key that was trusted before a change.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PreviousKey {
+    pub algorithm: String,
+    pub fingerprint: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HostKeyStatus {
+    Trusted,
+    /// Never seen: needs an explicit "trust" from the user.
+    Unknown,
+    /// A different key was trusted for this host. Possible attack.
+    Changed { previous: PreviousKey },
+}
+
+/// Where trusted host keys are kept: the vault in the app, a file in tests.
+pub trait HostKeyStore: Send + Sync {
+    fn check(&self, key: &PresentedKey) -> Result<HostKeyStatus, String>;
+    /// Trust `key` for its host, replacing any earlier key.
+    fn trust(&self, key: &PresentedKey) -> Result<(), String>;
+}
+
+/// What the user is asked when a key is new or has changed.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct HostKeyQuestion {
+    pub host: String,
+    pub port: u16,
+    pub algorithm: String,
+    pub fingerprint: String,
+    /// Set when the key CHANGED: the one trusted before.
+    pub previous: Option<PreviousKey>,
+}
+
+pub type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send>>;
+
+/// Asks the user to trust a host key. `true` = trust (or replace).
+pub trait HostKeyPrompter: Send + Sync {
+    fn ask(&self, question: HostKeyQuestion) -> BoxFuture<bool>;
+}
+
+#[derive(Clone)]
+pub struct HostKeyPolicy {
+    pub store: Arc<dyn HostKeyStore>,
+    /// `None` refuses unknown and changed keys without asking.
+    pub prompter: Option<Arc<dyn HostKeyPrompter>>,
+}
+
+/// OpenSSH-format `known_hosts` file. Used by tests and by tools that
+/// check against the user's own `~/.ssh/known_hosts`.
+pub struct FileHostKeys(pub PathBuf);
+
+impl HostKeyStore for FileHostKeys {
+    fn check(&self, key: &PresentedKey) -> Result<HostKeyStatus, String> {
+        let pk = PublicKey::from_openssh(&key.public_key).map_err(|e| e.to_string())?;
+        match check_known_hosts_path(&key.host, key.port, &pk, &self.0) {
+            Ok(true) => Ok(HostKeyStatus::Trusted),
+            Ok(false) => Ok(HostKeyStatus::Unknown),
+            Err(keys::Error::KeyChanged { line }) => {
+                let token = crate::knownhosts::host_token(&key.host, key.port);
+                let previous = crate::knownhosts::list(&self.0)
+                    .ok()
+                    .and_then(|l| {
+                        l.into_iter()
+                            .find(|k| k.line == line || k.hosts.contains(&token))
+                    })
+                    .map(|k| PreviousKey {
+                        algorithm: k.algorithm,
+                        fingerprint: k.fingerprint.unwrap_or_default(),
+                    })
+                    .unwrap_or(PreviousKey {
+                        algorithm: String::new(),
+                        fingerprint: String::new(),
+                    });
+                Ok(HostKeyStatus::Changed { previous })
+            }
+            Err(keys::Error::IO(e)) if e.kind() == std::io::ErrorKind::NotFound => {
+                Ok(HostKeyStatus::Unknown)
+            }
+            Err(e) => Err(e.to_string()),
+        }
+    }
+
+    fn trust(&self, key: &PresentedKey) -> Result<(), String> {
+        let pk = PublicKey::from_openssh(&key.public_key).map_err(|e| e.to_string())?;
+        if let Some(dir) = self.0.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        let _ = crate::knownhosts::forget(&self.0, &key.host, key.port);
+        learn_known_hosts_path(&key.host, key.port, &pk, &self.0).map_err(|e| e.to_string())
+    }
+}
+
+/// Answers every question the same way; for tests and scripted tools.
+pub struct FixedAnswer {
+    pub trust_unknown: bool,
+    pub replace_changed: bool,
+}
+
+impl HostKeyPrompter for FixedAnswer {
+    fn ask(&self, q: HostKeyQuestion) -> BoxFuture<bool> {
+        let yes = if q.previous.is_some() {
+            self.replace_changed
+        } else {
+            self.trust_unknown
+        };
+        Box::pin(async move { yes })
+    }
+}
+
+impl HostKeyPolicy {
+    /// Trust-on-first-use against a file; changed keys are refused.
+    pub fn tofu_file(path: PathBuf) -> Self {
+        Self {
+            store: Arc::new(FileHostKeys(path)),
+            prompter: Some(Arc::new(FixedAnswer {
+                trust_unknown: true,
+                replace_changed: false,
+            })),
+        }
+    }
+}
 
 pub struct ClientHandler {
     host: String,
     port: u16,
-    known_hosts: PathBuf,
+    host_keys: HostKeyPolicy,
     /// Set when a key was learned during this connection. Shared with the
     /// session task, which reports it after authentication succeeds.
     learned_fingerprint: Arc<Mutex<Option<String>>>,
@@ -372,15 +535,19 @@ pub struct ClientHandler {
 }
 
 impl ClientHandler {
-    fn learn(&mut self, key: &PublicKey, fingerprint: String) -> Result<bool, SshError> {
-        if let Some(dir) = self.known_hosts.parent() {
-            let _ = std::fs::create_dir_all(dir);
+    fn store_err(&self, reason: String) -> SshError {
+        SshError::HostKeyStore {
+            host: self.host.clone(),
+            reason,
         }
-        learn_known_hosts_path(&self.host, self.port, key, &self.known_hosts)?;
+    }
+
+    fn learn(&mut self, key: &PresentedKey) -> Result<bool, SshError> {
+        self.host_keys.store.trust(key).map_err(|e| self.store_err(e))?;
         *self
             .learned_fingerprint
             .lock()
-            .unwrap_or_else(|p| p.into_inner()) = Some(fingerprint);
+            .unwrap_or_else(|p| p.into_inner()) = Some(key.fingerprint.clone());
         Ok(true)
     }
 }
@@ -398,23 +565,48 @@ impl client::Handler for ClientHandler {
                 PublicKey::new(cert.public_key().clone(), "")
             }
         };
-        let fingerprint = key.fingerprint(HashAlg::Sha256).to_string();
-
-        match check_known_hosts_path(&self.host, self.port, &key, &self.known_hosts) {
-            Ok(true) => Ok(true),
-            Ok(false) => self.learn(&key, fingerprint),
-            Err(keys::Error::KeyChanged { .. }) => Err(SshError::HostKeyChanged {
+        let presented = PresentedKey::new(&self.host, self.port, &key)
+            .map_err(|e| self.store_err(e.to_string()))?;
+        let status = self
+            .host_keys
+            .store
+            .check(&presented)
+            .map_err(|e| self.store_err(e))?;
+        let previous = match status {
+            HostKeyStatus::Trusted => return Ok(true),
+            HostKeyStatus::Unknown => None,
+            HostKeyStatus::Changed { previous } => Some(previous),
+        };
+        let changed = previous.is_some();
+        // Nobody to ask (e.g. a background job): refuse rather than guess.
+        let trusted = match &self.host_keys.prompter {
+            Some(p) => {
+                p.ask(HostKeyQuestion {
+                    host: self.host.clone(),
+                    port: self.port,
+                    algorithm: presented.algorithm.clone(),
+                    fingerprint: presented.fingerprint.clone(),
+                    previous,
+                })
+                .await
+            }
+            None => false,
+        };
+        if trusted {
+            return self.learn(&presented);
+        }
+        Err(if changed {
+            SshError::HostKeyChanged {
                 host: self.host.clone(),
                 port: self.port,
-                fingerprint,
-                known_hosts: self.known_hosts.clone(),
-            }),
-            // A missing file is the first-ever connection from this machine.
-            Err(keys::Error::IO(e)) if e.kind() == std::io::ErrorKind::NotFound => {
-                self.learn(&key, fingerprint)
+                fingerprint: presented.fingerprint,
             }
-            Err(e) => Err(e.into()),
-        }
+        } else {
+            SshError::HostKeyUnknown {
+                host: display_host_port(&self.host, self.port),
+                fingerprint: presented.fingerprint,
+            }
+        })
     }
 
     /// Like agent channels, russh accepts X11 channels by default. Only accept
@@ -562,10 +754,14 @@ pub async fn open_client(
 }
 
 fn display_host(t: &Target) -> String {
-    if t.port == 22 {
-        t.hostname.clone()
+    display_host_port(&t.hostname, t.port)
+}
+
+fn display_host_port(host: &str, port: u16) -> String {
+    if port == 22 {
+        host.to_string()
     } else {
-        format!("{}:{}", t.hostname, t.port)
+        format!("{host}:{port}")
     }
 }
 
@@ -581,7 +777,7 @@ async fn connect_hop(
     let handler = ClientHandler {
         host: target.hostname.clone(),
         port: target.port,
-        known_hosts: target.known_hosts.clone(),
+        host_keys: target.host_keys.clone(),
         learned_fingerprint: Arc::clone(&learned),
         remote_forwards,
         forward_agent: target.forward_agent,
@@ -591,20 +787,12 @@ async fn connect_hop(
 
     let mut handle = match via {
         None => {
-            let stream = tokio::time::timeout(
-                CONNECT_TIMEOUT,
-                tokio::net::TcpStream::connect((target.hostname.as_str(), target.port)),
-            )
-            .await
-            .map_err(|_| timeout())?
-            .map_err(|source| SshError::Connect {
-                addr: addr.clone(),
-                source,
-            })?;
-            let _ = stream.set_nodelay(true);
+            let stream = tokio::time::timeout(CONNECT_TIMEOUT, crate::dial::dial(target))
+                .await
+                .map_err(|_| timeout())??;
             tokio::time::timeout(
                 CONNECT_TIMEOUT,
-                client::connect_stream(client_config(), stream, handler),
+                client::connect_stream(client_config(target), stream, handler),
             )
             .await
             .map_err(|_| timeout())??
@@ -628,7 +816,7 @@ async fn connect_hop(
             })?;
             tokio::time::timeout(
                 CONNECT_TIMEOUT,
-                client::connect_stream(client_config(), channel.into_stream(), handler),
+                client::connect_stream(client_config(target), channel.into_stream(), handler),
             )
             .await
             .map_err(|_| timeout())??
@@ -664,9 +852,14 @@ async fn local_agent() -> std::io::Result<tokio::net::windows::named_pipe::Named
 // Session task
 // ---------------------------------------------------------------------------
 
-fn client_config() -> Arc<client::Config> {
+fn client_config(target: &Target) -> Arc<client::Config> {
+    let keepalive = match target.keepalive_secs {
+        Some(0) => None,
+        Some(s) => Some(Duration::from_secs(u64::from(s))),
+        None => Some(KEEPALIVE),
+    };
     Arc::new(client::Config {
-        keepalive_interval: Some(KEEPALIVE),
+        keepalive_interval: keepalive,
         keepalive_max: 3,
         nodelay: true,
         ..Default::default()
@@ -775,21 +968,66 @@ async fn authenticate(handle: &mut Handle<ClientHandler>, params: &Target) -> Re
         AuthMethod::PrivateKey {
             private_key,
             passphrase,
+            certificate,
         } => {
             let pem = Zeroizing::new(private_key.clone());
-            let key = keys::decode_secret_key(&pem, passphrase.as_deref())?;
-            let hash = handle.best_supported_rsa_hash().await?.flatten();
-            let result = handle
-                .authenticate_publickey(user, PrivateKeyWithHashAlg::new(Arc::new(key), hash))
-                .await?;
-            if result.success() {
-                Ok(())
-            } else {
-                Err(fail("private key"))
-            }
+            key_login(handle, params, &pem, passphrase.as_deref(), certificate.as_deref()).await
         }
 
+        AuthMethod::KeyFile { path, passphrase } => {
+            // Read at connect time: the file stays on this computer, never
+            // in the synced vault.
+            let pem = Zeroizing::new(std::fs::read_to_string(path).map_err(|e| SshError::KeyFile {
+                path: path.clone(),
+                reason: e.to_string(),
+            })?);
+            key_login(handle, params, &pem, passphrase.as_deref(), None).await
+        }
+
+        // Key Manager references are resolved into `PrivateKey` before a
+        // connection is attempted; reaching here is a programming error.
+        AuthMethod::Key { .. } => Err(SshError::KeyFile {
+            path: "(key manager)".into(),
+            reason: "key reference was not resolved".into(),
+        }),
+
         AuthMethod::Agent => authenticate_with_agent(handle, params).await,
+    }
+}
+
+/// Public-key login, with an OpenSSH certificate when one is attached.
+async fn key_login(
+    handle: &mut Handle<ClientHandler>,
+    params: &Target,
+    pem: &str,
+    passphrase: Option<&str>,
+    certificate: Option<&str>,
+) -> Result<(), SshError> {
+    let key = Arc::new(keys::decode_secret_key(pem, passphrase)?);
+    let user = params.username.as_str();
+    let result = match certificate {
+        Some(cert) => {
+            let cert = keys::Certificate::from_openssh(cert.trim()).map_err(|e| SshError::KeyFile {
+                path: "(certificate)".into(),
+                reason: e.to_string(),
+            })?;
+            handle.authenticate_openssh_cert(user, key, cert).await?
+        }
+        None => {
+            let hash = handle.best_supported_rsa_hash().await?.flatten();
+            handle
+                .authenticate_publickey(user, PrivateKeyWithHashAlg::new(key, hash))
+                .await?
+        }
+    };
+    if result.success() {
+        Ok(())
+    } else {
+        Err(SshError::AuthFailed {
+            user: params.username.clone(),
+            host: params.hostname.clone(),
+            method: if certificate.is_some() { "certificate" } else { "private key" },
+        })
     }
 }
 
@@ -891,6 +1129,9 @@ pub(crate) mod testutil {
         pub user: String,
         pub client_key: String,
         pub other_key: String,
+        /// OpenSSH user certificate for `other_key`, signed by a CA the
+        /// server trusts. `other_key` itself isn't in authorized_keys.
+        pub other_cert: Option<String>,
     }
     impl Drop for Sshd {
         fn drop(&mut self) {
@@ -921,7 +1162,25 @@ pub(crate) mod testutil {
         keygen("host_key")?;
         keygen("client_key")?;
         keygen("other_key")?;
+        keygen("user_ca")?;
         std::fs::copy(dir.join("client_key.pub"), dir.join("authorized_keys")).ok()?;
+        let user = std::env::var("USER").ok().or_else(|| {
+            Command::new("id")
+                .arg("-un")
+                .output()
+                .ok()
+                .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        })?;
+        // Certificate for other_key, valid for this user for an hour.
+        let signed = Command::new("ssh-keygen")
+            .args(["-q", "-s"])
+            .arg(dir.join("user_ca"))
+            .args(["-I", "sshvault-test", "-n", &user, "-V", "-5m:+1h"])
+            .arg(dir.join("other_key.pub"))
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_ok_and(|s| s.success());
 
         let port = std::net::TcpListener::bind("127.0.0.1:0")
             .ok()?
@@ -939,6 +1198,7 @@ pub(crate) mod testutil {
         .unwrap_or_else(|| "Subsystem sftp internal-sftp\n".into());
         let config = format!(
             "Port {port}\nListenAddress 127.0.0.1\nHostKey {d}/host_key\nAuthorizedKeysFile {d}/authorized_keys\n\
+             TrustedUserCAKeys {d}/user_ca.pub\n\
              PasswordAuthentication no\nKbdInteractiveAuthentication no\nUsePAM no\nStrictModes no\nPidFile none\n\
              AllowTcpForwarding yes\nX11Forwarding yes\nX11UseLocalhost yes\n{sftp_server}",
             d = dir.display()
@@ -960,19 +1220,15 @@ pub(crate) mod testutil {
             }
             std::thread::sleep(Duration::from_millis(50));
         }
-        let user = std::env::var("USER").ok().or_else(|| {
-            Command::new("id")
-                .arg("-un")
-                .output()
-                .ok()
-                .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-        })?;
         Some(Sshd {
             child,
             port,
             user,
             client_key: std::fs::read_to_string(dir.join("client_key")).ok()?,
             other_key: std::fs::read_to_string(dir.join("other_key")).ok()?,
+            other_cert: signed
+                .then(|| std::fs::read_to_string(dir.join("other_key-cert.pub")).ok())
+                .flatten(),
         })
     }
 
@@ -984,12 +1240,32 @@ pub(crate) mod testutil {
             auth: AuthMethod::PrivateKey {
                 private_key: key.to_string(),
                 passphrase: None,
+                certificate: None,
             },
-            known_hosts,
+            host_keys: HostKeyPolicy::tofu_file(known_hosts),
             jump: None,
             forward_agent: false,
             forward_x11: false,
+            proxy: None,
+            keepalive_secs: None,
         }
+    }
+}
+
+/// A placeholder target for unit tests of the dialling code.
+#[cfg(test)]
+pub fn testutil_target() -> Target {
+    Target {
+        hostname: String::new(),
+        port: 22,
+        username: "test".into(),
+        auth: AuthMethod::Agent,
+        host_keys: HostKeyPolicy::tofu_file(PathBuf::new()),
+        jump: None,
+        forward_agent: false,
+        forward_x11: false,
+        proxy: None,
+        keepalive_secs: None,
     }
 }
 
@@ -1201,6 +1477,106 @@ mod tests {
         wait_status(&rx, |s| matches!(s, SessionStatus::NewHostKey { .. }));
         wait_status(&rx, |s| matches!(s, SessionStatus::Connected));
         manager.disconnect("p5").await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn certificates_authenticate_keys_the_server_does_not_list() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let Some(sshd) = spawn_sshd(dir.path()) else {
+            eprintln!("skipping: no usable sshd on this machine");
+            return;
+        };
+        let Some(cert) = sshd.other_cert.clone() else {
+            eprintln!("skipping: ssh-keygen could not sign a certificate");
+            return;
+        };
+        let known_hosts = dir.path().join("kh");
+        // Without its certificate the key is refused...
+        let plain = target(&sshd, &sshd.other_key, known_hosts.clone());
+        assert!(matches!(open_client(&plain, None).await, Err(SshError::AuthFailed { .. })));
+        // ...with it, the server's CA vouches for the key.
+        let mut with_cert = plain.clone();
+        with_cert.auth = AuthMethod::PrivateKey {
+            private_key: sshd.other_key.clone(),
+            passphrase: None,
+            certificate: Some(cert.clone()),
+        };
+        open_client(&with_cert, None).await.expect("certificate login");
+
+        // The Key Manager accepts it for the matching key only.
+        let other_pub = std::fs::read_to_string(dir.path().join("other_key.pub")).unwrap();
+        let client_pub = std::fs::read_to_string(dir.path().join("client_key.pub")).unwrap();
+        assert!(crate::keys::check_certificate(&cert, &other_pub).unwrap().contains(&sshd.user));
+        assert!(crate::keys::check_certificate(&cert, &client_pub).is_err());
+    }
+
+    /// Records every question and answers from a script.
+    struct Scripted {
+        asked: Mutex<Vec<HostKeyQuestion>>,
+        trust_unknown: bool,
+        replace_changed: bool,
+    }
+    impl HostKeyPrompter for Scripted {
+        fn ask(&self, q: HostKeyQuestion) -> BoxFuture<bool> {
+            let yes = if q.previous.is_some() { self.replace_changed } else { self.trust_unknown };
+            self.asked.lock().unwrap().push(q);
+            Box::pin(async move { yes })
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn unknown_and_changed_keys_need_explicit_trust() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let Some(sshd) = spawn_sshd(dir.path()) else {
+            eprintln!("skipping: no usable sshd on this machine");
+            return;
+        };
+        let known_hosts = dir.path().join("kh");
+        let with = |p: Arc<Scripted>| {
+            let mut t = target(&sshd, &sshd.client_key, known_hosts.clone());
+            t.host_keys = HostKeyPolicy {
+                store: Arc::new(FileHostKeys(known_hosts.clone())),
+                prompter: Some(p),
+            };
+            t
+        };
+        let script = |trust_unknown, replace_changed| {
+            Arc::new(Scripted { asked: Mutex::new(vec![]), trust_unknown, replace_changed })
+        };
+
+        // Declined: nothing stored, connection refused.
+        let p = script(false, false);
+        let err = open_client(&with(p.clone()), None).await.err().expect("refused");
+        assert!(matches!(err, SshError::HostKeyUnknown { .. }), "{err}");
+        assert!(p.asked.lock().unwrap()[0].fingerprint.starts_with("SHA256:"));
+        assert!(!known_hosts.exists());
+
+        // No prompter at all (background job): refused without guessing.
+        let mut t = with(p.clone());
+        t.host_keys.prompter = None;
+        assert!(matches!(open_client(&t, None).await, Err(SshError::HostKeyUnknown { .. })));
+
+        // Accepted: stored and connected; next time nobody is asked.
+        let p = script(true, false);
+        open_client(&with(p.clone()), None).await.unwrap();
+        let p2 = script(false, false);
+        open_client(&with(p2.clone()), None).await.unwrap();
+        assert!(p2.asked.lock().unwrap().is_empty());
+
+        // Changed: the question carries the old fingerprint; cancel refuses,
+        // replace connects and re-pins.
+        let other_pub = std::fs::read_to_string(dir.path().join("other_key.pub")).unwrap();
+        std::fs::write(&known_hosts, format!("[127.0.0.1]:{} {}", sshd.port, other_pub)).unwrap();
+        let old_fp = PublicKey::from_openssh(other_pub.trim()).unwrap().fingerprint(HashAlg::Sha256).to_string();
+        let p = script(true, false);
+        assert!(matches!(open_client(&with(p.clone()), None).await, Err(SshError::HostKeyChanged { .. })));
+        let q = p.asked.lock().unwrap()[0].clone();
+        assert_eq!(q.previous.unwrap().fingerprint, old_fp);
+        let p = script(false, true);
+        open_client(&with(p), None).await.unwrap();
+        let p = script(false, false);
+        open_client(&with(p.clone()), None).await.unwrap();
+        assert!(p.asked.lock().unwrap().is_empty());
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

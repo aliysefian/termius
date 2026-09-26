@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Copy, Pencil, Trash2 } from "lucide-svelte";
+  import { Copy, Pencil, Star, Trash2 } from "lucide-svelte";
   import { envInfo, errorMessage } from "$lib/types";
   import { hostDragStart } from "$lib/hostdrag.svelte";
   import { ui } from "$lib/stores/ui.svelte";
@@ -8,7 +8,8 @@
 
   let { host, depth }: { host: VaultRecord<Host>; depth: number } = $props();
   const d = $derived(host.data!);
-  const identity = $derived(d.identity_id ? vaultStore.identityById.get(d.identity_id)?.data : undefined);
+  const identityId = $derived(vaultStore.effectiveIdentity(d));
+  const identity = $derived(identityId ? vaultStore.identityById.get(identityId)?.data : undefined);
   const jump = $derived(d.jump_host_id ? vaultStore.hostById.get(d.jump_host_id)?.data : undefined);
   const env = $derived(envInfo(d.environment));
   const health = $derived(vaultStore.health[host.id]);
@@ -21,7 +22,7 @@
   async function duplicate(e: MouseEvent) {
     e.stopPropagation();
     try {
-      const rec = await vaultStore.saveHost(null, { ...$state.snapshot(d), label: `${d.label} (copy)` });
+      const rec = await vaultStore.saveHost(null, { ...$state.snapshot(d), label: `${d.label} (copy)`, favorite: false });
       ui.modal = { kind: "host", id: rec.id };
     } catch (err) {
       ui.notify("error", errorMessage(err));
@@ -33,7 +34,7 @@
     const dependents = vaultStore.hosts.filter((h) => h.data?.jump_host_id === host.id).length;
     const note = dependents ? ` ${dependents} host(s) use it as a jump host and will connect directly instead.` : "";
     if (!confirm(`Delete host "${d.label}"?${note}`)) return;
-    await vaultStore.deleteHost(host.id);
+    await vaultStore.deleteHost(host.id).catch((err) => ui.notify("error", errorMessage(err)));
   }
 </script>
 
@@ -53,7 +54,7 @@
     <div class="flex items-center gap-1.5">
       <span class="truncate text-sm">{d.label}</span>
       {#if env.value}
-        <span class="shrink-0 rounded px-1 text-[9px] font-bold {'cls' in env ? env.cls : ''}">{"short" in env ? env.short : ""}</span>
+        <span class="shrink-0 rounded px-1 text-[9px] font-bold {env.cls ?? ''}">{env.short ?? ""}</span>
       {/if}
       {#if health}
         <span
@@ -72,6 +73,17 @@
       {identity ? `${identity.username}@` : ""}{d.hostname}{d.port !== 22 ? `:${d.port}` : ""}{jump ? ` via ${jump.label}` : ""}
     </div>
   </div>
+  <button
+    class="icon-btn h-6 w-6 {d.favorite ? 'text-warning' : 'opacity-0 group-hover:opacity-100'}"
+    title={d.favorite ? "Remove from favorites" : "Add to favorites"}
+    aria-pressed={!!d.favorite}
+    onclick={(e) => {
+      e.stopPropagation();
+      vaultStore.toggleFavorite(host.id).catch((err) => ui.notify("error", errorMessage(err)));
+    }}
+  >
+    <Star size={12} fill={d.favorite ? "currentColor" : "none"} />
+  </button>
   <div class="flex opacity-0 group-hover:opacity-100">
     <button class="icon-btn h-6 w-6" title="Duplicate" onclick={duplicate}>
       <Copy size={12} />

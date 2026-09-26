@@ -8,7 +8,7 @@
   import { parseAdhoc } from "$lib/ssh";
   import { settings } from "$lib/stores/settings.svelte";
   import { runSnippet } from "$lib/runsnippet";
-  import { adhocLabel, ui, type View } from "$lib/stores/ui.svelte";
+  import { adhocLabel, ui, type View, type WorkspaceTab } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
 
   interface Item {
@@ -58,6 +58,24 @@
         run: () => ui.openTerminal(h.id, d.label),
       });
     }
+    for (const w of vaultStore.workspaces) {
+      const d = w.data!;
+      out.push({
+        id: `ws-${w.id}`,
+        label: `Open workspace: ${d.name}`,
+        hint: `${d.tabs.length} tab(s)`,
+        group: "Workspaces",
+        icon: SquareSplitHorizontal,
+        run: () => ui.openWorkspace(d.tabs as WorkspaceTab[]),
+      });
+      out.push({
+        id: `ws-del-${w.id}`,
+        label: `Delete workspace: ${d.name}`,
+        group: "Workspaces",
+        icon: SquareSplitHorizontal,
+        run: () => void (confirm(`Delete workspace "${d.name}"?`) && vaultStore.deleteWorkspace(w.id)),
+      });
+    }
     for (const s of vaultStore.snippets) {
       const d = s.data!;
       out.push({
@@ -80,7 +98,7 @@
     const actions: [string, typeof Server, () => void, string?][] = [
       ["Quick connect…", Zap, () => (ui.modal = { kind: "quick-connect" }), "Ctrl+Shift+T"],
       ["New host", Plus, () => (ui.modal = { kind: "host", id: null })],
-      ["New identity", KeyRound, () => (ui.modal = { kind: "identity", id: null })],
+      ["New credential", KeyRound, () => (ui.modal = { kind: "identity", id: null })],
       ["New snippet", Code, () => (ui.modal = { kind: "snippet", id: null })],
       ["New port-forwarding rule", ArrowLeftRight, () => (ui.modal = { kind: "forward", id: null })],
       ["Import hosts from ~/.ssh/config", FileInput, () => (ui.modal = { kind: "import-ssh-config" })],
@@ -90,13 +108,20 @@
       ["Type into all panes in this tab (toggle)", Keyboard, () => ui.syncRequest++, "Ctrl+Shift+B"],
       ["Export hosts as ~/.ssh/config…", FileOutput, () => void exportConfig()],
       ["Import hosts from an Ansible inventory", FileInput, () => (ui.modal = { kind: "import-ssh-config" })],
+      ["Save open tabs as a workspace…", SquareSplitHorizontal, () => (ui.modal = { kind: "save-workspace" })],
+      ["Hide or show the list panel", SquareSplitHorizontal, () => ui.toggleSidebar(), "Ctrl+Shift+H"],
       ["Split right", SquareSplitHorizontal, () => ui.splitActive("vertical"), "Ctrl+Shift+D"],
       ["Split down", SquareSplitVertical, () => ui.splitActive("horizontal"), "Ctrl+Shift+E"],
       ["Go to Hosts", Server, go("hosts")],
-      ["Go to Keychain", KeyRound, go("keychain")],
+      ["Go to Favorites", Server, go("favorites")],
+      ["Go to Groups and Proxies", Server, go("groups")],
+      ["Go to Keys", KeyRound, go("keys")],
+      ["Go to Credentials", KeyRound, go("keychain")],
       ["Go to SFTP", FolderSync, go("sftp")],
-      ["Go to Port Forwarding", ArrowLeftRight, go("forwarding")],
+      ["Go to Tunnels", ArrowLeftRight, go("forwarding")],
       ["Go to Snippets", Code, go("snippets")],
+      ["Go to Known Hosts", Settings, go("knownhosts")],
+      ["Go to Vault (backups, recovery, integrity)", Lock, go("vault")],
       ["Open Settings", Settings, go("settings")],
       ["Lock vault", Lock, () => void vaultStore.lock(), "Ctrl+Shift+L"],
     ];

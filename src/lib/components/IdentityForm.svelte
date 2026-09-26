@@ -15,11 +15,16 @@
   // master password is confirmed.
   // svelte-ignore state_referenced_locally
   const stored = id ? vaultStore.identityById.get(id)?.data : undefined;
+  // svelte-ignore state_referenced_locally
+  const baseRev = id ? (vaultStore.identityById.get(id)?.rev ?? null) : null;
   let form = $state<Identity>(stored ? structuredClone($state.snapshot(stored)) : emptyIdentity());
   let authType = $state<AuthMethod["type"]>(stored?.auth.type ?? "password");
   let password = $state("");
   let privateKey = $state("");
   let passphrase = $state("");
+  let keyId = $state<Uuid | "">(stored?.auth.type === "key" ? stored.auth.key_id : "");
+  let keyPath = $state(stored?.auth.type === "key_file" ? stored.auth.path : "");
+  const managerKeys = $derived(vaultStore.keys.filter((k) => k.data && k.data.private_key !== undefined));
   let showPassword = $state(false);
   let publicKey = $state<string | null>(null);
   let generating = $state(false);
@@ -76,13 +81,26 @@
     error = null;
     busy = true;
     try {
-      const auth: AuthMethod =
-        authType === "password"
-          ? { type: "password", password }
-          : authType === "private_key"
-            ? { type: "private_key", private_key: privateKey, passphrase: passphrase || undefined }
-            : { type: "agent" };
-      await vaultStore.saveIdentity(id, { ...$state.snapshot(form), auth });
+      let auth: AuthMethod;
+      switch (authType) {
+        case "password":
+          auth = { type: "password", password };
+          break;
+        case "private_key":
+          auth = { type: "private_key", private_key: privateKey, passphrase: passphrase || undefined };
+          break;
+        case "key":
+          if (!keyId) throw new Error("Choose a key from the Key Manager");
+          auth = { type: "key", key_id: keyId };
+          break;
+        case "key_file":
+          // An empty passphrase keeps the saved one.
+          auth = { type: "key_file", path: keyPath.trim(), passphrase };
+          break;
+        default:
+          auth = { type: "agent" };
+      }
+      await vaultStore.saveIdentity(id, { ...$state.snapshot(form), auth }, baseRev);
       ui.modal = null;
     } catch (err) {
       error = errorMessage(err);
@@ -109,7 +127,7 @@
       <div>
         <span class="label">Authentication</span>
         <div class="flex overflow-hidden rounded-md border border-line text-sm">
-          {#each [["password", "Password"], ["private_key", "Private key"], ["agent", "SSH agent"]] as [value, text] (value)}
+          {#each [["password", "Password"], ["key", "Key Manager"], ["private_key", "Private key"], ["key_file", "Key file"], ["agent", "SSH agent"]] as [value, text] (value)}
             <button
               type="button"
               class="flex-1 py-1.5 {authType === value ? 'bg-accent text-white' : 'text-fg-muted hover:bg-panel-hover'}"
@@ -176,6 +194,31 @@
         <div>
           <label class="label" for="i-pass">Key passphrase {savedKey ? "(leave empty to keep)" : "(optional)"}</label>
           <input id="i-pass" class="input" type="password" bind:value={passphrase} autocomplete="off" />
+        </div>
+      {:else if authType === "key"}
+        {#if managerKeys.length === 0}
+          <p class="text-sm text-fg-muted">The Key Manager has no private keys yet. Add one under <strong>Keys</strong>.</p>
+        {:else}
+          <label class="label" for="i-keyid">Key</label>
+          <select id="i-keyid" class="input" bind:value={keyId} required>
+            <option value="" disabled>Choose a key…</option>
+            {#each managerKeys as k (k.id)}
+              <option value={k.id}>{k.data!.name} · {k.data!.algorithm} · {k.data!.fingerprint}</option>
+            {/each}
+          </select>
+          <p class="mt-1 text-xs text-fg-muted">Changing or rotating the key in the Key Manager updates every credential that uses it.</p>
+        {/if}
+      {:else if authType === "key_file"}
+        <div>
+          <label class="label" for="i-keypath">Key file on this computer</label>
+          <input id="i-keypath" class="input font-mono text-xs" bind:value={keyPath} required placeholder="~/.ssh/id_ed25519" spellcheck="false" />
+          <p class="mt-1 text-xs text-fg-muted">
+            Only the path is stored; the key never enters the vault. Other computers need the same file at the same path.
+          </p>
+        </div>
+        <div>
+          <label class="label" for="i-kfpass">Key passphrase (optional{stored?.auth.type === "key_file" ? ", leave empty to keep" : ""})</label>
+          <input id="i-kfpass" class="input" type="password" bind:value={passphrase} autocomplete="off" />
         </div>
       {:else}
         <p class="text-sm text-fg-muted">Keys are supplied by the local ssh-agent on each computer.</p>

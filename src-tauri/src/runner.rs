@@ -235,6 +235,7 @@ mod tests {
         bad.auth = crate::models::AuthMethod::PrivateKey {
             private_key: sshd.other_key.clone(),
             passphrase: None,
+            certificate: None,
         };
         mgr.start(
             "r1".into(),

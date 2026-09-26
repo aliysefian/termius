@@ -56,6 +56,9 @@ pub enum CryptoError {
     #[error("unsupported envelope format version {0}")]
     UnsupportedVersion(u8),
 
+    #[error("that is not a valid recovery key")]
+    InvalidRecoveryKey,
+
     /// Returned for a wrong key, wrong AAD, or any bit-flip in the ciphertext.
     /// The AEAD deliberately does not distinguish between these cases.
     #[error("authentication failed: wrong key or corrupted data")]
@@ -239,6 +242,110 @@ pub fn looks_like_envelope(data: &[u8]) -> bool {
         && data[MAGIC.len()] == FORMAT_VERSION
 }
 
+/// Encrypt (wrap) one key with another, e.g. the vault master key with a
+/// key derived from the master password. `aad` binds the context (vault ID,
+/// slot kind, KDF parameters) so tampered metadata fails to unwrap.
+pub fn wrap_key(kek: &MasterKey, key: &MasterKey, aad: &[u8]) -> Result<Vec<u8>, CryptoError> {
+    encrypt(kek, key.as_bytes(), aad)
+}
+
+/// Reverse of [`wrap_key`]. A wrong KEK or changed AAD fails authentication.
+pub fn unwrap_key(kek: &MasterKey, wrapped: &[u8], aad: &[u8]) -> Result<MasterKey, CryptoError> {
+    let raw = zeroize::Zeroizing::new(decrypt(kek, wrapped, aad)?);
+    let bytes: [u8; KEY_LEN] = raw
+        .as_slice()
+        .try_into()
+        .map_err(|_| CryptoError::AuthenticationFailed)?;
+    Ok(MasterKey(bytes))
+}
+
+/// Lower-case hex SHA-256, for content hashes (not for key derivation).
+pub fn sha256_hex(data: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(data)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
+/// Crockford base32: no I, L, O or U, case-insensitive, so a recovery key
+/// written on paper survives being read back.
+const CROCKFORD: &[u8; 32] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+
+/// A 256-bit recovery secret, shown to the user once as grouped base32.
+pub struct RecoveryKey(zeroize::Zeroizing<[u8; KEY_LEN]>);
+
+impl RecoveryKey {
+    pub fn generate() -> Self {
+        let mut b = zeroize::Zeroizing::new([0u8; KEY_LEN]);
+        OsRng.fill_bytes(b.as_mut());
+        Self(b)
+    }
+
+    pub fn as_bytes(&self) -> &[u8; KEY_LEN] {
+        &self.0
+    }
+
+    /// e.g. `7K3Q-M9XA-...` (13 groups of 4, 52 characters).
+    pub fn display(&self) -> zeroize::Zeroizing<String> {
+        let mut bits: u32 = 0;
+        let mut nbits = 0;
+        let mut out = String::with_capacity(64);
+        let mut chars = 0;
+        let mut push = |c: u8, out: &mut String| {
+            if chars > 0 && chars % 4 == 0 {
+                out.push('-');
+            }
+            out.push(c as char);
+            chars += 1;
+        };
+        for &byte in self.0.iter() {
+            bits = (bits << 8) | byte as u32;
+            nbits += 8;
+            while nbits >= 5 {
+                nbits -= 5;
+                push(CROCKFORD[((bits >> nbits) & 31) as usize], &mut out);
+            }
+        }
+        if nbits > 0 {
+            push(CROCKFORD[((bits << (5 - nbits)) & 31) as usize], &mut out);
+        }
+        zeroize::Zeroizing::new(out)
+    }
+
+    /// Parse user input: ignores dashes, spaces and case, and accepts the
+    /// usual look-alikes (O for 0, I and L for 1).
+    pub fn parse(input: &str) -> Result<Self, CryptoError> {
+        let mut bits: u32 = 0;
+        let mut nbits = 0;
+        let mut out = zeroize::Zeroizing::new(Vec::with_capacity(KEY_LEN + 1));
+        for c in input.chars() {
+            let c = match c.to_ascii_uppercase() {
+                '-' | ' ' | '\t' | '\n' | '\r' => continue,
+                'O' => '0',
+                'I' | 'L' => '1',
+                c => c,
+            };
+            let v = CROCKFORD
+                .iter()
+                .position(|&x| x as char == c)
+                .ok_or(CryptoError::InvalidRecoveryKey)? as u32;
+            bits = (bits << 5) | v;
+            nbits += 5;
+            if nbits >= 8 {
+                nbits -= 8;
+                out.push((bits >> nbits) as u8);
+            }
+        }
+        let bytes: [u8; KEY_LEN] = out
+            .get(..KEY_LEN)
+            .filter(|_| out.len() == KEY_LEN)
+            .and_then(|s| s.try_into().ok())
+            .ok_or(CryptoError::InvalidRecoveryKey)?;
+        Ok(Self(zeroize::Zeroizing::new(bytes)))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -368,6 +475,45 @@ mod tests {
             decrypt(&key, &env, b""),
             Err(CryptoError::UnsupportedVersion(99))
         ));
+    }
+
+    #[test]
+    fn key_wrapping_is_authenticated() {
+        let kek = test_key();
+        let vmk = MasterKey::generate();
+        let w = wrap_key(&kek, &vmk, b"slot/password").unwrap();
+        assert!(unwrap_key(&kek, &w, b"slot/password").unwrap().ct_eq(&vmk));
+        assert!(unwrap_key(&kek, &w, b"slot/recovery").is_err());
+        assert!(unwrap_key(&MasterKey::generate(), &w, b"slot/password").is_err());
+    }
+
+    #[test]
+    fn recovery_keys_round_trip_and_forgive_typos_in_form() {
+        let k = RecoveryKey::generate();
+        let shown = k.display();
+        assert_eq!(shown.replace('-', "").len(), 52);
+        assert_eq!(shown.split('-').count(), 13);
+        let back = RecoveryKey::parse(&shown).unwrap();
+        assert_eq!(back.as_bytes(), k.as_bytes());
+        // Lower case, spaces instead of dashes, O for 0 and l for 1.
+        let messy = shown
+            .to_lowercase()
+            .replace('-', " ")
+            .replace('0', "o")
+            .replace('1', "l");
+        assert_eq!(RecoveryKey::parse(&messy).unwrap().as_bytes(), k.as_bytes());
+        assert!(RecoveryKey::parse("not-a-key").is_err());
+        assert!(RecoveryKey::parse(&shown[..40]).is_err());
+        assert!(RecoveryKey::parse("U").is_err());
+        assert_ne!(RecoveryKey::generate().as_bytes(), k.as_bytes());
+    }
+
+    #[test]
+    fn sha256_is_stable() {
+        assert_eq!(
+            sha256_hex(b"abc"),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
     }
 
     #[test]

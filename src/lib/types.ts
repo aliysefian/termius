@@ -4,14 +4,22 @@ export type Uuid = string;
 
 export interface VaultRecord<T> {
   id: Uuid;
+  /** Revision; saves send it back so edits from other devices aren't overwritten. */
+  rev: number;
   updated_at: number;
   deleted: boolean;
+  /** Device that wrote this revision. */
+  device_id: Uuid;
   data?: T;
 }
 
 export type AuthMethod =
   | { type: "password"; password: string }
-  | { type: "private_key"; private_key: string; passphrase?: string }
+  | { type: "private_key"; private_key: string; passphrase?: string; certificate?: string }
+  /** A key from the Key Manager. */
+  | { type: "key"; key_id: Uuid }
+  /** A key file on this computer, referenced by path. */
+  | { type: "key_file"; path: string; passphrase?: string }
   | { type: "agent" };
 
 export interface Identity {
@@ -36,6 +44,7 @@ export type InlineAuth =
   | { type: "private_key"; private_key: string | null; passphrase: string | null }
   | { type: "key_file"; path: string; passphrase: string | null }
   | { type: "generate_key" }
+  | { type: "key"; key_id: Uuid }
   | { type: "agent" };
 
 export type HostCredentials =
@@ -64,15 +73,36 @@ export interface Host {
   tags: string[];
   color?: string;
   notes: string;
+  favorite?: boolean;
+  /** Proxy (SOCKS5, HTTP or ProxyCommand) used to reach this host or its first jump. */
+  proxy_id?: Uuid;
+  /** Keep-alive interval in seconds (ServerAliveInterval); 0 disables. */
+  keepalive_secs?: number;
+  /** Free-form metadata, e.g. owner or ticket. */
+  custom?: Record<string, string>;
 }
 
 export interface Snippet {
   label: string;
   command: string;
   description: string;
+  /** Slash-separated folder, e.g. "Kubernetes/Debug". */
+  folder?: string;
+  tags?: string[];
 }
 
-export type Collection = "hosts" | "identities" | "snippets" | "forwards";
+export type Collection =
+  | "hosts"
+  | "identities"
+  | "snippets"
+  | "forwards"
+  | "groups"
+  | "keys"
+  | "known_hosts"
+  | "proxies"
+  | "workspaces"
+  | "settings"
+  | "devices";
 
 export type ForwardKind =
   | { kind: "local"; bind_addr: string; bind_port: number; dest_host: string; dest_port: number }
@@ -108,12 +138,212 @@ export type TransferProgress =
 export type VaultStatus =
   | { state: "not_configured" }
   | { state: "needs_setup"; path: string }
-  | { state: "locked"; path: string }
+  | { state: "locked"; path: string; remembered: boolean; needs_upgrade: boolean }
   | { state: "unlocked"; path: string; vault_id: Uuid };
 
 export interface ApiError {
   code: string;
   message: string;
+  /** For code "conflict": what clashed. */
+  details?: ConflictDetails;
+}
+
+export interface ConflictDetails {
+  collection: Collection;
+  id: Uuid;
+  reason: "changed_elsewhere" | "deleted_elsewhere" | "already_exists";
+  fields: string[];
+  their_device: Uuid;
+  their_rev: number;
+  their_updated_at: number;
+}
+
+export interface UnlockReport {
+  migrated: boolean;
+  merged_conflicts: number;
+  open_conflicts: number;
+  backed_up: boolean;
+}
+
+export interface UnlockResult {
+  status: VaultStatus;
+  report: UnlockReport;
+  keychain_error: string | null;
+}
+
+export interface CreateResult {
+  status: VaultStatus;
+  /** Shown once; never stored. */
+  recovery_key: string | null;
+  keychain_error: string | null;
+}
+
+export interface ActiveSession {
+  device_id: Uuid;
+  device_name: string;
+  since: number;
+  expires_at: number;
+}
+
+export interface DeviceRecord {
+  name: string;
+  platform: string;
+  app_version: string;
+  first_seen: number;
+  last_seen: number;
+}
+
+export interface VaultInfo {
+  vault_id: Uuid;
+  path: string;
+  format_version: number;
+  cipher: string;
+  kdf: string;
+  has_recovery: boolean;
+  device_id: Uuid;
+  device_name: string;
+  remembered: boolean;
+  state_hash: string;
+  records: number;
+  last_change: number;
+  last_backup: number | null;
+  active_sessions: ActiveSession[];
+  devices: VaultRecord<DeviceRecord>[];
+  open_conflicts: number;
+}
+
+export interface BackupInfo {
+  file_name: string;
+  created_at: number;
+  size: number;
+  /** null when the backup failed verification. */
+  device_name: string | null;
+  reason: string | null;
+  records: number;
+  error: string | null;
+}
+
+export interface RestoreReport {
+  restored: number;
+  removed: number;
+  unchanged: number;
+  /** Taken just before restoring, to undo it. */
+  safety_backup: string;
+}
+
+export interface IntegrityReport {
+  ok: boolean;
+  format_version: number;
+  records_checked: number;
+  backups_ok: number;
+  backups_bad: number;
+  conflict_copies: number;
+  errors: string[];
+  warnings: string[];
+}
+
+export interface ConflictInfo {
+  collection: Collection;
+  id: Uuid;
+  file_name: string;
+  current: VaultRecord<Record<string, unknown>>;
+  other: VaultRecord<Record<string, unknown>>;
+  /** Top-level fields that differ. */
+  fields: string[];
+}
+
+export interface SshKey {
+  name: string;
+  algorithm: string;
+  public_key: string;
+  fingerprint: string;
+  /** Empty string = present but hidden. Absent = public key only. */
+  private_key?: string;
+  passphrase?: string;
+  encrypted: boolean;
+  certificate?: string;
+  comment: string;
+  created_at: number;
+  for_host?: Uuid;
+}
+
+export type KeyAlgorithm = "ed25519" | "ecdsa_p256" | "ecdsa_p384" | "rsa3072" | "rsa4096";
+
+export interface KeyUsage {
+  identities: { id: Uuid; label: string }[];
+  hosts: { id: Uuid; label: string }[];
+}
+
+export interface HostGroup {
+  path: string;
+  default_identity_id?: Uuid;
+  default_jump_host_id?: Uuid;
+  proxy_id?: Uuid;
+  environment?: string;
+  color?: string;
+  notes: string;
+}
+
+export type ProxySpec =
+  | { kind: "socks5"; host: string; port: number; username?: string; password?: string }
+  | { kind: "http"; host: string; port: number; username?: string; password?: string }
+  | { kind: "command"; command: string; approved: boolean };
+
+export interface Proxy {
+  name: string;
+  spec: ProxySpec;
+}
+
+/** Saved tabs. `tabs` holds the frontend's WorkspaceTab objects. */
+export interface Workspace {
+  name: string;
+  tabs: unknown[];
+}
+
+export interface VaultSettings {
+  backup_retention: number;
+  destructive_patterns: string[];
+  paste_confirm_lines: number;
+  clipboard_clear_secs: number;
+}
+
+export interface ReplacedKey {
+  algorithm: string;
+  fingerprint: string;
+  replaced_at: number;
+  replaced_by: string;
+}
+
+/** A trusted server key stored in the vault. */
+export interface VaultKnownHost {
+  id: Uuid;
+  rev: number;
+  host: string;
+  port: number;
+  algorithm: string;
+  public_key: string;
+  fingerprint: string;
+  trusted_at: number;
+  trusted_by: string;
+  history: ReplacedKey[];
+  note: string;
+}
+
+/** Asked when a server's key is new or has changed. */
+export interface HostKeyPrompt {
+  request_id: Uuid;
+  host: string;
+  port: number;
+  algorithm: string;
+  fingerprint: string;
+  previous: { algorithm: string; fingerprint: string } | null;
+}
+
+export interface KnownHostsImport {
+  added: number;
+  existing: number;
+  hashed: number;
+  invalid: number;
 }
 
 /** Payload of the `vault:changed` event emitted by the Rust file watcher. */
@@ -121,6 +351,8 @@ export interface RecordChange {
   collection: Collection;
   id: Uuid;
   record: VaultRecord<unknown> | null;
+  /** A sync conflicted copy appeared that couldn't be merged automatically. */
+  conflict_copy?: boolean;
 }
 
 export function isApiError(e: unknown): e is ApiError {
@@ -189,7 +421,13 @@ export interface ImportedHost {
   forward_x11: boolean;
   /** Folder inside the import group, e.g. an Ansible group path. */
   group?: string | null;
+  /** Imported unapproved; never runs until approved in Proxies. */
+  proxy_command?: string | null;
+  keepalive_secs?: number | null;
+  forwards?: ForwardKind[];
 }
+
+export type KeyImport = "reference" | "copy";
 
 export type Health =
   | { state: "up"; latency_ms: number; banner: string | null }
@@ -205,8 +443,19 @@ export const ENVIRONMENTS = [
   { value: "development", label: "Development", short: "DEV", cls: "bg-success/15 text-success" },
 ] as const;
 
-export function envInfo(value: string | undefined) {
-  return ENVIRONMENTS.find((e) => e.value === (value ?? "")) ?? ENVIRONMENTS[0];
+export interface EnvInfo {
+  value: string;
+  label: string;
+  short?: string;
+  cls?: string;
+}
+
+/** Known environments get their colour; custom ones a neutral badge. */
+export function envInfo(value: string | undefined): EnvInfo {
+  const v = value ?? "";
+  const known = ENVIRONMENTS.find((e) => e.value === v);
+  if (known) return known;
+  return { value: v, label: v, short: v.slice(0, 5).toUpperCase(), cls: "bg-accent/15 text-accent" };
 }
 
 export interface ExecOutput {
@@ -237,6 +486,9 @@ export interface SshConfigPreview {
 export interface ImportSummary {
   hosts_created: number;
   identities_created: number;
+  keys_imported: number;
+  proxies_created: number;
+  forwards_created: number;
   skipped_existing: string[];
   warnings: string[];
 }

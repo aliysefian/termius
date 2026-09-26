@@ -34,14 +34,17 @@ Built with [Tauri v2](https://tauri.app), Rust, SvelteKit, Tailwind CSS and
 - **Plays well with your tooling**: import Ansible INI inventories, and
   export every host as an OpenSSH config for `ssh`, `scp`, Ansible and git.
 - **Quick connect**: type `user@host:port` to connect without saving a host.
-- **Import from `~/.ssh/config`**, including `Host *` defaults, keys and
-  ProxyJump.
+- **Import from `~/.ssh/config`**, including `Host *` defaults, ProxyJump,
+  ProxyCommand (off until you approve it), forwards and keep-alive. Key files
+  are referenced by path, or copied into the vault if you choose.
 - **Authentication**: password (with keyboard-interactive fallback), private
   key in OpenSSH, PEM or PuTTY format with optional passphrase, or your local
   ssh-agent (Unix socket on Linux, OpenSSH agent pipe or Pageant on Windows).
-- **Identities separate from hosts**: one key or password can be shared by many
-  hosts and rotated in one place. Generate Ed25519 keys and copy public keys
-  from the app.
+- **Credentials separate from hosts**: one key or password can be shared by
+  many hosts, or by a whole group, and rotated in one place.
+- **Key Manager**: generate Ed25519, ECDSA or RSA keys, import private and
+  public keys, OpenSSH certificates, passphrase changes, "used by", and a
+  deliberately guarded private-key export.
 - **Jump hosts** (like OpenSSH `ProxyJump`), including chains of several
   hops, plus optional **ssh-agent forwarding** and **X11 forwarding** per
   host.
@@ -53,13 +56,22 @@ Built with [Tauri v2](https://tauri.app), Rust, SvelteKit, Tailwind CSS and
 - **Snippets**: saved commands with `{{variables}}`. Run or paste them into
   the active terminal, broadcast to every pane in a tab, or run them on many
   hosts at once in the background and compare each host's output.
-- **Zero-knowledge sync**: every record is its own encrypted file, so editing
-  on several computers does not create "conflicted copy" files.
-- **Host tree** with nested groups, drag and drop between groups, recent
-  connections, search, tags and colours.
+- **Portable encrypted vault**: a folder of per-record encrypted files under a
+  random vault key that your master password (or recovery key) unlocks.
+  Several computers can edit at once: different changes merge, clashing ones
+  are flagged and never silently overwritten. Encrypted automatic backups,
+  restore, integrity checks, and "remember on this device" through the OS
+  keychain.
+- **Host tree** with nested groups (with default credential, jump host, proxy
+  and environment), favorites, drag and drop between groups, recent
+  connections, search, filters, sorting, tags, custom fields and colours.
+- **Proxies**: SOCKS5, HTTP CONNECT or an approved ProxyCommand, per host or
+  per group.
 - **Light and dark themes**, or follow the system setting.
-- **Security extras**: auto-lock after inactivity, a known-hosts manager, and
-  a clear flow when a server's key changes.
+- **Security extras**: server keys trusted explicitly and shared through the
+  vault, with old and new fingerprints when one changes; multi-line paste and
+  destructive-command confirmation on production hosts; clipboard clearing;
+  auto-lock.
 
 ## Install
 
@@ -101,28 +113,29 @@ on Windows 10 and 11. The installer fetches it if it is missing.
 
 ## First run and syncing between computers
 
-**On the first computer:**
+**On the first computer:** start SSHVault and choose **Create New Vault**.
+Give the vault a name, choose where to put it (a folder your sync service
+syncs, such as `~/Dropbox`), and pick a master password. Keep the **recovery
+key** it shows you somewhere safe and offline: it's the only way back in if
+you forget the password. **Import SSH Config** does the same and then imports
+your `~/.ssh/config`.
 
-1. Start SSHVault and click **Browse** to choose a vault folder inside your
-   synced directory, for example `~/Dropbox/Apps/SSHVault`.
-2. The folder is empty, so SSHVault offers to create a vault. Choose a master
-   password of at least 8 characters and confirm it.
-
-**On every other computer:**
-
-1. Wait until your sync client has downloaded the vault folder.
-2. Start SSHVault, click **Browse**, and choose the same folder.
-3. Enter the same master password.
+**On every other computer:** wait until the sync client has downloaded the
+folder, choose **Open Existing Vault**, pick the same folder and enter the
+same master password. Tick **Remember on this device** to unlock without
+typing it next time (the vault key goes into the OS credential store, never
+the password).
 
 Changes appear on the other computers a moment after the sync client
 delivers the files, with no restart or reload needed.
 
 > [!WARNING]
-> The master password is never stored anywhere. If you forget it, the vault
-> cannot be recovered, by you or by anyone else.
+> The master password is never stored anywhere. Without it or the recovery
+> key, the vault cannot be opened, by you or by anyone else.
 
-The vault folder path is remembered per computer, since it differs on each
-one. You can change it later under **Settings**.
+See the [vault user guide](docs/vault-user-guide.md) for backups, conflicts,
+moving the vault and more, and the [architecture and threat
+model](docs/vault-architecture.md) for how it works.
 
 ## Using SSHVault
 
@@ -134,22 +147,23 @@ one. You can change it later under **Settings**.
   - **SSH key**: a username and a key. You can generate a new Ed25519 key,
     load a key file, paste a key, or use ssh-agent. A generated key's public
     half is shown after saving, ready for `~/.ssh/authorized_keys`.
-  - **Keychain**: reuse an identity that several hosts share.
+  - **Credential**: reuse a credential that several hosts share.
   - **Ask**: save nothing and prompt at every connection. The prompt has a
     "Remember for this host" option.
 - Credentials entered in a host's form belong to that host. They are listed
-  under **Keychain → Saved with hosts** and are removed with the host. Tick
-  "Also save to Keychain" in the form to make them shareable instead.
+  under **Credentials → Saved with hosts** and are removed with the host. Tick
+  "Also save to Credentials" in the form to make them shareable instead.
 - When editing a host, leave the password or key empty to keep the saved one.
-- To share one login across many hosts, create an identity under
-  **Keychain** (the key icon) and pick it in each host's form.
+- To share one login across many hosts, create it under **Credentials**
+  and pick it in each host's form, or set it as the default of their group
+  under **Groups and proxies**.
 
 ### Viewing and copying saved passwords
 
 Saved passwords, private keys and passphrases stay hidden until you confirm
 your master password:
 
-- In **Keychain**, hover an identity and press the eye icon to show its
+- In **Credentials**, hover an entry and press the eye icon to show its
   secret, or the copy icon to copy the password directly. Credentials saved
   with a host are under **Saved with hosts**.
 - In the host and identity forms, press **Reveal saved** next to a stored
@@ -229,19 +243,27 @@ Click the import icon at the top of the host list, or run "Import hosts from
 ~/.ssh/config" from the command palette. SSHVault shows a preview of every
 host it found. Pick the ones you want and choose a group.
 
-- `HostName`, `User`, `Port`, `IdentityFile` and single-hop `ProxyJump` are
-  imported, with `Host *` defaults applied the same way `ssh` applies them.
-- Key files are copied into the encrypted vault, so they sync to your other
-  computers. Hosts without a key file get an identity that uses ssh-agent.
-- Hosts that already exist are skipped. `Match`, `Include`, `ProxyCommand` and
-  multi-hop `ProxyJump` are reported as warnings instead of imported.
+- `HostName`, `User`, `Port`, `IdentityFile`, single-hop `ProxyJump`,
+  `ProxyCommand`, `ForwardAgent`, `ForwardX11`, `LocalForward`,
+  `RemoteForward`, `DynamicForward` and `ServerAliveInterval` are imported,
+  with `Host *` defaults applied the same way `ssh` applies them.
+- Key files are **referenced by path** by default. Choose **Copy into the
+  vault** to store them encrypted in the Key Manager so they sync.
+- ProxyCommands are imported switched off; they never run until you approve
+  them under **Groups and proxies**. Forwards become tunnels that don't
+  start automatically.
+- Hosts that already exist are skipped. `Match`, `Include` and multi-hop
+  `ProxyJump` are reported as warnings instead of imported.
 
 ### Keys
 
-In the identity form, **Generate Ed25519 key** creates a new key pair and
-shows the public key to copy into `~/.ssh/authorized_keys` on your servers.
-For any key-based identity, the copy icon in the Keychain list copies its
-public key.
+The **Keys** screen is the Key Manager: generate Ed25519, ECDSA or RSA keys,
+import private keys (OpenSSH, PEM, PKCS#8, PuTTY) or colleagues' public
+keys, copy a public key for `~/.ssh/authorized_keys`, attach an OpenSSH
+certificate, change a passphrase, and see which credentials and hosts use a
+key. Credentials refer to keys, so replacing a key applies everywhere.
+Exporting a private key asks for the master password every time and writes an
+owner-only file.
 
 ### Jump hosts
 
@@ -294,9 +316,11 @@ connection too. Outside a terminal, **Ctrl+K** also opens it.
 | Ctrl+Shift+D, Ctrl+Shift+E | Split right, split down |
 | Ctrl+Shift+F | Find in terminal |
 | Ctrl+Shift+C, Ctrl+Shift+V | Copy, paste |
+| Shift+drag | Select text while a program (tmux, vim…) is using the mouse |
 | Ctrl+=, Ctrl+-, Ctrl+0 | Zoom in, out, reset |
 | Ctrl+Shift+L | Lock vault |
 | Ctrl+Shift+B | Type into all panes of the tab (toggle) |
+| Ctrl+Shift+H | Hide or show the list panel |
 | Ctrl+Shift+` | New local terminal |
 
 Plain Ctrl shortcuts such as Ctrl+W, Ctrl+T and Ctrl+K go to the remote
@@ -382,18 +406,19 @@ because forwarding runs without prompting you.
 ### Locking
 
 The lock icon at the bottom of the sidebar, or **Ctrl+Shift+L**, closes every
-terminal, SFTP session and forwarding rule, and wipes the key from memory.
-Under **Settings → Auto-lock** you can lock automatically after 5 minutes to 4
-hours without keyboard or mouse activity.
+terminal, SFTP session and forwarding rule, removes temporary copies of
+remote files, and wipes the key from memory. Under **Settings → Auto-lock**
+you can lock automatically after 5, 15, 30 or 60 minutes without keyboard
+or mouse activity.
 
 ### Known hosts
 
-**Settings → Known hosts** lists every server key pinned on this computer,
-with its fingerprint. You can remove entries there.
-
-If a server's key changes, the terminal shows the new fingerprint and a
-warning instead of connecting. Choose **Trust new key and reconnect** only if
-you know why the key changed.
+The first connection to a server shows its fingerprint and asks whether to
+trust it. Trusted keys are stored in the vault, so your other computers
+don't ask again. If a key changes, the connection stops and you see the old
+and new fingerprints; replacing the key needs you to type `replace`. The
+**Known hosts** screen lists every trusted key with its history, and can
+import your existing `~/.ssh/known_hosts`.
 
 ## Development
 
@@ -529,15 +554,22 @@ when ready.
 │   │   ├── sftp.ts             SFTP, local files and transfer IPC
 │   │   ├── types.ts            Types mirroring the Rust models
 │   │   ├── tree.ts             Builds the host tree from group paths
+│   │   ├── guard.ts            Paste and destructive-command checks
 │   │   ├── stores/             Svelte 5 rune stores (vault data, UI state)
 │   │   └── components/         UI components
 │   └── routes/+page.svelte     App shell
 ├── src-tauri/                  Rust backend
 │   ├── src/
-│   │   ├── crypto.rs           Argon2id key derivation, XChaCha20-Poly1305
-│   │   ├── vault.rs            One-encrypted-file-per-record store
-│   │   ├── models.rs           Host, Identity, Snippet, ForwardRule
-│   │   ├── config.rs           Per-machine settings (vault path)
+│   │   ├── crypto.rs           Argon2id, XChaCha20-Poly1305, key wrapping, recovery keys
+│   │   ├── vault/              Portable vault: format and key slots, records and
+│   │   │                       revisions, merge, conflicts, atomic writes, backups,
+│   │   │                       integrity, devices and locks, v1 migration
+│   │   ├── keychain.rs         "Remember on this device" (OS credential store)
+│   │   ├── models.rs           Host, Identity, SshKey, HostGroup, Proxy, KnownHost, …
+│   │   ├── keymanager.rs       Key Manager, group defaults, connection targets
+│   │   ├── hostkeys.rs         Trusted server keys in the vault
+│   │   ├── dial.rs             TCP, SOCKS5, HTTP CONNECT and ProxyCommand
+│   │   ├── config.rs           Per-machine settings (vault path, device)
 │   │   ├── sync.rs             File watcher for changes from other computers
 │   │   ├── session.rs          Unlock, lock, key lifetime
 │   │   ├── ssh.rs              Connections, jump chains, terminal sessions
@@ -553,8 +585,8 @@ when ready.
 │   │   ├── health.rs           Reachability and SSH banner checks
 │   │   ├── ansible.rs          Ansible INI inventory import
 │   │   ├── sshconfig.rs        ~/.ssh/config import
-│   │   ├── keys.rs             Key generation and public keys
-│   │   ├── knownhosts.rs       Pinned server keys
+│   │   ├── keys.rs             Key generation, import, passphrases, certificates
+│   │   ├── knownhosts.rs       OpenSSH known_hosts files (import, tests)
 │   │   ├── commands.rs         Tauri IPC commands and events
 │   │   └── lib.rs              App entry point, command registration
 │   ├── capabilities/           Tauri permission sets
@@ -562,7 +594,7 @@ when ready.
 └── .github/workflows/build.yml CI
 ```
 
-The Rust engine modules (`ssh.rs`, `sftp.rs`, `forward.rs`, `vault.rs` and the
+The Rust engine modules (`ssh.rs`, `sftp.rs`, `forward.rs`, `vault/` and the
 rest) do not depend on Tauri. `commands.rs` is the only layer that adapts them
 to IPC, which keeps the engine testable without a window.
 
@@ -606,81 +638,57 @@ This only checks the code. It does not produce a working binary.
 
 ## How it works
 
-### Vault layout
+The full design is in [docs/vault-architecture.md](docs/vault-architecture.md).
+In short:
 
 ```text
-<your synced folder>/
-├── vault.json              Plaintext manifest: salt, KDF settings, key check
-├── hosts/<uuid>.enc        One encrypted file per host
-├── identities/<uuid>.enc   One per identity
-├── snippets/<uuid>.enc     One per snippet
-└── forwards/<uuid>.enc     One per port-forwarding rule
+<your synced folder>/MySSHVault/
+├── vault.json            Format version, vault ID and wrapped keys. No secrets, no names.
+├── hosts/<uuid>.enc      One encrypted file per record (also identities/, keys/,
+├── …                     groups/, known_hosts/, proxies/, snippets/, forwards/, …)
+└── backups/*.enc         Encrypted backups
 ```
 
-A single database file would be rewritten on every change, so two computers
-editing at once would produce "conflicted copy" files. With one file per
-record, computers that edit different records never touch the same file.
+- **Keys.** A random 256-bit vault key encrypts every record. `vault.json`
+  holds it wrapped under a key derived from your master password with
+  Argon2id (64 MiB, 3 passes, 4 lanes), and optionally under your recovery
+  key. Changing the password rewraps the vault key; records don't change.
+- **Encryption.** XChaCha20-Poly1305 with a random 192-bit nonce per write.
+  Each record is bound to its vault, collection and ID, so edited, renamed
+  or transplanted files fail to decrypt.
+- **One file per record, with revisions.** Computers editing different
+  records never touch the same file. Edits to the same record carry the
+  revision they started from: different fields merge, clashing fields are
+  refused with a conflict instead of being overwritten, and sync-service
+  "conflicted copies" are merged or shown for you to resolve.
+- **Atomic writes.** Temp file, fsync, read-back check, rename, directory
+  fsync. A crash or full disk leaves the old version intact.
+- **Live sync.** A file watcher decrypts records as the sync client delivers
+  them and updates the interface.
 
-- **Newest write wins per record.** Every record carries an `updated_at`
-  timestamp. If two computers edit the same record while offline, the sync
-  service keeps one file, and every computer converges on it.
-- **Deletes are tombstones.** Deleting writes a small "deleted" record instead
-  of removing the file, so a computer that was offline learns about the
-  deletion instead of re-uploading its old copy.
-- **Writes are atomic.** Each record is written to a temporary file and then
-  renamed into place, so the sync client never uploads half a file.
-- **Stray files are ignored.** Conflicted copies, temp files and anything else
-  that isn't `<uuid>.enc` are skipped.
-
-### Live sync
-
-While the vault is unlocked, SSHVault watches the vault folder. When the sync
-client writes a record, the watcher waits briefly for the write to settle,
-decrypts the file, and pushes the change to the interface.
-
-### Per-computer data
-
-These files stay outside the vault, in the OS config directory:
-
-| OS | Location |
-|---|---|
-| Linux | `~/.config/com.aliyousefian.sshvault/` |
-| Windows | `%APPDATA%\com.aliyousefian.sshvault\` |
-
-- `config.json` holds the path of the vault folder.
-- `known_hosts` holds pinned server keys. It's per-computer, like OpenSSH's.
+Per-computer settings (the vault path, this device's name and ID, and
+whether the vault is remembered) live in `config.json` in the OS config
+directory: `~/.config/com.aliyousefian.sshvault/` on Linux,
+`%APPDATA%\com.aliyousefian.sshvault\` on Windows.
 
 ## Security model
 
-- **Key derivation.** The master password and a random 16-byte salt go through
-  Argon2id with 64 MiB of memory, 3 passes and 4 lanes. The salt is stored in
-  `vault.json` so every computer derives the same key.
-- **Encryption.** Every record is encrypted with XChaCha20-Poly1305, using a
-  fresh random 24-byte nonce per write. Random nonces are safe to use this way
-  across computers with no coordination.
-- **Tamper resistance.** Each record's collection and UUID are bound in as
-  authenticated data. A file that is edited, renamed, or moved to another
-  folder fails to decrypt and is ignored.
-- **Password check.** `vault.json` holds a small encrypted check value, so a
-  wrong password is rejected immediately. It contains no secrets.
-- **What the sync service sees.** It sees file names, which are random UUIDs,
-  the number of records of each type, file sizes, and modification times. It
-  cannot read hostnames, usernames, keys, passwords, snippets or forwarding
-  rules.
-- **In memory.** The master key is zeroed when the vault is locked. While
-  the vault is unlocked, decrypted hosts, snippets and rules are held in
-  memory so the interface can show them. Identity secrets stay on the Rust
-  side unless you reveal one with the master password.
-- **Revealing secrets.** Re-checking the master password re-derives the key
-  with Argon2id and compares it in constant time. Wrong guesses are rate
-  limited with a growing lockout, checked before the slow derivation runs.
-- **Tombstones.** Deleted-record markers older than 90 days are removed on
-  unlock. A computer offline for longer than that could bring back a record
-  deleted elsewhere.
-- **Host keys.** Server keys are trusted on first use and pinned. A changed key
-  blocks the connection and tells you which file to edit.
-- **Changing the master password.** **Settings** re-encrypts every record
-  with a fresh salt. Other computers must unlock again with the new password.
+- **What the sync service sees.** File names (random UUIDs), how many
+  records of each type exist, their sizes and modification times. It cannot
+  read host names, users, addresses, groups, keys, passwords, snippets or
+  rules, and it never holds anything that unlocks the vault.
+- **Not protected:** a computer that is compromised while the vault is
+  unlocked. Malware running as you can see what you see.
+- **In memory.** The vault key is wiped when the vault locks. Credentials,
+  keys and proxy passwords stay on the Rust side; the interface only gets
+  redacted copies unless you reveal a secret with the master password.
+- **Remember on this device** stores the vault key (never the password) in
+  the OS credential store. If that store is unavailable, the app asks for
+  the password; it never falls back to storing the key elsewhere.
+- **Backups** are encrypted with the vault key and checked completely before
+  a restore, which itself takes a safety backup first.
+- **Old versions** of SSHVault refuse newer vault formats instead of
+  damaging them. Upgrading keeps an untouched copy of the old files.
 
 ## Troubleshooting
 
@@ -694,19 +702,23 @@ starting with `WEBKIT_DISABLE_DMABUF_RENDERER=1`. xterm.js falls back to its
 slower DOM renderer when WebGL is unavailable.
 
 **The terminal says the host key changed.**
-The server presented a different key from the one pinned earlier. If you
-expected this, for example because the server was reinstalled, choose
-**Trust new key and reconnect**. If you didn't expect it, don't connect.
-For SFTP and port forwarding, remove the entry under
-**Settings → Known hosts** and connect again.
+The server presented a different key from the one trusted before. If you
+expected this, for example because the server was reinstalled, reconnect
+and replace the key after comparing fingerprints. If you didn't expect it,
+don't connect.
 
 **"master password is incorrect" on a second computer.**
 Check that the sync client has finished downloading `vault.json`, and that
 you chose the same folder as on the first computer.
 
 **Changes from another computer don't appear.**
-Check that the sync client is running and has finished syncing. You can force
-a re-read from disk with **Settings → Reload from disk**.
+Check that the sync client is running and has finished syncing. Comparing
+the **Revision** value on each computer's **Vault** screen tells you whether
+they hold the same data.
+
+**"Another device changed the same item" when saving.**
+Someone (or you, on another computer) edited the same field before the
+change synced. The current version is now shown; make your change again.
 
 **A forwarding rule shows "cannot listen on …".**
 Another program is using that port. Pick another port, or use `0` for a free

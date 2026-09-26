@@ -272,6 +272,7 @@ pub fn parse(text: &str, home: &Path) -> ParseResult {
             forward_agent: false,
             forward_x11: false,
             group: (!path.is_empty()).then(|| path.join("/")),
+            ..Default::default()
         });
     }
     result

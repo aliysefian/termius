@@ -44,7 +44,7 @@
       return !q || [d.label, d.hostname, d.group, ...d.tags].some((s) => s.toLowerCase().includes(q));
     }),
   );
-  const unattended = (id: Uuid) => !!vaultStore.hostById.get(id)?.data?.identity_id;
+  const unattended = (id: Uuid) => !!vaultStore.effectiveIdentity(vaultStore.hostById.get(id)?.data);
 
   function toggle(id: Uuid) {
     const next = new Set(picked);

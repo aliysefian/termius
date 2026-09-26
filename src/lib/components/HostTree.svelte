@@ -1,23 +1,39 @@
 <script lang="ts">
-  import { Activity, Clock, FileInput, Plus, Search, Server } from "lucide-svelte";
+  import { Activity, Clock, FileInput, FoldVertical, Plus, Search, Server, UnfoldVertical } from "lucide-svelte";
   import { settings } from "$lib/stores/settings.svelte";
   import HostRow from "./HostRow.svelte";
   import { ui } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
-  import { buildTree } from "$lib/tree";
+  import { buildTree, groupPaths, type HostSort } from "$lib/tree";
+  import { ENVIRONMENTS } from "$lib/types";
   import { acceptsHost, dropHostInto } from "$lib/hostdrag.svelte";
   import HostTreeNode from "./HostTreeNode.svelte";
 
+  let { favoritesOnly = false }: { favoritesOnly?: boolean } = $props();
+  let envFilter = $state("");
+  let tagFilter = $state("");
+  let sortBy = $state<HostSort>("name");
+  const allTags = $derived([...new Set(vaultStore.hosts.flatMap((h) => h.data?.tags ?? []))].sort());
+
   const filtered = $derived.by(() => {
     const q = ui.search.trim().toLowerCase();
-    if (!q) return vaultStore.hosts;
     return vaultStore.hosts.filter((h) => {
       const d = h.data;
       if (!d) return false;
-      return [d.label, d.hostname, d.group, ...d.tags].some((s) => s.toLowerCase().includes(q));
+      if (favoritesOnly && !d.favorite) return false;
+      if (envFilter && (d.environment ?? "") !== envFilter) return false;
+      if (tagFilter && !d.tags.includes(tagFilter)) return false;
+      if (!q) return true;
+      const fields = [d.label, d.hostname, d.group, d.notes, ...d.tags, ...Object.entries(d.custom ?? {}).flat()];
+      return fields.some((s) => s?.toLowerCase().includes(q));
     });
   });
-  const tree = $derived(buildTree(filtered));
+  const envChoices = $derived([
+    ...new Set([...ENVIRONMENTS.map((e) => e.value), ...vaultStore.hosts.map((h) => h.data?.environment ?? "")]),
+  ].filter(Boolean));
+  const tree = $derived(buildTree(filtered, sortBy));
+  const paths = $derived(groupPaths(tree));
+  const anyExpanded = $derived(paths.some((p) => !ui.collapsedGroups.has(p)));
   let rootDrop = $state(false);
   const recent = $derived(
     settings.recent
@@ -29,8 +45,15 @@
 
 <aside class="flex w-72 flex-col border-r border-line bg-panel">
   <div class="flex items-center justify-between px-4 pt-4 pb-2">
-    <h2 class="text-sm font-semibold">Hosts</h2>
+    <h2 class="text-sm font-semibold">{favoritesOnly ? "Favorites" : "Hosts"}</h2>
     <div class="flex">
+      {#if paths.length}
+        {#if anyExpanded}
+          <button class="icon-btn" title="Collapse all groups" onclick={() => ui.collapseGroups(paths)}><FoldVertical size={16} /></button>
+        {:else}
+          <button class="icon-btn" title="Expand all groups" onclick={() => ui.expandAllGroups()}><UnfoldVertical size={16} /></button>
+        {/if}
+      {/if}
       <button class="icon-btn" title="Check which hosts are reachable" disabled={vaultStore.checking} onclick={() => vaultStore.checkHealth()}>
         <Activity size={16} class={vaultStore.checking ? "animate-pulse text-accent" : ""} />
       </button>
@@ -47,6 +70,23 @@
     <div class="relative">
       <Search size={14} class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-muted" />
       <input class="input py-1.5 pl-8" placeholder="Search hosts…" bind:value={ui.search} />
+    </div>
+    <div class="mt-1.5 flex gap-1.5">
+      <select class="input flex-1 py-1 text-xs" bind:value={envFilter} aria-label="Filter by environment">
+        <option value="">Any environment</option>
+        {#each envChoices as e (e)}<option value={e}>{e}</option>{/each}
+      </select>
+      {#if allTags.length}
+        <select class="input flex-1 py-1 text-xs" bind:value={tagFilter} aria-label="Filter by tag">
+          <option value="">Any tag</option>
+          {#each allTags as t (t)}<option value={t}>{t}</option>{/each}
+        </select>
+      {/if}
+      <select class="input w-24 py-1 text-xs" bind:value={sortBy} aria-label="Sort hosts">
+        <option value="name">Name</option>
+        <option value="hostname">Address</option>
+        <option value="updated">Recent edits</option>
+      </select>
     </div>
   </div>
 
@@ -80,9 +120,11 @@
         </button>
       </div>
     {:else if filtered.length === 0}
-      <p class="px-2 py-6 text-center text-xs text-fg-muted">No matches.</p>
+      <p class="px-2 py-6 text-center text-xs text-fg-muted">
+        {favoritesOnly && !ui.search && !envFilter && !tagFilter ? "No favorites yet. Star a host to pin it here." : "No matches."}
+      </p>
     {:else}
-      {#if recent.length && !ui.search.trim()}
+      {#if recent.length && !ui.search.trim() && !favoritesOnly}
         <div class="mb-2">
           <div class="flex items-center gap-1.5 px-2 pb-1 pt-1 text-[11px] font-medium uppercase tracking-wide text-fg-muted">
             <Clock size={11} /> Recent

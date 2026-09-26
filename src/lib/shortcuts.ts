@@ -42,6 +42,9 @@ export function handleShortcut(e: KeyboardEvent): boolean {
       case "KeyB":
         ui.syncRequest++;
         return true;
+      case "KeyH":
+        ui.toggleSidebar();
+        return true;
       case "Backquote":
         ui.openLocal();
         return true;

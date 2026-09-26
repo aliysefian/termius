@@ -35,11 +35,11 @@
       {#if p.error}
         <p class="rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">{p.error}</p>
       {/if}
-      <p class="text-xs text-fg-muted">You won't be asked again for 2 minutes. Locking the vault ends that early.</p>
+      <p class="text-xs text-fg-muted">{p.note}</p>
       <div class="flex justify-end gap-2">
         <button class="btn-ghost" type="button" onclick={() => secrets.cancel()}>Cancel</button>
         <button class="btn-primary" type="submit" disabled={p.busy || !password}>
-          {#if p.busy}<Loader2 size={14} class="animate-spin" /> Checking…{:else}Reveal{/if}
+          {#if p.busy}<Loader2 size={14} class="animate-spin" /> Checking…{:else}{p.action}{/if}
         </button>
       </div>
     </form>

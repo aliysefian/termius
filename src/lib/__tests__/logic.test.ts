@@ -56,8 +56,10 @@ describe("parentPath", () => {
 describe("buildTree", () => {
   const h = (id: string, label: string, group: string): VaultRecord<Host> => ({
     id,
+    rev: 1,
     updated_at: 0,
     deleted: false,
+    device_id: "d",
     data: { label, hostname: "x", port: 22, group, tags: [], notes: "" },
   });
   it("nests groups and sorts children", () => {
