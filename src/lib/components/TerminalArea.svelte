@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Circle, Columns2, Command, Keyboard, Plus, Rows2, SquareTerminal, Terminal, X, Zap } from "lucide-svelte";
+  import { Circle, Columns2, Command, Keyboard, Plus, Rows2, SquareTerminal, Terminal, TextSelect, X, Zap } from "lucide-svelte";
   import { save } from "@tauri-apps/plugin-dialog";
   import * as api from "$lib/api";
   import { MAX_PANES, layoutRects, type Divider } from "$lib/layout";
@@ -291,6 +291,16 @@
                 <span class="truncate text-fg-muted/70">— {info.remoteTitle}</span>
               {/if}
               <div class="flex-1"></div>
+              {#if info?.mouseTracked}
+                <button
+                  class="icon-btn h-6 w-6 {info.selectMode ? 'text-accent' : ''}"
+                  title={info.selectMode ? "Give the mouse back to the program (tmux, vim…)" : "Select text with the mouse even though the program is using it"}
+                  aria-pressed={!!info.selectMode}
+                  onclick={() => (ui.paneInfo[pane.id] = { ...info, selectMode: !info.selectMode })}
+                >
+                  <TextSelect size={13} />
+                </button>
+              {/if}
               {#if multi}
                 <button
                   class="icon-btn h-6 w-6 {t.syncInput ? 'text-warning' : ''}"

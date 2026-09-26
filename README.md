@@ -316,9 +316,11 @@ connection too. Outside a terminal, **Ctrl+K** also opens it.
 | Ctrl+Shift+D, Ctrl+Shift+E | Split right, split down |
 | Ctrl+Shift+F | Find in terminal |
 | Ctrl+Shift+C, Ctrl+Shift+V | Copy, paste |
+| Shift+drag | Select text while a program (tmux, vim…) is using the mouse |
 | Ctrl+=, Ctrl+-, Ctrl+0 | Zoom in, out, reset |
 | Ctrl+Shift+L | Lock vault |
 | Ctrl+Shift+B | Type into all panes of the tab (toggle) |
+| Ctrl+Shift+H | Hide or show the list panel |
 | Ctrl+Shift+` | New local terminal |
 
 Plain Ctrl shortcuts such as Ctrl+W, Ctrl+T and Ctrl+K go to the remote

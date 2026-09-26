@@ -86,7 +86,9 @@
   <div class="flex h-screen overflow-hidden">
     <ActivityBar />
 
-    {#if ui.view === "hosts"}
+    {#if settings.prefs.sidebarHidden}
+      <!-- List panel hidden (Ctrl+Shift+H) -->
+    {:else if ui.view === "hosts"}
       <HostTree />
     {:else if ui.view === "favorites"}
       <HostTree favoritesOnly />

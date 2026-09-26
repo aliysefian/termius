@@ -15,6 +15,8 @@ export interface Prefs {
   /** Session logs keep colours and control codes instead of plain text. */
   logRaw: boolean;
   appTheme: "dark" | "light" | "system";
+  /** The list panel next to the activity bar is hidden (Ctrl+Shift+H). */
+  sidebarHidden: boolean;
 }
 
 export const DEFAULT_PREFS: Prefs = {
@@ -30,10 +32,12 @@ export const DEFAULT_PREFS: Prefs = {
   showHiddenFiles: false,
   logRaw: false,
   appTheme: "dark",
+  sidebarHidden: false,
 };
 
 const KEY = "sshvault.prefs.v1";
 const RECENT_KEY = "sshvault.recent.v1";
+const COLLAPSED_KEY = "sshvault.collapsed.v1";
 
 function load<T>(key: string, fallback: T): T {
   try {
@@ -58,11 +62,14 @@ class SettingsStore {
   prefs = $state<Prefs>(load(KEY, DEFAULT_PREFS));
   /** Host ids, most recent first. */
   recent = $state<string[]>(load<string[]>(RECENT_KEY, []));
+  /** Collapsed host-group paths, remembered per computer. */
+  collapsedGroups = $state<string[]>(load<string[]>(COLLAPSED_KEY, []));
 
   constructor() {
     $effect.root(() => {
       $effect(() => save(KEY, $state.snapshot(this.prefs)));
       $effect(() => save(RECENT_KEY, $state.snapshot(this.recent)));
+      $effect(() => save(COLLAPSED_KEY, $state.snapshot(this.collapsedGroups)));
     });
   }
 

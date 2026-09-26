@@ -6,6 +6,8 @@
     FolderTree,
     KeyRound,
     Lock,
+    PanelLeftClose,
+    PanelLeftOpen,
     Server,
     Settings,
     ShieldCheck,
@@ -13,8 +15,9 @@
     UserRound,
     Vault,
   } from "lucide-svelte";
-  import { ui, type View } from "$lib/stores/ui.svelte";
+  import { PAGE_VIEWS, ui, type View } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
+  import { settings } from "$lib/stores/settings.svelte";
 
   const items: { view: View; label: string; icon: typeof Server }[] = [
     { view: "hosts", label: "Hosts", icon: Server },
@@ -39,7 +42,14 @@
     <button
       class="group relative mb-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg transition-colors
         {ui.view === item.view ? 'bg-accent/15 text-accent' : 'text-fg-muted hover:bg-panel-hover hover:text-fg'}"
-      onclick={() => (ui.view = item.view)}
+      onclick={() => {
+        // Clicking the current view's icon toggles the panel, like VS Code.
+        if (ui.view === item.view && !PAGE_VIEWS.includes(item.view) && item.view !== "sftp") ui.toggleSidebar();
+        else {
+          ui.view = item.view;
+          if (!PAGE_VIEWS.includes(item.view) && item.view !== "sftp") settings.prefs.sidebarHidden = false;
+        }
+      }}
       title={item.label}
       aria-label={item.label}
       aria-current={ui.view === item.view ? "page" : undefined}
@@ -56,6 +66,15 @@
 
   <div class="flex-1"></div>
 
+  <button
+    class="mb-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-fg-muted transition-colors hover:bg-panel-hover hover:text-fg"
+    onclick={() => ui.toggleSidebar()}
+    title={settings.prefs.sidebarHidden ? "Show the list panel (Ctrl+Shift+H)" : "Hide the list panel (Ctrl+Shift+H)"}
+    aria-label={settings.prefs.sidebarHidden ? "Show the list panel" : "Hide the list panel"}
+    aria-pressed={settings.prefs.sidebarHidden}
+  >
+    {#if settings.prefs.sidebarHidden}<PanelLeftOpen size={20} />{:else}<PanelLeftClose size={20} />{/if}
+  </button>
   <button
     class="mb-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-fg-muted transition-colors hover:bg-panel-hover hover:text-fg"
     onclick={() => vaultStore.lock()}

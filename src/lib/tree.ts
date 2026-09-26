@@ -15,6 +15,11 @@ const comparators: Record<HostSort, (a: VaultRecord<Host>, b: VaultRecord<Host>)
   updated: (a, b) => b.updated_at - a.updated_at,
 };
 
+/** Every group path in the tree, including nested ones. */
+export function groupPaths(node: GroupNode): string[] {
+  return node.children.flatMap((c) => [c.path, ...groupPaths(c)]);
+}
+
 /** Fold a flat host list into a tree keyed by each host's slash-separated group path. */
 export function buildTree(hosts: VaultRecord<Host>[], sortBy: HostSort = "name"): GroupNode {
   const root: GroupNode = { name: "", path: "", children: [], hosts: [] };

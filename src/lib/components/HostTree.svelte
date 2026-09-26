@@ -1,10 +1,10 @@
 <script lang="ts">
-  import { Activity, Clock, FileInput, Plus, Search, Server } from "lucide-svelte";
+  import { Activity, Clock, FileInput, FoldVertical, Plus, Search, Server, UnfoldVertical } from "lucide-svelte";
   import { settings } from "$lib/stores/settings.svelte";
   import HostRow from "./HostRow.svelte";
   import { ui } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
-  import { buildTree, type HostSort } from "$lib/tree";
+  import { buildTree, groupPaths, type HostSort } from "$lib/tree";
   import { ENVIRONMENTS } from "$lib/types";
   import { acceptsHost, dropHostInto } from "$lib/hostdrag.svelte";
   import HostTreeNode from "./HostTreeNode.svelte";
@@ -32,6 +32,8 @@
     ...new Set([...ENVIRONMENTS.map((e) => e.value), ...vaultStore.hosts.map((h) => h.data?.environment ?? "")]),
   ].filter(Boolean));
   const tree = $derived(buildTree(filtered, sortBy));
+  const paths = $derived(groupPaths(tree));
+  const anyExpanded = $derived(paths.some((p) => !ui.collapsedGroups.has(p)));
   let rootDrop = $state(false);
   const recent = $derived(
     settings.recent
@@ -45,6 +47,13 @@
   <div class="flex items-center justify-between px-4 pt-4 pb-2">
     <h2 class="text-sm font-semibold">{favoritesOnly ? "Favorites" : "Hosts"}</h2>
     <div class="flex">
+      {#if paths.length}
+        {#if anyExpanded}
+          <button class="icon-btn" title="Collapse all groups" onclick={() => ui.collapseGroups(paths)}><FoldVertical size={16} /></button>
+        {:else}
+          <button class="icon-btn" title="Expand all groups" onclick={() => ui.expandAllGroups()}><UnfoldVertical size={16} /></button>
+        {/if}
+      {/if}
       <button class="icon-btn" title="Check which hosts are reachable" disabled={vaultStore.checking} onclick={() => vaultStore.checkHealth()}>
         <Activity size={16} class={vaultStore.checking ? "animate-pulse text-accent" : ""} />
       </button>

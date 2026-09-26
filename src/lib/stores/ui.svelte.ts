@@ -1,5 +1,6 @@
 // Ephemeral UI state: which sidebar view is active, open tabs, modals.
 import { MAX_PANES, grid, leaf, paneIds, remove, setRatio, split, type LayoutNode } from "$lib/layout";
+import { settings } from "$lib/stores/settings.svelte";
 import type { AdhocTarget, SessionStatus } from "$lib/ssh";
 import type { Uuid } from "$lib/types";
 
@@ -51,6 +52,10 @@ export interface PaneInfo {
   remoteTitle?: string;
   /** Path of the session log being written, if recording. */
   recording?: string;
+  /** The remote program (tmux, vim, htop…) asked for mouse events. */
+  mouseTracked?: boolean;
+  /** Mouse selects text even while the program wants the mouse. */
+  selectMode?: boolean;
 }
 
 export type Modal =
@@ -91,7 +96,7 @@ class UiStore {
   modal = $state<Modal>(null);
   paletteOpen = $state(false);
   search = $state("");
-  collapsedGroups = $state<Set<string>>(new Set());
+  collapsedGroups = $derived(new Set(settings.collapsedGroups));
   paneInfo = $state<Record<string, PaneInfo>>({});
   /** Bumped to ask the active pane to open its find bar. */
   findRequest = $state(0);
@@ -294,10 +299,22 @@ class UiStore {
   }
 
   toggleGroup(path: string) {
-    const next = new Set(this.collapsedGroups);
+    const next = new Set(settings.collapsedGroups);
     if (next.has(path)) next.delete(path);
     else next.add(path);
-    this.collapsedGroups = next;
+    settings.collapsedGroups = [...next];
+  }
+
+  collapseGroups(paths: string[]) {
+    settings.collapsedGroups = [...new Set([...settings.collapsedGroups, ...paths])];
+  }
+
+  expandAllGroups() {
+    settings.collapsedGroups = [];
+  }
+
+  toggleSidebar() {
+    settings.prefs.sidebarHidden = !settings.prefs.sidebarHidden;
   }
 }
 

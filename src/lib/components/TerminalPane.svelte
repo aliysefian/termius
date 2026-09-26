@@ -7,7 +7,7 @@
   import { WebLinksAddon } from "@xterm/addon-web-links";
   import "@xterm/xterm/css/xterm.css";
   import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
-  import { ChevronDown, ChevronUp, KeyRound, Loader2, RefreshCw, Search, ShieldAlert, ShieldX, Unplug, X } from "lucide-svelte";
+  import { ChevronDown, ChevronUp, KeyRound, Loader2, MousePointer2, RefreshCw, Search, ShieldAlert, ShieldX, Unplug, X } from "lucide-svelte";
   import type { UnlistenFn } from "@tauri-apps/api/event";
   import * as api from "$lib/api";
   import { ssh, type Credentials, type SessionStatus } from "$lib/ssh";
@@ -124,6 +124,72 @@
 
   function setInfo(s: SessionStatus["kind"]) {
     ui.paneInfo[paneId] = { ...(ui.paneInfo[paneId] ?? {}), status: s };
+  }
+
+  // -- mouse: programs like tmux, vim and htop take over the mouse -----------
+  //
+  // While a program tracks the mouse, xterm.js hands clicks and drags to it
+  // and only selects text with Shift held. "Select mode" makes plain drags
+  // select (and copy) again by re-sending them as Shift-drags, which xterm
+  // treats as forced selection and doesn't forward to the program.
+  const mouseTracked = $derived(ui.paneInfo[paneId]?.mouseTracked ?? false);
+  const selectMode = $derived(ui.paneInfo[paneId]?.selectMode ?? false);
+  const overrideMouse = $derived(selectMode && mouseTracked);
+
+  function toggleSelectMode() {
+    ui.paneInfo[paneId] = { ...(ui.paneInfo[paneId] ?? { status: status.kind }), selectMode: !selectMode };
+    term?.focus();
+  }
+
+  function refreshModes() {
+    const tracked = term.modes.mouseTrackingMode !== "none";
+    if ((ui.paneInfo[paneId]?.mouseTracked ?? false) !== tracked) {
+      ui.paneInfo[paneId] = { ...(ui.paneInfo[paneId] ?? { status: status.kind }), mouseTracked: tracked };
+    }
+  }
+
+  function forceSelection(e: MouseEvent) {
+    if (!overrideMouse || e.shiftKey || e.button !== 0) return;
+    e.stopImmediatePropagation();
+    e.preventDefault();
+    e.target?.dispatchEvent(new MouseEvent(e.type, { ...eventInit(e), shiftKey: true }));
+  }
+
+  function eventInit(e: MouseEvent): MouseEventInit {
+    return {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+      view: e.view,
+      detail: e.detail,
+      screenX: e.screenX,
+      screenY: e.screenY,
+      clientX: e.clientX,
+      clientY: e.clientY,
+      ctrlKey: e.ctrlKey,
+      altKey: e.altKey,
+      metaKey: e.metaKey,
+      button: e.button,
+      buttons: e.buttons,
+      relatedTarget: e.relatedTarget,
+    };
+  }
+
+  /**
+   * Full-screen programs (tmux with the mouse off, less, vim) have no
+   * scrollback of their own to show, so xterm.js ignores the wheel there.
+   * Turn each notch into arrow keys, like other terminals' "alternate
+   * scroll", so the program scrolls instead.
+   */
+  function wheelToKeys(e: WheelEvent): boolean {
+    if (status.kind !== "connected" || term.buffer.active.type !== "alternate" || mouseTracked) return true;
+    if (e.deltaY === 0) return true;
+    // deltaMode 0 = pixels (about 40 per notch on most systems), 1 = lines.
+    const lines = Math.max(1, Math.round(Math.abs(e.deltaY) / (e.deltaMode === 0 ? 40 : 1)));
+    const key = e.deltaY < 0 ? (term.modes.applicationCursorKeysMode ? "\x1bOA" : "\x1b[A") : term.modes.applicationCursorKeysMode ? "\x1bOB" : "\x1b[B";
+    send(key.repeat(Math.min(lines, 20)));
+    e.preventDefault();
+    return false;
   }
 
   function safeFit() {
@@ -296,6 +362,12 @@
       { capture: true },
     );
 
+    for (const type of ["mousedown", "mouseup"] as const) {
+      container.addEventListener(type, forceSelection, { capture: true });
+    }
+    term.attachCustomWheelEventHandler(wheelToKeys);
+    term.onWriteParsed(refreshModes);
+
     term.onData((d) => {
       if (status.kind !== "connected" || pending) return;
       typed(d);
@@ -405,6 +477,16 @@
     }}
   ></div>
 
+  {#if mouseTracked && !selectMode && status.kind === "connected"}
+    <button
+      class="absolute bottom-2 right-3 z-10 flex items-center gap-1.5 rounded-md border border-line bg-panel/90 px-2 py-1 text-[11px] text-fg-muted shadow hover:text-fg"
+      title="The program in this terminal (for example tmux or vim) is using the mouse. Hold Shift to select text, or switch to select mode."
+      onclick={toggleSelectMode}
+    >
+      <MousePointer2 size={11} /> Program has the mouse · Shift+drag selects · click to select instead
+    </button>
+  {/if}
+
   {#if findOpen}
     <div class="absolute right-3 top-2 z-20 flex items-center gap-1 rounded-md border border-line bg-panel px-2 py-1 shadow-lg">
       <Search size={13} class="text-fg-muted" />
@@ -433,6 +515,7 @@
         { label: "Paste", keys: "Ctrl+Shift+V", run: paste, disabled: status.kind !== "connected" },
         { label: "Select all", keys: "", run: () => term.selectAll(), disabled: false },
         { label: "Find…", keys: "Ctrl+Shift+F", run: openFind, disabled: false },
+        { label: selectMode ? "Give the mouse back to the program" : "Select text with the mouse", keys: "", run: toggleSelectMode, disabled: !mouseTracked },
         { label: "Clear scrollback", keys: "", run: () => term.clear(), disabled: false },
       ] as item (item.label)}
         <button
