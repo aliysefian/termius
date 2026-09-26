@@ -21,13 +21,20 @@ Built with [Tauri v2](https://tauri.app), Rust, SvelteKit, Tailwind CSS and
 
 ## Features
 
-- **Terminal**: tabs, split panes (right or down), WebGL-rendered xterm.js,
-  256 colours, clickable links, automatic resize.
+- **Terminal**: tabs that stay connected in the background, split panes,
+  WebGL rendering, copy and paste, find, clickable links, seven colour themes,
+  and adjustable font, cursor and scrollback.
+- **Command palette** (Ctrl+Shift+P) and keyboard shortcuts for connecting,
+  running snippets, splitting, and switching tabs.
+- **Quick connect**: type `user@host:port` to connect without saving a host.
+- **Import from `~/.ssh/config`**, including `Host *` defaults, keys and
+  ProxyJump.
 - **Authentication**: password (with keyboard-interactive fallback), private
   key in OpenSSH, PEM or PuTTY format with optional passphrase, or your local
   ssh-agent (Unix socket on Linux, OpenSSH agent pipe or Pageant on Windows).
 - **Identities separate from hosts**: one key or password can be shared by many
-  hosts and rotated in one place.
+  hosts and rotated in one place. Generate Ed25519 keys and copy public keys
+  from the app.
 - **Jump hosts** (like OpenSSH `ProxyJump`), including chains of several hops.
 - **SFTP**: dual-pane browser for this computer and a remote host, with drag
   and drop, multi-select, rename, delete, new folder, and recursive,
@@ -38,7 +45,10 @@ Built with [Tauri v2](https://tauri.app), Rust, SvelteKit, Tailwind CSS and
   or broadcast to every pane in a split tab.
 - **Zero-knowledge sync**: every record is its own encrypted file, so editing
   on several computers does not create "conflicted copy" files.
-- **Host tree** with nested groups, search, tags and colours.
+- **Host tree** with nested groups, recent connections, search, tags and
+  colours.
+- **Security extras**: auto-lock after inactivity, a known-hosts manager, and
+  a clear flow when a server's key changes.
 
 ## Install
 
@@ -114,7 +124,29 @@ one. You can change it later under **Settings**.
   and password each time you connect, and does not save them.
 - Put hosts in nested groups by typing a path such as `Production/Databases`
   in the **Group** field.
-- **Double-click** a host to open it in a new terminal tab.
+- **Double-click** a host to open it in a new terminal tab. Hosts you
+  connected to recently appear at the top of the tree.
+- Hover a host to duplicate, edit or delete it.
+
+### Importing from `~/.ssh/config`
+
+Click the import icon at the top of the host list, or run "Import hosts from
+~/.ssh/config" from the command palette. SSHVault shows a preview of every
+host it found. Pick the ones you want and choose a group.
+
+- `HostName`, `User`, `Port`, `IdentityFile` and single-hop `ProxyJump` are
+  imported, with `Host *` defaults applied the same way `ssh` applies them.
+- Key files are copied into the encrypted vault, so they sync to your other
+  computers. Hosts without a key file get an identity that uses ssh-agent.
+- Hosts that already exist are skipped. `Match`, `Include`, `ProxyCommand` and
+  multi-hop `ProxyJump` are reported as warnings instead of imported.
+
+### Keys
+
+In the identity form, **Generate Ed25519 key** creates a new key pair and
+shows the public key to copy into `~/.ssh/authorized_keys` on your servers.
+For any key-based identity, the copy icon in the Keychain list copies its
+public key.
 
 ### Jump hosts
 
@@ -129,9 +161,44 @@ ask you for one-time credentials. SSHVault refuses to save a chain that loops.
 
 - Split a tab with the buttons in a pane's header. A tab holds up to two
   panes.
-- Middle-click a tab to close it.
+- Double-click a tab to rename it. Right-click it to duplicate it or close
+  other tabs. Middle-click to close it.
+- The dot on each tab shows its connection: green connected, yellow
+  connecting, red failed, grey closed.
+- Right-click inside a terminal for copy, paste, select all, find and clear.
 - If the connection drops, a **Reconnect** button appears at the bottom of the
   pane.
+- Change the colour theme, font, cursor and scrollback under **Settings**.
+  These settings are per computer and are not synced.
+
+### Quick connect and the command palette
+
+Press **Ctrl+Shift+T**, or the **+** next to the tabs, and type
+`user@host` or `user@host:port`. Leave the password empty to use ssh-agent.
+Nothing is saved.
+
+Press **Ctrl+Shift+P** to open the command palette. It searches hosts, recent
+connections, snippets and actions. Typing `user@host` there offers a quick
+connection too. Outside a terminal, **Ctrl+K** also opens it.
+
+### Keyboard shortcuts
+
+| Keys | Action |
+|---|---|
+| Ctrl+Shift+P | Command palette |
+| Ctrl+Shift+T | Quick connect |
+| Ctrl+Shift+W | Close tab |
+| Ctrl+Tab, Ctrl+Shift+Tab | Next or previous tab |
+| Ctrl+PageDown, Ctrl+PageUp | Next or previous tab |
+| Ctrl+1 … Ctrl+9 | Go to tab 1 to 9 |
+| Ctrl+Shift+D, Ctrl+Shift+E | Split right, split down |
+| Ctrl+Shift+F | Find in terminal |
+| Ctrl+Shift+C, Ctrl+Shift+V | Copy, paste |
+| Ctrl+=, Ctrl+-, Ctrl+0 | Zoom in, out, reset |
+| Ctrl+Shift+L | Lock vault |
+
+Plain Ctrl shortcuts such as Ctrl+W, Ctrl+T and Ctrl+K go to the remote
+shell, where editors and readline use them.
 
 ### Snippets
 
@@ -143,6 +210,7 @@ Add snippets under **Snippets**. To use one, either:
   broadcast.
 
 Paste sends the text without pressing Enter, so you can edit it before running.
+Snippets also appear in the command palette.
 
 ### SFTP
 
@@ -154,7 +222,7 @@ the remote host.
 3. Select files with click, **Ctrl**+click or **Shift**+click.
 4. Drag files to the other pane, or use **Upload →** and **← Download**.
 
-Folders are copied recursively. Symbolic links are listed, but not followed
+The eye icon in each pane's toolbar shows or hides dotfiles. Folders are copied recursively. Symbolic links are listed, but not followed
 during recursive copies. Transfers appear at the bottom with progress and a
 cancel button.
 
@@ -173,13 +241,25 @@ shown under the rule. A green dot means the rule is running. Errors, such as a
 port already in use, are shown under the rule.
 
 Rules are synced like hosts, but running state is not: each computer starts
-its own rules. The rule's host needs an identity, because forwarding runs
-without prompting you.
+its own rules. Tick **Start automatically** to start a rule every time the
+vault is unlocked, on every computer. The rule's host needs an identity,
+because forwarding runs without prompting you.
 
 ### Locking
 
-The lock icon at the bottom of the sidebar closes every terminal, SFTP session
-and forwarding rule, and wipes the key from memory.
+The lock icon at the bottom of the sidebar, or **Ctrl+Shift+L**, closes every
+terminal, SFTP session and forwarding rule, and wipes the key from memory.
+Under **Settings → Auto-lock** you can lock automatically after 5 minutes to 4
+hours without keyboard or mouse activity.
+
+### Known hosts
+
+**Settings → Known hosts** lists every server key pinned on this computer,
+with its fingerprint. You can remove entries there.
+
+If a server's key changes, the terminal shows the new fingerprint and a
+warning instead of connecting. Choose **Trust new key and reconnect** only if
+you know why the key changed.
 
 ## Development
 
@@ -251,6 +331,7 @@ minutes.
 
 ```sh
 pnpm check                                 # Svelte and TypeScript type-check
+pnpm test                                  # Frontend unit tests (Vitest)
 cd src-tauri
 cargo test                                 # Rust unit and end-to-end tests
 cargo clippy --all-targets -- -D warnings  # Rust lints, warnings are errors
@@ -276,9 +357,13 @@ Output goes to `src-tauri/target/release/bundle/`:
 ### Continuous integration
 
 `.github/workflows/build.yml` runs on pushes to `main`, pull requests, `v*`
-tags, and manual dispatch. On Ubuntu 22.04 and Windows it type-checks the
-frontend, runs clippy and the Rust tests, builds the installers, and uploads
-them as artifacts.
+tags, and manual dispatch. On Ubuntu 22.04 and Windows it type-checks and
+tests the frontend, runs clippy and the Rust tests, builds the installers, and
+uploads them as artifacts.
+
+Pushing a tag such as `v0.2.0` also creates a **draft** GitHub Release with
+both platforms' installers attached. Review the draft on GitHub and publish it
+when ready.
 
 ### Project structure
 
@@ -330,9 +415,10 @@ The frontend calls Rust with `invoke`. Rust pushes updates back in two ways:
 
 To connect, the frontend sends only a host id. The backend decrypts that
 host's identity and any jump-host identities itself, so terminal, SFTP and
-forwarding connections never send credentials through the webview. The
-Keychain screen is the exception: it loads identities, secrets included, into
-the webview so you can edit them.
+forwarding connections never send credentials through the webview.
+Identity lists and live sync events are redacted too: they carry the label,
+username and auth type, but no password, key or passphrase. The identity form
+fetches the secrets for that one identity when you open it.
 
 ### Type-checking the Tauri crate without GTK
 
@@ -416,8 +502,12 @@ These files stay outside the vault, in the OS config directory:
   cannot read hostnames, usernames, keys, passwords, snippets or forwarding
   rules.
 - **In memory.** The master key is zeroed when the vault is locked. While
-  the vault is unlocked, decrypted records are held in memory so the interface
-  can show them.
+  the vault is unlocked, decrypted hosts, snippets and rules are held in
+  memory so the interface can show them. Identity secrets stay on the Rust
+  side except while an identity is open for editing.
+- **Tombstones.** Deleted-record markers older than 90 days are removed on
+  unlock. A computer offline for longer than that could bring back a record
+  deleted elsewhere.
 - **Host keys.** Server keys are trusted on first use and pinned. A changed key
   blocks the connection and tells you which file to edit.
 - **Changing the master password.** **Settings** re-encrypts every record
@@ -434,12 +524,12 @@ Some GPU and driver combinations misbehave with WebGL in WebKitGTK. Try
 starting with `WEBKIT_DISABLE_DMABUF_RENDERER=1`. xterm.js falls back to its
 slower DOM renderer when WebGL is unavailable.
 
-**"Host key for … has CHANGED".**
+**The terminal says the host key changed.**
 The server presented a different key from the one pinned earlier. If you
-expected this, for example because the server was reinstalled, delete that
-host's line from the `known_hosts` file under
-[Per-computer data](#per-computer-data) and connect again. If you didn't
-expect it, don't connect.
+expected this, for example because the server was reinstalled, choose
+**Trust new key and reconnect**. If you didn't expect it, don't connect.
+For SFTP and port forwarding, remove the entry under
+**Settings → Known hosts** and connect again.
 
 **"master password is incorrect" on a second computer.**
 Check that the sync client has finished downloading `vault.json`, and that
@@ -470,8 +560,8 @@ Known limitations:
 - A tab holds at most two panes.
 - Snippets are sent to open terminals. They are not run on several hosts in
   the background.
-- Old tombstones are never purged automatically, so deleted records leave
-  small files behind.
+
+See [ROADMAP.md](ROADMAP.md) for planned work.
 - The SFTP pane can reach any path your user account can, since the app is a
   full file manager for this computer.
 

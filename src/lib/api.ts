@@ -3,6 +3,12 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import type {
+  GeneratedKey,
+  ImportedHost,
+  ImportSummary,
+  KnownHost,
+  PublicKeyInfo,
+  SshConfigPreview,
   ForwardRule,
   ForwardStatus,
   Host,
@@ -37,6 +43,25 @@ export const identities = {
   save: (id: Uuid | null, identity: Identity) =>
     invoke<VaultRecord<Identity>>("save_identity", { id, identity }),
   delete: (id: Uuid) => invoke<void>("delete_identity", { id }),
+  /** Full record including secrets, for the edit form only. */
+  get: (id: Uuid) => invoke<VaultRecord<Identity>>("get_identity", { id }),
+  publicKey: (id: Uuid) => invoke<PublicKeyInfo>("identity_public_key", { id }),
+};
+
+export const keys = {
+  generate: (comment: string) => invoke<GeneratedKey>("generate_key", { comment }),
+};
+
+export const knownHosts = {
+  list: () => invoke<KnownHost[]>("known_hosts_list"),
+  remove: (line: number) => invoke<boolean>("known_hosts_remove", { line }),
+  forget: (host: string, port: number) => invoke<number>("known_hosts_forget", { host, port }),
+};
+
+export const sshConfig = {
+  preview: (path: string | null) => invoke<SshConfigPreview>("ssh_config_preview", { path }),
+  import: (hosts: ImportedHost[], group: string) =>
+    invoke<ImportSummary>("ssh_config_import", { hosts, group }),
 };
 
 export const snippets = {

@@ -60,6 +60,7 @@ pub enum SshError {
     #[error("host key for {host} has CHANGED (fingerprint {fingerprint}). Possible man-in-the-middle; remove the old entry from {known_hosts} if this is expected")]
     HostKeyChanged {
         host: String,
+        port: u16,
         fingerprint: String,
         known_hosts: PathBuf,
     },
@@ -121,9 +122,33 @@ pub enum SessionStatus {
     Disconnected {
         code: Option<u32>,
     },
+    /// A pinned host key no longer matches. Carries enough for the UI to
+    /// offer a deliberate "trust the new key" action.
+    HostKeyChanged {
+        host: String,
+        port: u16,
+        fingerprint: String,
+    },
     Error {
         message: String,
     },
+}
+
+impl SshError {
+    /// The changed-host-key error inside this one, looking through jump
+    /// wrappers.
+    pub fn host_key_changed(&self) -> Option<(&str, u16, &str)> {
+        match self {
+            SshError::HostKeyChanged {
+                host,
+                port,
+                fingerprint,
+                ..
+            } => Some((host, *port, fingerprint)),
+            SshError::Jump { source, .. } => source.host_key_changed(),
+            _ => None,
+        }
+    }
 }
 
 /// Where to connect and how to log in. Shared by terminals, SFTP and
@@ -245,9 +270,16 @@ impl SshManager {
             let outcome = run_session(params, rx, sink.as_ref()).await;
             match outcome {
                 Ok(code) => sink.status(SessionStatus::Disconnected { code }),
-                Err(e) => sink.status(SessionStatus::Error {
-                    message: e.to_string(),
-                }),
+                Err(e) => match e.host_key_changed() {
+                    Some((host, port, fingerprint)) => sink.status(SessionStatus::HostKeyChanged {
+                        host: host.to_string(),
+                        port,
+                        fingerprint: fingerprint.to_string(),
+                    }),
+                    None => sink.status(SessionStatus::Error {
+                        message: e.to_string(),
+                    }),
+                },
             }
             manager
                 .sessions
@@ -359,6 +391,7 @@ impl client::Handler for ClientHandler {
             Ok(false) => self.learn(&key, fingerprint),
             Err(keys::Error::KeyChanged { .. }) => Err(SshError::HostKeyChanged {
                 host: self.host.clone(),
+                port: self.port,
                 fingerprint,
                 known_hosts: self.known_hosts.clone(),
             }),
@@ -1017,14 +1050,35 @@ mod tests {
                 Arc::new(TestSink(tx)),
             )
             .unwrap();
-        let err = loop {
-            if let Ev::Status(SessionStatus::Error { message }) =
+        let changed = loop {
+            if let Ev::Status(s @ SessionStatus::HostKeyChanged { .. }) =
                 rx.recv_timeout(Duration::from_secs(15)).unwrap()
             {
-                break message;
+                break s;
             }
         };
-        assert!(err.contains("CHANGED"), "{err}");
+        assert!(
+            matches!(&changed, SessionStatus::HostKeyChanged { host, port, fingerprint }
+                if host == "127.0.0.1" && *port == sshd.port && fingerprint.starts_with("SHA256:")),
+            "{changed:?}"
+        );
+
+        // Forgetting the pin lets the next connection learn the real key.
+        assert_eq!(
+            crate::knownhosts::forget(&known_hosts, "127.0.0.1", sshd.port).unwrap(),
+            1
+        );
+        let (tx, rx) = std_mpsc::channel();
+        manager
+            .connect(
+                "p5".into(),
+                params(&sshd, &sshd.client_key, known_hosts.clone()),
+                Arc::new(TestSink(tx)),
+            )
+            .unwrap();
+        wait_status(&rx, |s| matches!(s, SessionStatus::NewHostKey { .. }));
+        wait_status(&rx, |s| matches!(s, SessionStatus::Connected));
+        manager.disconnect("p5").await;
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

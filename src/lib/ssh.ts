@@ -8,6 +8,7 @@ export type SessionStatus =
   | { kind: "new_host_key"; host: string; fingerprint: string }
   | { kind: "connected" }
   | { kind: "disconnected"; code: number | null }
+  | { kind: "host_key_changed"; host: string; port: number; fingerprint: string }
   | { kind: "error"; message: string };
 
 export interface StatusEvent {
@@ -19,6 +20,23 @@ export interface StatusEvent {
 export interface Credentials {
   username: string;
   password: string;
+}
+
+/** An unsaved `user@host:port` connection from quick connect. */
+export interface AdhocTarget {
+  hostname: string;
+  port: number;
+  username: string;
+  password?: string;
+}
+
+/** Parse `user@host`, `user@host:port` or `user@[v6::addr]:port`. */
+export function parseAdhoc(input: string): Omit<AdhocTarget, "password"> | null {
+  const m = input.trim().match(/^([^@\s]+)@(\[[^\]]+\]|[^:\s]+)(?::(\d{1,5}))?$/);
+  if (!m) return null;
+  const port = m[3] ? Number(m[3]) : 22;
+  if (port < 1 || port > 65535) return null;
+  return { username: m[1], hostname: m[2].replace(/^\[|\]$/g, ""), port };
 }
 
 const encoder = new TextEncoder();
@@ -38,6 +56,29 @@ export const ssh = {
       onData(msg instanceof ArrayBuffer ? new Uint8Array(msg) : Uint8Array.from(msg));
     });
     return invoke<void>("ssh_connect", { paneId, hostId, cols, rows, credentials, onData: channel });
+  },
+
+  /** Connect a pane to an unsaved host. No password means use ssh-agent. */
+  connectAdhoc(
+    paneId: string,
+    target: AdhocTarget,
+    cols: number,
+    rows: number,
+    onData: (bytes: Uint8Array) => void,
+  ): Promise<void> {
+    const channel = new Channel<ArrayBuffer | number[]>((msg) => {
+      onData(msg instanceof ArrayBuffer ? new Uint8Array(msg) : Uint8Array.from(msg));
+    });
+    return invoke<void>("ssh_connect_adhoc", {
+      paneId,
+      hostname: target.hostname,
+      port: target.port,
+      username: target.username,
+      password: target.password ?? null,
+      cols,
+      rows,
+      onData: channel,
+    });
   },
 
   write(paneId: string, data: string | Uint8Array): Promise<void> {

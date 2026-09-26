@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { Pencil, Trash2 } from "lucide-svelte";
+  import { Copy, Pencil, Trash2 } from "lucide-svelte";
+  import { errorMessage } from "$lib/types";
   import { ui } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
   import type { Host, VaultRecord } from "$lib/types";
@@ -12,6 +13,16 @@
 
   function connect() {
     ui.openTerminal(host.id, d.label);
+  }
+
+  async function duplicate(e: MouseEvent) {
+    e.stopPropagation();
+    try {
+      const rec = await vaultStore.saveHost(null, { ...$state.snapshot(d), label: `${d.label} (copy)` });
+      ui.modal = { kind: "host", id: rec.id };
+    } catch (err) {
+      ui.notify("error", errorMessage(err));
+    }
   }
 
   async function remove(e: MouseEvent) {
@@ -40,6 +51,9 @@
     </div>
   </div>
   <div class="flex opacity-0 group-hover:opacity-100">
+    <button class="icon-btn h-6 w-6" title="Duplicate" onclick={duplicate}>
+      <Copy size={12} />
+    </button>
     <button class="icon-btn h-6 w-6" title="Edit" onclick={(e) => { e.stopPropagation(); ui.modal = { kind: "host", id: host.id }; }}>
       <Pencil size={12} />
     </button>

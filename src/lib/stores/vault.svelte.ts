@@ -2,6 +2,7 @@
 // Populated from IPC on unlock and patched live by `vault:changed` events.
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import * as api from "$lib/api";
+import { ui } from "$lib/stores/ui.svelte";
 import {
   errorMessage,
   type ForwardRule,
@@ -130,11 +131,24 @@ class VaultStore {
   async unlock(password: string) {
     this.status = await api.vault.unlock(password);
     await this.reloadAll();
+    await this.#autoStartForwards();
+  }
+
+  /** Start rules marked auto-start that aren't already running. */
+  async #autoStartForwards() {
+    const idle = this.forwards.filter((f) => {
+      const s = this.forwardStatus[f.id]?.state;
+      return f.data?.auto_start && s !== "active" && s !== "starting";
+    });
+    await Promise.all(idle.map((f) => this.startForward(f.id)));
   }
 
   async lock() {
     this.status = await api.vault.lock();
     this.clearRecords();
+    // Backend already closed every session; drop the tabs so they don't
+    // silently reconnect after the next unlock.
+    ui.resetSession();
   }
 
   // -- writes (optimistically patch local state with the returned record) --

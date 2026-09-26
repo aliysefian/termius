@@ -11,6 +11,7 @@
   const existing = id ? vaultStore.forwards.find((f) => f.id === id)?.data : undefined;
   const base = existing ? structuredClone($state.snapshot(existing)) : emptyForward(vaultStore.hosts[0]?.id);
   let label = $state(base.label);
+  let autoStart = $state(base.auto_start ?? false);
   let hostId = $state(base.host_id);
   let kind = $state<ForwardKind["kind"]>(base.kind);
   let bindAddr = $state(base.bind_addr);
@@ -35,8 +36,8 @@
     try {
       const rule: ForwardRule =
         kind === "dynamic"
-          ? { label, host_id: hostId, kind, bind_addr: bindAddr, bind_port: bindPort }
-          : { label, host_id: hostId, kind, bind_addr: bindAddr, bind_port: bindPort, dest_host: destHost, dest_port: destPort };
+          ? { label, host_id: hostId, auto_start: autoStart, kind, bind_addr: bindAddr, bind_port: bindPort }
+          : { label, host_id: hostId, auto_start: autoStart, kind, bind_addr: bindAddr, bind_port: bindPort, dest_host: destHost, dest_port: destPort };
       await vaultStore.saveForward(id, rule);
       ui.modal = null;
     } catch (err) {
@@ -104,6 +105,14 @@
       {/if}
     </div>
     <p class="text-xs text-fg-muted">Port 0 picks a free port automatically.</p>
+
+    <label class="flex items-start gap-2 text-sm">
+      <input type="checkbox" class="mt-0.5 accent-[#7b61ff]" bind:checked={autoStart} />
+      <span>
+        Start automatically when the vault is unlocked
+        <span class="block text-xs text-fg-muted">Applies on every computer that syncs this vault.</span>
+      </span>
+    </label>
 
     {#if error}
       <p class="rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger">{error}</p>

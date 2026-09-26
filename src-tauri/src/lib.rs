@@ -4,10 +4,13 @@ pub mod commands;
 pub mod config;
 pub mod crypto;
 pub mod forward;
+pub mod keys;
+pub mod knownhosts;
 pub mod models;
 pub mod session;
 pub mod sftp;
 pub mod ssh;
+pub mod sshconfig;
 pub mod sync;
 pub mod vault;
 
@@ -16,6 +19,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .setup(commands::setup)
         .invoke_handler(tauri::generate_handler![
             commands::get_status,
@@ -28,6 +32,15 @@ pub fn run() {
             commands::save_host,
             commands::delete_host,
             commands::list_identities,
+            commands::get_identity,
+            commands::identity_public_key,
+            commands::generate_key,
+            commands::ssh_connect_adhoc,
+            commands::known_hosts_list,
+            commands::known_hosts_remove,
+            commands::known_hosts_forget,
+            commands::ssh_config_preview,
+            commands::ssh_config_import,
             commands::save_identity,
             commands::delete_identity,
             commands::list_snippets,

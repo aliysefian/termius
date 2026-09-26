@@ -49,7 +49,7 @@ export type ForwardKind =
   | { kind: "dynamic"; bind_addr: string; bind_port: number };
 
 /** A saved port-forwarding rule. Mirrors models::ForwardRule (kind is flattened). */
-export type ForwardRule = { label: string; host_id: Uuid } & ForwardKind;
+export type ForwardRule = { label: string; host_id: Uuid; auto_start: boolean } & ForwardKind;
 
 export type ForwardStatus =
   | { state: "starting" }
@@ -118,12 +118,56 @@ export function emptyForward(hostId: Uuid = ""): ForwardRule {
   return {
     label: "",
     host_id: hostId,
+    auto_start: false,
     kind: "local",
     bind_addr: "127.0.0.1",
     bind_port: 8080,
     dest_host: "127.0.0.1",
     dest_port: 80,
   };
+}
+
+export interface KnownHost {
+  line: number;
+  hosts: string[];
+  hashed: boolean;
+  algorithm: string;
+  fingerprint: string | null;
+}
+
+export interface PublicKeyInfo {
+  public_key: string;
+  fingerprint: string;
+  algorithm: string;
+}
+
+export interface GeneratedKey {
+  private_key: string;
+  public_key: string;
+  fingerprint: string;
+}
+
+export interface ImportedHost {
+  alias: string;
+  hostname: string;
+  port: number;
+  user: string | null;
+  identity_file: string | null;
+  proxy_jump: string | null;
+}
+
+export interface SshConfigPreview {
+  path: string;
+  hosts: ImportedHost[];
+  warnings: string[];
+  existing: string[];
+}
+
+export interface ImportSummary {
+  hosts_created: number;
+  identities_created: number;
+  skipped_existing: string[];
+  warnings: string[];
 }
 
 export function formatBytes(n: number): string {

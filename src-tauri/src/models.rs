@@ -32,6 +32,27 @@ pub struct Identity {
     pub notes: String,
 }
 
+impl Identity {
+    /// A copy safe to hand to the webview for lists and live updates: the
+    /// auth *type* survives, the password / key / passphrase do not.
+    pub fn redacted(&self) -> Self {
+        let auth = match &self.auth {
+            AuthMethod::Password { .. } => AuthMethod::Password {
+                password: String::new(),
+            },
+            AuthMethod::PrivateKey { .. } => AuthMethod::PrivateKey {
+                private_key: String::new(),
+                passphrase: None,
+            },
+            AuthMethod::Agent => AuthMethod::Agent,
+        };
+        Self {
+            auth,
+            ..self.clone()
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Host {
     pub label: String,
@@ -112,6 +133,9 @@ pub fn jump_chain(
 pub struct ForwardRule {
     pub label: String,
     pub host_id: Uuid,
+    /// Start this rule automatically whenever the vault is unlocked.
+    #[serde(default)]
+    pub auto_start: bool,
     #[serde(flatten)]
     pub kind: ForwardKind,
 }
@@ -203,6 +227,7 @@ mod tests {
         let r = ForwardRule {
             label: "db".into(),
             host_id: Uuid::nil(),
+            auto_start: true,
             kind: ForwardKind::Dynamic {
                 bind_addr: "127.0.0.1".into(),
                 bind_port: 1080,
@@ -212,6 +237,37 @@ mod tests {
         assert_eq!(v["kind"], "dynamic");
         assert_eq!(v["bind_port"], 1080);
         assert_eq!(serde_json::from_value::<ForwardRule>(v).unwrap(), r);
+    }
+
+    #[test]
+    fn redaction_strips_every_secret() {
+        let with_key = Identity {
+            label: "k".into(),
+            username: "u".into(),
+            auth: AuthMethod::PrivateKey {
+                private_key: "SECRET".into(),
+                passphrase: Some("PASS".into()),
+            },
+            notes: "n".into(),
+        };
+        let r = serde_json::to_string(&with_key.redacted()).unwrap();
+        assert!(!r.contains("SECRET") && !r.contains("PASS"));
+        assert!(r.contains("private_key"));
+        let pw = Identity {
+            auth: AuthMethod::Password {
+                password: "hunter2".into(),
+            },
+            ..with_key
+        };
+        assert!(!serde_json::to_string(&pw.redacted())
+            .unwrap()
+            .contains("hunter2"));
+        // Rules saved before auto_start existed still load.
+        let old: ForwardRule = serde_json::from_str(
+            r#"{"label":"x","host_id":"00000000-0000-0000-0000-000000000000","kind":"dynamic","bind_addr":"127.0.0.1","bind_port":1080}"#,
+        )
+        .unwrap();
+        assert!(!old.auto_start);
     }
 
     #[test]

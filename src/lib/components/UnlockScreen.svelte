@@ -1,6 +1,7 @@
 <script lang="ts">
   import { Eye, EyeOff, FolderSearch, Lock, ShieldCheck } from "lucide-svelte";
   import { pickFolder } from "$lib/api";
+  import StrengthMeter from "./StrengthMeter.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
   import { errorMessage } from "$lib/types";
 
@@ -98,6 +99,7 @@
               {#if show}<EyeOff size={16} />{:else}<Eye size={16} />{/if}
             </button>
           </div>
+          {#if creating}<StrengthMeter {password} />{/if}
         </div>
 
         {#if creating}

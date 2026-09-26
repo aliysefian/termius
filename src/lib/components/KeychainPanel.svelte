@@ -1,5 +1,8 @@
 <script lang="ts">
-  import { KeyRound, Pencil, Plus, Trash2 } from "lucide-svelte";
+  import { Copy, KeyRound, Pencil, Plus, Trash2 } from "lucide-svelte";
+  import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+  import * as api from "$lib/api";
+  import { errorMessage } from "$lib/types";
   import { ui } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
 
@@ -7,6 +10,16 @@
 
   function usage(id: string) {
     return vaultStore.hosts.filter((h) => h.data?.identity_id === id).length;
+  }
+
+  async function copyPublicKey(id: string) {
+    try {
+      const info = await api.identities.publicKey(id);
+      await writeText(info.public_key);
+      ui.notify("info", `Public key copied (${info.fingerprint}).`);
+    } catch (e) {
+      ui.notify("error", errorMessage(e));
+    }
   }
 
   async function remove(id: string, label: string) {
@@ -43,6 +56,9 @@
             <div class="truncate text-xs text-fg-muted">{d.username} · {authLabel[d.auth.type]} · {usage(ident.id)} hosts</div>
           </div>
           <div class="flex opacity-0 group-hover:opacity-100">
+            {#if d.auth.type === "private_key"}
+              <button class="icon-btn h-6 w-6" title="Copy public key" onclick={() => copyPublicKey(ident.id)}><Copy size={12} /></button>
+            {/if}
             <button class="icon-btn h-6 w-6" title="Edit" onclick={() => (ui.modal = { kind: "identity", id: ident.id })}><Pencil size={12} /></button>
             <button class="icon-btn h-6 w-6 hover:text-danger" title="Delete" onclick={() => remove(ident.id, d.label)}><Trash2 size={12} /></button>
           </div>

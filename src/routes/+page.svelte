@@ -13,10 +13,50 @@
   import SnippetsPanel from "$lib/components/SnippetsPanel.svelte";
   import TerminalArea from "$lib/components/TerminalArea.svelte";
   import UnlockScreen from "$lib/components/UnlockScreen.svelte";
+  import CommandPalette from "$lib/components/CommandPalette.svelte";
+  import ImportSshConfig from "$lib/components/ImportSshConfig.svelte";
+  import QuickConnect from "$lib/components/QuickConnect.svelte";
+  import { handleShortcut } from "$lib/shortcuts";
+  import { settings } from "$lib/stores/settings.svelte";
   import { ui } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
 
   let ready = $state(false);
+
+  // -- keyboard shortcuts (capture phase: beat xterm to the key) ---------
+  onMount(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (handleShortcut(e)) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  });
+
+  // -- auto-lock after inactivity -----------------------------------------
+  let lastActivity = Date.now();
+  onMount(() => {
+    const bump = () => (lastActivity = Date.now());
+    const events = ["keydown", "mousedown", "mousemove", "wheel", "touchstart"] as const;
+    for (const ev of events) window.addEventListener(ev, bump, { capture: true, passive: true });
+    const timer = setInterval(() => {
+      const minutes = settings.prefs.autoLockMinutes;
+      if (!minutes || !vaultStore.unlocked) return;
+      if (Date.now() - lastActivity >= minutes * 60_000) {
+        void vaultStore.lock().then(() => ui.notify("info", "Vault locked after inactivity."));
+      }
+    }, 15_000);
+    return () => {
+      clearInterval(timer);
+      for (const ev of events) window.removeEventListener(ev, bump, { capture: true });
+    };
+  });
+  // Unlocking counts as activity.
+  $effect(() => {
+    if (vaultStore.unlocked) lastActivity = Date.now();
+  });
   $effect(() => {
     if (ui.view === "sftp") ui.sftpVisited = true;
   });
@@ -74,6 +114,14 @@
     {#key ui.modal.id}
       <ForwardForm id={ui.modal.id} />
     {/key}
+  {:else if ui.modal?.kind === "quick-connect"}
+    <QuickConnect initial={ui.modal.initial} />
+  {:else if ui.modal?.kind === "import-ssh-config"}
+    <ImportSshConfig />
+  {/if}
+
+  {#if ui.paletteOpen}
+    <CommandPalette />
   {/if}
 
   {#if ui.toast}

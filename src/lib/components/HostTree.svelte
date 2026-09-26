@@ -1,5 +1,7 @@
 <script lang="ts">
-  import { Plus, Search, Server } from "lucide-svelte";
+  import { Clock, FileInput, Plus, Search, Server } from "lucide-svelte";
+  import { settings } from "$lib/stores/settings.svelte";
+  import HostRow from "./HostRow.svelte";
   import { ui } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
   import { buildTree } from "$lib/tree";
@@ -15,14 +17,25 @@
     });
   });
   const tree = $derived(buildTree(filtered));
+  const recent = $derived(
+    settings.recent
+      .map((id) => vaultStore.hostById.get(id))
+      .filter((h): h is NonNullable<typeof h> => !!h?.data)
+      .slice(0, 5),
+  );
 </script>
 
 <aside class="flex w-72 flex-col border-r border-line bg-panel">
   <div class="flex items-center justify-between px-4 pt-4 pb-2">
     <h2 class="text-sm font-semibold">Hosts</h2>
-    <button class="icon-btn" title="New host" onclick={() => (ui.modal = { kind: "host", id: null })}>
-      <Plus size={16} />
-    </button>
+    <div class="flex">
+      <button class="icon-btn" title="Import from ~/.ssh/config" onclick={() => (ui.modal = { kind: "import-ssh-config" })}>
+        <FileInput size={16} />
+      </button>
+      <button class="icon-btn" title="New host" onclick={() => (ui.modal = { kind: "host", id: null })}>
+        <Plus size={16} />
+      </button>
+    </div>
   </div>
 
   <div class="px-3 pb-2">
@@ -46,6 +59,17 @@
     {:else if filtered.length === 0}
       <p class="px-2 py-6 text-center text-xs text-fg-muted">No matches.</p>
     {:else}
+      {#if recent.length && !ui.search.trim()}
+        <div class="mb-2">
+          <div class="flex items-center gap-1.5 px-2 pb-1 pt-1 text-[11px] font-medium uppercase tracking-wide text-fg-muted">
+            <Clock size={11} /> Recent
+          </div>
+          {#each recent as host (host.id)}
+            <HostRow {host} depth={0} />
+          {/each}
+          <div class="mx-2 mt-2 border-t border-line"></div>
+        </div>
+      {/if}
       <HostTreeNode node={tree} depth={0} />
     {/if}
   </div>

@@ -129,9 +129,36 @@ impl From<ConfigError> for ApiError {
 type ApiResult<T> = Result<T, ApiError>;
 
 fn on_change_emitter(app: AppHandle) -> impl Fn(RecordChange) + Send + 'static {
-    move |change| {
+    move |mut change| {
+        // Identities arriving from other computers are redacted like lists
+        // are; secrets stay on the Rust side unless explicitly requested.
+        if change.collection == Collection::Identities {
+            if let Some(rec) = change.record.as_mut() {
+                rec.data = rec
+                    .data
+                    .take()
+                    .and_then(|v| serde_json::from_value::<Identity>(v).ok())
+                    .and_then(|i| serde_json::to_value(i.redacted()).ok());
+                if rec.data.is_none() && !rec.deleted {
+                    return;
+                }
+            }
+        }
         let _ = app.emit(EVENT_VAULT_CHANGED, &change);
     }
+}
+
+/// Tombstones older than this are physically removed on unlock. A computer
+/// offline for longer could resurrect a record deleted elsewhere.
+const TOMBSTONE_MAX_AGE_MS: u64 = 90 * 24 * 60 * 60 * 1000;
+
+fn purge_old_tombstones(state: &AppState) {
+    let _ = state.session.with_vault(|v| {
+        for c in Collection::ALL {
+            v.purge_tombstones(c, TOMBSTONE_MAX_AGE_MS)?;
+        }
+        Ok(())
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -200,6 +227,7 @@ pub fn unlock_vault(
     state
         .session
         .unlock(root, password.as_bytes(), on_change_emitter(app))?;
+    purge_old_tombstones(&state);
     Ok(state.session.status(cfg.vault_path.as_deref()))
 }
 
@@ -320,7 +348,51 @@ pub fn delete_host(state: State<'_, AppState>, id: Uuid) -> ApiResult<()> {
 
 #[tauri::command]
 pub fn list_identities(state: State<'_, AppState>) -> ApiResult<Vec<Record<Identity>>> {
-    list_records(&state, Collection::Identities)
+    let mut list: Vec<Record<Identity>> = list_records(&state, Collection::Identities)?;
+    for r in &mut list {
+        r.data = r.data.as_ref().map(Identity::redacted);
+    }
+    Ok(list)
+}
+
+/// Full identity including secrets, for the edit form only.
+#[tauri::command]
+pub fn get_identity(state: State<'_, AppState>, id: Uuid) -> ApiResult<Record<Identity>> {
+    Ok(state
+        .session
+        .with_vault(|v| v.get::<Identity>(Collection::Identities, id))?)
+}
+
+/// Public half of a key-based identity, for `authorized_keys`.
+#[tauri::command]
+pub fn identity_public_key(
+    state: State<'_, AppState>,
+    id: Uuid,
+) -> ApiResult<crate::keys::PublicKeyInfo> {
+    let identity = state
+        .session
+        .with_vault(|v| v.get::<Identity>(Collection::Identities, id))?
+        .data
+        .ok_or_else(|| ApiError::new("not_found", "identity has no data"))?;
+    match identity.auth {
+        AuthMethod::PrivateKey {
+            private_key,
+            passphrase,
+        } => {
+            let pem = Zeroizing::new(private_key);
+            crate::keys::public_key_of(&pem, passphrase.as_deref())
+                .map_err(|e| ApiError::new("key", e.to_string()))
+        }
+        _ => Err(ApiError::new(
+            "validation",
+            "only private-key identities have a public key",
+        )),
+    }
+}
+
+#[tauri::command]
+pub fn generate_key(comment: String) -> ApiResult<crate::keys::GeneratedKey> {
+    crate::keys::generate_ed25519(&comment).map_err(|e| ApiError::new("key", e.to_string()))
 }
 
 #[tauri::command]
@@ -335,7 +407,10 @@ pub fn save_identity(
             "label and username are required",
         ));
     }
-    save_record(&state, Collection::Identities, id, identity)
+    // Return the redacted form; the webview only holds secrets while editing.
+    let mut rec = save_record(&state, Collection::Identities, id, identity)?;
+    rec.data = rec.data.as_ref().map(Identity::redacted);
+    Ok(rec)
 }
 
 #[tauri::command]
@@ -550,6 +625,134 @@ pub async fn ssh_resize(
 pub async fn ssh_disconnect(state: State<'_, AppState>, pane_id: String) -> ApiResult<()> {
     state.ssh.disconnect(&pane_id).await;
     Ok(())
+}
+
+/// Connect a pane to an unsaved `user@host:port`. Without a password the
+/// local ssh-agent is used.
+#[allow(clippy::too_many_arguments)]
+#[tauri::command]
+pub async fn ssh_connect_adhoc(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    pane_id: String,
+    hostname: String,
+    port: u16,
+    username: String,
+    password: Option<String>,
+    cols: u32,
+    rows: u32,
+    on_data: Channel<InvokeResponseBody>,
+) -> ApiResult<()> {
+    if hostname.trim().is_empty() || username.trim().is_empty() {
+        return Err(ApiError::new("validation", "user and host are required"));
+    }
+    let auth = match password {
+        Some(p) if !p.is_empty() => AuthMethod::Password { password: p },
+        _ => AuthMethod::Agent,
+    };
+    let params = ConnectParams {
+        target: Target {
+            hostname: hostname.trim().to_string(),
+            port,
+            username: username.trim().to_string(),
+            auth,
+            known_hosts: state.config_dir.join("known_hosts"),
+            jump: None,
+        },
+        cols: cols.max(2),
+        rows: rows.max(1),
+    };
+    let sink = Arc::new(PaneSink {
+        app,
+        pane_id: pane_id.clone(),
+        data: on_data,
+    });
+    state.ssh.connect(pane_id, params, sink)?;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Known hosts
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub fn known_hosts_list(
+    state: State<'_, AppState>,
+) -> ApiResult<Vec<crate::knownhosts::KnownHost>> {
+    crate::knownhosts::list(&state.config_dir.join("known_hosts"))
+        .map_err(|e| ApiError::new("io", e.to_string()))
+}
+
+#[tauri::command]
+pub fn known_hosts_remove(state: State<'_, AppState>, line: usize) -> ApiResult<bool> {
+    crate::knownhosts::remove_line(&state.config_dir.join("known_hosts"), line)
+        .map_err(|e| ApiError::new("io", e.to_string()))
+}
+
+/// Forget the pinned key for `host:port` so the next connection re-learns
+/// it. Used by the "Trust new key" action after a key change.
+#[tauri::command]
+pub fn known_hosts_forget(state: State<'_, AppState>, host: String, port: u16) -> ApiResult<usize> {
+    crate::knownhosts::forget(&state.config_dir.join("known_hosts"), &host, port)
+        .map_err(|e| ApiError::new("io", e.to_string()))
+}
+
+// ---------------------------------------------------------------------------
+// Import from ~/.ssh/config
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SshConfigPreview {
+    pub path: String,
+    pub hosts: Vec<crate::sshconfig::ImportedHost>,
+    pub warnings: Vec<String>,
+    /// Aliases that match hosts already in the vault (will be skipped).
+    pub existing: Vec<String>,
+}
+
+#[tauri::command]
+pub fn ssh_config_preview(
+    state: State<'_, AppState>,
+    path: Option<String>,
+) -> ApiResult<SshConfigPreview> {
+    let home = sftp::local::home();
+    let path = path
+        .map(PathBuf::from)
+        .unwrap_or_else(|| crate::sshconfig::default_path(&home));
+    let text = std::fs::read_to_string(&path)
+        .map_err(|e| ApiError::new("io", format!("{}: {e}", path.display())))?;
+    let parsed = crate::sshconfig::parse(&text, &home);
+    let labels: std::collections::HashSet<String> =
+        list_records::<Host>(&state, Collection::Hosts)?
+            .into_iter()
+            .filter_map(|r| r.data.map(|d| d.label.to_lowercase()))
+            .collect();
+    let existing = parsed
+        .hosts
+        .iter()
+        .filter(|h| labels.contains(&h.alias.to_lowercase()))
+        .map(|h| h.alias.clone())
+        .collect();
+    Ok(SshConfigPreview {
+        path: path.to_string_lossy().into_owned(),
+        hosts: parsed.hosts,
+        warnings: parsed.warnings,
+        existing,
+    })
+}
+
+#[tauri::command]
+pub fn ssh_config_import(
+    state: State<'_, AppState>,
+    hosts: Vec<crate::sshconfig::ImportedHost>,
+    group: String,
+) -> ApiResult<crate::sshconfig::ImportSummary> {
+    let local_user = std::env::var("USER")
+        .or_else(|_| std::env::var("USERNAME"))
+        .ok();
+    Ok(state.session.with_vault(|v| {
+        crate::sshconfig::import_into_vault(v, &hosts, group.trim(), local_user.as_deref())
+    })?)
 }
 
 // ---------------------------------------------------------------------------

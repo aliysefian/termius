@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { ArrowUp, File, Folder, FolderPlus, Link, Pencil, RefreshCw, Trash2 } from "lucide-svelte";
+  import { ArrowUp, Eye, EyeOff, File, Folder, FolderPlus, Link, Pencil, RefreshCw, Trash2 } from "lucide-svelte";
+  import { settings } from "$lib/stores/settings.svelte";
   import type { Snippet as SvelteSnippet } from "svelte";
   import { parentPath, type FileSource } from "$lib/sftp";
   import { errorMessage, formatBytes, type FileEntry } from "$lib/types";
@@ -36,6 +37,9 @@
   let dragOver = $state(false);
   let lastClicked: string | null = null;
 
+  const visible = $derived(settings.prefs.showHiddenFiles ? entries : entries.filter((e) => !e.name.startsWith(".")));
+  const hiddenCount = $derived(entries.length - visible.length);
+
   async function load(p: string) {
     if (!source || !p) return;
     loading = true;
@@ -63,9 +67,9 @@
   function click(ev: MouseEvent, e: FileEntry) {
     const next = new Set(ev.ctrlKey || ev.metaKey ? selected : []);
     if (ev.shiftKey && lastClicked) {
-      const a = entries.findIndex((x) => x.path === lastClicked);
-      const b = entries.findIndex((x) => x.path === e.path);
-      for (const x of entries.slice(Math.min(a, b), Math.max(a, b) + 1)) next.add(x.path);
+      const a = visible.findIndex((x) => x.path === lastClicked);
+      const b = visible.findIndex((x) => x.path === e.path);
+      if (a >= 0 && b >= 0) for (const x of visible.slice(Math.min(a, b), Math.max(a, b) + 1)) next.add(x.path);
     } else if (next.has(e.path)) {
       next.delete(e.path);
     } else {
@@ -160,6 +164,13 @@
         <input class="input py-1 font-mono text-xs" bind:value={pathInput} spellcheck="false" aria-label="Path" />
       </form>
       <button class="icon-btn h-7 w-7" title="Refresh" onclick={() => load(path)}><RefreshCw size={14} class={loading ? "animate-spin" : ""} /></button>
+      <button
+        class="icon-btn h-7 w-7 {settings.prefs.showHiddenFiles ? 'text-accent' : ''}"
+        title={settings.prefs.showHiddenFiles ? "Hide hidden files" : "Show hidden files"}
+        onclick={() => (settings.prefs.showHiddenFiles = !settings.prefs.showHiddenFiles)}
+      >
+        {#if settings.prefs.showHiddenFiles}<Eye size={14} />{:else}<EyeOff size={14} />{/if}
+      </button>
       <button class="icon-btn h-7 w-7" title="New folder" onclick={mkdir}><FolderPlus size={14} /></button>
       <button class="icon-btn h-7 w-7" title="Rename" disabled={selected.size !== 1} onclick={rename}><Pencil size={14} /></button>
       <button class="icon-btn h-7 w-7 hover:text-danger" title="Delete" disabled={selected.size === 0} onclick={remove}><Trash2 size={14} /></button>
@@ -179,7 +190,7 @@
           </tr>
         </thead>
         <tbody>
-          {#each entries as e (e.path)}
+          {#each visible as e (e.path)}
             <tr
               class="cursor-default select-none {selected.has(e.path) ? 'bg-accent/20' : 'hover:bg-panel-hover'}"
               draggable="true"
@@ -207,7 +218,7 @@
     </div>
 
     <div class="flex items-center justify-between border-t border-line px-3 py-1.5 text-xs text-fg-muted">
-      <span>{selected.size ? `${selected.size} selected` : `${entries.length} items`}</span>
+      <span>{selected.size ? `${selected.size} selected` : `${visible.length} items${hiddenCount ? ` (${hiddenCount} hidden)` : ""}`}</span>
       <button class="btn-primary py-1 text-xs" disabled={selected.size === 0} onclick={() => onTransfer([...selected])}>
         {transferLabel}
       </button>
