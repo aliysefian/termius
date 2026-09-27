@@ -167,7 +167,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       # Code signing switches on by itself once the secrets are added (see
-      # "Code signing" in README.md). Without them, builds are unsigned.
+      # "Code signing" in docs/DEVELOPMENT.md). Without them, builds are unsigned.
       - name: Prepare Windows signing
         if: runner.os == 'Windows'
         shell: pwsh
@@ -194,7 +194,7 @@ jobs:
           "SIGN_CONFIG=$path" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       # Self-update switches on by itself once the signing secrets exist (see
-      # "Updates" in README.md). Without them, builds don't update themselves.
+      # "Updates" in docs/DEVELOPMENT.md). Without them, builds don't update themselves.
       - name: Prepare update signing
         shell: bash
         env:
