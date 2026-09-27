@@ -17,6 +17,8 @@ export interface Prefs {
   appTheme: "dark" | "light" | "system";
   /** The list panel next to the activity bar is hidden (Ctrl+Shift+H). */
   sidebarHidden: boolean;
+  /** Its width in pixels (drag its edge; double-click resets). */
+  sidebarWidth: number;
   /** Reconnect by itself when a connection drops (not when you exit). */
   autoReconnect: boolean;
   /** Keep a per-computer history of commands run on each host. */
@@ -67,6 +69,7 @@ export const DEFAULT_PREFS: Prefs = {
   logRaw: false,
   appTheme: "dark",
   sidebarHidden: false,
+  sidebarWidth: 288,
   autoReconnect: true,
   commandHistory: true,
   notifyBackground: true,

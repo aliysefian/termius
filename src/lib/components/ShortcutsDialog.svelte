@@ -25,6 +25,7 @@
     ["Ctrl+PageUp / PageDown", "Previous / next tab"],
     ["Ctrl+= / Ctrl+- / Ctrl+0", "Zoom in / out / reset"],
     ["Ctrl+scroll", "Zoom in / out"],
+    ["Drag panel edge", "Resize the list panel (double-click resets)"],
     ["Ctrl+Shift+C / Ctrl+Shift+V", "Copy / paste in a terminal"],
     ["Ctrl+Shift+↑ / ↓", "Previous / next prompt (shell integration)"],
     ["Shift+drag", "Select text while tmux or vim has the mouse"],

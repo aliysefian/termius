@@ -45,7 +45,7 @@
   );
 </script>
 
-<aside class="flex w-72 flex-col border-r border-line bg-panel">
+<aside class="flex min-w-0 flex-1 flex-col border-r border-line bg-panel">
   <div class="flex items-center justify-between px-4 pt-4 pb-2">
     <h2 class="text-sm font-semibold">{favoritesOnly ? "Favorites" : "Hosts"}</h2>
     <div class="flex">

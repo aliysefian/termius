@@ -6,6 +6,7 @@
   import SftpView from "$lib/components/SftpView.svelte";
   import HostForm from "$lib/components/HostForm.svelte";
   import HostTree from "$lib/components/HostTree.svelte";
+  import ResizablePanel from "$lib/components/ResizablePanel.svelte";
   import IdentityForm from "$lib/components/IdentityForm.svelte";
   import KeychainPanel from "$lib/components/KeychainPanel.svelte";
   import KeysPanel from "$lib/components/KeysPanel.svelte";
@@ -105,18 +106,20 @@
       <ActivityBar />
     {/if}
 
-    {#if settings.prefs.sidebarHidden || settings.prefs.focusMode}
-      <!-- List panel hidden (Ctrl+Shift+H) -->
-    {:else if ui.view === "hosts"}
-      <HostTree />
-    {:else if ui.view === "favorites"}
-      <HostTree favoritesOnly />
-    {:else if ui.view === "keychain"}
-      <KeychainPanel />
-    {:else if ui.view === "snippets"}
-      <SnippetsPanel />
-    {:else if ui.view === "forwarding"}
-      <ForwardingPanel />
+    {#if !settings.prefs.sidebarHidden && !settings.prefs.focusMode && ["hosts", "favorites", "keychain", "snippets", "forwarding"].includes(ui.view)}
+      <ResizablePanel>
+        {#if ui.view === "hosts"}
+          <HostTree />
+        {:else if ui.view === "favorites"}
+          <HostTree favoritesOnly />
+        {:else if ui.view === "keychain"}
+          <KeychainPanel />
+        {:else if ui.view === "snippets"}
+          <SnippetsPanel />
+        {:else if ui.view === "forwarding"}
+          <ForwardingPanel />
+        {/if}
+      </ResizablePanel>
     {/if}
 
     <!-- Terminals and SFTP stay mounted while hidden so their sessions survive view switches. -->
