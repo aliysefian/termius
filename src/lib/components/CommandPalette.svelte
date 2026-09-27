@@ -4,6 +4,7 @@
   } from "lucide-svelte";
   import * as api from "$lib/api";
   import { fuzzyScore } from "$lib/fuzzy";
+  import { ask } from "$lib/dialogs.svelte";
   import { describeForward, errorMessage } from "$lib/types";
   import { parseAdhoc } from "$lib/ssh";
   import { settings } from "$lib/stores/settings.svelte";
@@ -117,7 +118,10 @@
         label: `Delete workspace: ${d.name}`,
         group: "Workspaces",
         icon: SquareSplitHorizontal,
-        run: () => void (confirm(`Delete workspace "${d.name}"?`) && vaultStore.deleteWorkspace(w.id)),
+        run: () =>
+          void ask(`Delete workspace "${d.name}"?`).then((ok) => {
+            if (ok) void vaultStore.deleteWorkspace(w.id);
+          }),
       });
     }
     for (const s of vaultStore.snippets) {

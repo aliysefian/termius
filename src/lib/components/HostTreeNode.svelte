@@ -2,6 +2,7 @@
   import { ChevronDown, ChevronRight, Folder, FolderOpen, LayoutGrid, ListPlus, Plus } from "lucide-svelte";
   import { MAX_PANES } from "$lib/layout";
   import { ui } from "$lib/stores/ui.svelte";
+  import { ask } from "$lib/dialogs.svelte";
   import { acceptsHost, dropHostInto } from "$lib/hostdrag.svelte";
   import type { GroupNode } from "$lib/tree";
   import HostTreeNode from "./HostTreeNode.svelte";
@@ -14,14 +15,14 @@
     return [...n.hosts, ...n.children.flatMap(allHosts)];
   }
 
-  function openGroup(n: GroupNode, mode: "tabs" | "tiled") {
+  async function openGroup(n: GroupNode, mode: "tabs" | "tiled") {
     const hosts = allHosts(n).map((h) => ({ id: h.id, label: h.data?.label ?? "", env: h.data?.environment }));
     if (hosts.length === 0) return;
-    if (mode === "tabs" && hosts.length > 10 && !confirm(`Open ${hosts.length} tabs?`)) return;
+    if (mode === "tabs" && hosts.length > 10 && !await ask(`Open ${hosts.length} tabs?`)) return;
     if (mode === "tiled") {
       if (hosts.length > MAX_PANES) ui.notify("info", `Tiling the first ${MAX_PANES} of ${hosts.length} hosts.`);
       const prod = hosts.slice(0, MAX_PANES).filter((h) => h.env === "production");
-      if (prod.length && !confirm(`${prod.length} production host(s) will receive everything you type:\n\n${prod.map((h) => h.label).join("\n")}\n\nContinue?`)) return;
+      if (prod.length && !await ask(`${prod.length} production host(s) will receive everything you type:\n\n${prod.map((h) => h.label).join("\n")}\n\nContinue?`)) return;
     }
     ui.openMany(hosts, mode, n.name);
   }

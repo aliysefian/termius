@@ -1,14 +1,15 @@
 <script lang="ts">
   import { Copy, KeyRound, Printer } from "lucide-svelte";
   import Modal from "./Modal.svelte";
+  import { ask } from "$lib/dialogs.svelte";
   import { copySecret } from "$lib/secrets.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
 
   const key = $derived(vaultStore.pendingRecoveryKey);
   let saved = $state(false);
 
-  function close() {
-    if (!saved && !confirm("Close without saving the recovery key? It can't be shown again, but you can create a new one on the Vault screen.")) return;
+  async function close() {
+    if (!saved && !await ask("Close without saving the recovery key? It can't be shown again, but you can create a new one on the Vault screen.")) return;
     vaultStore.pendingRecoveryKey = null;
     saved = false;
   }

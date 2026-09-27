@@ -1,6 +1,7 @@
 // Send snippets to open terminals, filling in {{variables}} per pane.
 import { writeToPane } from "$lib/terminalio";
 import { firstDestructiveLine } from "$lib/guard";
+import { ask } from "$lib/dialogs.svelte";
 import { promptedVariables, render, type HostContext } from "$lib/snippetvars";
 import { adhocLabel, ui, type PaneTarget, type SnippetRunOpts } from "$lib/stores/ui.svelte";
 import { vaultStore } from "$lib/stores/vault.svelte";
@@ -62,7 +63,7 @@ export async function runSnippet(command: string, opts: SnippetRunOpts, values?:
       .filter((x): x is { host: string; line: string } => !!x);
     if (risky.length) {
       const hosts = [...new Set(risky.map((r) => r.host))];
-      const ok = confirm(
+      const ok = await ask(
         `Run this on production?\n\n${risky[0].line}\n\nOn: ${hosts.join(", ")}\n\nIt matches a destructive-command pattern. This check only sees the command text; it's a reminder, not a guarantee.`,
       );
       if (!ok) return;

@@ -3,6 +3,7 @@
   import { FileInput, History, RefreshCw, ShieldCheck, Trash2 } from "lucide-svelte";
   import { open } from "@tauri-apps/plugin-dialog";
   import * as api from "$lib/api";
+  import { ask } from "$lib/dialogs.svelte";
   import { ui } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
   import { errorMessage, type VaultKnownHost } from "$lib/types";
@@ -37,7 +38,7 @@
     vaultStore.hosts.find((h) => h.data?.hostname.toLowerCase() === e.host && h.data.port === e.port)?.data?.label;
 
   async function forget(e: VaultKnownHost) {
-    if (!confirm(`Stop trusting the key for ${label(e)}? You'll be asked to check its fingerprint again on the next connection, on every device.`)) return;
+    if (!await ask(`Stop trusting the key for ${label(e)}? You'll be asked to check its fingerprint again on the next connection, on every device.`)) return;
     try {
       await api.knownHosts.forget(e.host, e.port);
       await load();
@@ -52,7 +53,7 @@
       const f = await open({ multiple: false, directory: false, title: "Choose a known_hosts file" });
       if (typeof f !== "string") return;
       path = f;
-    } else if (!confirm("Trust every host key in ~/.ssh/known_hosts? Hosts already in the vault keep the key they have.")) {
+    } else if (!await ask("Trust every host key in ~/.ssh/known_hosts? Hosts already in the vault keep the key they have.")) {
       return;
     }
     try {

@@ -1,6 +1,7 @@
 <script lang="ts">
   import "../app.css";
   import { settings } from "$lib/stores/settings.svelte";
+  import DialogHost from "$lib/components/DialogHost.svelte";
   let { children } = $props();
 
   // Apply the app colour theme, following the OS when set to "system".
@@ -19,3 +20,4 @@
 </script>
 
 {@render children()}
+<DialogHost />

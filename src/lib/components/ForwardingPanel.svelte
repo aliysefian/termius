@@ -3,6 +3,7 @@
   import { matchesForward, statusWord, type StatusFilter } from "$lib/forwardsearch";
   import { openUrl } from "@tauri-apps/plugin-opener";
   import { ui } from "$lib/stores/ui.svelte";
+  import { ask } from "$lib/dialogs.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
   import { describeForward, errorMessage, type ForwardRule, type ForwardStatus } from "$lib/types";
 
@@ -65,7 +66,7 @@
   const runningShown = $derived(shown.filter((f) => statusWord(vaultStore.forwardStatus[f.id]) === "running"));
 
   async function remove(id: string, label: string) {
-    if (!confirm(`Delete forwarding rule "${label}"?`)) return;
+    if (!await ask(`Delete forwarding rule "${label}"?`)) return;
     await vaultStore.deleteForward(id);
   }
 </script>

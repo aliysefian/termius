@@ -6,6 +6,7 @@
   import { envInfo, errorMessage } from "$lib/types";
   import { hostDragStart } from "$lib/hostdrag.svelte";
   import { ui } from "$lib/stores/ui.svelte";
+  import { ask } from "$lib/dialogs.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
   import type { Host, VaultRecord } from "$lib/types";
 
@@ -67,7 +68,7 @@
     e.stopPropagation();
     const dependents = vaultStore.hosts.filter((h) => h.data?.jump_host_id === host.id).length;
     const note = dependents ? ` ${dependents} host(s) use it as a jump host and will connect directly instead.` : "";
-    if (!confirm(`Delete host "${d.label}"?${note}`)) return;
+    if (!await ask(`Delete host "${d.label}"?${note}`)) return;
     await vaultStore.deleteHost(host.id).catch((err) => ui.notify("error", errorMessage(err)));
   }
 </script>

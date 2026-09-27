@@ -1,6 +1,7 @@
 <script lang="ts">
   import { ArrowUp, Eye, EyeOff, File, FilePen, FileSearch, Folder, FolderOpen, FolderPlus, KeyRound, Link, RefreshCw, TextCursorInput, Trash2 } from "lucide-svelte";
   import { revealItemInDir } from "@tauri-apps/plugin-opener";
+  import { ask, askText } from "$lib/dialogs.svelte";
   import PreviewDialog from "./PreviewDialog.svelte";
   import type { Preview } from "$lib/sftp";
   import { settings } from "$lib/stores/settings.svelte";
@@ -74,7 +75,7 @@
     const e = one;
     if (!e || !source?.chmod) return;
     const cur = e.permissions != null ? (e.permissions & 0o7777).toString(8).padStart(3, "0") : "644";
-    const v = prompt(`Permissions for ${e.name} (octal, e.g. 644 or 755)`, cur);
+    const v = await askText(`Permissions for ${e.name}`, cur, { title: "Change permissions", placeholder: "644 or 755" });
     if (v == null) return;
     if (!/^[0-7]{3,4}$/.test(v.trim())) return void (error = "Enter permissions as 3 or 4 octal digits, like 644.");
     try {
@@ -152,7 +153,7 @@
   }
 
   async function mkdir() {
-    const name = prompt("New folder name");
+    const name = await askText("New folder name", "", { placeholder: "folder name" });
     if (!name || !source) return;
     try {
       await source.mkdir(path, name);
@@ -166,7 +167,7 @@
     const [p] = [...selected];
     const entry = entries.find((e) => e.path === p);
     if (!entry || !source) return;
-    const name = prompt("Rename to", entry.name);
+    const name = await askText(`Rename ${entry.name}`, entry.name, { confirm: "Rename" });
     if (!name || name === entry.name) return;
     try {
       await source.rename(entry.path, name);
@@ -179,7 +180,7 @@
   async function remove() {
     if (!source || selected.size === 0) return;
     const n = selected.size;
-    if (!confirm(`Delete ${n} item${n > 1 ? "s" : ""}? Folders are deleted recursively.`)) return;
+    if (!await ask(`Delete ${n} item${n > 1 ? "s" : ""}? Folders are deleted recursively.`)) return;
     try {
       await source.remove([...selected]);
       await load(path);

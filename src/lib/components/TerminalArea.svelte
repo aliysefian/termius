@@ -4,6 +4,7 @@
   import * as api from "$lib/api";
   import { MAX_PANES, layoutRects, type Divider } from "$lib/layout";
   import { settings } from "$lib/stores/settings.svelte";
+  import { ask } from "$lib/dialogs.svelte";
   import { adhocLabel, ui, type Pane, type Tab } from "$lib/stores/ui.svelte";
   import { writeToPane } from "$lib/terminalio";
   import { envInfo } from "$lib/types";
@@ -40,10 +41,10 @@
     return `'${s.replace(/'/g, "'\\''")}'`;
   }
 
-  function toggleSync(t: Tab) {
+  async function toggleSync(t: Tab) {
     if (!t.syncInput && hasProd(t)) {
       const names = t.panes.filter((p) => paneEnv(p).value === "production").map((p) => paneLabel(p).split(" · ")[0]);
-      if (!confirm(`This tab includes production hosts:\n\n${names.join("\n")}\n\nType into all panes at once anyway?`)) return;
+      if (!await ask(`This tab includes production hosts:\n\n${names.join("\n")}\n\nType into all panes at once anyway?`)) return;
     }
     t.syncInput = !t.syncInput;
   }

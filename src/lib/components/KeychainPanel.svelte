@@ -4,6 +4,7 @@
   import type { Revealed } from "$lib/types";
   import { writeText } from "@tauri-apps/plugin-clipboard-manager";
   import * as api from "$lib/api";
+  import { ask } from "$lib/dialogs.svelte";
   import { errorMessage } from "$lib/types";
   import { ui } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
@@ -72,7 +73,7 @@
   async function remove(id: string, label: string) {
     const n = usage(id);
     const msg = n ? `Delete "${label}"? ${n} host(s) reference it and will be detached.` : `Delete "${label}"?`;
-    if (!confirm(msg)) return;
+    if (!await ask(msg)) return;
     await vaultStore.deleteIdentity(id);
   }
 </script>

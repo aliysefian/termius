@@ -3,6 +3,7 @@
   import { revealIdentity } from "$lib/secrets.svelte";
   import { writeText } from "@tauri-apps/plugin-clipboard-manager";
   import Modal from "./Modal.svelte";
+  import { ask } from "$lib/dialogs.svelte";
   import * as api from "$lib/api";
   import { ui } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
@@ -53,7 +54,7 @@
   }
 
   async function generate() {
-    if (privateKey && !confirm("Replace the current private key with a new one?")) return;
+    if (privateKey && !await ask("Replace the current private key with a new one?")) return;
     generating = true;
     error = null;
     try {

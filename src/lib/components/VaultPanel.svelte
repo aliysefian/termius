@@ -15,6 +15,7 @@
     TriangleAlert,
   } from "lucide-svelte";
   import StrengthMeter from "./StrengthMeter.svelte";
+  import { ask } from "$lib/dialogs.svelte";
   import * as api from "$lib/api";
   import { pickFolder } from "$lib/api";
   import { withMasterPassword } from "$lib/secrets.svelte";
@@ -69,7 +70,7 @@
 
   // -- recovery -------------------------------------------------------------
   async function newRecoveryKey() {
-    if (info?.has_recovery && !confirm("Replace the recovery key? The old one stops working.")) return;
+    if (info?.has_recovery && !await ask("Replace the recovery key? The old one stops working.")) return;
     await act("recovery", async () => {
       const key = await withMasterPassword("Create a new recovery key", "Create", (pw) => api.vault.setRecoveryKey(pw));
       if (key) {
@@ -80,7 +81,7 @@
   }
 
   async function removeRecoveryKey() {
-    if (!confirm("Remove the recovery key? If you then forget the master password, the vault can't be opened.")) return;
+    if (!await ask("Remove the recovery key? If you then forget the master password, the vault can't be opened.")) return;
     await act("recovery", async () => {
       const ok = await withMasterPassword("Remove the recovery key", "Remove", (pw) => api.vault.removeRecoveryKey(pw));
       if (ok !== null) await load();
@@ -106,7 +107,7 @@
 
   async function restore(b: BackupInfo) {
     if (
-      !confirm(
+      !await ask(
         `Restore the backup from ${when(b.created_at)} (${b.records} records)?\n\nA backup of the current state is taken first, so this can be undone. Other devices receive the restored data as a normal change.`,
       )
     )
@@ -139,7 +140,7 @@
   async function move() {
     const dest = await pickFolder("Choose an EMPTY folder to move the vault to");
     if (!dest) return;
-    if (!confirm(`Copy the vault to ${dest}, verify the copy, then use it from now on?\n\nThe old folder is left as it is; delete it yourself once other devices have switched.`)) return;
+    if (!await ask(`Copy the vault to ${dest}, verify the copy, then use it from now on?\n\nThe old folder is left as it is; delete it yourself once other devices have switched.`)) return;
     await act("move", async () => {
       vaultStore.status = await api.vault.move(dest);
       await load();

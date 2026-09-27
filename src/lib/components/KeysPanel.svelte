@@ -4,6 +4,7 @@
   import { open, save } from "@tauri-apps/plugin-dialog";
   import { writeText } from "@tauri-apps/plugin-clipboard-manager";
   import Modal from "./Modal.svelte";
+  import { ask } from "$lib/dialogs.svelte";
   import * as api from "$lib/api";
   import { withMasterPassword } from "$lib/secrets.svelte";
   import { ui } from "$lib/stores/ui.svelte";
@@ -192,7 +193,7 @@
 
   async function exportPrivate(k: VaultRecord<SshKey>) {
     if (
-      !confirm(
+      !await ask(
         `Export the PRIVATE key "${k.data!.name}" to a file?\n\nAnyone who gets that file can log in wherever this key is trusted${k.data!.encrypted ? " (if they also know its passphrase)" : ""}. Keep it off shared or synced folders and delete it when done.`,
       )
     )
@@ -208,7 +209,7 @@
   }
 
   async function remove(k: VaultRecord<SshKey>) {
-    if (!confirm(`Delete the key "${k.data!.name}" from the vault? Servers that trust it are not changed.`)) return;
+    if (!await ask(`Delete the key "${k.data!.name}" from the vault? Servers that trust it are not changed.`)) return;
     try {
       await vaultStore.deleteKey(k.id, k.rev);
       if (expanded === k.id) expanded = null;

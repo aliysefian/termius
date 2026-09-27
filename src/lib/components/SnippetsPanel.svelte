@@ -1,6 +1,7 @@
 <script lang="ts">
   import { ServerCog, ClipboardPaste, Code, Folder, Pencil, Play, Plus, Search, Trash2 } from "lucide-svelte";
   import { runSnippet } from "$lib/runsnippet";
+  import { ask } from "$lib/dialogs.svelte";
   import { ui } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
 
@@ -26,7 +27,7 @@
   });
 
   async function remove(id: string, label: string) {
-    if (!confirm(`Delete snippet "${label}"?`)) return;
+    if (!await ask(`Delete snippet "${label}"?`)) return;
     await vaultStore.deleteSnippet(id);
   }
 </script>

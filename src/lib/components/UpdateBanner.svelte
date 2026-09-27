@@ -3,15 +3,16 @@
   import { openUrl } from "@tauri-apps/plugin-opener";
   import { RELEASES_URL, updates } from "$lib/stores/updates.svelte";
   import { ui } from "$lib/stores/ui.svelte";
+  import { ask } from "$lib/dialogs.svelte";
 
   const u = $derived(updates.available);
   const sessions = $derived(ui.tabs.reduce((n, t) => n + t.panes.length, 0));
 
-  function install() {
+  async function install() {
     if (
       updates.info?.can_install &&
       sessions > 0 &&
-      !confirm(`Installing restarts SSHVault and closes ${sessions} open session${sessions === 1 ? "" : "s"}. Continue?`)
+      !await ask(`Installing restarts SSHVault and closes ${sessions} open session${sessions === 1 ? "" : "s"}. Continue?`)
     )
       return;
     void updates.install();

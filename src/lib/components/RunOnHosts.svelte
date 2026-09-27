@@ -5,6 +5,7 @@
   import Modal from "./Modal.svelte";
   import * as api from "$lib/api";
   import { hostContextFor } from "$lib/runsnippet";
+  import { ask } from "$lib/dialogs.svelte";
   import { promptedVariables, render } from "$lib/snippetvars";
   import { lastValues } from "$lib/snippetvalues";
   import { ui } from "$lib/stores/ui.svelte";
@@ -60,7 +61,7 @@
       .map((h) => vaultStore.hostById.get(h)?.data)
       .filter((d) => d?.environment === "production")
       .map((d) => d!.label);
-    if (prod.length && !confirm(`This will run on ${prod.length} production host(s):\n\n${prod.join("\n")}\n\nRun anyway?`)) return;
+    if (prod.length && !await ask(`This will run on ${prod.length} production host(s):\n\n${prod.join("\n")}\n\nRun anyway?`)) return;
     for (const [k, v] of Object.entries(values)) lastValues.set(k, v);
     const id = crypto.randomUUID();
     runId = id;

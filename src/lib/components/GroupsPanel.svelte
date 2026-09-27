@@ -1,6 +1,7 @@
 <script lang="ts">
   import { FolderTree, Network, Pencil, Plus, ShieldAlert, Trash2 } from "lucide-svelte";
   import { ui } from "$lib/stores/ui.svelte";
+  import { ask } from "$lib/dialogs.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
   import { ENVIRONMENTS, errorMessage, type HostGroup, type Proxy, type ProxySpec, type Uuid } from "$lib/types";
 
@@ -62,7 +63,7 @@
 
   async function clearGroup(path: string) {
     const rec = vaultStore.groupByPath.get(path);
-    if (!rec || !confirm(`Remove the defaults for "${path}"? Its hosts stay where they are.`)) return;
+    if (!rec || !await ask(`Remove the defaults for "${path}"? Its hosts stay where they are.`)) return;
     try {
       await vaultStore.deleteGroup(rec.id, rec.rev);
     } catch (err) {
@@ -146,7 +147,7 @@
 
   async function removeProxy(id: Uuid) {
     const n = proxyUsers(id);
-    if (!confirm(`Delete this proxy?${n ? ` ${n} host(s) or group(s) use it and will connect directly.` : ""}`)) return;
+    if (!await ask(`Delete this proxy?${n ? ` ${n} host(s) or group(s) use it and will connect directly.` : ""}`)) return;
     try {
       await vaultStore.deleteProxy(id);
     } catch (err) {
