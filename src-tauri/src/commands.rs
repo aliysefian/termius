@@ -72,6 +72,11 @@ pub struct AppState {
     /// forwarded agent channels.
     vault_agent: Arc<dyn crate::agent::Backend>,
     agent_prompts: PromptMap,
+    /// The command-line control socket, while running.
+    control: std::sync::Mutex<Option<crate::control::ControlHandle>>,
+    cli_prompts: PromptMap,
+    /// `run` from the CLI is pre-approved until this time.
+    cli_trusted_until: std::sync::Mutex<Option<std::time::Instant>>,
     logs: std::sync::Mutex<std::collections::HashMap<String, LogSlot>>,
 }
 
@@ -420,6 +425,7 @@ pub async fn unlock_vault(
     let keychain_error = apply_remember(&state, remember);
     let cfg = AppConfig::load(&state.config_dir)?;
     autostart_agent(&app_for_agent, &state);
+    autostart_cli(&app_for_agent, &state);
     Ok(UnlockResult {
         status: status_of(&state, &cfg),
         report,
@@ -468,6 +474,7 @@ pub async fn unlock_with_device(
     };
     purge_old_tombstones(&state);
     autostart_agent(&app_for_agent, &state);
+    autostart_cli(&app_for_agent, &state);
     Ok(UnlockResult {
         status: status_of(&state, &cfg),
         report,
@@ -502,6 +509,7 @@ pub async fn unlock_with_recovery(
     let keychain_error = apply_remember(&state, remember);
     let cfg = AppConfig::load(&state.config_dir)?;
     autostart_agent(&app_for_agent, &state);
+    autostart_cli(&app_for_agent, &state);
     Ok(UnlockResult {
         status: status_of(&state, &cfg),
         report,
@@ -543,8 +551,10 @@ pub async fn lock_vault(state: State<'_, AppState>) -> ApiResult<VaultStatus> {
     state.local.close_all();
     state.raw.close_all();
     state.edits.stop_all();
-    // The agent serves vault keys, so it goes when the vault locks.
+    // The agent serves vault keys, so it goes when the vault locks, and
+    // the command-line socket with it.
     *state.agent.lock().unwrap_or_else(|p| p.into_inner()) = None;
+    *state.control.lock().unwrap_or_else(|p| p.into_inner()) = None;
     state
         .reveal
         .lock()
@@ -1188,6 +1198,307 @@ pub fn set_key_agent(
     }
     key.agent = mode;
     save_record(&state, Collection::Keys, Some(id), base_rev, key).map(redacted_key)
+}
+
+// ---------------------------------------------------------------------------
+// Command-line control (`sshvault list/connect/run/status`)
+// ---------------------------------------------------------------------------
+
+/// Asks the UI to open a tab. Payload: `{ host_id, label }`.
+pub const EVENT_CLI_OPEN: &str = "cli:open";
+/// Asks the UI to approve a `run`. Payload: [`CliPrompt`].
+pub const EVENT_CLI_PROMPT: &str = "cli:prompt";
+const CLI_PROMPT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CliPrompt {
+    pub request_id: Uuid,
+    pub command: String,
+    pub hosts: Vec<String>,
+    pub production: usize,
+}
+
+struct AppControl(AppHandle);
+
+impl AppControl {
+    fn hosts(&self) -> Result<Vec<(Uuid, Host)>, String> {
+        let state = self.0.state::<AppState>();
+        state
+            .session
+            .with_vault(|v| Ok(v.list::<Host>(Collection::Hosts)?.records))
+            .map(|rs| rs.into_iter().filter_map(|r| r.data.map(|d| (r.id, d))).collect())
+            .map_err(|_| "the vault is locked".to_string())
+    }
+
+    async fn approve(&self, command: &str, hosts: &[(Uuid, Host)]) -> bool {
+        let state = self.0.state::<AppState>();
+        let trusted = state
+            .cli_trusted_until
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .is_some_and(|t| std::time::Instant::now() < t);
+        // Production hosts are always confirmed, even inside a trust window.
+        let groups = state.session.with_vault(|v| Ok(crate::keymanager::load_groups(v).unwrap_or_default())).unwrap_or_default();
+        let production = hosts
+            .iter()
+            .filter(|(_, h)| crate::keymanager::effective(h, &groups).environment == "production")
+            .count();
+        if trusted && production == 0 {
+            return true;
+        }
+        let request_id = Uuid::new_v4();
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        state.cli_prompts.lock().unwrap_or_else(|p| p.into_inner()).insert(request_id, tx);
+        let prompt = CliPrompt {
+            request_id,
+            command: command.to_string(),
+            hosts: hosts.iter().map(|(_, h)| h.label.clone()).collect(),
+            production,
+        };
+        if let Some(w) = self.0.get_webview_window("main") {
+            let _ = w.request_user_attention(Some(tauri::UserAttentionType::Informational));
+        }
+        let ok = match self.0.emit(EVENT_CLI_PROMPT, prompt) {
+            Ok(()) => matches!(tokio::time::timeout(CLI_PROMPT_TIMEOUT, rx).await, Ok(Ok(true))),
+            Err(_) => false,
+        };
+        state.cli_prompts.lock().unwrap_or_else(|p| p.into_inner()).remove(&request_id);
+        ok
+    }
+}
+
+struct CliRunSink(tokio::sync::mpsc::UnboundedSender<crate::control::Response>, std::collections::HashMap<Uuid, String>);
+impl crate::runner::RunSink for CliRunSink {
+    fn event(&self, e: crate::runner::RunEvent) {
+        use crate::control::Response as R;
+        use crate::runner::RunEvent as E;
+        let name = |id: &Uuid| self.1.get(id).cloned().unwrap_or_default();
+        let resp = match e {
+            E::Started { host_id } => R::Started { host: name(&host_id) },
+            E::Finished { host_id, output } => R::Output {
+                host: name(&host_id),
+                stdout: output.stdout,
+                stderr: output.stderr,
+                exit_code: output.exit_code,
+                duration_ms: output.duration_ms,
+            },
+            E::Failed { host_id, message } => R::Failed { host: name(&host_id), message },
+            E::Done => R::Done { ok: true },
+        };
+        let _ = self.0.send(resp);
+    }
+}
+
+impl crate::control::Handler for AppControl {
+    fn handle(
+        &self,
+        req: crate::control::Request,
+        out: tokio::sync::mpsc::UnboundedSender<crate::control::Response>,
+    ) -> crate::control::BoxFuture<()> {
+        use crate::control::{Request, Response};
+        let me = AppControl(self.0.clone());
+        Box::pin(async move {
+            let fail = |m: String| {
+                let _ = out.send(Response::Error { message: m });
+            };
+            match req {
+                Request::Status => {
+                    let state = me.0.state::<AppState>();
+                    let hosts = me.hosts();
+                    let agent = state.agent.lock().unwrap_or_else(|p| p.into_inner()).as_ref().map(|h| h.path.clone());
+                    let _ = out.send(Response::Status {
+                        unlocked: hosts.is_ok(),
+                        hosts: hosts.map(|h| h.len()).unwrap_or(0),
+                        agent,
+                    });
+                    let _ = out.send(Response::Done { ok: true });
+                }
+                Request::List { select } => match me.hosts().and_then(|hs| {
+                    crate::control::select(&hs, &select).map(|v| v.into_iter().cloned().collect::<Vec<_>>())
+                }) {
+                    Ok(list) => {
+                        for (_, h) in list {
+                            let _ = out.send(Response::Host {
+                                label: h.label,
+                                hostname: h.hostname,
+                                port: h.port,
+                                group: h.group,
+                                environment: h.environment,
+                                tags: h.tags,
+                            });
+                        }
+                        let _ = out.send(Response::Done { ok: true });
+                    }
+                    Err(e) => fail(e),
+                },
+                Request::Connect { host } => {
+                    let sel = crate::control::Selector { hosts: vec![host], ..Default::default() };
+                    match me.hosts().and_then(|hs| crate::control::select(&hs, &sel).map(|v| v[0].clone())) {
+                        Ok((id, h)) => {
+                            let _ = me.0.emit(EVENT_CLI_OPEN, serde_json::json!({ "host_id": id, "label": h.label }));
+                            if let Some(w) = me.0.get_webview_window("main") {
+                                let _ = w.unminimize();
+                                let _ = w.set_focus();
+                            }
+                            let _ = out.send(Response::Opened { label: h.label });
+                            let _ = out.send(Response::Done { ok: true });
+                        }
+                        Err(e) => fail(e),
+                    }
+                }
+                Request::Run { select, command, timeout_secs } => {
+                    let hosts = match me.hosts().and_then(|hs| {
+                        crate::control::select(&hs, &select).map(|v| v.into_iter().cloned().collect::<Vec<_>>())
+                    }) {
+                        Ok(h) if h.is_empty() => return fail("no hosts matched".into()),
+                        Ok(h) => h,
+                        Err(e) => return fail(e),
+                    };
+                    let _ = out.send(Response::Waiting {
+                        message: format!("Approve running this on {} host(s) in the SSHVault window…", hosts.len()),
+                    });
+                    if !me.approve(&command, &hosts).await {
+                        return fail("not approved in the app".into());
+                    }
+                    let state = me.0.state::<AppState>();
+                    let names: std::collections::HashMap<Uuid, String> = hosts.iter().map(|(id, h)| (*id, h.label.clone())).collect();
+                    let sink: Arc<dyn crate::runner::RunSink> = Arc::new(CliRunSink(out.clone(), names));
+                    let mut ready = Vec::new();
+                    for (id, h) in &hosts {
+                        match resolve_target(&state, *id, None) {
+                            Ok(t) => ready.push((*id, t, command.clone())),
+                            Err(e) => {
+                                let _ = out.send(Response::Failed { host: h.label.clone(), message: e.message });
+                            }
+                        }
+                    }
+                    if ready.is_empty() {
+                        let _ = out.send(Response::Done { ok: false });
+                        return;
+                    }
+                    state.runs.start(
+                        format!("cli-{}", Uuid::new_v4()),
+                        ready,
+                        std::time::Duration::from_secs(timeout_secs.clamp(1, 3600)),
+                        sink,
+                    );
+                }
+            }
+        })
+    }
+}
+
+fn autostart_cli(app: &AppHandle, state: &AppState) {
+    let enabled = AppConfig::load(&state.config_dir).map(|c| c.cli_enabled).unwrap_or(false);
+    if enabled && state.control.lock().unwrap_or_else(|p| p.into_inner()).is_none() {
+        let _ = start_cli(app, state);
+    }
+}
+
+/// Must run within the async runtime (async commands do).
+fn start_cli(app: &AppHandle, state: &AppState) -> ApiResult<()> {
+    let handle = crate::control::start(Arc::new(AppControl(app.clone())))
+        .map_err(|e| ApiError::new("cli", format!("could not start command-line access: {e}")))?;
+    *state.control.lock().unwrap_or_else(|p| p.into_inner()) = Some(handle);
+    Ok(())
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CliStatus {
+    pub enabled: bool,
+    pub running: bool,
+    /// This program, to put on PATH (or alias) as `sshvault`.
+    pub executable: Option<String>,
+}
+
+fn cli_status_of(state: &AppState) -> CliStatus {
+    CliStatus {
+        enabled: AppConfig::load(&state.config_dir).map(|c| c.cli_enabled).unwrap_or(false),
+        running: state.control.lock().unwrap_or_else(|p| p.into_inner()).is_some(),
+        executable: std::env::current_exe().ok().map(|p| p.to_string_lossy().into_owned()),
+    }
+}
+
+#[tauri::command]
+pub fn cli_status(state: State<'_, AppState>) -> CliStatus {
+    cli_status_of(&state)
+}
+
+#[tauri::command]
+pub async fn cli_set_enabled(app: AppHandle, state: State<'_, AppState>, enabled: bool) -> ApiResult<CliStatus> {
+    let mut cfg = AppConfig::load(&state.config_dir)?;
+    cfg.cli_enabled = enabled;
+    cfg.save(&state.config_dir)?;
+    if enabled {
+        state.session.with_vault(|_| Ok(()))?;
+        if state.control.lock().unwrap_or_else(|p| p.into_inner()).is_none() {
+            start_cli(&app, &state)?;
+        }
+    } else {
+        *state.control.lock().unwrap_or_else(|p| p.into_inner()) = None;
+        *state.cli_trusted_until.lock().unwrap_or_else(|p| p.into_inner()) = None;
+    }
+    Ok(cli_status_of(&state))
+}
+
+/// Approve or refuse a `run` from the command line. `trust_minutes` skips
+/// the question for further non-production runs for that long.
+#[tauri::command]
+pub fn answer_cli_request(
+    state: State<'_, AppState>,
+    request_id: Uuid,
+    allow: bool,
+    trust_minutes: Option<u32>,
+) -> ApiResult<()> {
+    let tx = state
+        .cli_prompts
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .remove(&request_id)
+        .ok_or_else(|| ApiError::new("expired", "that request has expired"))?;
+    if allow {
+        if let Some(m) = trust_minutes.filter(|m| *m > 0) {
+            *state.cli_trusted_until.lock().unwrap_or_else(|p| p.into_inner()) =
+                Some(std::time::Instant::now() + std::time::Duration::from_secs(u64::from(m.min(60)) * 60));
+        }
+    }
+    let _ = tx.send(allow);
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Updates
+// ---------------------------------------------------------------------------
+
+fn updater_configured(config: &tauri::Config) -> bool {
+    config
+        .plugins
+        .0
+        .get("updater")
+        .and_then(|u| u.get("pubkey"))
+        .and_then(|p| p.as_str())
+        .is_some_and(|p| !p.trim().is_empty())
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct UpdaterInfo {
+    /// This build can check for and verify updates.
+    pub enabled: bool,
+    /// It can also install them itself. On Linux only the AppImage can;
+    /// .deb and .rpm installs are updated by downloading the new package.
+    pub can_install: bool,
+    pub version: String,
+}
+
+#[tauri::command]
+pub fn updater_info(app: AppHandle) -> UpdaterInfo {
+    let enabled = updater_configured(app.config());
+    let can_install = enabled && (!cfg!(target_os = "linux") || std::env::var_os("APPIMAGE").is_some());
+    UpdaterInfo {
+        enabled,
+        can_install,
+        version: app.package_info().version.to_string(),
+    }
 }
 
 /// Put back a record deleted in the last few minutes, exactly as it was.
@@ -3107,6 +3418,12 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let edit_dir = app.path().app_cache_dir()?.join("remote-edit");
     crate::remoteedit::clean_base(&edit_dir);
     crate::remoteedit::clean_base(&std::env::temp_dir().join("sshvault-edit"));
+    // Self-update only in builds that embed an update-signing public key
+    // (CI adds it when the signing secrets exist). Without one the plugin
+    // would fail to start, and there'd be nothing to verify updates with.
+    if updater_configured(app.config()) {
+        app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
+    }
     let prompts: PromptMap = Default::default();
     app.manage(AppState {
         session: Session::new(),
@@ -3133,6 +3450,9 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         agent: Default::default(),
         vault_agent: Arc::new(VaultAgent(app.handle().clone())),
         agent_prompts: Default::default(),
+        control: Default::default(),
+        cli_prompts: Default::default(),
+        cli_trusted_until: Default::default(),
         logs: Default::default(),
     });
     Ok(())

@@ -20,6 +20,8 @@ tauri-plugin-dialog = "2"
 tauri-plugin-clipboard-manager = "2"
 tauri-plugin-window-state = "2"
 tauri-plugin-notification = "2"
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
 # No libudev: builds anywhere; ports are still found (sysfs / /dev on Linux).
 serialport = { version = "4.10", default-features = false }
 serde = { version = "1", features = ["derive"] }
@@ -49,6 +51,12 @@ russh = { version = "0.63", default-features = false, features = ["flate2", "rin
 russh-sftp = "3"
 portable-pty = "0.9"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync", "io-util", "fs", "process"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_System_Console"] }
 
 [dev-dependencies]
 tempfile = "3"

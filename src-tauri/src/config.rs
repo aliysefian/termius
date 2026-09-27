@@ -26,6 +26,9 @@ pub struct AppConfig {
     /// Start the vault-backed SSH agent whenever the vault unlocks here.
     #[serde(default)]
     pub agent_enabled: bool,
+    /// Accept `sshvault list/connect/run` from this computer's command line.
+    #[serde(default)]
+    pub cli_enabled: bool,
 }
 
 /// A readable name for this computer, for "also open on …".

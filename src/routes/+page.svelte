@@ -14,6 +14,9 @@
   import VaultPanel from "$lib/components/VaultPanel.svelte";
   import HostKeyDialog from "$lib/components/HostKeyDialog.svelte";
   import AgentPromptDialog from "$lib/components/AgentPromptDialog.svelte";
+  import CliPromptDialog from "$lib/components/CliPromptDialog.svelte";
+  import UpdateBanner from "$lib/components/UpdateBanner.svelte";
+  import { updates } from "$lib/stores/updates.svelte";
   import RecoveryKeyDialog from "$lib/components/RecoveryKeyDialog.svelte";
   import SaveWorkspace from "$lib/components/SaveWorkspace.svelte";
   import ShortcutsDialog from "$lib/components/ShortcutsDialog.svelte";
@@ -80,6 +83,8 @@
   onMount(async () => {
     await vaultStore.init();
     ready = true;
+    // After start-up settles, so it never slows the first screen.
+    setTimeout(() => void updates.init(), 3000);
   });
 </script>
 
@@ -176,6 +181,8 @@
 
   <HostKeyDialog />
   <AgentPromptDialog />
+  <CliPromptDialog />
+  <UpdateBanner />
 
   {#if ui.paletteOpen}
     <CommandPalette />

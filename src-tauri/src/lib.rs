@@ -6,6 +6,7 @@ pub mod agent;
 pub mod ansible;
 pub mod commands;
 pub mod config;
+pub mod control;
 pub mod crypto;
 pub mod csvimport;
 pub mod dial;
@@ -42,6 +43,7 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_process::init())
         .setup(commands::setup)
         .invoke_handler(tauri::generate_handler![
             commands::get_status,
@@ -152,6 +154,10 @@ pub fn run() {
             commands::transfer_cancel,
             commands::transfer_pause,
             commands::agent_status,
+            commands::cli_status,
+            commands::updater_info,
+            commands::cli_set_enabled,
+            commands::answer_cli_request,
             commands::agent_set_enabled,
             commands::answer_agent_request,
             commands::set_key_agent,

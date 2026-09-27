@@ -281,6 +281,25 @@ written.
 - Encrypted keys need their passphrase saved in the vault to be offered,
   because the agent can't ask for it.
 
+### Command line
+
+Turn on **Settings → Command line**, then script against your hosts while
+the vault is unlocked:
+
+```sh
+sshvault status
+sshvault list --group Production
+sshvault connect web-01                         # opens a tab in the app
+sshvault run --tag frontend -- uptime           # asks you in the app first
+sshvault run web-01 db-01 --json -- df -h /     # JSON lines for scripts
+```
+
+The CLI is the SSHVault program itself; Settings shows the alias to add if
+it isn't on your PATH. It talks to the running app over a socket only you
+can open, so it never sees passwords or keys. Every `run` is approved in
+the app. A 10-minute "don't ask again" never covers production hosts. Exit
+codes: 0 success, 1 a host failed, 2 usage error, 3 the app isn't reachable.
+
 ### Telnet and serial consoles
 
 For switches, routers and devices without SSH:
@@ -560,6 +579,37 @@ Windows signing needs a code-signing certificate as a `.pfx` file:
 To base64-encode it, run
 `[Convert]::ToBase64String([IO.File]::ReadAllBytes("cert.pfx"))` in
 PowerShell, or `base64 -w0 cert.pfx` on Linux.
+
+### Updates
+
+SSHVault can update itself: it checks for a new version at start-up (at
+most twice a day, switchable in **Settings → Updates**), downloads it, and
+installs it only if its signature matches the public key built into the
+app. On Linux, only the AppImage replaces itself; `.deb` and `.rpm` installs
+get a download link instead.
+
+Self-update switches on in CI once these exist in the repository settings:
+
+| Name | Kind | Value |
+|---|---|---|
+| `TAURI_SIGNING_PRIVATE_KEY` | secret | The private key from `pnpm tauri signer generate` |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | secret | Its password |
+| `TAURI_UPDATER_PUBKEY` | variable | The matching public key (printed by the same command) |
+| `UPDATER_ENDPOINT` | variable, optional | Where apps read `latest.json` (default: this repository's latest release) |
+| `UPDATER_DOWNLOAD_BASE` | variable, optional | Where `latest.json` points for the files (default: this release's assets) |
+
+```sh
+pnpm tauri signer generate -w ~/.tauri/sshvault-updater.key
+```
+
+Keep a backup of the private key. Without it, installed copies can never
+receive another update, because only updates signed with it are accepted.
+
+Each tagged release then also carries `latest.json` and `.sig` files.
+**The feed must be downloadable without logging in.** A private
+repository's release assets aren't, so either make the releases public, or
+point `UPDATER_ENDPOINT` and `UPDATER_DOWNLOAD_BASE` at a public place that
+the release files are copied to.
 
 ### Continuous integration
 

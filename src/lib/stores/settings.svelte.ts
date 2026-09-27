@@ -37,6 +37,8 @@ export interface Prefs {
   localShell: string;
   /** Local terminal start folder; empty = home. */
   localCwd: string;
+  /** Look for a new version at start-up (at most twice a day). */
+  autoUpdateCheck: boolean;
 }
 
 export interface HistoryEntry {
@@ -75,6 +77,7 @@ export const DEFAULT_PREFS: Prefs = {
   prodTint: true,
   localShell: "",
   localCwd: "",
+  autoUpdateCheck: true,
 };
 
 const KEY = "sshvault.prefs.v1";

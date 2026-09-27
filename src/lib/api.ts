@@ -7,6 +7,8 @@ import type {
   AgentStatus,
   AgentUse,
   BackupInfo,
+  CliPrompt,
+  CliStatus,
   Collection,
   ConflictInfo,
   CreateResult,
@@ -143,6 +145,18 @@ export const agent = {
     invoke<VaultRecord<SshKey>>("set_key_agent", { id, baseRev, mode }),
   onPrompt: (handler: (p: AgentPrompt) => void): Promise<UnlistenFn> =>
     listen<AgentPrompt>("agent:prompt", (e) => handler(e.payload)),
+};
+
+/** Command-line control (`sshvault list/connect/run`). */
+export const cli = {
+  status: () => invoke<CliStatus>("cli_status"),
+  setEnabled: (enabled: boolean) => invoke<CliStatus>("cli_set_enabled", { enabled }),
+  answer: (requestId: Uuid, allow: boolean, trustMinutes: number | null) =>
+    invoke<void>("answer_cli_request", { requestId, allow, trustMinutes }),
+  onPrompt: (handler: (p: CliPrompt) => void): Promise<UnlistenFn> =>
+    listen<CliPrompt>("cli:prompt", (e) => handler(e.payload)),
+  onOpen: (handler: (p: { host_id: Uuid; label: string }) => void): Promise<UnlistenFn> =>
+    listen<{ host_id: Uuid; label: string }>("cli:open", (e) => handler(e.payload)),
 };
 
 export const knownHosts = {

@@ -293,6 +293,21 @@ export interface AgentStatus {
   enabled: boolean;
 }
 
+export interface CliStatus {
+  enabled: boolean;
+  running: boolean;
+  /** This program's path, to put on PATH as `sshvault`. */
+  executable: string | null;
+}
+
+/** A `sshvault run` waiting for approval. */
+export interface CliPrompt {
+  request_id: Uuid;
+  command: string;
+  hosts: string[];
+  production: number;
+}
+
 export interface AgentPrompt {
   request_id: Uuid;
   key_name: string;

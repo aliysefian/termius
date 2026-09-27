@@ -199,8 +199,16 @@ matter in a working day.
   on, sessions with "forward ssh-agent" offer vault keys instead of the
   system agent, with the same per-key approval; the prompt names the server
   asking. Tested with a second hop signed through the forwarded agent.
-- [ ] **Auto-update** through the Tauri updater. Needs the update-signing key
-  pair and a release channel decision.
+- [x] **Auto-update** through the Tauri updater: start-up check (at most
+  twice a day, switchable), download with progress, signature check
+  against the key built into the app, install and restart after
+  confirming open sessions will close. CI signs updates and attaches
+  `latest.json` once the signing secrets exist; builds without them are
+  unchanged. The AppImage and Windows installers update themselves; `.deb`
+  and `.rpm` get a download link.
+- [ ] **Updates for a private repository**: its release files can't be
+  downloaded anonymously, so the feed needs a public home (public
+  releases, or a public mirror the release job copies files to).
 - [ ] **Hardware keys**: FIDO2 (`sk-ssh-ed25519`) and PKCS#11 keys through
   the local agent; and unlocking the vault with a hardware-backed key.
 - [ ] **Team sharing**: a second vault (or a group inside one) encrypted to
@@ -211,8 +219,14 @@ matter in a working day.
   window size and terminal type, marked UNENCRYPTED; serial consoles with
   port discovery, baud, data bits, parity, stop bits and flow control.
   Serial is unit-tested but has not been tried against real hardware yet.
-- [ ] **Scripting**: a small CLI (`sshvault connect web-01`, `sshvault run
-  --group prod "uptime"`) that talks to the running app.
+- [x] **Scripting CLI**: `sshvault status`, `list`, `connect web-01` and
+  `run --group Production -- uptime` (with `--json`), talking to the
+  running app over an owner-only socket or named pipe, so the unlocked
+  vault's credentials are used and nothing secret passes through the CLI.
+  Off until turned on per computer; every `run` is approved in the app (an
+  optional 10-minute trust window never covers production hosts); host
+  names that match nothing are errors, and `run` never defaults to every
+  host. Exit codes: 0 success, 1 a host failed, 2 usage, 3 app unreachable.
 
 ## Needs a decision
 

@@ -1,5 +1,8 @@
 <script lang="ts">
-  import { Copy, Lock, Palette, RotateCcw, ShieldAlert, TerminalSquare } from "lucide-svelte";
+  import { Copy, Lock, Palette, RotateCcw, ShieldAlert, SquareTerminal, TerminalSquare } from "lucide-svelte";
+  import { onMount } from "svelte";
+  import type { CliStatus } from "$lib/types";
+  import { updates } from "$lib/stores/updates.svelte";
   import { SHELL_SNIPPETS } from "$lib/shellintegration";
   import { ui } from "$lib/stores/ui.svelte";
   import { save } from "@tauri-apps/plugin-dialog";
@@ -13,6 +16,22 @@
   import { errorMessage, type VaultSettings } from "$lib/types";
 
   let msg = $state<{ ok: boolean; text: string } | null>(null);
+
+  // -- command line ------------------------------------------------------------
+  let cli = $state<CliStatus | null>(null);
+  onMount(() => void api.cli.status().then((s) => (cli = s)));
+  const isWindows = navigator.userAgent.includes("Windows");
+  const aliasLine = $derived(
+    cli?.executable ? (isWindows ? `Set-Alias sshvault "${cli.executable}"` : `alias sshvault='${cli.executable.replace(/'/g, "'\\''")}'`) : "",
+  );
+
+  async function toggleCli() {
+    try {
+      cli = await api.cli.setEnabled(!cli?.enabled);
+    } catch (e) {
+      msg = { ok: false, text: errorMessage(e) };
+    }
+  }
 
   async function importThemeFile() {
     const f = await openFile({
@@ -198,6 +217,34 @@
     </section>
 
     <section class="rounded-xl border border-line bg-panel p-5">
+      <h2 class="mb-1 text-sm font-semibold">Updates</h2>
+      {#if updates.info?.enabled}
+        <p class="mb-3 text-xs text-fg-muted">
+          You have version {updates.info.version}. Updates are downloaded from the SSHVault releases and installed only if
+          their signature matches the key built into this app.
+        </p>
+        <label class="flex items-center gap-2 text-sm">
+          <input type="checkbox" class="accent-[#7b61ff]" bind:checked={settings.prefs.autoUpdateCheck} />
+          Check for updates when SSHVault starts
+        </label>
+        <div class="mt-3 flex items-center gap-3">
+          <button class="btn-ghost border border-line py-1 text-xs" disabled={updates.checking} onclick={() => updates.check()}>
+            {updates.checking ? "Checking…" : "Check now"}
+          </button>
+          {#if updates.available}
+            <button class="btn-primary py-1 text-xs" onclick={() => (updates.dismissed = null)}>Show update</button>
+          {/if}
+          <span class="text-xs {updates.error ? 'text-danger' : 'text-fg-muted'}">{updates.error ?? updates.lastResult ?? ""}</span>
+        </div>
+      {:else}
+        <p class="text-xs text-fg-muted">
+          Version {updates.info?.version ?? ""}. This build can't update itself (it was built without an update-signing key),
+          so new versions are installed by hand from the releases page.
+        </p>
+      {/if}
+    </section>
+
+    <section class="rounded-xl border border-line bg-panel p-5">
       <h2 class="mb-1 text-sm font-semibold">Layout</h2>
       <div class="grid grid-cols-2 gap-3">
         <div>
@@ -261,6 +308,33 @@
         </span>
       </label>
       <button class="btn-ghost mt-2 border border-line py-1 text-xs" onclick={() => { settings.clearHistory(); ui.notify("info", "Command history cleared."); }}>Clear command history</button>
+    </section>
+
+    <section class="rounded-xl border border-line bg-panel p-5">
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <h2 class="mb-1 flex items-center gap-2 text-sm font-semibold"><SquareTerminal size={15} class="text-accent" /> Command line</h2>
+          <p class="text-xs text-fg-muted">
+            Use your hosts from scripts and your own terminal while the vault is unlocked. Off by default; only programs
+            running as you on this computer can connect, and <code>run</code> asks you here before touching any server.
+          </p>
+        </div>
+        <button class="btn-{cli?.enabled ? 'ghost border border-line' : 'primary'} shrink-0" onclick={toggleCli}>{cli?.enabled ? "Turn off" : "Turn on"}</button>
+      </div>
+      {#if cli?.enabled}
+        <pre class="mt-3 overflow-x-auto rounded-md border border-line bg-base p-2 font-mono text-[11px] leading-snug">sshvault status
+sshvault list --group Production
+sshvault connect web-01
+sshvault run --tag frontend -- uptime
+sshvault run web-01 db-01 --json -- df -h /</pre>
+        {#if aliasLine}
+          <p class="mt-2 text-xs text-fg-muted">If <code>sshvault</code> isn't on your PATH, add this to your shell profile:</p>
+          <div class="mt-1 flex items-center gap-2">
+            <code class="min-w-0 flex-1 truncate rounded-md border border-line bg-base px-2 py-1.5 font-mono text-xs" title={aliasLine}>{aliasLine}</code>
+            <button class="btn-ghost border border-line py-1 text-xs" onclick={() => { void writeText(aliasLine); ui.notify("info", "Copied."); }}><Copy size={12} /> Copy</button>
+          </div>
+        {/if}
+      {/if}
     </section>
 
     <section class="rounded-xl border border-line bg-panel p-5">
