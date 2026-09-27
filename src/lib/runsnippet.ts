@@ -1,5 +1,6 @@
 // Send snippets to open terminals, filling in {{variables}} per pane.
 import { writeToPane } from "$lib/terminalio";
+import { firstDestructiveLine } from "$lib/guard";
 import { promptedVariables, render, type HostContext } from "$lib/snippetvars";
 import { adhocLabel, ui, type PaneTarget, type SnippetRunOpts } from "$lib/stores/ui.svelte";
 import { vaultStore } from "$lib/stores/vault.svelte";
@@ -8,7 +9,9 @@ import { errorMessage, type Uuid } from "$lib/types";
 /** Built-in variable values for a saved host. */
 export function hostContextFor(hostId: Uuid): HostContext {
   const h = vaultStore.hostById.get(hostId)?.data;
-  const identity = h?.identity_id ? vaultStore.identityById.get(h.identity_id)?.data : undefined;
+  // The credential in use, including one inherited from the host's group.
+  const identityId = vaultStore.effectiveIdentity(h);
+  const identity = identityId ? vaultStore.identityById.get(identityId)?.data : undefined;
   return {
     host: h?.label ?? "",
     hostname: h?.hostname ?? "",
@@ -43,10 +46,33 @@ export async function runSnippet(command: string, opts: SnippetRunOpts, values?:
     return;
   }
   const panes = opts.scope === "tab" ? tab.panes : tab.panes.filter((p) => p.id === tab.activePaneId);
+  const rendered = new Map(panes.map((p) => [p.id, render(command, contextFor(p.target), values ?? {})]));
+
+  // Running on production: the same destructive-command check as typing.
+  if (opts.execute) {
+    const patterns = vaultStore.settings?.settings.destructive_patterns ?? [];
+    const risky = panes
+      .map((p) => {
+        if (p.target.kind !== "host") return null;
+        const h = vaultStore.hostById.get(p.target.hostId)?.data;
+        if (vaultStore.effectiveEnv(h) !== "production") return null;
+        const hit = firstDestructiveLine(rendered.get(p.id) ?? "", patterns);
+        return hit ? { host: h?.label ?? "host", line: hit.line } : null;
+      })
+      .filter((x): x is { host: string; line: string } => !!x);
+    if (risky.length) {
+      const hosts = [...new Set(risky.map((r) => r.host))];
+      const ok = confirm(
+        `Run this on production?\n\n${risky[0].line}\n\nOn: ${hosts.join(", ")}\n\nIt matches a destructive-command pattern. This check only sees the command text; it's a reminder, not a guarantee.`,
+      );
+      if (!ok) return;
+    }
+  }
+
   const results = await Promise.allSettled(
     panes.map((p) => {
       // Terminals expect CR for Enter; normalise multi-line snippets.
-      let text = render(command, contextFor(p.target), values ?? {}).replace(/\r?\n/g, "\r");
+      let text = (rendered.get(p.id) ?? "").replace(/\r?\n/g, "\r");
       if (opts.execute && !text.endsWith("\r")) text += "\r";
       if (!opts.execute) text = text.replace(/\r$/, "");
       return writeToPane(p, text);

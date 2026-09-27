@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { LineTracker, matchDestructive, pasteNeedsConfirm, pastedLines } from "../guard";
+import { LineTracker, firstDestructiveLine, matchDestructive, pasteNeedsConfirm, pastedLines } from "../guard";
 import { DEFAULT_DESTRUCTIVE } from "./fixtures";
 
 describe("paste protection", () => {
@@ -34,6 +34,14 @@ describe("destructive command warnings", () => {
 
   it("skips invalid patterns instead of failing", () => {
     expect(matchDestructive("reboot", ["(", "\\breboot\\b"])).toBe("\\breboot\\b");
+  });
+});
+
+describe("snippets sent as a whole", () => {
+  it("finds the dangerous line in a multi-line snippet", () => {
+    const hit = firstDestructiveLine("cd /srv/app\ngit pull\nsudo systemctl stop app\n", DEFAULT_DESTRUCTIVE);
+    expect(hit?.line).toBe("sudo systemctl stop app");
+    expect(firstDestructiveLine("uptime\ndf -h", DEFAULT_DESTRUCTIVE)).toBeNull();
   });
 });
 

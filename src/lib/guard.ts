@@ -39,6 +39,18 @@ export function matchDestructive(line: string, patterns: string[]): string | nul
 }
 
 /**
+ * The first line of `text` that matches a destructive pattern, with the
+ * pattern, or null. Used for snippets and anything else sent as a whole.
+ */
+export function firstDestructiveLine(text: string, patterns: string[]): { line: string; pattern: string } | null {
+  for (const line of text.split(/\r\n|\r|\n/)) {
+    const pattern = matchDestructive(line, patterns);
+    if (pattern) return { line: line.trim(), pattern };
+  }
+  return null;
+}
+
+/**
  * Follows what's typed on the current line. `line` is null once the line
  * can't be known reliably (history, completion, cursor movement).
  */
