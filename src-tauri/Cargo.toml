@@ -1,6 +1,6 @@
 [package]
 name = "sshvault"
-version = "0.9.0"
+version = "0.9.1"
 description = "Zero-knowledge, folder-synced SSH terminal manager and SFTP client"
 authors = ["Ali Yousefian"]
 license = "MIT"
