@@ -10,9 +10,21 @@
   let address = $state(initial);
   let password = $state("");
   const parsed = $derived(parseAdhoc(address));
+  /** "telnet://host[:port]" or "telnet host [port]". */
+  const telnet = $derived.by(() => {
+    const m = /^telnet(?::\/\/|\s+)(\[[^\]]+\]|[^\s:/]+)(?:[:\s](\d{1,5}))?\/?$/i.exec(address.trim());
+    if (!m) return null;
+    const port = m[2] ? Number(m[2]) : 23;
+    return port > 0 && port < 65536 ? { host: m[1].replace(/^\[|\]$/g, ""), port } : null;
+  });
 
   function submit(e: SubmitEvent) {
     e.preventDefault();
+    if (telnet) {
+      ui.modal = null;
+      ui.openTelnet(telnet.host, telnet.port);
+      return;
+    }
     if (!parsed) return;
     ui.modal = null;
     ui.openAdhoc({ ...parsed, password: password || undefined });
@@ -26,11 +38,13 @@
       <label class="label" for="q-addr">Address</label>
       <!-- svelte-ignore a11y_autofocus -->
       <input id="q-addr" class="input font-mono" placeholder="user@host:22" bind:value={address} autofocus required spellcheck="false" />
-      {#if address && !parsed}
-        <p class="mt-1 text-xs text-danger">Use the form user@host or user@host:port.</p>
+      {#if telnet}
+        <p class="mt-1 text-xs text-warning">Telnet to {telnet.host}:{telnet.port}. Everything, including passwords, is sent unencrypted.</p>
+      {:else if address && !parsed}
+        <p class="mt-1 text-xs text-danger">Use user@host[:port], or telnet://host[:port].</p>
       {/if}
     </div>
-    <div>
+    <div class={telnet ? "hidden" : ""}>
       <label class="label" for="q-pw">Password</label>
       <input id="q-pw" class="input" type="password" bind:value={password} autocomplete="off" placeholder="Leave empty to use ssh-agent" />
     </div>
@@ -38,6 +52,7 @@
   </form>
   {#snippet footer()}
     <button class="btn-ghost" type="button" onclick={() => (ui.modal = null)}>Cancel</button>
-    <button class="btn-primary" type="submit" form="quick-form" disabled={!parsed}><Zap size={14} /> Connect</button>
+    <button class="btn-ghost" type="button" onclick={() => (ui.modal = { kind: "serial" })}>Serial console…</button>
+    <button class="btn-primary" type="submit" form="quick-form" disabled={!parsed && !telnet}><Zap size={14} /> Connect</button>
   {/snippet}
 </Modal>

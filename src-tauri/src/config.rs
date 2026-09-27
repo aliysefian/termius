@@ -23,6 +23,9 @@ pub struct AppConfig {
     /// The vault whose key this device keeps in the OS keychain.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub remember_vault: Option<uuid::Uuid>,
+    /// Start the vault-backed SSH agent whenever the vault unlocks here.
+    #[serde(default)]
+    pub agent_enabled: bool,
 }
 
 /// A readable name for this computer, for "also open on …".

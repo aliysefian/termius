@@ -129,6 +129,9 @@ pub struct Host {
     /// Send a keep-alive every N seconds (OpenSSH `ServerAliveInterval`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub keepalive_secs: Option<u32>,
+    /// "telnet" for Telnet hosts (network gear); empty means SSH.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub protocol: String,
     /// Free-form key/value metadata, e.g. owner, ticket, cost centre.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub custom: std::collections::BTreeMap<String, String>,
@@ -162,6 +165,27 @@ pub struct SshKey {
     /// Created from a host's own form rather than the Key Manager.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub for_host: Option<Uuid>,
+    /// Whether the vault's SSH agent offers this key to other programs.
+    #[serde(default, skip_serializing_if = "AgentUse::is_off")]
+    pub agent: AgentUse,
+}
+
+/// Agent exposure for one key. Off unless the user opts in.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentUse {
+    #[default]
+    Off,
+    /// Every signature asks for approval in the app.
+    Ask,
+    /// Signs without asking while the vault is unlocked.
+    Allow,
+}
+
+impl AgentUse {
+    pub fn is_off(&self) -> bool {
+        *self == AgentUse::Off
+    }
 }
 
 impl SshKey {

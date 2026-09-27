@@ -38,7 +38,29 @@
   }
   onMount(() => load(null));
 
-  let source = $state<"ssh" | "ansible" | "putty" | "csv">("ssh");
+  let source = $state<"ssh" | "ansible" | "putty" | "csv" | "mobaxterm">("ssh");
+
+  async function chooseMobaxterm() {
+    const f = await open({
+      multiple: false,
+      directory: false,
+      title: "Choose MobaXterm.ini or an exported .mxtsessions file",
+      filters: [{ name: "MobaXterm", extensions: ["ini", "mxtsessions"] }],
+    });
+    if (typeof f !== "string") return;
+    source = "mobaxterm";
+    loading = true;
+    error = null;
+    try {
+      show(await api.mobaxterm.preview(f));
+      if (!preview?.hosts.length) error = "No SSH bookmarks were found in that file.";
+    } catch (e) {
+      error = errorMessage(e);
+      preview = null;
+    } finally {
+      loading = false;
+    }
+  }
 
   function existingOf(hosts: { alias: string }[]) {
     const labels = new Set(vaultStore.hosts.map((h) => h.data?.label.toLowerCase()));
@@ -170,7 +192,7 @@
   }
 </script>
 
-<Modal title={source === "ansible" ? "Import from Ansible inventory" : source === "putty" ? "Import PuTTY sessions" : source === "csv" ? "Import from CSV" : "Import hosts"} onclose={() => (ui.modal = null)} width="max-w-3xl">
+<Modal title={source === "ansible" ? "Import from Ansible inventory" : source === "putty" ? "Import PuTTY sessions" : source === "mobaxterm" ? "Import MobaXterm bookmarks" : source === "csv" ? "Import from CSV" : "Import hosts"} onclose={() => (ui.modal = null)} width="max-w-3xl">
   {#if summary}
     <div class="space-y-3 text-sm">
       <p>
@@ -202,6 +224,7 @@
         <button class="btn-ghost border border-line" onclick={chooseFile}><FileInput size={14} /> SSH config…</button>
         <button class="btn-ghost border border-line" onclick={chooseInventory}><FileInput size={14} /> Ansible…</button>
         <button class="btn-ghost border border-line" onclick={choosePutty}><FileInput size={14} /> PuTTY</button>
+        <button class="btn-ghost border border-line" onclick={chooseMobaxterm}><FileInput size={14} /> MobaXterm…</button>
         <button class="btn-ghost border border-line" onclick={chooseCsv} title="Termius export or any spreadsheet"><FileInput size={14} /> CSV…</button>
       </div>
 

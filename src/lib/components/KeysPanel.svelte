@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { BadgeCheck, ChevronDown, ChevronRight, Copy, Download, FileKey, KeyRound, Lock, Pencil, Plus, Sparkles, Trash2, Upload, Users } from "lucide-svelte";
+  import { BadgeCheck, Bot, ChevronDown, ChevronRight, Copy, Download, FileKey, KeyRound, Lock, Pencil, Plus, Sparkles, Trash2, Upload, Users } from "lucide-svelte";
+  import { onMount } from "svelte";
   import { open, save } from "@tauri-apps/plugin-dialog";
   import { writeText } from "@tauri-apps/plugin-clipboard-manager";
   import Modal from "./Modal.svelte";
@@ -7,7 +8,32 @@
   import { withMasterPassword } from "$lib/secrets.svelte";
   import { ui } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
-  import { errorMessage, type KeyAlgorithm, type KeyUsage, type SshKey, type Uuid, type VaultRecord } from "$lib/types";
+  import { errorMessage, type AgentStatus, type AgentUse, type KeyAlgorithm, type KeyUsage, type SshKey, type Uuid, type VaultRecord } from "$lib/types";
+
+  // -- SSH agent -------------------------------------------------------------
+  let agent = $state<AgentStatus | null>(null);
+  const isWindows = navigator.userAgent.includes("Windows");
+  onMount(() => void api.agent.status().then((s) => (agent = s)));
+  const offered = $derived(vaultStore.keys.filter((k) => k.data?.agent && k.data.agent !== "off").length);
+  const exportLine = $derived(
+    agent?.path ? (isWindows ? `$env:SSH_AUTH_SOCK = "${agent.path}"` : `export SSH_AUTH_SOCK=${agent.path}`) : "",
+  );
+
+  async function toggleAgent() {
+    try {
+      agent = await api.agent.setEnabled(!agent?.enabled);
+    } catch (e) {
+      ui.notify("error", errorMessage(e));
+    }
+  }
+
+  async function setAgentMode(k: VaultRecord<SshKey>, mode: AgentUse) {
+    try {
+      vaultStore.putKey(await api.agent.setKeyMode(k.id, k.rev, mode));
+    } catch (e) {
+      ui.notify("error", errorMessage(e));
+    }
+  }
 
   type Dialog = null | "generate" | "import" | "public";
   let dialog = $state<Dialog>(null);
@@ -214,6 +240,33 @@
       Private keys are stored encrypted in the vault and never leave it unless you export one. Credentials use a key by
       reference, so replacing or re-encrypting a key here applies everywhere it's used.
     </p>
+
+    <section class="rounded-xl border border-line bg-panel p-4">
+      <div class="flex items-center justify-between gap-3">
+        <div>
+          <h2 class="flex items-center gap-2 text-sm font-semibold"><Bot size={15} class="text-accent" /> SSH agent</h2>
+          <p class="mt-0.5 text-xs text-fg-muted">
+            Let <code>ssh</code>, <code>git</code>, <code>scp</code> and your editor use vault keys while the vault is unlocked,
+            with no key files on disk. Only keys you switch on below are offered ({offered} now).
+          </p>
+        </div>
+        <button class="btn-{agent?.enabled ? 'ghost border border-line' : 'primary'} shrink-0" onclick={toggleAgent}>
+          {agent?.enabled ? "Turn off" : "Turn on"}
+        </button>
+      </div>
+      {#if agent?.running && agent.path}
+        <div class="mt-3 space-y-1.5 text-xs">
+          <p class="text-fg-muted">Point your tools at it (add to your shell profile to make it permanent):</p>
+          <div class="flex items-center gap-2">
+            <code class="min-w-0 flex-1 truncate rounded-md border border-line bg-base px-2 py-1.5 font-mono" title={exportLine}>{exportLine}</code>
+            <button class="btn-ghost border border-line py-1 text-xs" onclick={() => { void writeText(exportLine); ui.notify("info", "Copied."); }}><Copy size={12} /> Copy</button>
+          </div>
+          <p class="text-fg-muted">It stops when the vault locks, and only answers "list keys" and "sign"; nothing can add keys to it.</p>
+        </div>
+      {:else if agent?.enabled}
+        <p class="mt-3 text-xs text-warning">Switched on, but not running. It starts the next time the vault unlocks.</p>
+      {/if}
+    </section>
     {#if vaultStore.keys.length > 6}
       <input class="input py-1.5 text-sm" placeholder="Filter keys…" bind:value={filter} />
     {/if}
@@ -231,6 +284,7 @@
                 <span class="truncate">{d.name}</span>
                 {#if pub}<span class="rounded bg-fg-muted/15 px-1 text-[9px] font-bold text-fg-muted">PUBLIC ONLY</span>{/if}
                 {#if d.encrypted}<span class="rounded bg-success/15 px-1 text-[9px] font-bold text-success" title="The private key is passphrase-protected">PASSPHRASE</span>{/if}
+                {#if d.agent && d.agent !== "off"}<span class="rounded bg-accent/15 px-1 text-[9px] font-bold text-accent" title={d.agent === "ask" ? "Offered by the SSH agent; asks each time" : "Offered by the SSH agent"}>AGENT</span>{/if}
                 {#if d.certificate}<span class="rounded bg-accent/15 px-1 text-[9px] font-bold text-accent">CERT</span>{/if}
               </div>
               <div class="truncate font-mono text-[11px] text-fg-muted">{d.algorithm} · {d.fingerprint}</div>
@@ -307,6 +361,19 @@
                 {/if}
                 <button class="btn-ghost border border-line py-1 text-xs hover:text-danger" onclick={() => remove(k)}><Trash2 size={12} /> Delete</button>
               </div>
+              {#if !pub}
+                <div class="flex items-center gap-2 text-xs">
+                  <label for="agent-{k.id}" class="text-fg-muted">SSH agent:</label>
+                  <select id="agent-{k.id}" class="input w-auto py-1 text-xs" value={d.agent ?? "off"} onchange={(e) => setAgentMode(k, e.currentTarget.value as AgentUse)}>
+                    <option value="off">Not offered</option>
+                    <option value="ask">Ask every time</option>
+                    <option value="allow">Allow while unlocked</option>
+                  </select>
+                  {#if d.encrypted && d.passphrase === undefined}
+                    <span class="text-fg-muted">Save its passphrase first.</span>
+                  {/if}
+                </div>
+              {/if}
             </div>
           {/if}
         </div>

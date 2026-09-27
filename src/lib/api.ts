@@ -3,6 +3,9 @@ import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import type {
+  AgentPrompt,
+  AgentStatus,
+  AgentUse,
   BackupInfo,
   Collection,
   ConflictInfo,
@@ -16,6 +19,7 @@ import type {
   KnownHostsImport,
   Proxy,
   RestoreReport,
+  SerialConfig,
   SshKey,
   UnlockResult,
   VaultInfo,
@@ -131,6 +135,16 @@ export const keys = {
     invoke<void>("export_private_key", { id, masterPassword, destination }),
 };
 
+export const agent = {
+  status: () => invoke<AgentStatus>("agent_status"),
+  setEnabled: (enabled: boolean) => invoke<AgentStatus>("agent_set_enabled", { enabled }),
+  answer: (requestId: Uuid, allow: boolean) => invoke<void>("answer_agent_request", { requestId, allow }),
+  setKeyMode: (id: Uuid, baseRev: number | null, mode: AgentUse) =>
+    invoke<VaultRecord<SshKey>>("set_key_agent", { id, baseRev, mode }),
+  onPrompt: (handler: (p: AgentPrompt) => void): Promise<UnlistenFn> =>
+    listen<AgentPrompt>("agent:prompt", (e) => handler(e.payload)),
+};
+
 export const knownHosts = {
   list: () => invoke<VaultKnownHost[]>("known_hosts_list"),
   forget: (host: string, port: number) => invoke<boolean>("known_hosts_forget", { host, port }),
@@ -221,8 +235,32 @@ export const localTerm = {
   close: (paneId: string) => invoke<void>("local_close", { paneId }),
 };
 
+/** Telnet and serial consoles. */
+export const raw = {
+  telnet(paneId: string, host: string, port: number, cols: number, rows: number, onData: (bytes: Uint8Array) => void) {
+    const channel = new Channel<ArrayBuffer | number[]>((msg) =>
+      onData(msg instanceof ArrayBuffer ? new Uint8Array(msg) : Uint8Array.from(msg)),
+    );
+    return invoke<void>("raw_telnet", { paneId, host, port, cols, rows, onData: channel });
+  },
+  serial(paneId: string, config: SerialConfig, onData: (bytes: Uint8Array) => void) {
+    const channel = new Channel<ArrayBuffer | number[]>((msg) =>
+      onData(msg instanceof ArrayBuffer ? new Uint8Array(msg) : Uint8Array.from(msg)),
+    );
+    return invoke<void>("raw_serial", { paneId, config, onData: channel });
+  },
+  write: (paneId: string, data: Uint8Array) => invoke<void>("raw_write", { paneId, data: Array.from(data) }),
+  resize: (paneId: string, cols: number, rows: number) => invoke<void>("raw_resize", { paneId, cols, rows }),
+  close: (paneId: string) => invoke<void>("raw_close", { paneId }),
+  ports: () => invoke<string[]>("serial_ports"),
+};
+
 export const health = {
   check: (hostIds: Uuid[] | null) => invoke<HealthResult[]>("check_hosts", { hostIds }),
+};
+
+export const mobaxterm = {
+  preview: (path: string) => invoke<SshConfigPreview>("mobaxterm_preview", { path }),
 };
 
 export const putty = {

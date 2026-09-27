@@ -181,6 +181,9 @@ pub struct Target {
     /// Let the remote shell use this computer's ssh-agent (`ssh -A`). Only
     /// honoured for the final hop's interactive session.
     pub forward_agent: bool,
+    /// Serve forwarded agent requests from this backend (the vault agent)
+    /// instead of the system's ssh-agent.
+    pub agent_backend: Option<Arc<dyn crate::agent::Backend>>,
     /// Show the host's graphical programs on this computer's X server
     /// (`ssh -X`). Only honoured for the final hop's interactive session.
     pub forward_x11: bool,
@@ -529,6 +532,7 @@ pub struct ClientHandler {
     /// Whether this connection asked for agent forwarding. The server may
     /// only open agent channels when it did.
     forward_agent: bool,
+    agent_backend: Option<Arc<dyn crate::agent::Backend>>,
     /// Set only when this connection asked for X11 forwarding. The server may
     /// only open X11 channels when it is.
     x11: Option<Arc<crate::x11::X11Setup>>,
@@ -653,6 +657,12 @@ impl client::Handler for ClientHandler {
             return Ok(());
         }
         reply.accept().await;
+        if let Some(backend) = self.agent_backend.clone() {
+            // The vault agent answers, naming this host in any approval prompt.
+            let origin = display_host_port(&self.host, self.port);
+            tokio::spawn(crate::agent::serve_conn_from(channel.into_stream(), backend, Some(origin)));
+            return Ok(());
+        }
         tokio::spawn(async move {
             match local_agent().await {
                 Ok(mut agent) => {
@@ -781,6 +791,7 @@ async fn connect_hop(
         learned_fingerprint: Arc::clone(&learned),
         remote_forwards,
         forward_agent: target.forward_agent,
+        agent_backend: target.agent_backend.clone(),
         x11,
     };
     let timeout = || SshError::Timeout(addr.clone());
@@ -1245,6 +1256,7 @@ pub(crate) mod testutil {
             host_keys: HostKeyPolicy::tofu_file(known_hosts),
             jump: None,
             forward_agent: false,
+            agent_backend: None,
             forward_x11: false,
             proxy: None,
             keepalive_secs: None,
@@ -1263,6 +1275,7 @@ pub fn testutil_target() -> Target {
         host_keys: HostKeyPolicy::tofu_file(PathBuf::new()),
         jump: None,
         forward_agent: false,
+        agent_backend: None,
         forward_x11: false,
         proxy: None,
         keepalive_secs: None,
@@ -1786,6 +1799,58 @@ mod tests {
         wait_output(&rx, "RC=2");
         manager.disconnect("na").await;
         let _ = agent.kill();
+    }
+
+    /// Offers one key and records where each approval request came from.
+    struct VaultStub {
+        key: russh::keys::PrivateKey,
+        origins: Mutex<Vec<Option<String>>>,
+    }
+    impl crate::agent::Backend for VaultStub {
+        fn identities(&self) -> Vec<crate::agent::Offered> {
+            vec![crate::agent::Offered { public: self.key.public_key().clone(), comment: "sshvault:test".into() }]
+        }
+        fn private(&self, _: &PublicKey) -> Option<russh::keys::PrivateKey> {
+            Some(self.key.clone())
+        }
+        fn approve(&self, _: &PublicKey, _: &str, origin: Option<&str>) -> crate::agent::BoxFuture<bool> {
+            self.origins.lock().unwrap().push(origin.map(str::to_string));
+            Box::pin(async { true })
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn forwarded_agent_can_be_the_vault_agent() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let Some(sshd) = spawn_sshd(dir.path()) else {
+            eprintln!("skipping: no usable sshd on this machine");
+            return;
+        };
+        let key = russh::keys::PrivateKey::from_openssh(&sshd.client_key).unwrap();
+        let stub = Arc::new(VaultStub { key: key.clone(), origins: Mutex::new(vec![]) });
+        let mut t = target(&sshd, &sshd.client_key, dir.path().join("kh"));
+        t.forward_agent = true;
+        t.agent_backend = Some(stub.clone());
+
+        let manager = Arc::new(SshManager::new());
+        let (tx, rx) = std_mpsc::channel();
+        manager
+            .connect("va".into(), ConnectParams { target: t, cols: 160, rows: 24 }, Arc::new(TestSink(tx)))
+            .unwrap();
+        wait_status(&rx, |s| matches!(s, SessionStatus::Connected));
+        // The remote sees the vault key, and can log back in with it
+        // (a hop from the server to itself), which needs a signature.
+        let cmd = format!(
+            "ssh-add -L | grep -c sshvault:test; ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p {} 127.0.0.1 echo HOP$((2+2)) 2>/dev/null; echo DONE$((1+1))\n",
+            sshd.port
+        );
+        manager.write("va", cmd.into_bytes()).await.unwrap();
+        let out = wait_output(&rx, "DONE2");
+        assert!(out.contains("HOP4"), "second hop signed through the vault agent: {out}");
+        let origins = stub.origins.lock().unwrap().clone();
+        assert!(!origins.is_empty());
+        assert!(origins.iter().all(|o| o.as_deref() == Some(&*format!("127.0.0.1:{}", sshd.port))), "{origins:?}");
+        manager.disconnect("va").await;
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

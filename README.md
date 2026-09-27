@@ -265,6 +265,33 @@ key. Credentials refer to keys, so replacing a key applies everywhere.
 Exporting a private key asks for the master password every time and writes an
 owner-only file.
 
+### SSH agent
+
+**Keys → SSH agent → Turn on** starts an SSH agent backed by the vault. Copy
+the `SSH_AUTH_SOCK` line it shows into your shell profile, and `ssh`, `git`,
+`scp` and editors use your vault keys directly. No private key file is ever
+written.
+
+- Keys are offered only after you switch them on, one by one: **Ask every
+  time** (the app asks before each signature) or **Allow while unlocked**.
+- The agent stops when the vault locks, and starts again at the next unlock
+  if it's turned on for that computer.
+- It only lists keys and signs. `ssh-add` can't add, remove or lock keys in
+  it.
+- Encrypted keys need their passphrase saved in the vault to be offered,
+  because the agent can't ask for it.
+
+### Telnet and serial consoles
+
+For switches, routers and devices without SSH:
+
+- **Telnet**: set a host's protocol to Telnet, or type `telnet://host:port`
+  in Quick connect. You log in inside the terminal and nothing is saved for
+  it. Telnet is unencrypted, and its panes say so.
+- **Serial**: Quick connect → **Serial console…** (or the command palette).
+  Pick the port, baud rate and line settings (9600 8N1 by default). On
+  Linux your user may need to be in the `dialout` group.
+
 ### Jump hosts
 
 In the host form, pick another saved host under **Jump host**. The form shows

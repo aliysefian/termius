@@ -172,11 +172,15 @@ matter in a working day.
 - [x] **SFTP**: chmod, quick look at text and images (Space), a
   permissions column, drag files in from the OS file manager to upload, and
   "show in file manager" for local files.
-- [ ] **SFTP transfer queue** with pause, resume and retry.
+- [x] **SFTP transfer queue**: two transfers run at a time and the rest
+  wait; each can be paused, resumed or cancelled, and **Retry** continues
+  partial files from where they stopped instead of starting over.
 - [x] **Migrate from other tools**: PuTTY saved sessions (Windows registry,
   or `~/.putty/sessions`) and any CSV (Termius exports, spreadsheets) with
   column mapping. Password columns are detected and never imported.
-- [ ] **MobaXterm** session import.
+- [x] **MobaXterm** import: SSH bookmarks from `MobaXterm.ini` or an
+  exported `.mxtsessions` file, with their folders, ports, users and key
+  paths. Other bookmark types are listed as skipped.
 - [x] **Focus mode** (Ctrl+Shift+U hides everything but the terminal) and a
   **compact density** option.
 - [x] **Accessibility pass**: visible keyboard focus rings everywhere,
@@ -184,10 +188,17 @@ matter in a working day.
 
 ## Later: bigger developer features
 
-- [ ] **Vault-backed SSH agent.** Serve the Key Manager's keys on
-  `SSH_AUTH_SOCK` (Unix socket, Windows named pipe) while the vault is
-  unlocked, so `git`, `ssh`, `scp` and IDEs on this computer use vault keys
-  without any file on disk. Per-key approval, and forwarding uses it too.
+- [x] **Vault-backed SSH agent.** Serves Key Manager keys on
+  `SSH_AUTH_SOCK` (an owner-only Unix socket, or a named pipe on Windows)
+  while the vault is unlocked, so `git`, `ssh`, `scp` and IDEs use vault
+  keys with no file on disk. Keys are off until switched on, one by one,
+  as "ask every time" or "allow". Read-only: it lists and signs, and
+  refuses to add, remove or lock keys. Honours RSA SHA-2 requests. Tested
+  with real `ssh-add` and `ssh`.
+- [x] **Agent forwarding from the vault agent**: while the vault agent is
+  on, sessions with "forward ssh-agent" offer vault keys instead of the
+  system agent, with the same per-key approval; the prompt names the server
+  asking. Tested with a second hop signed through the forwarded agent.
 - [ ] **Auto-update** through the Tauri updater. Needs the update-signing key
   pair and a release channel decision.
 - [ ] **Hardware keys**: FIDO2 (`sk-ssh-ed25519`) and PKCS#11 keys through
@@ -195,7 +206,11 @@ matter in a working day.
 - [ ] **Team sharing**: a second vault (or a group inside one) encrypted to
   several people's public keys, so a team can share hosts without sharing a
   master password.
-- [ ] **Serial and Telnet** sessions for network gear.
+- [x] **Serial and Telnet** for network gear: Telnet hosts (saved, or
+  `telnet://host:port` in Quick connect) with proper option negotiation,
+  window size and terminal type, marked UNENCRYPTED; serial consoles with
+  port discovery, baud, data bits, parity, stop bits and flow control.
+  Serial is unit-tested but has not been tried against real hardware yet.
 - [ ] **Scripting**: a small CLI (`sshvault connect web-01`, `sshvault run
   --group prod "uptime"`) that talks to the running app.
 

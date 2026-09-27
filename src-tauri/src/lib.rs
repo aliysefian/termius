@@ -2,6 +2,7 @@
 
 #[cfg(test)]
 mod acceptance_tests;
+pub mod agent;
 pub mod ansible;
 pub mod commands;
 pub mod config;
@@ -18,7 +19,9 @@ pub mod keys;
 pub mod knownhosts;
 pub mod localpty;
 pub mod models;
+pub mod mobaxterm;
 pub mod putty;
+pub mod rawterm;
 pub mod remoteedit;
 pub mod reveal;
 pub mod runner;
@@ -90,6 +93,7 @@ pub fn run() {
             commands::read_text_file,
             commands::csv_preview,
             commands::putty_sessions,
+            commands::mobaxterm_preview,
             commands::list_groups,
             commands::save_group,
             commands::delete_group,
@@ -118,6 +122,12 @@ pub fn run() {
             commands::local_write,
             commands::local_resize,
             commands::local_close,
+            commands::raw_telnet,
+            commands::raw_serial,
+            commands::raw_write,
+            commands::raw_resize,
+            commands::raw_close,
+            commands::serial_ports,
             commands::check_hosts,
             commands::ansible_preview,
             commands::export_ssh_config,
@@ -140,6 +150,12 @@ pub fn run() {
             commands::local_remove,
             commands::transfer_start,
             commands::transfer_cancel,
+            commands::transfer_pause,
+            commands::agent_status,
+            commands::agent_set_enabled,
+            commands::answer_agent_request,
+            commands::set_key_agent,
+            commands::transfer_resume,
             commands::list_forwards,
             commands::save_forward,
             commands::delete_forward,

@@ -80,6 +80,18 @@ export interface Host {
   keepalive_secs?: number;
   /** Free-form metadata, e.g. owner or ticket. */
   custom?: Record<string, string>;
+  /** "telnet" for Telnet hosts; absent or empty means SSH. */
+  protocol?: string;
+}
+
+/** A serial line, e.g. 115200 8N1. */
+export interface SerialConfig {
+  path: string;
+  baud: number;
+  data_bits: number;
+  parity: "none" | "odd" | "even";
+  stop_bits: number;
+  flow: "none" | "software" | "hardware";
 }
 
 export interface Snippet {
@@ -131,9 +143,12 @@ export interface FileEntry {
 export type TransferProgress =
   | { state: "started"; total_bytes: number; total_files: number }
   | { state: "progress"; bytes: number; total_bytes: number; files_done: number; total_files: number; current: string }
+  | { state: "paused"; bytes: number; total_bytes: number }
   | { state: "done"; bytes: number; files: number }
   | { state: "failed"; message: string }
-  | { state: "cancelled" };
+  | { state: "cancelled" }
+  /** Frontend only: waiting for a free slot in the queue. */
+  | { state: "queued" };
 
 export type VaultStatus =
   | { state: "not_configured" }
@@ -265,6 +280,25 @@ export interface SshKey {
   comment: string;
   created_at: number;
   for_host?: Uuid;
+  /** Whether the vault's SSH agent offers this key. Absent = off. */
+  agent?: AgentUse;
+}
+
+export type AgentUse = "off" | "ask" | "allow";
+
+export interface AgentStatus {
+  running: boolean;
+  /** Socket path (or named pipe on Windows) for SSH_AUTH_SOCK. */
+  path: string | null;
+  enabled: boolean;
+}
+
+export interface AgentPrompt {
+  request_id: Uuid;
+  key_name: string;
+  fingerprint: string;
+  /** The server asking through agent forwarding; null for local programs. */
+  origin: string | null;
 }
 
 export type KeyAlgorithm = "ed25519" | "ecdsa_p256" | "ecdsa_p384" | "rsa3072" | "rsa4096";

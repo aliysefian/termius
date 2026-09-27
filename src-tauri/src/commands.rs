@@ -52,6 +52,8 @@ pub struct AppState {
     pub forwards: Arc<ForwardManager>,
     pub runs: Arc<crate::runner::RunManager>,
     pub local: Arc<crate::localpty::LocalManager>,
+    /// Telnet and serial-console sessions.
+    pub raw: Arc<crate::rawterm::RawManager>,
     pub edits: Arc<crate::remoteedit::EditManager>,
     /// Where remote files are downloaded for editing.
     pub edit_dir: PathBuf,
@@ -64,6 +66,12 @@ pub struct AppState {
     host_key_prompts: PromptMap,
     /// Recently deleted records, kept in memory for a short undo window.
     trash: std::sync::Mutex<Vec<Trashed>>,
+    /// The vault-backed SSH agent, while running.
+    agent: std::sync::Mutex<Option<crate::agent::AgentHandle>>,
+    /// Answers agent requests from the vault, for the local socket and for
+    /// forwarded agent channels.
+    vault_agent: Arc<dyn crate::agent::Backend>,
+    agent_prompts: PromptMap,
     logs: std::sync::Mutex<std::collections::HashMap<String, LogSlot>>,
 }
 
@@ -225,6 +233,14 @@ fn on_change_emitter(app: AppHandle) -> impl Fn(RecordChange) + Send + 'static {
 /// Tombstones older than this are physically removed on unlock. A computer
 /// offline for longer could resurrect a record deleted elsewhere.
 const TOMBSTONE_MAX_AGE_MS: u64 = 90 * 24 * 60 * 60 * 1000;
+
+/// After an unlock: start the agent if this device has it switched on.
+fn autostart_agent(app: &AppHandle, state: &AppState) {
+    let enabled = AppConfig::load(&state.config_dir).map(|c| c.agent_enabled).unwrap_or(false);
+    if enabled && state.agent.lock().unwrap_or_else(|p| p.into_inner()).is_none() {
+        let _ = start_agent(app, state);
+    }
+}
 
 fn purge_old_tombstones(state: &AppState) {
     let _ = state.session.with_vault(|v| {
@@ -388,6 +404,7 @@ pub async fn unlock_vault(
     password: String,
     remember: bool,
 ) -> ApiResult<UnlockResult> {
+    let app_for_agent = app.clone();
     let password = Zeroizing::new(password);
     let mut cfg = AppConfig::load(&state.config_dir)?;
     let root = configured_root(&cfg)?;
@@ -402,6 +419,7 @@ pub async fn unlock_vault(
     purge_old_tombstones(&state);
     let keychain_error = apply_remember(&state, remember);
     let cfg = AppConfig::load(&state.config_dir)?;
+    autostart_agent(&app_for_agent, &state);
     Ok(UnlockResult {
         status: status_of(&state, &cfg),
         report,
@@ -416,6 +434,7 @@ pub async fn unlock_with_device(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> ApiResult<UnlockResult> {
+    let app_for_agent = app.clone();
     let mut cfg = AppConfig::load(&state.config_dir)?;
     let root = configured_root(&cfg)?;
     let vault_id = cfg
@@ -448,6 +467,7 @@ pub async fn unlock_with_device(
         Err(e) => return Err(e.into()),
     };
     purge_old_tombstones(&state);
+    autostart_agent(&app_for_agent, &state);
     Ok(UnlockResult {
         status: status_of(&state, &cfg),
         report,
@@ -464,6 +484,7 @@ pub async fn unlock_with_recovery(
     new_password: String,
     remember: bool,
 ) -> ApiResult<UnlockResult> {
+    let app_for_agent = app.clone();
     let recovery_key = Zeroizing::new(recovery_key);
     let new_password = Zeroizing::new(new_password);
     check_new_password(&new_password)?;
@@ -480,6 +501,7 @@ pub async fn unlock_with_recovery(
     )?;
     let keychain_error = apply_remember(&state, remember);
     let cfg = AppConfig::load(&state.config_dir)?;
+    autostart_agent(&app_for_agent, &state);
     Ok(UnlockResult {
         status: status_of(&state, &cfg),
         report,
@@ -519,7 +541,10 @@ pub async fn lock_vault(state: State<'_, AppState>) -> ApiResult<VaultStatus> {
     state.forwards.stop_all();
     state.runs.cancel_all();
     state.local.close_all();
+    state.raw.close_all();
     state.edits.stop_all();
+    // The agent serves vault keys, so it goes when the vault locks.
+    *state.agent.lock().unwrap_or_else(|p| p.into_inner()) = None;
     state
         .reveal
         .lock()
@@ -959,6 +984,210 @@ fn delete_record_with(
         );
     }
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Vault-backed SSH agent
+// ---------------------------------------------------------------------------
+
+/// Event asking the UI to approve one agent signature. Payload: [`AgentPrompt`].
+pub const EVENT_AGENT_PROMPT: &str = "agent:prompt";
+const AGENT_PROMPT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AgentPrompt {
+    pub request_id: Uuid,
+    pub key_name: String,
+    pub fingerprint: String,
+    /// The server asking, for forwarded agent requests; absent for local programs.
+    pub origin: Option<String>,
+}
+
+/// Offers Key Manager keys marked for the agent, from the unlocked vault.
+struct VaultAgent(AppHandle);
+
+impl VaultAgent {
+    /// (record, key, decrypted private key) for every offered key.
+    fn offered(&self) -> Vec<(crate::models::SshKey, russh::keys::PrivateKey)> {
+        let state = self.0.state::<AppState>();
+        let keys = state
+            .session
+            .with_vault(|v| Ok(v.list::<crate::models::SshKey>(Collection::Keys)?.records))
+            .unwrap_or_default();
+        keys.into_iter()
+            .filter_map(|r| r.data)
+            .filter(|k| !k.agent.is_off())
+            .filter_map(|k| {
+                let text = zeroize::Zeroizing::new(k.private_key.clone()?);
+                // Encrypted keys are offered only when their passphrase is saved.
+                let pk = russh::keys::decode_secret_key(&text, k.passphrase.as_deref()).ok()?;
+                Some((k, pk))
+            })
+            .collect()
+    }
+}
+
+impl crate::agent::Backend for VaultAgent {
+    fn identities(&self) -> Vec<crate::agent::Offered> {
+        self.offered()
+            .into_iter()
+            .map(|(k, pk)| crate::agent::Offered {
+                public: pk.public_key().clone(),
+                comment: format!("sshvault:{}", k.name),
+            })
+            .collect()
+    }
+
+    fn private(&self, public: &russh::keys::PublicKey) -> Option<russh::keys::PrivateKey> {
+        self.offered()
+            .into_iter()
+            .find(|(_, pk)| pk.public_key().key_data() == public.key_data())
+            .map(|(_, pk)| pk)
+    }
+
+    fn approve(&self, public: &russh::keys::PublicKey, _comment: &str, origin: Option<&str>) -> crate::agent::BoxFuture<bool> {
+        let origin = origin.map(str::to_string);
+        let found = self
+            .offered()
+            .into_iter()
+            .find(|(_, pk)| pk.public_key().key_data() == public.key_data())
+            .map(|(k, _)| k);
+        let app = self.0.clone();
+        Box::pin(async move {
+            let Some(k) = found else { return false };
+            match k.agent {
+                crate::models::AgentUse::Allow => true,
+                crate::models::AgentUse::Off => false,
+                crate::models::AgentUse::Ask => {
+                    let state = app.state::<AppState>();
+                    let request_id = Uuid::new_v4();
+                    let (tx, rx) = tokio::sync::oneshot::channel();
+                    state
+                        .agent_prompts
+                        .lock()
+                        .unwrap_or_else(|p| p.into_inner())
+                        .insert(request_id, tx);
+                    let prompt = AgentPrompt {
+                        request_id,
+                        key_name: k.name.clone(),
+                        fingerprint: k.fingerprint.clone(),
+                        origin,
+                    };
+                    let ok = match app.emit(EVENT_AGENT_PROMPT, prompt) {
+                        Ok(()) => matches!(tokio::time::timeout(AGENT_PROMPT_TIMEOUT, rx).await, Ok(Ok(true))),
+                        Err(_) => false,
+                    };
+                    state
+                        .agent_prompts
+                        .lock()
+                        .unwrap_or_else(|p| p.into_inner())
+                        .remove(&request_id);
+                    ok
+                }
+            }
+        })
+    }
+}
+
+fn agent_dir(app: &AppHandle) -> ApiResult<PathBuf> {
+    // XDG_RUNTIME_DIR is per-user, memory-backed and cleared at logout.
+    if let Some(run) = std::env::var_os("XDG_RUNTIME_DIR").filter(|v| !v.is_empty()) {
+        return Ok(PathBuf::from(run).join("sshvault"));
+    }
+    app.path()
+        .app_cache_dir()
+        .map(|d| d.join("agent"))
+        .map_err(|e| ApiError::new("agent", e.to_string()))
+}
+
+/// Start listening. Must be called from within the async runtime (the async
+/// unlock commands and `agent_set_enabled` are).
+fn start_agent(app: &AppHandle, state: &AppState) -> ApiResult<String> {
+    let dir = agent_dir(app)?;
+    let handle = crate::agent::start(&dir, Arc::clone(&state.vault_agent))
+        .map_err(|e| ApiError::new("agent", format!("could not start the SSH agent: {e}")))?;
+    let path = handle.path.clone();
+    *state.agent.lock().unwrap_or_else(|p| p.into_inner()) = Some(handle);
+    Ok(path)
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AgentStatus {
+    pub running: bool,
+    /// Socket path, or the named pipe on Windows.
+    pub path: Option<String>,
+    /// Start automatically when the vault unlocks on this computer.
+    pub enabled: bool,
+}
+
+fn agent_status_of(state: &AppState) -> AgentStatus {
+    let path = state
+        .agent
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .as_ref()
+        .map(|h| h.path.clone());
+    AgentStatus {
+        running: path.is_some(),
+        path,
+        enabled: AppConfig::load(&state.config_dir).map(|c| c.agent_enabled).unwrap_or(false),
+    }
+}
+
+#[tauri::command]
+pub fn agent_status(state: State<'_, AppState>) -> AgentStatus {
+    agent_status_of(&state)
+}
+
+/// Turn the agent on or off for this computer (and start or stop it now).
+#[tauri::command]
+pub async fn agent_set_enabled(app: AppHandle, state: State<'_, AppState>, enabled: bool) -> ApiResult<AgentStatus> {
+    let mut cfg = AppConfig::load(&state.config_dir)?;
+    cfg.agent_enabled = enabled;
+    cfg.save(&state.config_dir)?;
+    if enabled {
+        state.session.with_vault(|_| Ok(()))?;
+        if state.agent.lock().unwrap_or_else(|p| p.into_inner()).is_none() {
+            start_agent(&app, &state)?;
+        }
+    } else {
+        *state.agent.lock().unwrap_or_else(|p| p.into_inner()) = None;
+    }
+    Ok(agent_status_of(&state))
+}
+
+#[tauri::command]
+pub fn answer_agent_request(state: State<'_, AppState>, request_id: Uuid, allow: bool) -> ApiResult<()> {
+    let tx = state
+        .agent_prompts
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .remove(&request_id)
+        .ok_or_else(|| ApiError::new("expired", "that request has expired"))?;
+    let _ = tx.send(allow);
+    Ok(())
+}
+
+/// Choose whether the agent offers a key: off, ask each time, or allow.
+#[tauri::command]
+pub fn set_key_agent(
+    state: State<'_, AppState>,
+    id: Uuid,
+    base_rev: Option<u64>,
+    mode: crate::models::AgentUse,
+) -> ApiResult<Record<crate::models::SshKey>> {
+    let mut key = load_key(&state, id)?.data.expect("checked");
+    if !mode.is_off() && key.private_key.is_none() {
+        return Err(ApiError::new("key", "a public key can't be used by the agent"));
+    }
+    if !mode.is_off() && key.encrypted && key.passphrase.is_none() {
+        return Err(ApiError::new(
+            "key",
+            "save this key's passphrase in the vault first; the agent can't ask for it",
+        ));
+    }
+    key.agent = mode;
+    save_record(&state, Collection::Keys, Some(id), base_rev, key).map(redacted_key)
 }
 
 /// Put back a record deleted in the last few minutes, exactly as it was.
@@ -1618,6 +1847,15 @@ fn resolve_target(
     let resolved = state
         .session
         .with_vault(|v| Ok(crate::keymanager::resolve_target(v, host_id, creds, policy)))?;
+    // With the vault agent on, forwarded agents offer vault keys (with the
+    // same per-key approval) instead of the system agent.
+    let agent_on = state.agent.lock().unwrap_or_else(|p| p.into_inner()).is_some();
+    let resolved = resolved.map(|mut t| {
+        if agent_on {
+            t.agent_backend = Some(Arc::clone(&state.vault_agent));
+        }
+        t
+    });
     resolved.map_err(|e| match e {
         ResolveError::Keys(k) => k.into(),
         ResolveError::CredentialsRequired(m) => ApiError::new("credentials_required", m),
@@ -1747,6 +1985,72 @@ pub fn local_spawn(
         .local
         .spawn(pane_id, cols, rows, argv, cwd, sink)
         .map_err(|e| ApiError::new("local", e.to_string()))
+}
+
+// ---------------------------------------------------------------------------
+// Telnet and serial consoles
+// ---------------------------------------------------------------------------
+
+fn raw_err(e: crate::rawterm::RawError) -> ApiError {
+    ApiError::new("raw", e.to_string())
+}
+
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn raw_telnet(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    pane_id: String,
+    host: String,
+    port: u16,
+    cols: u32,
+    rows: u32,
+    on_data: Channel<InvokeResponseBody>,
+) -> ApiResult<()> {
+    let sink = Arc::new(PaneSink {
+        app,
+        pane_id: pane_id.clone(),
+        data: on_data,
+        log: state.log_slot(&pane_id),
+    });
+    state.raw.telnet(pane_id, host.trim().to_string(), port, cols, rows, sink).map_err(raw_err)
+}
+
+#[tauri::command]
+pub fn raw_serial(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    pane_id: String,
+    config: crate::rawterm::SerialConfig,
+    on_data: Channel<InvokeResponseBody>,
+) -> ApiResult<()> {
+    let sink = Arc::new(PaneSink {
+        app,
+        pane_id: pane_id.clone(),
+        data: on_data,
+        log: state.log_slot(&pane_id),
+    });
+    state.raw.serial(pane_id, config, sink).map_err(raw_err)
+}
+
+#[tauri::command]
+pub fn raw_write(state: State<'_, AppState>, pane_id: String, data: Vec<u8>) -> ApiResult<()> {
+    state.raw.write(&pane_id, data).map_err(raw_err)
+}
+
+#[tauri::command]
+pub fn raw_resize(state: State<'_, AppState>, pane_id: String, cols: u32, rows: u32) -> ApiResult<()> {
+    state.raw.resize(&pane_id, cols, rows).map_err(raw_err)
+}
+
+#[tauri::command]
+pub fn raw_close(state: State<'_, AppState>, pane_id: String) {
+    state.raw.close(&pane_id);
+}
+
+#[tauri::command]
+pub fn serial_ports() -> Vec<String> {
+    crate::rawterm::serial_ports()
 }
 
 #[tauri::command]
@@ -1969,6 +2273,7 @@ pub async fn ssh_connect_adhoc(
             host_keys: state.host_keys.clone(),
             jump: None,
             forward_agent: false,
+            agent_backend: None,
             forward_x11: false,
             proxy: None,
             keepalive_secs: None,
@@ -2577,6 +2882,31 @@ pub fn csv_preview(path: String) -> ApiResult<crate::csvimport::CsvTable> {
     Ok(crate::csvimport::parse(&read_text_file(path)?))
 }
 
+/// SSH bookmarks from a MobaXterm `.ini` or `.mxtsessions` file.
+#[tauri::command]
+pub fn mobaxterm_preview(state: State<'_, AppState>, path: String) -> ApiResult<SshConfigPreview> {
+    let text = read_text_file(path.clone())?;
+    // `_ProfileDir_` is the Windows user folder.
+    let profile = std::env::var("USERPROFILE").ok();
+    let parsed = crate::mobaxterm::parse(&text, profile.as_deref());
+    let labels: std::collections::HashSet<String> = list_records::<Host>(&state, Collection::Hosts)?
+        .into_iter()
+        .filter_map(|r| r.data.map(|d| d.label.to_lowercase()))
+        .collect();
+    let existing = parsed
+        .hosts
+        .iter()
+        .filter(|h| labels.contains(&h.alias.to_lowercase()))
+        .map(|h| h.alias.clone())
+        .collect();
+    Ok(SshConfigPreview {
+        path,
+        hosts: parsed.hosts,
+        warnings: parsed.warnings,
+        existing,
+    })
+}
+
 /// Saved PuTTY sessions on this computer, as importable hosts.
 #[tauri::command]
 pub fn putty_sessions(state: State<'_, AppState>) -> ApiResult<SshConfigPreview> {
@@ -2646,6 +2976,7 @@ impl ProgressSink for ChannelProgress {
 /// Start a transfer in the background. Returns immediately; progress and the
 /// final state stream over `on_progress`.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub fn transfer_start(
     state: State<'_, AppState>,
     session_id: String,
@@ -2653,6 +2984,7 @@ pub fn transfer_start(
     direction: Direction,
     sources: Vec<String>,
     dest_dir: String,
+    resume: Option<bool>,
     on_progress: Channel<TransferProgress>,
 ) -> ApiResult<()> {
     let sftp = Arc::clone(&state.sftp);
@@ -2664,6 +2996,7 @@ pub fn transfer_start(
             direction,
             sources,
             dest_dir,
+            resume.unwrap_or(false),
             &sink,
         )
         .await;
@@ -2674,6 +3007,16 @@ pub fn transfer_start(
 #[tauri::command]
 pub fn transfer_cancel(state: State<'_, AppState>, transfer_id: String) {
     state.sftp.cancel(&transfer_id);
+}
+
+#[tauri::command]
+pub fn transfer_pause(state: State<'_, AppState>, transfer_id: String) {
+    state.sftp.pause(&transfer_id);
+}
+
+#[tauri::command]
+pub fn transfer_resume(state: State<'_, AppState>, transfer_id: String) {
+    state.sftp.resume(&transfer_id);
 }
 
 // ---------------------------------------------------------------------------
@@ -2773,6 +3116,7 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         forwards: Arc::new(ForwardManager::new()),
         runs: Arc::new(crate::runner::RunManager::new()),
         local: Arc::new(crate::localpty::LocalManager::new()),
+        raw: Arc::new(crate::rawterm::RawManager::new()),
         edits: Arc::new(crate::remoteedit::EditManager::new()),
         edit_dir,
         reveal: Default::default(),
@@ -2786,6 +3130,9 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         },
         host_key_prompts: prompts,
         trash: Default::default(),
+        agent: Default::default(),
+        vault_agent: Arc::new(VaultAgent(app.handle().clone())),
+        agent_prompts: Default::default(),
         logs: Default::default(),
     });
     Ok(())

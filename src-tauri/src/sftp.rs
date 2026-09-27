@@ -12,7 +12,7 @@ use std::time::{Duration, Instant, UNIX_EPOCH};
 
 use russh_sftp::client::SftpSession;
 use serde::{Deserialize, Serialize};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 
 use crate::ssh::{open_client, Client, LearnedKey, SshError, Target};
 
@@ -354,6 +354,11 @@ pub enum TransferProgress {
         total_files: u64,
         current: String,
     },
+    /// Waiting for `resume`. Nothing is transferred meanwhile.
+    Paused {
+        bytes: u64,
+        total_bytes: u64,
+    },
     Done {
         bytes: u64,
         files: u64,
@@ -376,9 +381,28 @@ struct Plan {
     total: u64,
 }
 
+/// Cancel and pause switches for one transfer.
+#[derive(Default)]
+pub struct TransferCtl {
+    cancel: AtomicBool,
+    paused: AtomicBool,
+    wake: tokio::sync::Notify,
+}
+
+impl TransferCtl {
+    fn set_paused(&self, paused: bool) {
+        self.paused.store(paused, Ordering::SeqCst);
+        self.wake.notify_waiters();
+    }
+    fn cancel(&self) {
+        self.cancel.store(true, Ordering::SeqCst);
+        self.wake.notify_waiters();
+    }
+}
+
 struct Progress<'a> {
     sink: &'a dyn ProgressSink,
-    cancel: &'a AtomicBool,
+    ctl: &'a TransferCtl,
     bytes: u64,
     total: u64,
     files_done: u64,
@@ -387,8 +411,24 @@ struct Progress<'a> {
 }
 
 impl Progress<'_> {
-    fn check(&self) -> Result<(), SftpError> {
-        if self.cancel.load(Ordering::Relaxed) {
+    /// Stop if cancelled; wait here while paused.
+    async fn check(&mut self, current: &str) -> Result<(), SftpError> {
+        if self.ctl.paused.load(Ordering::SeqCst) && !self.ctl.cancel.load(Ordering::SeqCst) {
+            self.sink.report(TransferProgress::Paused {
+                bytes: self.bytes,
+                total_bytes: self.total,
+            });
+            loop {
+                // Register before re-checking, so a resume can't slip by.
+                let woken = self.ctl.wake.notified();
+                if !self.ctl.paused.load(Ordering::SeqCst) || self.ctl.cancel.load(Ordering::SeqCst) {
+                    break;
+                }
+                woken.await;
+            }
+            self.emit(current);
+        }
+        if self.ctl.cancel.load(Ordering::SeqCst) {
             Err(SftpError::Cancelled)
         } else {
             Ok(())
@@ -415,7 +455,7 @@ impl Progress<'_> {
 #[derive(Default)]
 pub struct SftpManager {
     sessions: Mutex<HashMap<String, Arc<SftpConn>>>,
-    transfers: Mutex<HashMap<String, Arc<AtomicBool>>>,
+    transfers: Mutex<HashMap<String, Arc<TransferCtl>>>,
 }
 
 impl SftpManager {
@@ -477,26 +517,48 @@ impl SftpManager {
             .unwrap_or_else(|p| p.into_inner())
             .values()
         {
-            t.store(true, Ordering::Relaxed);
+            t.cancel();
         }
         for id in ids {
             self.close(&id).await;
         }
     }
 
-    pub fn cancel(&self, transfer_id: &str) {
-        if let Some(flag) = self
-            .transfers
+    fn ctl(&self, transfer_id: &str) -> Option<Arc<TransferCtl>> {
+        self.transfers
             .lock()
             .unwrap_or_else(|p| p.into_inner())
             .get(transfer_id)
-        {
-            flag.store(true, Ordering::Relaxed);
+            .cloned()
+    }
+
+    pub fn cancel(&self, transfer_id: &str) {
+        if let Some(c) = self.ctl(transfer_id) {
+            c.cancel();
+        }
+    }
+
+    /// Pause between chunks. The connection stays open; `resume` continues.
+    pub fn pause(&self, transfer_id: &str) {
+        if let Some(c) = self.ctl(transfer_id) {
+            c.set_paused(true);
+        }
+    }
+
+    pub fn resume(&self, transfer_id: &str) {
+        if let Some(c) = self.ctl(transfer_id) {
+            c.set_paused(false);
         }
     }
 
     /// Copy `sources` (files or directories) into `dest_dir` on the other
     /// side. Runs to completion; progress and the final outcome go to `sink`.
+    ///
+    /// With `resume`, files already at the destination continue from where
+    /// they stop (a partial file is appended to, a complete one skipped)
+    /// instead of being copied again. That's how "Retry" picks up a
+    /// transfer that failed or was cancelled.
+    #[allow(clippy::too_many_arguments)]
     pub async fn transfer(
         &self,
         session_id: &str,
@@ -504,16 +566,17 @@ impl SftpManager {
         direction: Direction,
         sources: Vec<String>,
         dest_dir: String,
+        resume: bool,
         sink: &dyn ProgressSink,
     ) {
-        let cancel = Arc::new(AtomicBool::new(false));
+        let ctl = Arc::new(TransferCtl::default());
         self.transfers
             .lock()
             .unwrap_or_else(|p| p.into_inner())
-            .insert(transfer_id.clone(), Arc::clone(&cancel));
+            .insert(transfer_id.clone(), Arc::clone(&ctl));
 
         let result = match self.get(session_id) {
-            Ok(conn) => run_transfer(&conn, direction, &sources, &dest_dir, sink, &cancel).await,
+            Ok(conn) => run_transfer(&conn, direction, &sources, &dest_dir, resume, sink, &ctl).await,
             Err(e) => Err(e),
         };
         match result {
@@ -535,8 +598,9 @@ async fn run_transfer(
     direction: Direction,
     sources: &[String],
     dest_dir: &str,
+    resume: bool,
     sink: &dyn ProgressSink,
-    cancel: &AtomicBool,
+    ctl: &TransferCtl,
 ) -> Result<(u64, u64), SftpError> {
     let plan = match direction {
         Direction::Download => plan_download(conn, sources, dest_dir).await?,
@@ -548,7 +612,7 @@ async fn run_transfer(
     });
     let mut p = Progress {
         sink,
-        cancel,
+        ctl,
         bytes: 0,
         total: plan.total,
         files_done: 0,
@@ -557,7 +621,7 @@ async fn run_transfer(
     };
 
     for dir in &plan.dirs {
-        p.check()?;
+        p.check(dir).await?;
         match direction {
             Direction::Download => {
                 let d = Path::new(dir);
@@ -572,17 +636,53 @@ async fn run_transfer(
     }
 
     let mut buf = vec![0u8; CHUNK];
-    for (src, dst, _) in &plan.files {
-        p.check()?;
+    for (src, dst, size) in &plan.files {
+        p.check(src).await?;
+        // How much of this file is already at the destination.
+        let have = if resume {
+            match direction {
+                Direction::Download => std::fs::metadata(dst).map(|m| m.len()).unwrap_or(0),
+                Direction::Upload => conn
+                    .sftp
+                    .metadata(dst.clone())
+                    .await
+                    .ok()
+                    .and_then(|m| m.size)
+                    .unwrap_or(0),
+            }
+        } else {
+            0
+        };
+        // Larger than the source means it's a different file: start over.
+        let offset = if have <= *size { have } else { 0 };
+        if resume && offset == *size && have == *size {
+            p.add(*size, src);
+            p.files_done += 1;
+            p.emit(src);
+            continue;
+        }
+        p.add(offset, src);
         match direction {
             Direction::Download => {
                 let mut r = conn.sftp.open(src.clone()).await?;
                 let dst_path = Path::new(dst);
-                let mut w = tokio::fs::File::create(dst_path)
-                    .await
-                    .map_err(local_err(dst_path))?;
+                let mut w = if offset > 0 {
+                    r.seek(std::io::SeekFrom::Start(offset)).await.map_err(|e| SftpError::Local {
+                        path: PathBuf::from(src),
+                        source: e,
+                    })?;
+                    tokio::fs::OpenOptions::new()
+                        .append(true)
+                        .open(dst_path)
+                        .await
+                        .map_err(local_err(dst_path))?
+                } else {
+                    tokio::fs::File::create(dst_path)
+                        .await
+                        .map_err(local_err(dst_path))?
+                };
                 loop {
-                    p.check()?;
+                    p.check(src).await?;
                     let n = r.read(&mut buf).await.map_err(|e| SftpError::Local {
                         path: PathBuf::from(src),
                         source: e,
@@ -600,9 +700,24 @@ async fn run_transfer(
                 let mut r = tokio::fs::File::open(src_path)
                     .await
                     .map_err(local_err(src_path))?;
-                let mut w = conn.sftp.create(dst.clone()).await?;
+                let mut w = if offset > 0 {
+                    r.seek(std::io::SeekFrom::Start(offset))
+                        .await
+                        .map_err(local_err(src_path))?;
+                    let mut w = conn
+                        .sftp
+                        .open_with_flags(dst.clone(), russh_sftp::protocol::OpenFlags::WRITE)
+                        .await?;
+                    w.seek(std::io::SeekFrom::Start(offset)).await.map_err(|e| SftpError::Local {
+                        path: PathBuf::from(dst),
+                        source: e,
+                    })?;
+                    w
+                } else {
+                    conn.sftp.create(dst.clone()).await?
+                };
                 loop {
-                    p.check()?;
+                    p.check(src).await?;
                     let n = r.read(&mut buf).await.map_err(local_err(src_path))?;
                     if n == 0 {
                         break;
@@ -800,6 +915,7 @@ mod tests {
             Direction::Upload,
             vec![up.to_string_lossy().into_owned()],
             rroot.clone(),
+            false,
             &sink,
         )
         .await;
@@ -827,6 +943,7 @@ mod tests {
             Direction::Download,
             vec![remote_join(&rroot, "up")],
             down.to_string_lossy().into_owned(),
+            false,
             &sink,
         )
         .await;
@@ -849,6 +966,7 @@ mod tests {
             Direction::Download,
             vec!["/x".into()],
             "/tmp".into(),
+            false,
             &sink,
         )
         .await;
@@ -860,5 +978,73 @@ mod tests {
         drop(conn);
         m.close("s1").await;
         assert!(m.get("s1").is_err());
+    }
+
+    /// Pauses itself on the first progress event and records everything.
+    struct PauseOnce {
+        m: Arc<SftpManager>,
+        id: String,
+        paused: AtomicBool,
+        events: Mutex<Vec<TransferProgress>>,
+    }
+    impl ProgressSink for Arc<PauseOnce> {
+        fn report(&self, p: TransferProgress) {
+            if matches!(p, TransferProgress::Started { .. }) && !self.paused.swap(true, Ordering::SeqCst) {
+                self.m.pause(&self.id);
+            }
+            self.events.lock().unwrap().push(p);
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn transfers_pause_resume_and_continue_partial_files() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let Some(sshd) = spawn_sshd(dir.path()) else {
+            eprintln!("skipping: no usable sshd on this machine");
+            return;
+        };
+        let t = target(&sshd, &sshd.client_key, dir.path().join("kh"));
+        let m = Arc::new(SftpManager::new());
+        m.open("s".into(), &t).await.unwrap();
+        let remote = dir.path().join("remote");
+        std::fs::create_dir(&remote).unwrap();
+        let rroot = remote.to_string_lossy().into_owned();
+        let big: Vec<u8> = (0..(CHUNK * 4 + 99)).map(|i| (i * 7 % 253) as u8).collect();
+        let src = dir.path().join("big.bin");
+        std::fs::write(&src, &big).unwrap();
+
+        // Pause as soon as it starts; nothing more happens until resumed.
+        let sink = Arc::new(PauseOnce { m: Arc::clone(&m), id: "p".into(), paused: AtomicBool::new(false), events: Mutex::new(vec![]) });
+        let (m2, sink2, srcs, root2) = (Arc::clone(&m), Arc::clone(&sink), vec![src.to_string_lossy().into_owned()], rroot.clone());
+        let job = tokio::spawn(async move { m2.transfer("s", "p".into(), Direction::Upload, srcs, root2, false, &sink2).await });
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert!(!job.is_finished(), "paused transfer must wait");
+        assert!(sink.events.lock().unwrap().iter().any(|e| matches!(e, TransferProgress::Paused { .. })));
+        m.resume("p");
+        job.await.unwrap();
+        assert!(matches!(sink.events.lock().unwrap().last(), Some(TransferProgress::Done { files: 1, .. })));
+        assert_eq!(std::fs::read(remote.join("big.bin")).unwrap(), big);
+
+        // An interrupted upload (half the file there) continues where it stopped.
+        std::fs::write(remote.join("big.bin"), &big[..CHUNK + 5]).unwrap();
+        let sink = Arc::new(Collect(Mutex::new(Vec::new())));
+        m.transfer("s", "r1".into(), Direction::Upload, vec![src.to_string_lossy().into_owned()], rroot.clone(), true, &sink).await;
+        assert!(matches!(sink.0.lock().unwrap().last(), Some(TransferProgress::Done { .. })), "{:?}", sink.0.lock().unwrap());
+        assert_eq!(std::fs::read(remote.join("big.bin")).unwrap(), big);
+
+        // Same for downloads; a complete file is skipped, not re-copied.
+        let down = dir.path().join("down");
+        std::fs::create_dir(&down).unwrap();
+        std::fs::write(down.join("big.bin"), &big[..77]).unwrap();
+        let rfile = remote_join(&rroot, "big.bin");
+        let sink = Arc::new(Collect(Mutex::new(Vec::new())));
+        m.transfer("s", "r2".into(), Direction::Download, vec![rfile.clone()], down.to_string_lossy().into_owned(), true, &sink).await;
+        assert_eq!(std::fs::read(down.join("big.bin")).unwrap(), big);
+        let sink = Arc::new(Collect(Mutex::new(Vec::new())));
+        m.transfer("s", "r3".into(), Direction::Download, vec![rfile], down.to_string_lossy().into_owned(), true, &sink).await;
+        assert!(matches!(sink.0.lock().unwrap().last(), Some(TransferProgress::Done { bytes, .. }) if *bytes == big.len() as u64));
+        assert_eq!(std::fs::read(down.join("big.bin")).unwrap(), big);
+
+        m.close("s").await;
     }
 }

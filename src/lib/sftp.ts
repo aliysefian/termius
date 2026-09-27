@@ -63,6 +63,7 @@ export const sftp = {
     sources: string[],
     destDir: string,
     onProgress: (p: TransferProgress) => void,
+    resume = false,
   ) {
     const channel = new Channel<TransferProgress>(onProgress);
     return invoke<void>("transfer_start", {
@@ -71,10 +72,13 @@ export const sftp = {
       direction,
       sources,
       destDir,
+      resume,
       onProgress: channel,
     });
   },
   cancel: (transferId: string) => invoke<void>("transfer_cancel", { transferId }),
+  pause: (transferId: string) => invoke<void>("transfer_pause", { transferId }),
+  resume: (transferId: string) => invoke<void>("transfer_resume", { transferId }),
 };
 
 /** Parent directory for either path style. Returns the input at the root. */

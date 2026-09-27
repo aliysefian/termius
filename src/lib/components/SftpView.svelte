@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount } from "svelte";
-  import { CircleStop, FilePen, HardDrive, Loader2, Monitor, Server, Unplug, X } from "lucide-svelte";
+  import { CircleStop, FilePen, HardDrive, Loader2, Monitor, Pause, Play, RotateCcw, Server, Unplug, X } from "lucide-svelte";
   import type { UnlistenFn } from "@tauri-apps/api/event";
   import * as api from "$lib/api";
   import FilePane from "./FilePane.svelte";
@@ -14,7 +14,14 @@
     direction: Direction;
     label: string;
     progress: TransferProgress;
+    sources: string[];
+    destDir: string;
+    /** Continue partial files instead of starting over (retries). */
+    resume: boolean;
   }
+
+  /** Transfers running at once; the rest wait their turn. */
+  const MAX_RUNNING = 2;
 
   // One remote session per SftpView; the id is stable for its lifetime.
   const sessionId = `sftp-${crypto.randomUUID()}`;
@@ -172,35 +179,80 @@
     return p.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? p;
   }
 
-  async function start(direction: Direction, sources: string[]) {
+  /** Add a transfer to the queue; it starts when a slot is free. */
+  function start(direction: Direction, sources: string[]) {
     if (!connectedHost || sources.length === 0) return;
     const destDir = direction === "upload" ? remotePath : localPath;
-    const id = crypto.randomUUID();
     const label = sources.length === 1 ? baseName(sources[0]) : `${sources.length} items`;
-    transfers.unshift({ id, direction, label, progress: { state: "started", total_bytes: 0, total_files: 0 } });
-    try {
-      await sftp.transfer(sessionId, id, direction, sources, destDir, (p) => {
-        const t = transfers.find((x) => x.id === id);
-        if (!t) return;
-        t.progress = p;
-        if (p.state === "done") {
-          if (direction === "upload") remoteRefresh++;
-          else localRefresh++;
-        }
-      });
-    } catch (e) {
-      const t = transfers.find((x) => x.id === id);
-      if (t) t.progress = { state: "failed", message: errorMessage(e) };
+    transfers.push({ id: crypto.randomUUID(), direction, label, progress: { state: "queued" }, sources, destDir, resume: false });
+    pump();
+  }
+
+  /** Start queued transfers, oldest first, up to the limit. */
+  function pump() {
+    let running = transfers.filter((t) => active(t.progress)).length;
+    for (const t of transfers) {
+      if (running >= MAX_RUNNING) break;
+      if (t.progress.state === "queued") {
+        running++;
+        void run(t);
+      }
     }
+  }
+
+  async function run(t: Transfer) {
+    const id = t.id;
+    t.progress = { state: "started", total_bytes: 0, total_files: 0 };
+    const find = () => transfers.find((x) => x.id === id);
+    try {
+      await sftp.transfer(
+        sessionId,
+        id,
+        t.direction,
+        t.sources,
+        t.destDir,
+        (p) => {
+          const cur = find();
+          if (!cur) return;
+          cur.progress = p;
+          if (p.state === "done") {
+            if (cur.direction === "upload") remoteRefresh++;
+            else localRefresh++;
+          }
+          if (p.state === "done" || p.state === "failed" || p.state === "cancelled") pump();
+        },
+        t.resume,
+      );
+    } catch (e) {
+      const cur = find();
+      if (cur) cur.progress = { state: "failed", message: errorMessage(e) };
+      pump();
+    }
+  }
+
+  /** Try again, continuing partial files rather than starting over. */
+  function retry(t: Transfer) {
+    // Retries are appended with a fresh id so late events from the old run can't clobber them.
+    transfers = transfers.filter((x) => x.id !== t.id);
+    transfers.push({ ...t, id: crypto.randomUUID(), progress: { state: "queued" }, resume: true });
+    pump();
+  }
+
+  function cancel(t: Transfer) {
+    if (t.progress.state === "queued") t.progress = { state: "cancelled" };
+    else void sftp.cancel(t.id);
+    pump();
   }
 
   function pct(p: TransferProgress) {
     if (p.state === "done") return 100;
-    if (p.state === "progress" && p.total_bytes > 0) return Math.min(100, (p.bytes / p.total_bytes) * 100);
+    if ((p.state === "progress" || p.state === "paused") && p.total_bytes > 0) return Math.min(100, (p.bytes / p.total_bytes) * 100);
     return 0;
   }
 
-  const active = (p: TransferProgress) => p.state === "started" || p.state === "progress";
+  const active = (p: TransferProgress) => p.state === "started" || p.state === "progress" || p.state === "paused";
+  const running = $derived(transfers.filter((t) => active(t.progress)).length);
+  const queued = $derived(transfers.filter((t) => t.progress.state === "queued").length);
 </script>
 
 <div class="relative flex min-w-0 flex-1 flex-col">
@@ -305,8 +357,13 @@
   {#if transfers.length}
     <div class="max-h-48 overflow-y-auto border-t border-line bg-panel">
       <div class="flex items-center justify-between px-3 py-1.5 text-xs text-fg-muted">
-        <span class="font-medium uppercase tracking-wide">Transfers</span>
-        <button class="hover:text-fg" onclick={() => (transfers = transfers.filter((t) => active(t.progress)))}>Clear finished</button>
+        <span class="font-medium uppercase tracking-wide">Transfers{running || queued ? ` · ${running} running${queued ? `, ${queued} queued` : ""}` : ""}</span>
+        <span class="flex gap-3">
+          {#if transfers.some((t) => t.progress.state === "failed" || t.progress.state === "cancelled")}
+            <button class="hover:text-fg" onclick={() => transfers.filter((t) => t.progress.state === "failed" || t.progress.state === "cancelled").forEach(retry)}>Retry all</button>
+          {/if}
+          <button class="hover:text-fg" onclick={() => (transfers = transfers.filter((t) => active(t.progress) || t.progress.state === "queued"))}>Clear finished</button>
+        </span>
       </div>
       {#each transfers as t (t.id)}
         <div class="flex items-center gap-3 px-3 py-1.5 text-xs">
@@ -323,6 +380,10 @@
                   <span class="text-danger" title={t.progress.message}>Failed</span>
                 {:else if t.progress.state === "cancelled"}
                   Cancelled
+                {:else if t.progress.state === "paused"}
+                  <span class="text-warning">Paused · {formatBytes(t.progress.bytes)} / {formatBytes(t.progress.total_bytes)}</span>
+                {:else if t.progress.state === "queued"}
+                  Queued
                 {:else}
                   Scanning…
                 {/if}
@@ -338,8 +399,16 @@
               <div class="mt-0.5 truncate text-danger" title={t.progress.message}>{t.progress.message}</div>
             {/if}
           </div>
-          {#if active(t.progress)}
-            <button class="icon-btn h-6 w-6 hover:text-danger" title="Cancel" onclick={() => sftp.cancel(t.id)}><CircleStop size={13} /></button>
+          {#if t.progress.state === "paused"}
+            <button class="icon-btn h-6 w-6" title="Resume" onclick={() => sftp.resume(t.id)}><Play size={13} /></button>
+          {:else if t.progress.state === "progress" || t.progress.state === "started"}
+            <button class="icon-btn h-6 w-6" title="Pause" onclick={() => sftp.pause(t.id)}><Pause size={13} /></button>
+          {/if}
+          {#if t.progress.state === "failed" || t.progress.state === "cancelled"}
+            <button class="icon-btn h-6 w-6" title="Retry (continues partial files)" onclick={() => retry(t)}><RotateCcw size={13} /></button>
+          {/if}
+          {#if active(t.progress) || t.progress.state === "queued"}
+            <button class="icon-btn h-6 w-6 hover:text-danger" title="Cancel" onclick={() => cancel(t)}><CircleStop size={13} /></button>
           {:else}
             <button class="icon-btn h-6 w-6" title="Dismiss" onclick={() => (transfers = transfers.filter((x) => x.id !== t.id))}><X size={13} /></button>
           {/if}

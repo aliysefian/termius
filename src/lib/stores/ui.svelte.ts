@@ -2,7 +2,7 @@
 import { MAX_PANES, grid, leaf, paneIds, remove, setRatio, split, type LayoutNode } from "$lib/layout";
 import { settings } from "$lib/stores/settings.svelte";
 import type { AdhocTarget, SessionStatus } from "$lib/ssh";
-import type { Uuid } from "$lib/types";
+import type { SerialConfig, Uuid } from "$lib/types";
 
 export type View =
   | "hosts"
@@ -24,6 +24,8 @@ export const PAGE_VIEWS: View[] = ["groups", "keys", "knownhosts", "vault", "set
 export type PaneTarget =
   | { kind: "host"; hostId: Uuid; /** Typed into the shell once connected, after the host's own startup command. */ command?: string }
   | { kind: "adhoc"; adhoc: AdhocTarget }
+  | { kind: "telnet"; host: string; port: number }
+  | { kind: "serial"; config: SerialConfig }
   | { kind: "local" };
 
 export interface Pane {
@@ -73,6 +75,7 @@ export type Modal =
   | { kind: "run-on-hosts"; command?: string }
   | { kind: "save-workspace" }
   | { kind: "shortcuts" }
+  | { kind: "serial" }
   | { kind: "bulk-edit" }
   | { kind: "host-details"; id: Uuid }
   | null;
@@ -254,6 +257,14 @@ class UiStore {
       this.activeTabId = tab.id;
     }
     if (this.view === "sftp" || PAGE_VIEWS.includes(this.view)) this.view = "hosts";
+  }
+
+  openTelnet(host: string, port = 23) {
+    this.#openTab({ kind: "telnet", host, port }, `telnet ${host}${port !== 23 ? `:${port}` : ""}`);
+  }
+
+  openSerial(config: SerialConfig) {
+    this.#openTab({ kind: "serial", config }, `${config.path.split(/[\\/]/).pop()} ${config.baud}`);
   }
 
   openAdhoc(adhoc: AdhocTarget) {

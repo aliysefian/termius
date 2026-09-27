@@ -90,7 +90,8 @@
   }
 
   function credentials(): HostCredentials {
-    if (mode === "ask") return { mode: "ask" };
+    // Telnet logs in inside the terminal; nothing is stored for it.
+    if (mode === "ask" || form.protocol === "telnet") return { mode: "ask" };
     if (mode === "keychain") {
       if (!identityId) throw new Error("Choose an identity from the Keychain");
       return { mode: "identity", identity_id: identityId };
@@ -256,8 +257,32 @@
           <label class="label" for="h-port">Port</label>
           <input id="h-port" class="input font-mono" type="number" min="1" max="65535" bind:value={form.port} required />
         </div>
+        <div class="col-span-6">
+          <label class="label" for="h-proto">Protocol</label>
+          <select
+            id="h-proto"
+            class="input"
+            value={form.protocol === "telnet" ? "telnet" : "ssh"}
+            onchange={(e) => {
+              const telnet = e.currentTarget.value === "telnet";
+              form.protocol = telnet ? "telnet" : undefined;
+              if (telnet && form.port === 22) form.port = 23;
+              else if (!telnet && form.port === 23) form.port = 22;
+            }}
+          >
+            <option value="ssh">SSH</option>
+            <option value="telnet">Telnet (unencrypted, for network gear)</option>
+          </select>
+          {#if form.protocol === "telnet"}
+            <p class="mt-1 text-xs text-warning">
+              Telnet sends everything, including passwords, in clear text. You log in inside the terminal; nothing is saved
+              for it. Credentials, jump hosts, proxies and SFTP don't apply.
+            </p>
+          {/if}
+        </div>
       </div>
 
+      {#if form.protocol !== "telnet"}
       <!-- Credentials -->
       <div class="rounded-lg border border-line bg-base/40 p-4">
         <div class="mb-3 flex items-center justify-between">
@@ -406,6 +431,7 @@
           <p class="text-sm text-fg-muted">Nothing is saved. You'll be asked for a username and password each time you connect.</p>
         {/if}
       </div>
+      {/if}
 
       <!-- Organise -->
       <div class="grid grid-cols-2 gap-3">

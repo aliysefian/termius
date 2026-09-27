@@ -13,10 +13,12 @@
   import KnownHostsPanel from "$lib/components/KnownHostsPanel.svelte";
   import VaultPanel from "$lib/components/VaultPanel.svelte";
   import HostKeyDialog from "$lib/components/HostKeyDialog.svelte";
+  import AgentPromptDialog from "$lib/components/AgentPromptDialog.svelte";
   import RecoveryKeyDialog from "$lib/components/RecoveryKeyDialog.svelte";
   import SaveWorkspace from "$lib/components/SaveWorkspace.svelte";
   import ShortcutsDialog from "$lib/components/ShortcutsDialog.svelte";
   import BulkEditForm from "$lib/components/BulkEditForm.svelte";
+  import SerialDialog from "$lib/components/SerialDialog.svelte";
   import HostDetails from "$lib/components/HostDetails.svelte";
   import SettingsPanel from "$lib/components/SettingsPanel.svelte";
   import SnippetForm from "$lib/components/SnippetForm.svelte";
@@ -162,6 +164,8 @@
     <SaveWorkspace />
   {:else if ui.modal?.kind === "shortcuts"}
     <ShortcutsDialog />
+  {:else if ui.modal?.kind === "serial"}
+    <SerialDialog />
   {:else if ui.modal?.kind === "bulk-edit"}
     <BulkEditForm />
   {:else if ui.modal?.kind === "host-details"}
@@ -171,6 +175,7 @@
   {/if}
 
   <HostKeyDialog />
+  <AgentPromptDialog />
 
   {#if ui.paletteOpen}
     <CommandPalette />

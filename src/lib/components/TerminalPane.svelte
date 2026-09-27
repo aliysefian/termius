@@ -11,7 +11,7 @@
   import type { UnlistenFn } from "@tauri-apps/api/event";
   import * as api from "$lib/api";
   import { ssh, type Credentials, type SessionStatus } from "$lib/ssh";
-  import { closePane, resizePane, writeToPane } from "$lib/terminalio";
+  import { closePane, markRaw, resizePane, writeToPane } from "$lib/terminalio";
   import { hostContextFor } from "$lib/runsnippet";
   import { render } from "$lib/snippetvars";
   import { settings } from "$lib/stores/settings.svelte";
@@ -42,9 +42,20 @@
   const paneId = pane.id;
   const host = $derived(target.kind === "host" ? vaultStore.hostById.get(target.hostId)?.data : undefined);
   const label = $derived(
-    target.kind === "host" ? (host?.label ?? "host") : target.kind === "adhoc" ? adhocLabel(target.adhoc) : "Local",
+    target.kind === "host"
+      ? (host?.label ?? "host")
+      : target.kind === "adhoc"
+        ? adhocLabel(target.adhoc)
+        : target.kind === "telnet"
+          ? `${target.host}:${target.port}`
+          : target.kind === "serial"
+            ? target.config.path
+            : "Local",
   );
-  const needsCredentials = $derived(target.kind === "host" && !!host && !vaultStore.effectiveIdentity(host));
+  const telnetHost = $derived(target.kind === "host" && host?.protocol === "telnet");
+  /** Telnet or serial: plain byte streams without SSH authentication. */
+  const isRaw = $derived(target.kind === "telnet" || target.kind === "serial" || telnetHost);
+  const needsCredentials = $derived(target.kind === "host" && !!host && !telnetHost && !vaultStore.effectiveIdentity(host));
   const production = $derived(vaultStore.effectiveEnv(host) === "production");
   const shared = $derived(vaultStore.settings?.settings);
 
@@ -181,7 +192,7 @@
   const MAX_RECONNECTS = 3;
 
   function scheduleReconnect() {
-    if (target.kind === "local" || !settings.prefs.autoReconnect || needsCredentials || reconnectAttempts >= MAX_RECONNECTS) return;
+    if (target.kind === "local" || target.kind === "serial" || !settings.prefs.autoReconnect || needsCredentials || reconnectAttempts >= MAX_RECONNECTS) return;
     reconnectAttempts += 1;
     const secs = 2 * reconnectAttempts;
     term.write(`\r\n\x1b[90m[connection lost; reconnecting in ${secs} s (${reconnectAttempts}/${MAX_RECONNECTS})…]\x1b[0m\r\n`);
@@ -286,7 +297,14 @@
     safeFit();
     const onData = (bytes: Uint8Array) => term.write(bytes);
     try {
-      if (target.kind === "host") {
+      markRaw(paneId, isRaw);
+      if (target.kind === "telnet") {
+        await api.raw.telnet(paneId, target.host, target.port, term.cols, term.rows, onData);
+      } else if (target.kind === "serial") {
+        await api.raw.serial(paneId, $state.snapshot(target.config) as typeof target.config, onData);
+      } else if (target.kind === "host" && telnetHost && host) {
+        await api.raw.telnet(paneId, host.hostname, host.port, term.cols, term.rows, onData);
+      } else if (target.kind === "host") {
         await ssh.connect(paneId, target.hostId, term.cols, term.rows, credentials, onData);
       } else if (target.kind === "adhoc") {
         await ssh.connectAdhoc(paneId, target.adhoc, term.cols, term.rows, onData);

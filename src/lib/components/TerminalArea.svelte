@@ -22,6 +22,8 @@
   function paneLabel(p: Pane) {
     if (p.target.kind === "adhoc") return adhocLabel(p.target.adhoc);
     if (p.target.kind === "local") return "Local shell";
+    if (p.target.kind === "telnet") return `telnet ${p.target.host}:${p.target.port}`;
+    if (p.target.kind === "serial") return `${p.target.config.path} · ${p.target.config.baud}`;
     const h = vaultStore.hostById.get(p.target.hostId)?.data;
     return h ? `${h.label} · ${h.hostname}` : "host removed";
   }
@@ -298,6 +300,9 @@
                 <span class="shrink-0 rounded px-1 text-[9px] font-bold {'cls' in env ? env.cls : ''}">{"short" in env ? env.short : ""}</span>
               {/if}
               <span class="truncate">{paneLabel(pane)}</span>
+              {#if pane.target.kind === "telnet" || (pane.target.kind === "host" && vaultStore.hostById.get(pane.target.hostId)?.data?.protocol === "telnet")}
+                <span class="shrink-0 rounded bg-warning/15 px-1 text-[9px] font-bold text-warning" title="Telnet sends everything, including passwords, unencrypted">UNENCRYPTED</span>
+              {/if}
               {#if info?.remoteTitle}
                 <span class="truncate text-fg-muted/70">— {info.remoteTitle}</span>
               {/if}

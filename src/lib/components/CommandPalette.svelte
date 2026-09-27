@@ -132,6 +132,7 @@
       ["Import hosts from ~/.ssh/config", FileInput, () => (ui.modal = { kind: "import-ssh-config" })],
       ["Run a command on several hosts…", ServerCog, () => (ui.modal = { kind: "run-on-hosts" })],
       ["New local terminal", SquareTerminal, () => ui.openLocal(), "Ctrl+Shift+`"],
+      ["Open a serial console…", SquareTerminal, () => (ui.modal = { kind: "serial" })],
       ["Check which hosts are reachable", Activity, () => void vaultStore.checkHealth()],
       ["Type into all panes in this tab (toggle)", Keyboard, () => ui.syncRequest++, "Ctrl+Shift+B"],
       ["Export hosts as ~/.ssh/config…", FileOutput, () => void exportConfig()],

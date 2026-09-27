@@ -50,6 +50,7 @@ pub fn new_key(name: &str, m: KeyMaterial, passphrase: Option<&str>) -> SshKey {
         comment: m.comment,
         created_at: now_ms(),
         for_host: None,
+        agent: Default::default(),
     }
 }
 
@@ -298,6 +299,7 @@ pub fn resolve_target(
             host_keys: host_keys.clone(),
             jump,
             forward_agent: false,
+            agent_backend: None,
             forward_x11: false,
             proxy,
             keepalive_secs: jh.keepalive_secs,
@@ -318,6 +320,7 @@ pub fn resolve_target(
         host_keys,
         jump,
         forward_agent: host.forward_agent,
+        agent_backend: None,
         forward_x11: host.forward_x11,
         proxy,
         keepalive_secs: host.keepalive_secs,

@@ -231,6 +231,22 @@ It reports errors and warnings and never modifies anything. A test snapshots the
 | Destructive patterns | The default `(?i)` patterns were invalid in JavaScript, so SQL patterns never matched. `reboot` also matched inside words. | `(?i)` is translated to the `i` flag, the reboot pattern is anchored to command position, with tests. |
 | Backups | Encrypted with the VMK and bound to the vault ID. Corrupted or foreign backups are refused before restore. | — |
 
+### The SSH agent (`agent.rs`)
+
+- An opt-in, per-computer agent serves Key Manager keys while the vault is
+  unlocked:
+  - on Unix, a socket in `$XDG_RUNTIME_DIR/sshvault` (or the per-user app cache
+    folder), inside a 0700 folder and with the socket itself 0600;
+  - on Windows, a named pipe that refuses remote clients.
+- Each key is off by default. When switched on, it is either "ask" (the UI
+  approves every signature, and an unanswered request times out after 60 s)
+  or "allow" (signs without asking while the vault is unlocked).
+- The agent is read-only: it answers list-identities and sign requests only,
+  and refuses add, remove, lock, smartcard and extension requests.
+- Any process running as the user can talk to the agent. That is the same
+  exposure as `ssh-agent`, and "ask" mode exists for keys where that matters.
+- The agent stops when the vault locks.
+
 Known limitations:
 
 - **ProxyCommand approval syncs:** approving on one device approves on all devices using the vault.

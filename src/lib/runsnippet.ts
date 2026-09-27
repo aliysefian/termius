@@ -20,6 +20,8 @@ export function hostContextFor(hostId: Uuid): HostContext {
 function contextFor(target: PaneTarget): HostContext {
   if (target.kind === "host") return hostContextFor(target.hostId);
   if (target.kind === "local") return { host: "local", hostname: "localhost", port: 0, user: "" };
+  if (target.kind === "telnet") return { host: target.host, hostname: target.host, port: target.port, user: "" };
+  if (target.kind === "serial") return { host: target.config.path, hostname: target.config.path, port: 0, user: "" };
   const a = target.adhoc;
   return { host: adhocLabel(a), hostname: a.hostname, port: a.port, user: a.username };
 }
