@@ -114,7 +114,13 @@ jobs:
 
       - name: Build app bundles
         shell: bash
-        run: pnpm tauri build ${SIGN_CONFIG:+--config "$SIGN_CONFIG"}
+        env:
+          # linuxdeploy (fetched fresh by the AppImage bundler) ships an old
+          # `strip` that fails on binaries from newer toolchains; the release
+          # profile already strips what matters.
+          NO_STRIP: "true"
+        # --verbose shows linuxdeploy's own output if AppImage bundling fails.
+        run: pnpm tauri build --verbose ${SIGN_CONFIG:+--config "$SIGN_CONFIG"}
 
       - name: Upload bundles
         uses: actions/upload-artifact@v7
