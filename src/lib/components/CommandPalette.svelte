@@ -4,7 +4,7 @@
   } from "lucide-svelte";
   import * as api from "$lib/api";
   import { fuzzyScore } from "$lib/fuzzy";
-  import { errorMessage } from "$lib/types";
+  import { describeForward, errorMessage } from "$lib/types";
   import { parseAdhoc } from "$lib/ssh";
   import { settings } from "$lib/stores/settings.svelte";
   import { runSnippet } from "$lib/runsnippet";
@@ -85,6 +85,22 @@
           },
         });
       }
+    }
+    // Tunnels: found by name, host, address or port.
+    for (const f of vaultStore.forwards) {
+      const d = f.data;
+      if (!d) continue;
+      const h = vaultStore.hostById.get(d.host_id)?.data;
+      const st = vaultStore.forwardStatus[f.id];
+      const running = st?.state === "active" || st?.state === "starting";
+      out.push({
+        id: `fwd-${f.id}`,
+        label: `${running ? "Stop" : "Start"} tunnel: ${d.label}`,
+        hint: `${describeForward(d)} · ${h ? `${h.label} ${h.hostname}` : "missing host"}`,
+        group: "Tunnels",
+        icon: ArrowLeftRight,
+        run: () => void (running ? vaultStore.stopForward(f.id) : vaultStore.startForward(f.id)),
+      });
     }
     for (const w of vaultStore.workspaces) {
       const d = w.data!;
