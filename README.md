@@ -75,14 +75,14 @@ Built with [Tauri v2](https://tauri.app), Rust, SvelteKit, Tailwind CSS and
 
 ## Install
 
-There are no signed releases yet. Every push to `main` builds installers in
-GitHub Actions, and you can download them from there:
+Download the installer for your system from the
+[Releases page](../../releases) and install it as below. (Installers are not
+code-signed yet, so Windows warns on first launch.)
 
-1. Open the repository's **Actions** tab and select the latest successful
-   **Build** run on `main`.
-2. Scroll to **Artifacts** and download `sshvault-Linux-…`,
-   or `sshvault-Windows-…`. Artifacts are kept for 14 days.
-3. Unzip the download and install the package for your system, as below.
+To try an unreleased commit: in the repository's **Actions** tab choose
+**Build → Run workflow**, pick the branch, and when the run finishes download
+`sshvault-Linux-…` or `sshvault-Windows-…` from its **Artifacts**. Artifacts
+are kept for 14 days.
 
 ### Linux
 
@@ -613,10 +613,18 @@ the release files are copied to.
 
 ### Continuous integration
 
-`.github/workflows/build.yml` runs on pushes to `main`, pull requests, `v*`
-tags, and manual dispatch. On Ubuntu 22.04 and Windows it type-checks and
-tests the frontend, runs clippy and the Rust tests, builds the installers, and
-uploads them as artifacts. The end-to-end SSH tests run on Linux. Windows has
+`.github/workflows/build.yml` has three jobs:
+
+- **Checks** run on every push to `main` and every pull request, on Ubuntu
+  22.04 and Windows: the frontend type-check and tests (once, on Linux),
+  clippy and the Rust tests. Changes that only touch `*.md` or `docs/` skip
+  CI.
+- **Installers** are built for `v*` tags, and on demand from **Actions →
+  Build → Run workflow**, alongside the checks. The optimised release build
+  is most of CI's time, so ordinary pushes skip it.
+- **Draft release**, for a tag, once checks and installers pass.
+
+The end-to-end SSH tests run on Linux. Windows has
 no `sshd`, so they skip themselves there. Set `SSHVAULT_SKIP_SSHD_TESTS=1` to
 skip them anywhere else.
 
