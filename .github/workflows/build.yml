@@ -243,10 +243,10 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  # On a v* tag, collect both platforms' installers into a draft GitHub
-  # Release. It stays a draft until someone reviews and publishes it.
+  # On a v* tag, publish a GitHub Release with every installer, once the
+  # checks and both platforms' builds have passed.
   release:
-    name: Draft release
+    name: Release
     needs: [checks, bundle]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
@@ -295,9 +295,49 @@ jobs:
           print(json.dumps(manifest, indent=2))
           PY
 
+      # Published automatically, so never publish a partial release.
+      - name: Check every installer is present
+        run: |
+          missing=0
+          for pattern in '*.deb' '*.rpm' '*.AppImage' '*.msi' '*-setup.exe'; do
+            if ! find dist -name "$pattern" | grep -q .; then
+              echo "::error::No $pattern installer was built"
+              missing=1
+            fi
+          done
+          find dist -type f -printf '%f  %s bytes\n' | sort
+          exit $missing
+
+      - name: Write download instructions
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          v="${TAG#v}"
+          file() { find dist -name "$1" -printf '%f\n' | head -1; }
+          {
+            echo "## Download"
+            echo
+            echo "| System | File |"
+            echo "|---|---|"
+            echo "| Windows (installer) | \`$(file '*-setup.exe')\` |"
+            echo "| Windows (MSI, for managed installs) | \`$(file '*.msi')\` |"
+            echo "| Debian, Ubuntu, Mint, Pop!_OS | \`$(file '*.deb')\` |"
+            echo "| Fedora, RHEL, openSUSE | \`$(file '*.rpm')\` |"
+            echo "| Any Linux (no install, updates itself) | \`$(file '*.AppImage')\` |"
+            echo
+            echo "Installers aren't code-signed yet, so Windows SmartScreen may warn on first launch: choose **More info → Run anyway**."
+            echo "For the AppImage: \`chmod +x SSHVault_${v}_amd64.AppImage\` and run it."
+            echo
+            echo "\`.sig\` files and \`latest.json\` (if present) are for automatic updates; you don't need to download them."
+            echo
+          } > release-body.md
+          cat release-body.md
+
       - uses: softprops/action-gh-release@v3
         with:
-          draft: true
+          draft: false
+          make_latest: true
+          body_path: release-body.md
           generate_release_notes: true
           files: dist/**/*
           fail_on_unmatched_files: true

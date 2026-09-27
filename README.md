@@ -622,15 +622,18 @@ the release files are copied to.
 - **Installers** are built for `v*` tags, and on demand from **Actions →
   Build → Run workflow**, alongside the checks. The optimised release build
   is most of CI's time, so ordinary pushes skip it.
-- **Draft release**, for a tag, once checks and installers pass.
+- **Release**, for a tag, once checks and installers pass: a published
+  GitHub Release with the `.exe`, `.msi`, `.deb`, `.rpm` and `.AppImage`
+  and a table saying which file is for which system. It refuses to publish
+  if any of the five is missing.
 
 The end-to-end SSH tests run on Linux. Windows has
 no `sshd`, so they skip themselves there. Set `SSHVAULT_SKIP_SSHD_TESTS=1` to
 skip them anywhere else.
 
-Pushing a tag such as `v0.2.0` also creates a **draft** GitHub Release with
-both platforms' installers attached. Review the draft on GitHub and publish it
-when ready.
+To release, bump the version in `package.json`, `src-tauri/Cargo.toml` and
+`src-tauri/tauri.conf.json`, then push a tag such as `v1.0.0`. The release is
+published automatically when the build passes.
 
 ### Project structure
 
