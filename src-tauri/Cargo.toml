@@ -8,7 +8,9 @@ edition = "2021"
 
 [lib]
 name = "sshvault_lib"
-crate-type = ["staticlib", "cdylib", "rlib"]
+# Only the desktop binary links this. "staticlib" and "cdylib" exist for
+# iOS/Android builds and would each add a full copy of every dependency.
+crate-type = ["rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -60,6 +62,15 @@ windows-sys = { version = "0.59", features = ["Win32_System_Console"] }
 
 [dev-dependencies]
 tempfile = "3"
+
+# Line tables keep backtraces readable at a fraction of full debug info,
+# and dependencies don't need even that. Cuts the debug build folder,
+# which clippy and the tests share, to a fraction of its size.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
 
 [profile.release]
 codegen-units = 1

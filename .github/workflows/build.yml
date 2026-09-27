@@ -43,6 +43,15 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # The runner ships ~25 GB of .NET, Android and Haskell tooling this
+      # build never uses; a full Rust build needs the room.
+      - name: Free disk space
+        if: runner.os == 'Linux'
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force >/dev/null 2>&1 || true
+          df -h /
+
       - name: Install Linux system dependencies
         if: runner.os == 'Linux'
         run: |
@@ -140,6 +149,10 @@ jobs:
           }, open(sys.argv[1], "w"))
           PY
           echo "UPDATER_CONFIG=$path" >> "$GITHUB_ENV"
+
+      - name: Disk space before the release build
+        shell: bash
+        run: df -h . 2>/dev/null || true
 
       - name: Build app bundles
         shell: bash
