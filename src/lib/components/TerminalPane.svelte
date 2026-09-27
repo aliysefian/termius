@@ -270,7 +270,36 @@
    * Turn each notch into arrow keys, like other terminals' "alternate
    * scroll", so the program scrolls instead.
    */
+  // -- Ctrl+scroll zoom ---------------------------------------------------------
+  // Trackpads send many small deltas; add them up to one notch per step.
+  const ZOOM_NOTCH = 60;
+  let zoomAccum = 0;
+  let zoomHint = $state<number | null>(null);
+  let zoomHintTimer: ReturnType<typeof setTimeout> | undefined;
+
+  function wheelZoom(e: WheelEvent) {
+    e.preventDefault();
+    // deltaMode 1 = lines (a mouse wheel on some systems): one line, one step.
+    zoomAccum += e.deltaMode === 1 ? Math.sign(e.deltaY) * ZOOM_NOTCH : e.deltaY;
+    while (Math.abs(zoomAccum) >= ZOOM_NOTCH) {
+      const step = zoomAccum < 0 ? 1 : -1; // wheel up = bigger
+      settings.zoom(step);
+      zoomAccum -= -step * ZOOM_NOTCH;
+    }
+    zoomHint = settings.prefs.fontSize;
+    clearTimeout(zoomHintTimer);
+    zoomHintTimer = setTimeout(() => {
+      zoomHint = null;
+      zoomAccum = 0;
+    }, 900);
+  }
+
   function wheelToKeys(e: WheelEvent): boolean {
+    // Ctrl (Cmd on macOS) + scroll changes the font size, in any pane.
+    if (e.ctrlKey || e.metaKey) {
+      wheelZoom(e);
+      return false;
+    }
     if (status.kind !== "connected" || term.buffer.active.type !== "alternate" || mouseTracked) return true;
     if (e.deltaY === 0) return true;
     // deltaMode 0 = pixels (about 40 per notch on most systems), 1 = lines.
@@ -533,6 +562,7 @@
 
   onDestroy(() => {
     clearTimeout(reconnectTimer);
+    clearTimeout(zoomHintTimer);
     unlisten?.();
     resizeObserver?.disconnect();
     void closePane(pane);
@@ -598,6 +628,12 @@
     >
       <MousePointer2 size={11} /> Program has the mouse · Shift+drag selects · click to select instead
     </button>
+  {/if}
+
+  {#if zoomHint !== null}
+    <div class="pointer-events-none absolute left-1/2 top-1/2 z-20 -translate-x-1/2 -translate-y-1/2 rounded-lg border border-line bg-panel/90 px-3 py-1.5 font-mono text-sm shadow-lg" role="status">
+      {zoomHint} px
+    </div>
   {/if}
 
   {#if findOpen}

@@ -363,7 +363,7 @@ connection too. Outside a terminal, **Ctrl+K** also opens it.
 | Ctrl+Shift+F | Find in terminal |
 | Ctrl+Shift+C, Ctrl+Shift+V | Copy, paste |
 | Shift+drag | Select text while a program (tmux, vim…) is using the mouse |
-| Ctrl+=, Ctrl+-, Ctrl+0 | Zoom in, out, reset |
+| Ctrl+=, Ctrl+-, Ctrl+0, Ctrl+scroll | Zoom in, out, reset |
 | Ctrl+Shift+L | Lock vault |
 | Ctrl+Shift+B | Type into all panes of the tab (toggle) |
 | Ctrl+Shift+H | Hide or show the list panel |
