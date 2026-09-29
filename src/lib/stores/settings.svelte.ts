@@ -21,8 +21,12 @@ export interface Prefs {
   sidebarWidth: number;
   /** Reconnect by itself when a connection drops (not when you exit). */
   autoReconnect: boolean;
-  /** Keep a per-computer history of commands run on each host. */
-  commandHistory: boolean;
+  /**
+   * Keep a per-computer history of commands run on each host. Off by default:
+   * commands can carry passwords and tokens, and the history is plain text.
+   * (Renamed from `commandHistory`, which defaulted on, so old installs start off.)
+   */
+  rememberCommands: boolean;
   /** System notification when a long command finishes in a background tab. */
   notifyBackground: boolean;
   /** Hide the activity bar, list panel, tab strip and pane headers. */
@@ -71,7 +75,7 @@ export const DEFAULT_PREFS: Prefs = {
   sidebarHidden: false,
   sidebarWidth: 288,
   autoReconnect: true,
-  commandHistory: true,
+  rememberCommands: false,
   notifyBackground: true,
   focusMode: false,
   density: "comfortable",
@@ -109,6 +113,14 @@ function save(key: string, value: unknown) {
   }
 }
 
+function forget(key: string) {
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    // Storage unavailable: nothing was stored either.
+  }
+}
+
 class SettingsStore {
   prefs = $state<Prefs>(load(KEY, DEFAULT_PREFS));
   /** Host ids, most recent first. */
@@ -117,15 +129,26 @@ class SettingsStore {
   collapsedGroups = $state<string[]>(load<string[]>(COLLAPSED_KEY, []));
   usage = $state<Record<string, HostUsage>>(load<Record<string, HostUsage>>(USAGE_KEY, {}));
   /** Commands run per host, newest first. Never synced. */
-  history = $state<Record<string, HistoryEntry[]>>(load<Record<string, HistoryEntry[]>>(HISTORY_KEY, {}));
+  history = $state<Record<string, HistoryEntry[]>>({});
 
   constructor() {
+    // Drop the old, default-on switch so it is never re-saved.
+    delete (this.prefs as Partial<Prefs> & { commandHistory?: boolean }).commandHistory;
+    if (this.prefs.rememberCommands) this.history = load<Record<string, HistoryEntry[]>>(HISTORY_KEY, {});
     $effect.root(() => {
+      // While off, nothing is kept in memory or on disk.
+      $effect(() => {
+        if (!this.prefs.rememberCommands) this.history = {};
+      });
       $effect(() => save(KEY, $state.snapshot(this.prefs)));
       $effect(() => save(RECENT_KEY, $state.snapshot(this.recent)));
       $effect(() => save(COLLAPSED_KEY, $state.snapshot(this.collapsedGroups)));
       $effect(() => save(USAGE_KEY, $state.snapshot(this.usage)));
-      $effect(() => save(HISTORY_KEY, $state.snapshot(this.history)));
+      $effect(() => {
+        const history = $state.snapshot(this.history);
+        if (this.prefs.rememberCommands) save(HISTORY_KEY, history);
+        else forget(HISTORY_KEY);
+      });
     });
   }
 
@@ -136,7 +159,7 @@ class SettingsStore {
   }
 
   recordCommand(hostId: string, command: string, exit: number | null) {
-    if (!this.prefs.commandHistory || !command.trim()) return;
+    if (!this.prefs.rememberCommands || !command.trim()) return;
     const prev = (this.history[hostId] ?? []).filter((h) => h.command !== command);
     this.history[hostId] = [{ command, at: Date.now(), exit }, ...prev].slice(0, HISTORY_PER_HOST);
   }

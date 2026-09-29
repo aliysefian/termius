@@ -299,11 +299,11 @@
         </span>
       </label>
       <label class="mt-3 flex items-start gap-2 text-sm">
-        <input type="checkbox" class="mt-0.5 accent-[#7b61ff]" bind:checked={settings.prefs.commandHistory} />
+        <input type="checkbox" class="mt-0.5 accent-[#7b61ff]" bind:checked={settings.prefs.rememberCommands} />
         <span>
           Remember the commands I run on each host
           <span class="block text-xs text-fg-muted">
-            Kept on this computer only, never in the vault, and offered in the command palette. Commands can contain secrets; clear it any time.
+            Off by default. Kept as plain text on this computer only, never in the vault, and offered in the command palette. Commands can contain passwords and tokens; turning this off deletes the saved history.
           </span>
         </span>
       </label>
@@ -341,7 +341,7 @@ sshvault run web-01 db-01 --json -- df -h /</pre>
       <h2 class="mb-1 flex items-center gap-2 text-sm font-semibold"><TerminalSquare size={15} class="text-accent" /> Shell integration</h2>
       <p class="mb-3 text-xs text-fg-muted">
         Add this to the shell startup file <em>on the servers you connect to</em>. SSHVault then shows the current
-        directory in the pane header (with "browse in SFTP" and "new tab here"), records command history with exit
+        directory in the pane header (with "browse in SFTP" and "new tab here"), records command history (if enabled above) with exit
         codes, jumps between prompts (Ctrl+Shift+↑/↓), copies the last command's output, and can notify you when a
         long command finishes. It's the same OSC 133 / OSC 7 convention VS Code, WezTerm and Kitty use.
       </p>
