@@ -1,6 +1,7 @@
 <script lang="ts">
   import {
     ArrowLeftRight,
+    ArrowUpCircle,
     Code,
     FolderSync,
     FolderTree,
@@ -18,6 +19,7 @@
   import { PAGE_VIEWS, ui, type View } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
   import { settings } from "$lib/stores/settings.svelte";
+  import { updates } from "$lib/stores/updates.svelte";
 
   const items: { view: View; label: string; icon: typeof Server }[] = [
     { view: "hosts", label: "Hosts", icon: Server },
@@ -65,6 +67,18 @@
   {/each}
 
   <div class="flex-1"></div>
+
+  {#if updates.available}
+    <button
+      class="relative mb-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-accent transition-colors hover:bg-accent/15"
+      onclick={() => (updates.dismissed = null)}
+      title={updates.installing ? "Installing the update…" : `Update to SSHVault ${updates.available.version}`}
+      aria-label="Update available"
+    >
+      <ArrowUpCircle size={20} class={updates.installing ? "animate-pulse" : ""} />
+      <span class="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-accent"></span>
+    </button>
+  {/if}
 
   <button
     class="mb-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-fg-muted transition-colors hover:bg-panel-hover hover:text-fg"

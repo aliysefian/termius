@@ -24,6 +24,11 @@ tauri-plugin-window-state = "2"
 tauri-plugin-notification = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
+# Updates from GitHub Releases (release.rs). Same versions and features the
+# updater plugin already builds, so these add nothing new to compile.
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "system-proxy"] }
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
+semver = "1"
 # No libudev: builds anywhere; ports are still found (sysfs / /dev on Linux).
 serialport = { version = "4.10", default-features = false }
 serde = { version = "1", features = ["derive"] }

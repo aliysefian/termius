@@ -1,8 +1,9 @@
 <script lang="ts">
-  import { Copy, Lock, Palette, RotateCcw, ShieldAlert, SquareTerminal, TerminalSquare } from "lucide-svelte";
+  import { Copy, Download, ExternalLink, Loader2, Lock, Palette, RefreshCw, RotateCcw, ShieldAlert, SquareTerminal, TerminalSquare } from "lucide-svelte";
   import { onMount } from "svelte";
   import type { CliStatus } from "$lib/types";
-  import { updates } from "$lib/stores/updates.svelte";
+  import { RELEASES_URL, formatSize, installHint, installUpdate, updates } from "$lib/stores/updates.svelte";
+  import { openUrl } from "@tauri-apps/plugin-opener";
   import { SHELL_SNIPPETS } from "$lib/shellintegration";
   import { ui } from "$lib/stores/ui.svelte";
   import { save } from "@tauri-apps/plugin-dialog";
@@ -20,6 +21,7 @@
   // -- command line ------------------------------------------------------------
   let cli = $state<CliStatus | null>(null);
   onMount(() => void api.cli.status().then((s) => (cli = s)));
+  onMount(() => void updates.loadInfo());
   const isWindows = navigator.userAgent.includes("Windows");
   const aliasLine = $derived(
     cli?.executable ? (isWindows ? `Set-Alias sshvault "${cli.executable}"` : `alias sshvault='${cli.executable.replace(/'/g, "'\\''")}'`) : "",
@@ -218,28 +220,42 @@
 
     <section class="rounded-xl border border-line bg-panel p-5">
       <h2 class="mb-1 text-sm font-semibold">Updates</h2>
-      {#if updates.info?.enabled}
-        <p class="mb-3 text-xs text-fg-muted">
-          You have version {updates.info.version}. Updates are downloaded from the SSHVault releases and installed only if
-          their signature matches the key built into this app.
-        </p>
-        <label class="flex items-center gap-2 text-sm">
-          <input type="checkbox" class="accent-[#7b61ff]" bind:checked={settings.prefs.autoUpdateCheck} />
-          Check for updates when SSHVault starts
-        </label>
-        <div class="mt-3 flex items-center gap-3">
-          <button class="btn-ghost border border-line py-1 text-xs" disabled={updates.checking} onclick={() => updates.check()}>
-            {updates.checking ? "Checking…" : "Check now"}
+      <p class="mb-3 text-xs text-fg-muted">
+        You have version <strong class="text-fg">{updates.info?.version ?? "…"}</strong>. New versions come from the
+        <button class="text-accent hover:underline" onclick={() => openUrl(RELEASES_URL)}>SSHVault releases on GitHub</button>
+        and are only installed if they match the checksum GitHub publishes{updates.info?.enabled ? " or the signing key built into this app" : ""}.
+      </p>
+      <label class="flex items-center gap-2 text-sm">
+        <input type="checkbox" class="accent-[#7b61ff]" bind:checked={settings.prefs.autoUpdateCheck} />
+        Check for updates when SSHVault starts
+      </label>
+      <div class="mt-3 flex flex-wrap items-center gap-3">
+        <button class="btn-ghost border border-line py-1 text-xs" disabled={updates.checking || updates.installing} onclick={() => updates.check()}>
+          {#if updates.checking}<Loader2 size={12} class="animate-spin" /> Checking…{:else}<RefreshCw size={12} /> Check for updates{/if}
+        </button>
+        {#if updates.available && !updates.installing}
+          <button class="btn-primary py-1 text-xs" onclick={() => void installUpdate()}>
+            {#if updates.canInstall}<Download size={12} /> Update to {updates.available.version}{:else}<ExternalLink size={12} /> Download {updates.available.version}{/if}
           </button>
-          {#if updates.available}
-            <button class="btn-primary py-1 text-xs" onclick={() => (updates.dismissed = null)}>Show update</button>
-          {/if}
-          <span class="text-xs {updates.error ? 'text-danger' : 'text-fg-muted'}">{updates.error ?? updates.lastResult ?? ""}</span>
+        {/if}
+        <span class="text-xs {updates.error ? 'text-danger' : 'text-fg-muted'}">
+          {updates.error ?? updates.lastResult ?? (updates.lastChecked ? `Last checked ${new Date(updates.lastChecked).toLocaleString()}` : "")}
+        </span>
+      </div>
+      {#if updates.installing}
+        <div class="mt-3 max-w-sm">
+          <div class="h-1.5 overflow-hidden rounded bg-base">
+            <div
+              class="h-full bg-accent transition-[width] {updates.progress === null ? 'w-1/3 animate-pulse' : ''}"
+              style:width={updates.progress === null ? undefined : `${Math.round(updates.progress * 100)}%`}
+            ></div>
+          </div>
+          <p class="mt-1 text-xs text-fg-muted">{updates.stage} Don't close the app.</p>
         </div>
-      {:else}
-        <p class="text-xs text-fg-muted">
-          Version {updates.info?.version ?? ""}. This build can't update itself (it was built without an update-signing key),
-          so new versions are installed by hand from the releases page.
+      {:else if updates.available}
+        <p class="mt-2 text-xs text-fg-muted">
+          {installHint(updates.available.install)}{updates.available.size ? ` Download size ${formatSize(updates.available.size)}.` : ""}
+          <button class="text-accent hover:underline" onclick={() => updates.available && openUrl(updates.available.url)}>What's new</button>
         </p>
       {/if}
     </section>

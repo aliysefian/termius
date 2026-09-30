@@ -23,9 +23,11 @@ pub mod models;
 pub mod mobaxterm;
 pub mod putty;
 pub mod rawterm;
+pub mod release;
 pub mod remoteedit;
 pub mod reveal;
 pub mod runner;
+pub mod selfupdate;
 pub mod session;
 pub mod sessionlog;
 pub mod sftp;
@@ -156,6 +158,8 @@ pub fn run() {
             commands::agent_status,
             commands::cli_status,
             commands::updater_info,
+            selfupdate::release_check,
+            selfupdate::release_install,
             commands::cli_set_enabled,
             commands::answer_cli_request,
             commands::agent_set_enabled,

@@ -110,13 +110,28 @@ PowerShell, or `base64 -w0 cert.pfx` on Linux.
 
 ## Updates
 
-SSHVault can update itself: it checks for a new version at start-up (at
-most twice a day, switchable in **Settings → Updates**), downloads it, and
-installs it only if its signature matches the public key built into the
-app. On Linux, only the AppImage replaces itself; `.deb` and `.rpm` installs
-get a download link instead.
+SSHVault can update itself. It checks for a new version at start-up (at
+most twice a day, switchable in **Settings → Updates**, which also has a
+**Check for updates** button). When one exists, an update button appears in
+the activity bar and a card offers **Update now**.
 
-Self-update switches on in CI once these exist in the repository settings:
+There are two ways an update is verified and installed:
+
+- **Signed (preferred).** Builds made with an update-signing key use the
+  Tauri updater. It reads `latest.json` from the release and installs only
+  files whose signature matches the public key built into the app.
+- **GitHub checksum (every other build).** The app asks the GitHub API for
+  the latest release of `aliysefian/termius`, picks the installer that
+  matches how it was installed, downloads it, and installs it only if it
+  matches the SHA-256 GitHub publishes for that file (`src-tauri/src/release.rs`).
+  The AppImage is replaced in place; `.deb` and `.rpm` installs run
+  `pkexec dpkg -i` / `pkexec rpm -U`, which shows the system password
+  prompt; Windows runs the NSIS setup in passive mode and reopens the app.
+  A checksum only proves the file is the one on the release page, so it
+  protects against a corrupted or tampered download, not against someone
+  who can publish releases to the repository. That's what signing adds.
+
+Signed updates switch on in CI once these exist in the repository settings:
 
 | Name | Kind | Value |
 |---|---|---|
