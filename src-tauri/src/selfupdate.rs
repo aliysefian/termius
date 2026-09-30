@@ -67,7 +67,7 @@ async fn run<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
 
     let mut last_pct = u64::MAX;
     release::download_verified(&cur, &asset, &dest, |done, total| {
-        let pct = if total == 0 { 0 } else { done * 100 / total };
+        let pct = (done * 100).checked_div(total).unwrap_or(0);
         if pct != last_pct {
             last_pct = pct;
             let _ = app.emit(EVENT_PROGRESS, Progress { done, total });
