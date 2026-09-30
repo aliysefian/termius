@@ -95,6 +95,25 @@ class VaultStore {
     return host.identity_id ?? (this.groupDefault(host, "default_identity_id") as Uuid | undefined);
   }
 
+  /**
+   * The saved SSH host an `ssh -J` hop names: by label, or by address. A
+   * given port or user must match too, so `me@bastion` never borrows
+   * someone else's saved login.
+   */
+  findHop(name: string, port: number | undefined, user: string | undefined): Uuid | undefined {
+    const n = name.toLowerCase();
+    const match = this.hosts.find((r) => {
+      const h = r.data;
+      if (!h || (h.protocol && h.protocol !== "ssh")) return false;
+      if (h.label.toLowerCase() !== n && h.hostname.toLowerCase() !== n) return false;
+      if (port !== undefined && h.port !== port) return false;
+      if (user === undefined) return true;
+      const id = this.effectiveIdentity(h);
+      return !!id && this.identityById.get(id)?.data?.username === user;
+    });
+    return match?.id;
+  }
+
   #unlisten: UnlistenFn | null = null;
   #unlistenForward: UnlistenFn | null = null;
 

@@ -30,11 +30,11 @@
 
   const items = $derived.by<Item[]>(() => {
     const out: Item[] = [];
-    const adhoc = parseAdhoc(query);
+    const adhoc = parseAdhoc(query, (n, p, u) => vaultStore.findHop(n, p, u));
     if (adhoc) {
       out.push({
         id: "adhoc",
-        label: `Connect to ${adhocLabel(adhoc)}`,
+        label: `Connect to ${adhocLabel(adhoc)}${adhoc.jumps?.length ? ` via ${adhoc.jumps.length} jump host${adhoc.jumps.length > 1 ? "s" : ""}` : ""}`,
         hint: "Quick connect, not saved",
         group: "Quick connect",
         icon: Zap,

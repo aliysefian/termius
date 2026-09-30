@@ -182,6 +182,9 @@ port forwarding all go through the chain.
 Every jump host needs an identity attached, because only the final host can
 ask you for one-time credentials. SSHVault refuses to save a chain that loops.
 
+For a one-off connection, type an `ssh -J` command in Quick connect instead
+(see below). **Copy as ssh command** on a host gives you the same syntax.
+
 ## Terminals
 
 - Split any pane right or down with the buttons in its header, up to six
@@ -206,6 +209,21 @@ ask you for one-time credentials. SSHVault refuses to save a chain that loops.
 Press **Ctrl+Shift+T**, or the **+** next to the tabs, and type
 `user@host` or `user@host:port`. Leave the password empty to use ssh-agent.
 Nothing is saved.
+
+To go through jump hosts, type it the way you would for OpenSSH:
+
+```
+ssh -J bastion root@10.0.1.5
+ssh -J bastion,me@gw.internal:2222 -p 2200 root@db
+```
+
+A jump host written without a user (`bastion`) must be a saved host, found by
+label or address; it connects with its saved credentials, proxy and jump
+chain. One written with a user (`me@gw.internal`) uses the saved host with
+that address and login if there is one, and otherwise connects with
+ssh-agent. The dialog shows the route before you connect. The password field
+is for the last host only. `-p`, `-l` and `-o ProxyJump=/Port=/User=` are
+understood; other options are refused rather than silently ignored.
 
 Press **Ctrl+Shift+P** to open the command palette. It searches hosts, recent
 connections, snippets and actions. Typing `user@host` there offers a quick

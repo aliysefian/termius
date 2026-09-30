@@ -2552,8 +2552,63 @@ pub fn run_cancel(state: State<'_, AppState>, run_id: String) -> bool {
     state.runs.cancel(&run_id)
 }
 
-/// Connect a pane to an unsaved `user@host:port`. Without a password the
-/// local ssh-agent is used.
+/// A jump host on the way to an unsaved host (quick connect's `ssh -J`).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum AdhocHop {
+    /// A saved host, with its own credentials, proxy and jump chain.
+    Saved { host_id: Uuid },
+    /// An unsaved hop, authenticated with ssh-agent.
+    Unsaved {
+        hostname: String,
+        port: u16,
+        username: String,
+    },
+}
+
+/// Chain `jumps` (outermost first) into the hop the final host tunnels
+/// through. A saved hop keeps its own jump chain only when it is outermost,
+/// matching `ssh -J a,b`, where the route is exactly what was typed.
+fn adhoc_jump_chain(state: &AppState, jumps: Vec<AdhocHop>) -> ApiResult<Option<Box<Target>>> {
+    let mut outer: Option<Box<Target>> = None;
+    for hop in jumps {
+        let mut t = match hop {
+            AdhocHop::Saved { host_id } => resolve_target(state, host_id, None)?,
+            AdhocHop::Unsaved {
+                hostname,
+                port,
+                username,
+            } => {
+                if hostname.trim().is_empty() || username.trim().is_empty() {
+                    return Err(ApiError::new("validation", "jump hosts need a user and host"));
+                }
+                Target {
+                    hostname: hostname.trim().to_string(),
+                    port,
+                    username: username.trim().to_string(),
+                    auth: AuthMethod::Agent,
+                    host_keys: state.host_keys.clone(),
+                    jump: None,
+                    forward_agent: false,
+                    agent_backend: None,
+                    forward_x11: false,
+                    proxy: None,
+                    keepalive_secs: None,
+                }
+            }
+        };
+        if outer.is_some() {
+            t.jump = outer;
+            // Only the outermost hop is dialled directly.
+            t.proxy = None;
+        }
+        outer = Some(Box::new(t));
+    }
+    Ok(outer)
+}
+
+/// Connect a pane to an unsaved `user@host:port`, optionally through jump
+/// hosts. Without a password the local ssh-agent is used.
 #[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn ssh_connect_adhoc(
@@ -2564,6 +2619,7 @@ pub async fn ssh_connect_adhoc(
     port: u16,
     username: String,
     password: Option<String>,
+    jumps: Option<Vec<AdhocHop>>,
     cols: u32,
     rows: u32,
     on_data: Channel<InvokeResponseBody>,
@@ -2571,6 +2627,7 @@ pub async fn ssh_connect_adhoc(
     if hostname.trim().is_empty() || username.trim().is_empty() {
         return Err(ApiError::new("validation", "user and host are required"));
     }
+    let jump = adhoc_jump_chain(&state, jumps.unwrap_or_default())?;
     let auth = match password {
         Some(p) if !p.is_empty() => AuthMethod::Password { password: p },
         _ => AuthMethod::Agent,
@@ -2582,7 +2639,7 @@ pub async fn ssh_connect_adhoc(
             username: username.trim().to_string(),
             auth,
             host_keys: state.host_keys.clone(),
-            jump: None,
+            jump,
             forward_agent: false,
             agent_backend: None,
             forward_x11: false,

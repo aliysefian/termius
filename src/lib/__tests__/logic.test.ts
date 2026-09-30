@@ -17,6 +17,37 @@ describe("parseAdhoc", () => {
       expect(parseAdhoc(bad), bad).toBeNull();
     }
   });
+
+  // Saved hosts: "bastion" (any user) and "gw" logged in as "ops".
+  const find = (name: string, port: number | undefined, user: string | undefined) =>
+    name === "bastion" && port === undefined ? "b-id" : name === "gw" && user === "ops" ? "g-id" : undefined;
+
+  it("parses ssh command lines with jump hosts", () => {
+    expect(parseAdhoc("ssh -J bastion root@10.0.0.5", find)).toEqual({
+      username: "root", hostname: "10.0.0.5", port: 22, jumps: [{ host_id: "b-id" }],
+    });
+    expect(parseAdhoc("ssh -p 2200 -J bastion,me@hop.example.com:2222 -l root db", find)).toEqual({
+      username: "root", hostname: "db", port: 2200,
+      jumps: [{ host_id: "b-id" }, { hostname: "hop.example.com", port: 2222, username: "me" }],
+    });
+    expect(parseAdhoc("-Jops@gw -o Port=2222 root@db", find)?.jumps).toEqual([{ host_id: "g-id" }]);
+    expect(parseAdhoc("ssh -o ProxyJump=me@[fd00::1]:22 root@db", find)?.jumps).toEqual([{ hostname: "fd00::1", port: 22, username: "me" }]);
+    expect(parseAdhoc("ssh -J none root@db", find)).toEqual({ username: "root", hostname: "db", port: 22 });
+  });
+
+  it("refuses what it can't honour", () => {
+    for (const bad of [
+      "ssh -J unknown root@db", // no user and not saved
+      "ssh -i key root@db", // unsupported flag
+      "ssh -J bastion", // no destination
+      "ssh -J bastion root@a root@b",
+      "ssh -o ForwardAgent=yes root@db",
+      "ssh -p 99999 root@db",
+      "ssh -J root@db",
+    ]) {
+      expect(parseAdhoc(bad, find), bad).toBeNull();
+    }
+  });
 });
 
 describe("fuzzyScore", () => {
