@@ -1,4 +1,6 @@
 <script lang="ts">
+  import Combobox from "./Combobox.svelte";
+  import { groupOptions } from "$lib/pickeroptions";
   import { onMount } from "svelte";
   import { TriangleAlert, FileInput, Loader2 } from "lucide-svelte";
   import { open } from "@tauri-apps/plugin-dialog";
@@ -12,6 +14,7 @@
   let preview = $state<SshConfigPreview | null>(null);
   let picked = $state<Set<string>>(new Set());
   let group = $state("Imported");
+  const groupChoices = $derived(groupOptions(vaultStore.hosts, vaultStore.groups));
   /** Key files are only copied into the vault if the user chooses to. */
   let keyImport = $state<KeyImport>("reference");
   const pickedHosts = $derived(preview?.hosts.filter((h) => picked.has(h.alias)) ?? []);
@@ -303,7 +306,15 @@
           <div class="flex items-end gap-3">
             <div class="flex-1">
               <label class="label" for="imp-group">Put imported hosts in group</label>
-              <input id="imp-group" class="input" bind:value={group} placeholder="Leave empty for top level" />
+              <Combobox
+                id="imp-group"
+                options={groupChoices}
+                bind:value={group}
+                creatable
+                clearable
+                createLabel={(q) => `New group “${q}”`}
+                placeholder="Leave empty for top level"
+              />
             </div>
           </div>
 

@@ -74,7 +74,7 @@
 </script>
 
 <div
-  class="host-row group flex cursor-pointer items-center gap-2.5 rounded-md py-1.5 pr-1 {selected ? 'bg-accent/15 ring-1 ring-inset ring-accent/40' : 'hover:bg-panel-hover'}"
+  class="host-row group relative flex cursor-pointer items-center gap-2.5 rounded-md py-1.5 pr-1 {selected ? 'bg-accent/15 ring-1 ring-inset ring-accent/40' : 'hover:bg-panel-hover'}"
   aria-pressed={selected}
   onclick={click}
   style:padding-left={indent}
@@ -116,25 +116,34 @@
       {identity ? `${identity.username}@` : ""}{d.hostname}{d.port !== 22 ? `:${d.port}` : ""}{jump ? ` via ${jump.label}` : ""}
     </div>
   </div>
-  <button
-    class="icon-btn h-6 w-6 {d.favorite ? 'text-warning' : 'opacity-0 group-hover:opacity-100'}"
-    title={d.favorite ? "Remove from favorites" : "Add to favorites"}
-    aria-pressed={!!d.favorite}
-    onclick={(e) => {
-      e.stopPropagation();
-      vaultStore.toggleFavorite(host.id).catch((err) => ui.notify("error", errorMessage(err)));
-    }}
+  {#if d.favorite}
+    <!-- Always visible, so favorites stand out even at narrow widths. -->
+    <Star size={12} class="shrink-0 text-warning group-hover:invisible group-focus-within:invisible" fill="currentColor" aria-label="Favorite" />
+  {/if}
+  <!-- Actions float over the row on hover instead of reserving width, so the
+       label keeps the full row when the panel is narrow. -->
+  <div
+    class="host-actions absolute inset-y-0 right-1 my-auto hidden h-7 items-center rounded-md pl-1
+      {selected ? 'bg-panel' : 'bg-panel-hover'} group-hover:flex group-focus-within:flex"
   >
-    <Star size={12} fill={d.favorite ? "currentColor" : "none"} />
-  </button>
-  <div class="flex opacity-0 group-hover:opacity-100">
-    <button class="icon-btn h-6 w-6" title="Details" onclick={(e) => { e.stopPropagation(); ui.modal = { kind: "host-details", id: host.id }; }}>
+    <button
+      class="icon-btn h-6 w-6 {d.favorite ? 'text-warning' : ''}"
+      title={d.favorite ? "Remove from favorites" : "Add to favorites"}
+      aria-pressed={!!d.favorite}
+      onclick={(e) => {
+        e.stopPropagation();
+        vaultStore.toggleFavorite(host.id).catch((err) => ui.notify("error", errorMessage(err)));
+      }}
+    >
+      <Star size={12} fill={d.favorite ? "currentColor" : "none"} />
+    </button>
+    <button class="icon-btn h-6 w-6 @max-[16rem]:hidden" title="Details" onclick={(e) => { e.stopPropagation(); ui.modal = { kind: "host-details", id: host.id }; }}>
       <Info size={12} />
     </button>
-    <button class="icon-btn h-6 w-6" title="Copy as ssh command" onclick={copyCommand}>
+    <button class="icon-btn h-6 w-6 @max-[18rem]:hidden" title="Copy as ssh command" onclick={copyCommand}>
       <TerminalSquare size={12} />
     </button>
-    <button class="icon-btn h-6 w-6" title="Duplicate" onclick={duplicate}>
+    <button class="icon-btn h-6 w-6 @max-[18rem]:hidden" title="Duplicate" onclick={duplicate}>
       <Copy size={12} />
     </button>
     <button class="icon-btn h-6 w-6" title="Edit" onclick={(e) => { e.stopPropagation(); ui.modal = { kind: "host", id: host.id }; }}>

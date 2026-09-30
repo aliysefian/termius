@@ -46,9 +46,9 @@
 </script>
 
 <aside class="flex min-w-0 flex-1 flex-col border-r border-line bg-panel">
-  <div class="flex items-center justify-between px-4 pt-4 pb-2">
-    <h2 class="text-sm font-semibold">{favoritesOnly ? "Favorites" : "Hosts"}</h2>
-    <div class="flex">
+  <div class="flex items-center justify-between gap-1 px-4 pt-4 pb-2 @max-[16rem]:px-3">
+    <h2 class="min-w-0 truncate text-sm font-semibold">{favoritesOnly ? "Favorites" : "Hosts"}</h2>
+    <div class="flex shrink-0 [&>.icon-btn]:@max-[16rem]:h-7 [&>.icon-btn]:@max-[16rem]:w-7">
       {#if paths.length}
         {#if anyExpanded}
           <button class="icon-btn" title="Collapse all groups" onclick={() => ui.collapseGroups(paths)}><FoldVertical size={16} /></button>
@@ -73,18 +73,18 @@
       <Search size={14} class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-muted" />
       <input class="input py-1.5 pl-8" placeholder="Search hosts…" bind:value={ui.search} />
     </div>
-    <div class="mt-1.5 flex gap-1.5">
-      <select class="input flex-1 py-1 text-xs" bind:value={envFilter} aria-label="Filter by environment">
+    <div class="mt-1.5 flex flex-wrap gap-1.5">
+      <select class="input min-w-[6.5rem] flex-1 py-1 text-xs" bind:value={envFilter} aria-label="Filter by environment">
         <option value="">Any environment</option>
         {#each envChoices as e (e)}<option value={e}>{e}</option>{/each}
       </select>
       {#if allTags.length}
-        <select class="input flex-1 py-1 text-xs" bind:value={tagFilter} aria-label="Filter by tag">
+        <select class="input min-w-[6.5rem] flex-1 py-1 text-xs" bind:value={tagFilter} aria-label="Filter by tag">
           <option value="">Any tag</option>
           {#each allTags as t (t)}<option value={t}>{t}</option>{/each}
         </select>
       {/if}
-      <select class="input w-24 py-1 text-xs" bind:value={sortBy} aria-label="Sort hosts">
+      <select class="input w-auto min-w-[6.5rem] flex-1 py-1 text-xs @min-[20rem]:w-24 @min-[20rem]:flex-none" bind:value={sortBy} aria-label="Sort hosts">
         <option value="name">Name</option>
         <option value="hostname">Address</option>
         <option value="updated">Recent edits</option>
@@ -94,7 +94,7 @@
   </div>
 
   {#if ui.selectedHosts.size}
-    <div class="mx-3 mb-2 flex items-center gap-2 rounded-md border border-accent/40 bg-accent/10 px-2 py-1.5 text-xs">
+    <div class="mx-3 mb-2 flex flex-wrap items-center gap-2 rounded-md border border-accent/40 bg-accent/10 px-2 py-1.5 text-xs">
       <span class="flex-1">{ui.selectedHosts.size} selected</span>
       <button class="btn-primary py-0.5 text-xs" onclick={() => (ui.modal = { kind: "bulk-edit" })}>Edit…</button>
       <button

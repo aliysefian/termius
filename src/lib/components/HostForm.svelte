@@ -1,4 +1,6 @@
 <script lang="ts">
+  import Combobox from "./Combobox.svelte";
+  import { groupOptions, hostOptions } from "$lib/pickeroptions";
   import { Bot, Check, Copy, Eye, EyeOff, FileKey, HelpCircle, KeyRound, Lock, Sparkles, Users } from "lucide-svelte";
   import { open } from "@tauri-apps/plugin-dialog";
   import { writeText } from "@tauri-apps/plugin-clipboard-manager";
@@ -144,7 +146,8 @@
     }
     return false;
   }
-  const jumpCandidates = $derived(vaultStore.hosts.filter((h) => h.id !== id && !(id && reachesThis(h.id))));
+  const jumpChoices = $derived(hostOptions(vaultStore.hosts, (h) => h.id !== id && !(id && reachesThis(h.id))));
+  const groupChoices = $derived(groupOptions(vaultStore.hosts, vaultStore.groups));
 
   /** "jump2 → jump1 → this host", outermost first. */
   const chainLabel = $derived.by(() => {
@@ -437,12 +440,14 @@
       <div class="grid grid-cols-2 gap-3">
         <div class="col-span-2">
           <label class="label" for="h-jump">Jump host</label>
-          <select id="h-jump" class="input" bind:value={form.jump_host_id}>
-            <option value={undefined}>None, connect directly</option>
-            {#each jumpCandidates as h (h.id)}
-              <option value={h.id}>{h.data?.label} ({h.data?.hostname})</option>
-            {/each}
-          </select>
+          <Combobox
+            id="h-jump"
+            options={jumpChoices}
+            bind:value={() => form.jump_host_id ?? "", (v) => (form.jump_host_id = v || undefined)}
+            clearable
+            placeholder="None, connect directly"
+            emptyText="No host matches"
+          />
           {#if chainLabel}
             <p class="mt-1 text-xs text-fg-muted">Route: {chainLabel}</p>
           {/if}
@@ -514,7 +519,17 @@
         </label>
         <div>
           <label class="label" for="h-group">Group</label>
-          <input id="h-group" class="input" bind:value={form.group} placeholder="Production/Databases" />
+          <Combobox
+            id="h-group"
+            options={groupChoices}
+            bind:value={form.group}
+            creatable
+            clearable
+            createLabel={(q) => `New group “${q}”`}
+            placeholder="No group (top level)"
+            emptyText="No groups yet. Type a name to create one."
+          />
+          <p class="mt-1 text-[11px] text-fg-muted">Search or type a new name. Use / to nest, e.g. Production/Databases.</p>
         </div>
         <div>
           <label class="label" for="h-tags">Tags</label>

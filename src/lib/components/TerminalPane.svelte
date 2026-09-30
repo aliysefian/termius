@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { keepInView } from "$lib/actions";
   import { onDestroy, onMount } from "svelte";
   import { Terminal } from "@xterm/xterm";
   import { FitAddon } from "@xterm/addon-fit";
@@ -602,6 +603,8 @@
   const background = $derived(paneTheme().background);
 </script>
 
+<svelte:window onkeydown={(e) => { if (menu && e.key === "Escape") menu = null; }} onresize={() => (menu = null)} />
+
 <div class="relative flex min-h-0 flex-1 flex-col" style:background>
   {#if production && target.kind === "host"}
     <div class="flex shrink-0 items-center gap-2 bg-danger px-3 py-0.5 text-[11px] font-semibold tracking-wide text-white" role="status">
@@ -658,7 +661,7 @@
 
   {#if menu}
     <button class="fixed inset-0 z-40 cursor-default" aria-label="Close menu" onclick={() => (menu = null)} oncontextmenu={(e) => { e.preventDefault(); menu = null; }}></button>
-    <div class="fixed z-50 w-52 rounded-md border border-line bg-panel py-1 text-sm shadow-2xl" style:left="{menu.x}px" style:top="{menu.y}px" role="menu">
+    <div class="fixed z-50 w-60 rounded-md border border-line bg-panel py-1 text-sm shadow-2xl" use:keepInView={menu} role="menu">
       {#each [
         { label: "Copy", keys: "Ctrl+Shift+C", run: copySelection, disabled: !term?.hasSelection() },
         { label: "Paste", keys: "Ctrl+Shift+V", run: paste, disabled: status.kind !== "connected" },
@@ -679,8 +682,8 @@
             term.focus();
           }}
         >
-          <span>{item.label}</span>
-          <span class="text-xs text-fg-muted">{item.keys}</span>
+          <span class="truncate">{item.label}</span>
+          <span class="ml-3 shrink-0 text-xs text-fg-muted">{item.keys}</span>
         </button>
       {/each}
     </div>

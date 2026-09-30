@@ -1,4 +1,6 @@
 <script lang="ts">
+  import Combobox from "./Combobox.svelte";
+  import { hostOptions } from "$lib/pickeroptions";
   import Modal from "./Modal.svelte";
   import { ui } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
@@ -23,6 +25,7 @@
   let error = $state<string | null>(null);
   let busy = $state(false);
 
+  const hostChoices = $derived(hostOptions(vaultStore.hosts));
   const hostHasIdentity = $derived(!!vaultStore.effectiveIdentity(vaultStore.hostById.get(hostId)?.data));
 
   const help: Record<ForwardKind["kind"], string> = {
@@ -59,11 +62,7 @@
       </div>
       <div>
         <label class="label" for="f-host">Via host</label>
-        <select id="f-host" class="input" bind:value={hostId} required>
-          {#each vaultStore.hosts as h (h.id)}
-            <option value={h.id}>{h.data?.label}</option>
-          {/each}
-        </select>
+        <Combobox id="f-host" options={hostChoices} bind:value={hostId} placeholder="Search hosts…" emptyText="No host matches" />
       </div>
     </div>
     {#if hostId && !hostHasIdentity}

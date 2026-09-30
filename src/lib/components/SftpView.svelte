@@ -1,4 +1,6 @@
 <script lang="ts">
+  import Combobox from "./Combobox.svelte";
+  import { hostOptions } from "$lib/pickeroptions";
   import { onDestroy, onMount } from "svelte";
   import { CircleStop, FilePen, HardDrive, Loader2, Monitor, Pause, Play, RotateCcw, Server, Unplug, X } from "lucide-svelte";
   import type { UnlistenFn } from "@tauri-apps/api/event";
@@ -43,6 +45,7 @@
 
   const remoteSource = $derived<FileSource | null>(connectedHost ? remote(sessionId) : null);
   const host = $derived(hostId ? vaultStore.hostById.get(hostId)?.data : undefined);
+  const hostChoices = $derived(hostOptions(vaultStore.hosts));
   const connectedLabel = $derived(connectedHost ? vaultStore.hostById.get(connectedHost)?.data?.label : "");
 
   onMount(async () => {
@@ -293,12 +296,19 @@
           <span class="flex-1 truncate text-sm font-medium">{connectedLabel}</span>
           <button class="btn-ghost py-1 text-xs" onclick={disconnect}><Unplug size={12} /> Disconnect</button>
         {:else}
-          <select class="input flex-1 py-1 text-sm" bind:value={hostId} aria-label="Remote host">
-            <option value="">Choose a host…</option>
-            {#each vaultStore.hosts as h (h.id)}
-              <option value={h.id}>{h.data?.label} ({h.data?.hostname})</option>
-            {/each}
-          </select>
+          <Combobox
+            class="min-w-0 flex-1"
+            inputClass="py-1"
+            options={hostChoices}
+            bind:value={hostId}
+            ariaLabel="Remote host"
+            placeholder="Search hosts…"
+            emptyText="No host matches"
+            onchange={(v) => {
+              // Picking a host is intent enough: connect straight away.
+              if (v && !connecting) void connect();
+            }}
+          />
           <button class="btn-primary py-1 text-xs" disabled={!hostId || connecting} onclick={() => connect()}>
             {#if connecting}<Loader2 size={12} class="animate-spin" />{/if} Connect
           </button>

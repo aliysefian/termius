@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { keepInView } from "$lib/actions";
   import { Circle, Columns2, Command, FolderSync, Keyboard, Maximize2, Minimize2, Plus, Rows2, SquareTerminal, Terminal, TextSelect, X, Zap } from "lucide-svelte";
   import { save } from "@tauri-apps/plugin-dialog";
   import * as api from "$lib/api";
@@ -156,6 +157,8 @@
   }
 </script>
 
+<svelte:window onkeydown={(e) => { if (tabMenu && e.key === "Escape") tabMenu = null; }} onresize={() => (tabMenu = null)} />
+
 <section class="flex min-w-0 flex-1 flex-col bg-base">
   {#if ui.tabs.length > 0 && !settings.prefs.focusMode}
     <div class="flex h-10 items-end gap-0.5 overflow-x-auto border-b border-line bg-panel px-2" role="tablist" tabindex="-1" ondrop={onTabDrop} ondragover={(e) => dragTab && e.preventDefault()}>
@@ -250,8 +253,8 @@
 
   {#if tabMenu}
     {@const id = tabMenu.id}
-    <button class="fixed inset-0 z-40 cursor-default" aria-label="Close menu" onclick={() => (tabMenu = null)}></button>
-    <div class="fixed z-50 w-48 rounded-md border border-line bg-panel py-1 text-sm shadow-2xl" style:left="{tabMenu.x}px" style:top="{tabMenu.y}px" role="menu">
+    <button class="fixed inset-0 z-40 cursor-default" aria-label="Close menu" onclick={() => (tabMenu = null)} oncontextmenu={(e) => { e.preventDefault(); tabMenu = null; }}></button>
+    <div class="fixed z-50 w-48 rounded-md border border-line bg-panel py-1 text-sm shadow-2xl" use:keepInView={tabMenu} role="menu">
       {#each [
         { label: "Rename", run: () => { const t = ui.tabs.find((x) => x.id === id); if (t) startRename(t); } },
         { label: "Duplicate", run: () => ui.duplicateTab(id) },

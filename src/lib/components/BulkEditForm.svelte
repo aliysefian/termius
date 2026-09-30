@@ -1,4 +1,6 @@
 <script lang="ts">
+  import Combobox from "./Combobox.svelte";
+  import { groupOptions } from "$lib/pickeroptions";
   import Modal from "./Modal.svelte";
   import { ui } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
@@ -18,7 +20,7 @@
   let error = $state<string | null>(null);
 
   const hosts = $derived(ids.map((id) => vaultStore.hostById.get(id)).filter((h): h is NonNullable<typeof h> => !!h?.data));
-  const groups = $derived([...new Set(vaultStore.hosts.map((h) => h.data?.group).filter(Boolean))].sort());
+  const groupChoices = $derived(groupOptions(vaultStore.hosts, vaultStore.groups));
 
   async function apply(e: SubmitEvent) {
     e.preventDefault();
@@ -56,8 +58,15 @@
     <div class="grid grid-cols-2 gap-3">
       <div>
         <label class="label" for="b-group">Group</label>
-        <input id="b-group" class="input" list="b-groups" value={group === KEEP ? "" : group} placeholder="(unchanged)" oninput={(e) => (group = e.currentTarget.value === "" ? KEEP : e.currentTarget.value)} />
-        <datalist id="b-groups">{#each groups as g (g)}<option value={g}></option>{/each}</datalist>
+        <Combobox
+          id="b-group"
+          options={groupChoices}
+          bind:value={() => (group === KEEP ? "" : group), (v) => (group = v === "" ? KEEP : v)}
+          creatable
+          clearable
+          createLabel={(q) => `New group “${q}”`}
+          placeholder="(unchanged)"
+        />
         {#if group !== KEEP && !group.trim()}<p class="mt-1 text-[11px] text-fg-muted">Empty moves them to the top level.</p>{/if}
       </div>
       <div>
