@@ -252,16 +252,27 @@
   {/if}
 
   {#if tabMenu}
-    {@const id = tabMenu.id}
+    {@const menuTab = tabMenu.id}
     <button class="fixed inset-0 z-40 cursor-default" aria-label="Close menu" onclick={() => (tabMenu = null)} oncontextmenu={(e) => { e.preventDefault(); tabMenu = null; }}></button>
     <div class="fixed z-50 w-48 rounded-md border border-line bg-panel py-1 text-sm shadow-2xl" use:keepInView={tabMenu} role="menu">
+      <!-- Each action gets the tab id as an argument: `menuTab` is derived from
+           `tabMenu`, so reading it after the menu closes would throw. -->
       {#each [
-        { label: "Rename", run: () => { const t = ui.tabs.find((x) => x.id === id); if (t) startRename(t); } },
-        { label: "Duplicate", run: () => ui.duplicateTab(id) },
-        { label: "Close", run: () => ui.closeTab(id) },
-        { label: "Close other tabs", run: () => ui.closeOtherTabs(id) },
+        { label: "Rename", run: (id: string) => { const t = ui.tabs.find((x) => x.id === id); if (t) startRename(t); } },
+        { label: "Duplicate", run: (id: string) => ui.duplicateTab(id) },
+        { label: "Close", run: (id: string) => ui.closeTab(id) },
+        { label: "Close other tabs", run: (id: string) => ui.closeOtherTabs(id), disabled: ui.tabs.length < 2 },
       ] as item (item.label)}
-        <button class="w-full px-3 py-1.5 text-left hover:bg-panel-hover" role="menuitem" onclick={() => { tabMenu = null; item.run(); }}>
+        <button
+          class="w-full px-3 py-1.5 text-left hover:bg-panel-hover disabled:opacity-40 disabled:hover:bg-transparent"
+          role="menuitem"
+          disabled={item.disabled}
+          onclick={() => {
+            const id = menuTab;
+            tabMenu = null;
+            item.run(id);
+          }}
+        >
           {item.label}
         </button>
       {/each}
