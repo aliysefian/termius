@@ -7,10 +7,14 @@ use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use tokio::io::AsyncReadExt;
-use tokio::net::TcpStream;
 use uuid::Uuid;
 
+use crate::models::ProxySpec;
+use crate::ssh::SshError;
+
 pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(4);
+/// A proxy adds a hop (and maybe a DNS lookup on its side).
+const PROXY_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const BANNER_TIMEOUT: Duration = Duration::from_secs(3);
 /// Hosts probed at the same time.
 pub const CONCURRENCY: usize = 32;
@@ -38,23 +42,29 @@ pub struct HealthResult {
     pub health: Health,
 }
 
-/// Probe one address.
-pub async fn probe(host: &str, port: u16) -> Health {
+/// Probe one address, through `proxy` if the host uses one. With a proxy
+/// the latency includes the proxy's own hop.
+pub async fn probe(host: &str, port: u16, proxy: Option<&ProxySpec>) -> Health {
     let start = Instant::now();
-    let mut stream =
-        match tokio::time::timeout(CONNECT_TIMEOUT, TcpStream::connect((host, port))).await {
-            Err(_) => {
-                return Health::Down {
-                    reason: format!("no answer within {}s", CONNECT_TIMEOUT.as_secs()),
-                }
+    let limit = if proxy.is_some() { PROXY_CONNECT_TIMEOUT } else { CONNECT_TIMEOUT };
+    let mut stream = match tokio::time::timeout(limit, crate::dial::open(host, port, proxy, "")).await {
+        Err(_) => {
+            return Health::Down {
+                reason: format!("no answer within {}s", limit.as_secs()),
             }
-            Ok(Err(e)) => {
-                return Health::Down {
-                    reason: e.to_string(),
-                }
+        }
+        Ok(Err(SshError::Connect { source, .. })) if proxy.is_none() => {
+            return Health::Down {
+                reason: source.to_string(),
             }
-            Ok(Ok(s)) => s,
-        };
+        }
+        Ok(Err(e)) => {
+            return Health::Down {
+                reason: e.to_string(),
+            }
+        }
+        Ok(Ok(s)) => s,
+    };
     let latency_ms = start.elapsed().as_millis() as u64;
 
     // RFC 4253: the server sends "SSH-2.0-..." first, possibly after other
@@ -85,9 +95,12 @@ pub async fn probe(host: &str, port: u16) -> Health {
     Health::Up { latency_ms, banner }
 }
 
-/// Probe many `(host_id, address, port)` targets concurrently. `None` as the
-/// address means the host sits behind a jump host.
-pub async fn probe_all(targets: Vec<(Uuid, Option<(String, u16)>)>) -> Vec<HealthResult> {
+/// Where to probe a host: its address and the proxy that reaches it.
+pub type ProbeTarget = (String, u16, Option<ProxySpec>);
+
+/// Probe many hosts concurrently. `None` as the target means the host sits
+/// behind a jump host.
+pub async fn probe_all(targets: Vec<(Uuid, Option<ProbeTarget>)>) -> Vec<HealthResult> {
     use tokio::sync::Semaphore;
     let limit = std::sync::Arc::new(Semaphore::new(CONCURRENCY));
     let mut set = tokio::task::JoinSet::new();
@@ -96,9 +109,9 @@ pub async fn probe_all(targets: Vec<(Uuid, Option<(String, u16)>)>) -> Vec<Healt
         set.spawn(async move {
             let health = match addr {
                 None => Health::ViaJump,
-                Some((h, p)) => {
+                Some((h, p, proxy)) => {
                     let _permit = limit.acquire_owned().await;
-                    probe(&h, p).await
+                    probe(&h, p, proxy.as_ref()).await
                 }
             };
             HealthResult { host_id, health }
@@ -111,6 +124,27 @@ pub async fn probe_all(targets: Vec<(Uuid, Option<(String, u16)>)>) -> Vec<Healt
         }
     }
     out
+}
+
+/// "host", "host:port" or "[v6]:port"; empty means github.com:22.
+pub fn parse_target(s: &str) -> Option<(String, u16)> {
+    if s.is_empty() {
+        return Some(("github.com".into(), 22));
+    }
+    let (host, port) = if let Some(rest) = s.strip_prefix('[') {
+        let (h, after) = rest.split_once(']')?;
+        (h, after.strip_prefix(':'))
+    } else {
+        match s.rsplit_once(':') {
+            Some((h, p)) if !h.contains(':') => (h, Some(p)),
+            _ => (s, None),
+        }
+    };
+    let port = match port {
+        Some(p) => p.parse().ok().filter(|p| *p != 0)?,
+        None => 22,
+    };
+    (!host.is_empty() && !host.chars().any(char::is_whitespace)).then(|| (host.to_string(), port))
 }
 
 #[cfg(test)]
@@ -129,7 +163,7 @@ mod tests {
                 let _ = s.write_all(b"SSH-2.0-OpenSSH_9.6p1 Ubuntu-3\r\n").await;
             }
         });
-        match probe("127.0.0.1", port).await {
+        match probe("127.0.0.1", port, None).await {
             Health::Up { banner, latency_ms } => {
                 assert_eq!(banner.as_deref(), Some("SSH-2.0-OpenSSH_9.6p1 Ubuntu-3"));
                 assert!(latency_ms < 2000);
@@ -147,7 +181,7 @@ mod tests {
             }
         });
         assert!(matches!(
-            probe("127.0.0.1", sport).await,
+            probe("127.0.0.1", sport, None).await,
             Health::Up { banner: None, .. }
         ));
 
@@ -159,14 +193,14 @@ mod tests {
             .unwrap()
             .port();
         assert!(matches!(
-            probe("127.0.0.1", closed).await,
+            probe("127.0.0.1", closed, None).await,
             Health::Down { .. }
         ));
 
         let ids: Vec<Uuid> = (0..3).map(|_| Uuid::new_v4()).collect();
         let res = probe_all(vec![
-            (ids[0], Some(("127.0.0.1".into(), port))),
-            (ids[1], Some(("127.0.0.1".into(), closed))),
+            (ids[0], Some(("127.0.0.1".into(), port, None))),
+            (ids[1], Some(("127.0.0.1".into(), closed, None))),
             (ids[2], None),
         ])
         .await;
@@ -174,5 +208,18 @@ mod tests {
         assert!(matches!(find(ids[0]), Health::Up { .. }));
         assert!(matches!(find(ids[1]), Health::Down { .. }));
         assert_eq!(find(ids[2]), Health::ViaJump);
+    }
+
+    #[test]
+    fn test_targets() {
+        let t = |s: &str| parse_target(s);
+        assert_eq!(t(""), Some(("github.com".into(), 22)));
+        assert_eq!(t("db.example.com"), Some(("db.example.com".into(), 22)));
+        assert_eq!(t("10.0.0.5:2200"), Some(("10.0.0.5".into(), 2200)));
+        assert_eq!(t("[2001:db8::1]:2222"), Some(("2001:db8::1".into(), 2222)));
+        assert_eq!(t("2001:db8::1"), Some(("2001:db8::1".into(), 22)));
+        assert_eq!(t("host:0"), None);
+        assert_eq!(t("host:x"), None);
+        assert_eq!(t("a b"), None);
     }
 }

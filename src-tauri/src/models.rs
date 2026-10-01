@@ -126,6 +126,12 @@ pub struct Host {
     /// first hop of its jump chain).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub proxy_id: Option<Uuid>,
+    /// Connect without the group's default jump host, even when a group sets one.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub no_group_jump: bool,
+    /// Connect without the group's default proxy, even when a group sets one.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub no_group_proxy: bool,
     /// Send a keep-alive every N seconds (OpenSSH `ServerAliveInterval`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub keepalive_secs: Option<u32>,

@@ -14,8 +14,8 @@
   const d = $derived(rec?.data);
   const identityId = $derived(d ? vaultStore.effectiveIdentity(d) : undefined);
   const identity = $derived(identityId ? vaultStore.identityById.get(identityId)?.data : undefined);
-  const jumpId = $derived(d ? (d.jump_host_id ?? (vaultStore.groupDefault(d, "default_jump_host_id") as Uuid | undefined)) : undefined);
-  const proxyId = $derived(d ? (d.proxy_id ?? (vaultStore.groupDefault(d, "proxy_id") as Uuid | undefined)) : undefined);
+  const jumpId = $derived(vaultStore.effectiveJump(d, id));
+  const proxyId = $derived(vaultStore.effectiveProxy(d));
   const env = $derived(envInfo(d ? vaultStore.effectiveEnv(d) : ""));
   const usage = $derived(settings.usage[id]);
   const history = $derived((settings.history[id] ?? []).slice(0, 8));
@@ -30,7 +30,7 @@
       const h = vaultStore.hostById.get(cur)?.data;
       if (!h) break;
       names.unshift(h.label);
-      cur = h.jump_host_id ?? (vaultStore.groupDefault(h, "default_jump_host_id") as Uuid | undefined);
+      cur = vaultStore.effectiveJump(h, cur);
     }
     return names;
   });
@@ -39,10 +39,12 @@
     d
       ? sshCommand({
           host: d,
+          hostId: id,
           hostById: vaultStore.hostById,
           identityById: vaultStore.identityById,
           identityFor: (h) => vaultStore.effectiveIdentity(h),
-          jumpFor: (h) => h.jump_host_id ?? (vaultStore.groupDefault(h, "default_jump_host_id") as Uuid | undefined),
+          jumpFor: (h, hid) => vaultStore.effectiveJump(h, hid),
+          proxyFor: (h) => vaultStore.proxyById.get(vaultStore.effectiveProxy(h) ?? "")?.data?.spec,
         })
       : "",
   );
@@ -71,8 +73,8 @@
       <dl class="grid grid-cols-[8rem_1fr] gap-x-3 gap-y-1 text-xs">
         <dt class="text-fg-muted">Group</dt><dd>{d.group || "—"}</dd>
         <dt class="text-fg-muted">Credential</dt><dd>{identity ? `${identity.label} (${identity.username})` : "asked when connecting"}{identityId && identityId !== d.identity_id ? " · from group" : ""}</dd>
-        <dt class="text-fg-muted">Route</dt><dd>{route.length ? `${route.join(" → ")} → ${d.label}` : "direct"}</dd>
-        {#if proxyId}<dt class="text-fg-muted">Proxy</dt><dd>{vaultStore.proxyById.get(proxyId)?.data?.name ?? "(missing)"}</dd>{/if}
+        <dt class="text-fg-muted">Route</dt><dd>{route.length ? `${route.join(" → ")} → ${d.label}` : "direct"}{jumpId && jumpId !== d.jump_host_id ? " · jump from group" : ""}</dd>
+        {#if proxyId}<dt class="text-fg-muted">Proxy</dt><dd>{vaultStore.proxyById.get(proxyId)?.data?.name ?? "(missing)"}{proxyId !== d.proxy_id ? " · from group" : ""}</dd>{/if}
         {#if d.keepalive_secs != null}<dt class="text-fg-muted">Keep-alive</dt><dd>{d.keepalive_secs} s</dd>{/if}
         {#if d.forward_agent || d.forward_x11}<dt class="text-fg-muted">Forwarding</dt><dd>{[d.forward_agent && "ssh-agent", d.forward_x11 && "X11"].filter(Boolean).join(", ")}</dd>{/if}
         {#if d.startup_command}<dt class="text-fg-muted">On connect</dt><dd class="font-mono">{d.startup_command}</dd>{/if}

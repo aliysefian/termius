@@ -76,6 +76,10 @@ export interface Host {
   favorite?: boolean;
   /** Proxy (SOCKS5, HTTP or ProxyCommand) used to reach this host or its first jump. */
   proxy_id?: Uuid;
+  /** Connect without the group's default jump host. */
+  no_group_jump?: boolean;
+  /** Connect without the group's default proxy. */
+  no_group_proxy?: boolean;
   /** Keep-alive interval in seconds (ServerAliveInterval); 0 disables. */
   keepalive_secs?: number;
   /** Free-form metadata, e.g. owner or ticket. */

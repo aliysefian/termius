@@ -1,9 +1,10 @@
 <script lang="ts">
-  import { FolderTree, Network, Pencil, Plus, ShieldAlert, Trash2 } from "lucide-svelte";
+  import { CircleCheck, CircleX, FolderTree, Loader2, Network, Pencil, Plus, ShieldAlert, Trash2 } from "lucide-svelte";
+  import * as api from "$lib/api";
   import { ui } from "$lib/stores/ui.svelte";
   import { ask } from "$lib/dialogs.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
-  import { ENVIRONMENTS, errorMessage, type HostGroup, type Proxy, type ProxySpec, type Uuid } from "$lib/types";
+  import { ENVIRONMENTS, errorMessage, type Health, type HostGroup, type Proxy, type ProxySpec, type Uuid } from "$lib/types";
 
   // -- groups ------------------------------------------------------------
 
@@ -106,23 +107,56 @@
     proxyPass = "";
     proxyCommand = p?.spec.kind === "command" ? p.spec.command : "";
     proxyApproved = p?.spec.kind === "command" ? p.spec.approved : false;
+    // Try it against a host that uses it, else a well-known SSH server.
+    const user = id === "new" ? undefined : vaultStore.hosts.find((h) => h.data && vaultStore.effectiveProxy(h.data) === id && !vaultStore.effectiveJump(h.data, h.id))?.data;
+    testTarget = user ? `${user.hostname.includes(":") ? `[${user.hostname}]` : user.hostname}:${user.port}` : "";
+    testResult = null;
     error = null;
+  }
+
+  // -- proxy test ---------------------------------------------------------
+
+  let testTarget = $state("");
+  let testing = $state(false);
+  let testResult = $state<{ ok: boolean; text: string } | null>(null);
+
+  function describeTest(h: Health, dest: string): { ok: boolean; text: string } {
+    if (h.state === "up") return { ok: true, text: `Reached ${dest} in ${h.latency_ms} ms${h.banner ? ` · ${h.banner}` : " (no SSH greeting)"}` };
+    return { ok: false, text: h.state === "down" ? h.reason : "not tested" };
+  }
+
+  async function testProxy() {
+    if (!proxyEditing) return;
+    testing = true;
+    testResult = null;
+    const dest = testTarget.trim() || "github.com:22";
+    try {
+      const h = await api.proxies.test(proxyEditing === "new" ? null : proxyEditing, proxySpec(), testTarget.trim() || null);
+      testResult = describeTest(h, dest);
+    } catch (err) {
+      testResult = { ok: false, text: errorMessage(err) };
+    } finally {
+      testing = false;
+    }
+  }
+
+  function proxySpec(): ProxySpec {
+    return proxyKind === "command"
+      ? { kind: "command", command: proxyCommand.trim(), approved: proxyApproved }
+      : {
+          kind: proxyKind,
+          host: proxyHost.trim(),
+          port: Number(proxyPort),
+          username: proxyUser.trim() || undefined,
+          // Empty keeps the saved password.
+          password: proxyUser.trim() ? (proxyPass || (proxyHadPassword ? "" : undefined)) : undefined,
+        };
   }
 
   async function saveProxy(e: SubmitEvent) {
     e.preventDefault();
     if (!proxyEditing) return;
-    const spec: ProxySpec =
-      proxyKind === "command"
-        ? { kind: "command", command: proxyCommand.trim(), approved: proxyApproved }
-        : {
-            kind: proxyKind,
-            host: proxyHost.trim(),
-            port: Number(proxyPort),
-            username: proxyUser.trim() || undefined,
-            // Empty keeps the saved password.
-            password: proxyUser.trim() ? (proxyPass || (proxyHadPassword ? "" : undefined)) : undefined,
-          };
+    const spec = proxySpec();
     const id = proxyEditing === "new" ? null : proxyEditing;
     busy = true;
     error = null;
@@ -317,6 +351,21 @@
                 <input id="p-pass" class="input" type="password" bind:value={proxyPass} autocomplete="off" placeholder={proxyHadPassword ? "Saved. Leave empty to keep it." : ""} disabled={!proxyUser.trim()} />
               </div>
             {/if}
+            <div class="col-span-2">
+              <label class="label" for="p-test">Test connection to <span class="font-normal text-fg-muted">(host:port through this proxy)</span></label>
+              <div class="flex gap-2">
+                <input id="p-test" class="input flex-1 font-mono text-xs" bind:value={testTarget} placeholder="github.com:22" spellcheck="false" />
+                <button class="btn-ghost border border-line" type="button" onclick={testProxy} disabled={testing}>
+                  {#if testing}<Loader2 size={14} class="animate-spin" /> Testing…{:else}<Network size={14} /> Test{/if}
+                </button>
+              </div>
+              {#if testResult}
+                <p class="mt-1.5 flex items-start gap-1.5 text-xs {testResult.ok ? 'text-success' : 'text-danger'}" role="status">
+                  {#if testResult.ok}<CircleCheck size={14} class="mt-px shrink-0" />{:else}<CircleX size={14} class="mt-px shrink-0" />{/if}
+                  <span class="break-all">{testResult.ok ? "Works. " : "Failed: "}{testResult.text}</span>
+                </p>
+              {/if}
+            </div>
             {#if error}<p class="col-span-2 text-sm text-danger">{error}</p>{/if}
             <div class="col-span-2 flex gap-2">
               <button class="btn-primary" disabled={busy}>Save proxy</button>

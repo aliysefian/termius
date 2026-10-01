@@ -104,6 +104,7 @@ pub fn run() {
             commands::list_proxies,
             commands::save_proxy,
             commands::delete_proxy,
+            commands::test_proxy,
             commands::list_workspaces,
             commands::save_workspace,
             commands::delete_workspace,

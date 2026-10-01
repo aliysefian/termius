@@ -25,10 +25,12 @@
     e.stopPropagation();
     const cmd = sshCommand({
       host: d,
+      hostId: host.id,
       hostById: vaultStore.hostById,
       identityById: vaultStore.identityById,
       identityFor: (h) => vaultStore.effectiveIdentity(h),
-      jumpFor: (h) => h.jump_host_id ?? (vaultStore.groupDefault(h, "default_jump_host_id") as string | undefined),
+      jumpFor: (h, id) => vaultStore.effectiveJump(h, id),
+      proxyFor: (h) => vaultStore.proxyById.get(vaultStore.effectiveProxy(h) ?? "")?.data?.spec,
     });
     try {
       await writeText(cmd);

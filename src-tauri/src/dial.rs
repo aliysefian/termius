@@ -22,8 +22,13 @@ pub type BoxStream = Box<dyn Stream>;
 const MAX_HTTP_HEADER: usize = 16 * 1024;
 
 pub async fn dial(target: &Target) -> Result<BoxStream, SshError> {
-    let (host, port) = (target.hostname.as_str(), target.port);
-    match &target.proxy {
+    open(&target.hostname, target.port, target.proxy.as_ref(), &target.username).await
+}
+
+/// A byte stream to `host:port`, through `proxy` if given. `user` fills a
+/// ProxyCommand's `%r`.
+pub async fn open(host: &str, port: u16, proxy: Option<&ProxySpec>, user: &str) -> Result<BoxStream, SshError> {
+    match proxy {
         None => Ok(Box::new(tcp(host, port).await?)),
         Some(ProxySpec::Socks5 {
             host: ph,
@@ -60,7 +65,7 @@ pub async fn dial(target: &Target) -> Result<BoxStream, SshError> {
                     reason: "this command hasn't been approved to run on this computer; review it in Proxies".into(),
                 });
             }
-            let cmd = expand_proxy_command(command, host, port, &target.username);
+            let cmd = expand_proxy_command(command, host, port, user);
             spawn_command(&cmd).map_err(|e| SshError::Proxy {
                 proxy: "ProxyCommand".into(),
                 reason: e.to_string(),
@@ -455,6 +460,25 @@ mod tests {
         t.hostname = "elsewhere".into();
         let err = dial(&t).await.err().unwrap();
         assert!(err.to_string().contains("host unreachable"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn health_probe_goes_through_the_proxy() {
+        use crate::health::{probe, Health};
+        let e = echo().await;
+        let authed = socks_server(true, e).await;
+        let spec = |pass: &str| ProxySpec::Socks5 {
+            host: "127.0.0.1".into(),
+            port: authed,
+            username: Some("alice".into()),
+            password: Some(pass.into()),
+        };
+        // "localhost-echo" only exists behind the proxy.
+        assert!(matches!(probe("localhost-echo", 22, Some(&spec("secret"))).await, Health::Up { .. }));
+        match probe("localhost-echo", 22, Some(&spec("nope"))).await {
+            Health::Down { reason } => assert!(reason.contains("rejected the username"), "{reason}"),
+            other => panic!("{other:?}"),
+        }
     }
 
     #[tokio::test]

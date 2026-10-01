@@ -174,8 +174,12 @@ pub fn effective(host: &Host, groups: &HashMap<String, HostGroup>) -> Effective 
     while !parts.is_empty() {
         if let Some(g) = groups.get(&parts.join("/")) {
             e.identity_id = e.identity_id.or(g.default_identity_id);
-            e.jump_host_id = e.jump_host_id.or(g.default_jump_host_id);
-            e.proxy_id = e.proxy_id.or(g.proxy_id);
+            if !host.no_group_jump {
+                e.jump_host_id = e.jump_host_id.or(g.default_jump_host_id);
+            }
+            if !host.no_group_proxy {
+                e.proxy_id = e.proxy_id.or(g.proxy_id);
+            }
             if e.environment.is_empty() {
                 e.environment = g.environment.clone();
             }
@@ -220,6 +224,35 @@ pub fn jump_map(vault: &Vault) -> Result<HashMap<Uuid, Option<Uuid>>> {
             let d = r.data?;
             let j = effective(&d, &groups).jump_host_id.filter(|j| *j != r.id);
             Some((r.id, j))
+        })
+        .collect())
+}
+
+/// What the reachability check probes for each host: its address and the
+/// proxy it is reached through, after group defaults. Hosts behind a jump
+/// host get `None`; a probe doesn't open jump sessions.
+pub fn probe_targets(vault: &Vault, only: Option<&[Uuid]>) -> Result<Vec<(Uuid, Option<crate::health::ProbeTarget>)>> {
+    let groups = load_groups(vault)?;
+    let proxies: HashMap<Uuid, crate::models::ProxySpec> = vault
+        .list::<crate::models::Proxy>(Collection::Proxies)?
+        .records
+        .into_iter()
+        .filter_map(|r| Some((r.id, r.data?.spec)))
+        .collect();
+    Ok(vault
+        .list::<Host>(Collection::Hosts)?
+        .records
+        .into_iter()
+        .filter(|r| only.is_none_or(|ids| ids.contains(&r.id)))
+        .filter_map(|r| {
+            let d = r.data?;
+            let e = effective(&d, &groups);
+            let behind_jump = e.jump_host_id.is_some_and(|j| j != r.id);
+            let target = (!behind_jump).then(|| {
+                let proxy = e.proxy_id.and_then(|p| proxies.get(&p).cloned());
+                (d.hostname, d.port, proxy)
+            });
+            Some((r.id, target))
         })
         .collect())
 }
@@ -447,5 +480,12 @@ mod tests {
         let e = effective(&h, &groups);
         assert_eq!(e.identity_id, Some(a));
         assert_eq!(e.environment, "staging");
+        // A host can opt out of the group's jump host and proxy.
+        groups.get_mut("Prod").unwrap().proxy_id = Some(b);
+        assert_eq!(effective(&h, &groups).proxy_id, Some(b));
+        h.no_group_jump = true;
+        h.no_group_proxy = true;
+        let e = effective(&h, &groups);
+        assert_eq!((e.jump_host_id, e.proxy_id), (None, None));
     }
 }

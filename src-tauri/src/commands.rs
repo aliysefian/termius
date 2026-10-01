@@ -2406,17 +2406,48 @@ pub async fn check_hosts(
     state: State<'_, AppState>,
     host_ids: Option<Vec<Uuid>>,
 ) -> ApiResult<Vec<crate::health::HealthResult>> {
-    let hosts: Vec<Record<Host>> = list_records(&state, Collection::Hosts)?;
-    let targets = hosts
-        .into_iter()
-        .filter(|r| host_ids.as_ref().is_none_or(|ids| ids.contains(&r.id)))
-        .filter_map(|r| {
-            let d = r.data?;
-            let addr = d.jump_host_id.is_none().then_some((d.hostname, d.port));
-            Some((r.id, addr))
-        })
-        .collect();
+    let targets = with_keys(&state, |v| crate::keymanager::probe_targets(v, host_ids.as_deref()))?;
     Ok(crate::health::probe_all(targets).await)
+}
+
+/// Try a proxy from its form, saved or not: reach `target` (default
+/// github.com:22) through it and read the SSH greeting. An empty password
+/// uses the saved one, as saving would.
+#[tauri::command]
+pub async fn test_proxy(
+    state: State<'_, AppState>,
+    id: Option<Uuid>,
+    spec: crate::models::ProxySpec,
+    target: Option<String>,
+) -> ApiResult<crate::health::Health> {
+    use crate::models::ProxySpec;
+    let mut spec = spec;
+    if let ProxySpec::Socks5 { password, .. } | ProxySpec::Http { password, .. } = &mut spec {
+        if password.as_deref() == Some("") {
+            *password = match id {
+                Some(id) => state
+                    .session
+                    .with_vault(|v| Ok(v.get::<crate::models::Proxy>(Collection::Proxies, id).ok().and_then(|r| r.data)))?
+                    .and_then(|p| match p.spec {
+                        ProxySpec::Socks5 { password, .. } | ProxySpec::Http { password, .. } => password,
+                        ProxySpec::Command { .. } => None,
+                    }),
+                None => None,
+            };
+        }
+    }
+    match &spec {
+        ProxySpec::Socks5 { host, .. } | ProxySpec::Http { host, .. } if host.trim().is_empty() => {
+            return Err(ApiError::new("validation", "enter the proxy's address"));
+        }
+        ProxySpec::Command { command, .. } if command.trim().is_empty() => {
+            return Err(ApiError::new("validation", "enter the command"));
+        }
+        _ => {}
+    }
+    let (host, port) = crate::health::parse_target(target.as_deref().unwrap_or("").trim())
+        .ok_or_else(|| ApiError::new("validation", "test destination must look like host or host:port"))?;
+    Ok(crate::health::probe(&host, port, Some(&spec)).await)
 }
 
 /// Read an Ansible INI inventory for the import preview.

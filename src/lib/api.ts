@@ -20,6 +20,7 @@ import type {
   KeyUsage,
   KnownHostsImport,
   Proxy,
+  ProxySpec,
   RestoreReport,
   SerialConfig,
   SshKey,
@@ -28,6 +29,7 @@ import type {
   VaultKnownHost,
   VaultSettings,
   Workspace,
+  Health,
   HealthResult,
   Revealed,
   EditEvent,
@@ -181,6 +183,8 @@ export const proxies = {
   save: (id: Uuid | null, baseRev: number | null, proxy: Proxy) =>
     invoke<VaultRecord<Proxy>>("save_proxy", { id, baseRev, proxy }),
   delete: (id: Uuid, baseRev: number | null) => invoke<void>("delete_proxy", { id, baseRev }),
+  /** Reach `target` (default github.com:22) through an unsaved or saved proxy. */
+  test: (id: Uuid | null, spec: ProxySpec, target: string | null) => invoke<Health>("test_proxy", { id, spec, target }),
 };
 
 export const workspaces = {

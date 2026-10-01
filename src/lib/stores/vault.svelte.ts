@@ -95,6 +95,19 @@ class VaultStore {
     return host.identity_id ?? (this.groupDefault(host, "default_identity_id") as Uuid | undefined);
   }
 
+  /** A host's jump host after group defaults; never itself (a bastion in its own group). */
+  effectiveJump(host: Host | undefined, id?: Uuid): Uuid | undefined {
+    if (!host) return undefined;
+    const j = host.jump_host_id ?? (host.no_group_jump ? undefined : (this.groupDefault(host, "default_jump_host_id") as Uuid | undefined));
+    return j && j !== id ? j : undefined;
+  }
+
+  /** A host's proxy after group defaults. */
+  effectiveProxy(host: Host | undefined): Uuid | undefined {
+    if (!host) return undefined;
+    return host.proxy_id ?? (host.no_group_proxy ? undefined : (this.groupDefault(host, "proxy_id") as Uuid | undefined));
+  }
+
   /**
    * The saved SSH host an `ssh -J` hop names: by label, or by address. A
    * given port or user must match too, so `me@bastion` never borrows

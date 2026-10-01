@@ -146,33 +146,57 @@
     }
     return false;
   }
-  const jumpChoices = $derived(hostOptions(vaultStore.hosts, (h) => h.id !== id && !(id && reachesThis(h.id))));
+  /** What the host's groups would give it, shown so an empty field never hides a jump or proxy. */
+  const groupJump = $derived.by(() => {
+    const j = vaultStore.groupDefault(form, "default_jump_host_id") as Uuid | undefined;
+    return j && j !== id ? j : undefined;
+  });
+  const groupJumpLabel = $derived(groupJump ? (vaultStore.hostById.get(groupJump)?.data?.label ?? "(missing)") : "");
+  const groupProxy = $derived(vaultStore.groupDefault(form, "proxy_id") as Uuid | undefined);
+  const groupProxyName = $derived(groupProxy ? (vaultStore.proxyById.get(groupProxy)?.data?.name ?? "(missing)") : "");
+  const DIRECT = "direct";
+  const jumpChoices = $derived([
+    ...(groupJump ? [{ value: DIRECT, label: "None, connect directly", detail: `ignore the group's ${groupJumpLabel}` }] : []),
+    ...hostOptions(vaultStore.hosts, (h) => h.id !== id && !(id && reachesThis(h.id))),
+  ]);
+  const jumpValue = () => form.jump_host_id ?? (form.no_group_jump && groupJump ? DIRECT : "");
+  const setJump = (v: string) => {
+    form.no_group_jump = v === DIRECT;
+    form.jump_host_id = v && v !== DIRECT ? v : undefined;
+  };
+  const proxyValue = () => form.proxy_id ?? (form.no_group_proxy && groupProxy ? DIRECT : "");
+  const setProxy = (v: string) => {
+    form.no_group_proxy = v === DIRECT;
+    form.proxy_id = v && v !== DIRECT ? v : undefined;
+  };
+  /** The jump in effect: the host's own, else its group's unless opted out. */
+  const firstJump = $derived(form.jump_host_id ?? (form.no_group_jump ? undefined : groupJump));
   const groupChoices = $derived(groupOptions(vaultStore.hosts, vaultStore.groups));
 
   /** "jump2 → jump1 → this host", outermost first. */
   const chainLabel = $derived.by(() => {
     const names: string[] = [];
-    const seen = new Set<Uuid>();
-    let cur = form.jump_host_id;
+    const seen = new Set<Uuid>(id ? [id] : []);
+    let cur = firstJump;
     while (cur && !seen.has(cur)) {
       seen.add(cur);
       const h = vaultStore.hostById.get(cur)?.data;
       if (!h) break;
       names.unshift(h.label);
-      cur = h.jump_host_id;
+      cur = vaultStore.effectiveJump(h, cur);
     }
     return names.length ? `${names.join(" → ")} → ${form.label || "this host"}` : "";
   });
 
   const jumpMissingIdentity = $derived.by(() => {
-    const seen = new Set<Uuid>();
-    let cur = form.jump_host_id;
+    const seen = new Set<Uuid>(id ? [id] : []);
+    let cur = firstJump;
     while (cur && !seen.has(cur)) {
       seen.add(cur);
       const h = vaultStore.hostById.get(cur)?.data;
       if (!h) return null;
-      if (!h.identity_id) return h.label;
-      cur = h.jump_host_id;
+      if (!vaultStore.effectiveIdentity(h)) return h.label;
+      cur = vaultStore.effectiveJump(h, cur);
     }
     return null;
   });
@@ -190,6 +214,8 @@
       form.startup_command = form.startup_command?.trim() || undefined;
       form.environment = envChoice === "custom" ? customEnv.trim() || undefined : envChoice || undefined;
       form.proxy_id = form.proxy_id || undefined;
+      form.no_group_jump = (!form.jump_host_id && form.no_group_jump) || undefined;
+      form.no_group_proxy = (!form.proxy_id && form.no_group_proxy) || undefined;
       form.keepalive_secs = form.keepalive_secs == null || (form.keepalive_secs as unknown) === "" ? undefined : Number(form.keepalive_secs);
       const custom: Record<string, string> = {};
       for (const line of customFields.split("\n")) {
@@ -443,13 +469,15 @@
           <Combobox
             id="h-jump"
             options={jumpChoices}
-            bind:value={() => form.jump_host_id ?? "", (v) => (form.jump_host_id = v || undefined)}
+            bind:value={jumpValue, setJump}
             clearable
-            placeholder="None, connect directly"
+            placeholder={groupJump && !form.no_group_jump ? `Group default: ${groupJumpLabel}` : "None, connect directly"}
             emptyText="No host matches"
           />
           {#if chainLabel}
-            <p class="mt-1 text-xs text-fg-muted">Route: {chainLabel}</p>
+            <p class="mt-1 text-xs text-fg-muted">
+              Route: {chainLabel}{!form.jump_host_id ? ` (jump host from group "${form.group}"; pick "None, connect directly" to skip it)` : ""}
+            </p>
           {/if}
           {#if jumpMissingIdentity}
             <p class="mt-1 text-xs text-danger">"{jumpMissingIdentity}" has no saved credentials. Jump hosts need them to connect.</p>
@@ -502,8 +530,9 @@
         </label>
         <div>
           <label class="label" for="h-proxy">Proxy</label>
-          <select id="h-proxy" class="input" bind:value={form.proxy_id}>
-            <option value={undefined}>None{form.group && vaultStore.groupByPath.get(form.group)?.data?.proxy_id ? " (group default applies)" : ""}</option>
+          <select id="h-proxy" class="input" bind:value={proxyValue, setProxy}>
+            <option value="">{groupProxy ? `Group default: ${groupProxyName}` : "None, connect directly"}</option>
+            {#if groupProxy}<option value={DIRECT}>None, ignore the group's proxy</option>{/if}
             {#each vaultStore.proxies as p (p.id)}
               <option value={p.id}>{p.data?.name}{p.data?.spec.kind === "command" && !p.data.spec.approved ? " (not approved)" : ""}</option>
             {/each}
