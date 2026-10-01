@@ -5462,7 +5462,7 @@ dependencies = [
 
 [[package]]
 name = "sshvault"
-version = "0.9.7"
+version = "0.9.8"
 dependencies = [
  "argon2 0.5.3",
  "base64 0.22.1",
