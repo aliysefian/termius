@@ -199,6 +199,13 @@ For a one-off connection, type an `ssh -J` command in Quick connect instead
 - The dot on each tab shows its connection: green connected, yellow
   connecting, red failed, grey closed.
 - Right-click inside a terminal for copy, paste, select all, find and clear.
+- When a program such as tmux, vim or Claude Code takes the mouse, hold
+  **Shift** while dragging to select text, or click the **Program has the
+  mouse** pill to make plain drags select until you switch back.
+- Programs that copy through the terminal (tmux's mouse selection with
+  `set-clipboard on`, Claude Code, Neovim's OSC 52 provider) put the text on
+  your clipboard. Turn this off under **Settings → Terminal** if you would
+  rather remote programs could not write to it.
 - If the connection drops, a **Reconnect** button appears at the bottom of the
   pane.
 - Change the colour theme, font, cursor and scrollback under **Settings**.

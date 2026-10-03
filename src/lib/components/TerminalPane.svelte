@@ -23,6 +23,7 @@
   import { errorMessage } from "$lib/types";
   import { LineTracker, matchDestructive, pastedLines, pasteNeedsConfirm } from "$lib/guard";
   import { CommandTracker, parseOsc133, parseOsc7 } from "$lib/shellintegration";
+  import { decodeOsc52, redundantMouseEnable } from "$lib/termprotocol";
   import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
 
   let {
@@ -487,6 +488,21 @@
       if (cwd !== null) ui.paneInfo[paneId] = { ...(ui.paneInfo[paneId] ?? { status: status.kind }), cwd };
       return cwd !== null;
     });
+    // OSC 52: tmux (mouse selection with set-clipboard on), Claude Code and
+    // Neovim copy by asking the terminal to set the clipboard. xterm.js
+    // ignores it, which looked like "copying doesn't work" in those programs.
+    // Queries ("?") are never answered.
+    term.parser.registerOscHandler(52, (data) => {
+      if (!settings.prefs.remoteClipboard) return true;
+      const text = decodeOsc52(data);
+      if (text) writeText(text).catch((e) => ui.notify("error", `Copy failed: ${errorMessage(e)}`));
+      return true;
+    });
+    // Swallow DECSETs that only re-enable the mouse mode already in force.
+    // xterm.js treats them as a protocol change, clears the selection and
+    // ends the drag, so programs that re-send the mode while redrawing
+    // (Claude Code, tmux) made Shift+drag and select mode unusable.
+    term.parser.registerCsiHandler({ prefix: "?", final: "h" }, (params) => redundantMouseEnable(params, term.modes.mouseTrackingMode));
     term.onBell(() => void notifyDone(`Bell from ${label}`));
 
     // Native paste (Ctrl+V, middle click): intercept before xterm sends it.

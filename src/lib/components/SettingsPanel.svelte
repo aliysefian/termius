@@ -196,6 +196,9 @@
         <label class="flex items-center gap-2 text-sm">
           <input type="checkbox" class="accent-[#7b61ff]" bind:checked={settings.prefs.copyOnSelect} /> Copy on select
         </label>
+        <label class="col-span-2 flex items-center gap-2 text-sm" title="OSC 52. tmux (with set-clipboard on), Claude Code and Neovim copy this way.">
+          <input type="checkbox" class="accent-[#7b61ff]" bind:checked={settings.prefs.remoteClipboard} /> Let programs in the terminal copy to the clipboard
+        </label>
         <label class="col-span-2 flex items-center gap-2 text-sm">
           <input type="checkbox" class="accent-[#7b61ff]" bind:checked={settings.prefs.logRaw} /> Session logs keep colours and
           control codes (raw) instead of plain text

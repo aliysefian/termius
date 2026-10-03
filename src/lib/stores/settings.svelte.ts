@@ -9,6 +9,8 @@ export interface Prefs {
   cursorBlink: boolean;
   scrollback: number;
   copyOnSelect: boolean;
+  /** Programs may put text on the clipboard with OSC 52 (tmux, Claude Code, Neovim). */
+  remoteClipboard: boolean;
   /** 0 disables auto-lock. */
   autoLockMinutes: number;
   showHiddenFiles: boolean;
@@ -68,6 +70,7 @@ export const DEFAULT_PREFS: Prefs = {
   cursorBlink: true,
   scrollback: 5000,
   copyOnSelect: false,
+  remoteClipboard: true,
   autoLockMinutes: 0,
   showHiddenFiles: false,
   logRaw: false,

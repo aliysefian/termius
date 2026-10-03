@@ -47,8 +47,9 @@ Linux and Windows · Built with Rust, Tauri, Svelte and xterm.js
   pane maximize, and synchronized typing across panes
 - Find, clickable links, copy on select, WebGL rendering, Ctrl+scroll zoom
 - Themes, including imported VS Code, Windows Terminal and iTerm2 schemes
-- Works with tmux and vim: select text while they own the mouse, and scroll
-  full-screen programs with the wheel
+- Works with tmux and vim: select text while they own the mouse, scroll
+  full-screen programs with the wheel, and let tmux, Claude Code and Neovim
+  copy to the clipboard (OSC 52)
 - Shell integration: current directory in the header, jump between prompts,
   copy the last command's output, notifications when long commands finish
 - Session recording, local shell tabs, Telnet and serial consoles
