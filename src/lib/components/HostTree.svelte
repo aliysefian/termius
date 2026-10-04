@@ -2,6 +2,7 @@
   import { Activity, Clock, FileInput, FoldVertical, Plus, Search, Server, UnfoldVertical } from "lucide-svelte";
   import { settings } from "$lib/stores/settings.svelte";
   import HostRow from "./HostRow.svelte";
+  import Spinner from "./Spinner.svelte";
   import { ui } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
   import { buildTree, groupPaths, type HostSort } from "$lib/tree";
@@ -129,7 +130,7 @@
     }}
   >
     {#if vaultStore.loading}
-      <p class="px-2 py-6 text-center text-xs text-fg-muted">Decrypting…</p>
+      <div class="flex justify-center py-6"><Spinner label="Decrypting…" /></div>
     {:else if vaultStore.hosts.length === 0}
       <div class="px-3 py-10 text-center">
         <Server size={28} class="mx-auto mb-3 text-fg-muted/50" />

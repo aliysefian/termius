@@ -15,6 +15,7 @@
     TriangleAlert,
   } from "lucide-svelte";
   import StrengthMeter from "./StrengthMeter.svelte";
+  import Spinner from "./Spinner.svelte";
   import { ask } from "$lib/dialogs.svelte";
   import * as api from "$lib/api";
   import { pickFolder } from "$lib/api";
@@ -155,7 +156,7 @@
       <h1 class="flex items-center gap-2 text-lg font-semibold"><ShieldCheck size={18} class="text-accent" /> Vault</h1>
       <div class="flex gap-2">
         <button class="icon-btn" title="Refresh" onclick={load}><RefreshCw size={14} /></button>
-        <button class="btn-ghost border border-line" onclick={() => vaultStore.lock()}><Lock size={14} /> Lock now</button>
+        <button class="btn-secondary" onclick={() => vaultStore.lock()}><Lock size={14} /> Lock now</button>
       </div>
     </div>
 
@@ -198,7 +199,7 @@
                 <div class="grid grid-cols-2 gap-2">
                   {#each [["current", c.current], ["other", c.other]] as const as [side, rec] (side)}
                     <div class="rounded border border-line bg-base p-2">
-                      <div class="mb-1 text-[10px] uppercase tracking-wide text-fg-muted">
+                      <div class="mb-1 text-[11px] uppercase tracking-wide text-fg-muted">
                         {side === "current" ? "Current" : "Other"} · {deviceName(rec.device_id)} · {when(rec.updated_at)}
                       </div>
                       {#each c.fields as f (f)}
@@ -239,11 +240,11 @@
             : "No recovery key: if the master password is forgotten, the vault can't be opened by anyone."}
         </p>
         <div class="flex flex-wrap gap-2">
-          <button class="btn-ghost border border-line" disabled={!!busy} onclick={newRecoveryKey}>{info.has_recovery ? "Replace recovery key" : "Create recovery key"}</button>
+          <button class="btn-secondary" disabled={!!busy} onclick={newRecoveryKey}>{info.has_recovery ? "Replace recovery key" : "Create recovery key"}</button>
           {#if info.has_recovery}
-            <button class="btn-ghost border border-line hover:text-danger" disabled={!!busy} onclick={removeRecoveryKey}>Remove recovery key</button>
+            <button class="btn-secondary hover:text-danger" disabled={!!busy} onclick={removeRecoveryKey}>Remove recovery key</button>
           {/if}
-          <button class="btn-ghost border border-line" disabled={!!busy} onclick={toggleRemember}>
+          <button class="btn-secondary" disabled={!!busy} onclick={toggleRemember}>
             {info.remembered ? "Forget on this device" : "Remember on this device"}
           </button>
         </div>
@@ -252,7 +253,7 @@
       <section class="rounded-xl border border-line bg-panel p-5">
         <div class="mb-1 flex items-center justify-between">
           <h2 class="flex items-center gap-2 text-sm font-semibold"><Archive size={15} class="text-accent" /> Backups</h2>
-          <button class="btn-ghost border border-line py-1 text-xs" disabled={!!busy} onclick={backupNow}>{busy === "backup" ? "Backing up…" : "Back up now"}</button>
+          <button class="btn-secondary py-1 text-xs" disabled={!!busy} onclick={backupNow}>{busy === "backup" ? "Backing up…" : "Back up now"}</button>
         </div>
         <p class="mb-3 text-xs text-fg-muted">
           Encrypted with the vault key and kept in <code>backups/</code> inside the vault folder. One is taken automatically
@@ -277,7 +278,7 @@
       <section class="rounded-xl border border-line bg-panel p-5">
         <div class="mb-1 flex items-center justify-between">
           <h2 class="flex items-center gap-2 text-sm font-semibold"><Stethoscope size={15} class="text-accent" /> Verify integrity</h2>
-          <button class="btn-ghost border border-line py-1 text-xs" disabled={!!busy} onclick={verify}>{busy === "verify" ? "Checking…" : "Verify"}</button>
+          <button class="btn-secondary py-1 text-xs" disabled={!!busy} onclick={verify}>{busy === "verify" ? "Checking…" : "Verify"}</button>
         </div>
         <p class="text-xs text-fg-muted">Decrypts and checks every record, reference and backup. Read-only: nothing is changed.</p>
         {#if integrity}
@@ -309,10 +310,10 @@
       <section class="rounded-xl border border-line bg-panel p-5">
         <h2 class="mb-1 flex items-center gap-2 text-sm font-semibold"><FolderInput size={15} class="text-accent" /> Move vault</h2>
         <p class="mb-3 text-xs text-fg-muted">Copies the vault to an empty folder, verifies the copy, then switches to it. The old folder is left in place.</p>
-        <button class="btn-ghost border border-line" disabled={!!busy} onclick={move}>{busy === "move" ? "Moving…" : "Move to…"}</button>
+        <button class="btn-secondary" disabled={!!busy} onclick={move}>{busy === "move" ? "Moving…" : "Move to…"}</button>
       </section>
     {:else}
-      <p class="text-sm text-fg-muted">Loading…</p>
+      <div class="flex justify-center py-6"><Spinner label="Loading…" /></div>
     {/if}
   </div>
 </div>

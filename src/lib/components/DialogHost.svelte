@@ -63,11 +63,11 @@
       {/if}
       {#if p.checkbox}
         <label class="mt-3 flex items-center gap-2 text-xs text-fg-muted">
-          <input type="checkbox" class="accent-[#7b61ff]" bind:checked /> {p.checkbox}
+          <input type="checkbox" class="accent-input" bind:checked /> {p.checkbox}
         </label>
       {/if}
       <div class="mt-5 flex justify-end gap-2">
-        <button bind:this={cancelBtn} type="button" class="btn-ghost border border-line" onclick={cancel}>Cancel</button>
+        <button bind:this={cancelBtn} type="button" class="btn-secondary" onclick={cancel}>Cancel</button>
         <button
           bind:this={okBtn}
           type="submit"

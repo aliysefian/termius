@@ -55,7 +55,7 @@
         <p class="mt-2 text-xs font-medium text-danger">{q.production} of them {q.production === 1 ? "is a production host" : "are production hosts"}.</p>
       {/if}
       <label class="mt-3 flex items-center gap-2 text-xs text-fg-muted">
-        <input type="checkbox" class="accent-[#7b61ff]" bind:checked={trust} />
+        <input type="checkbox" class="accent-input" bind:checked={trust} />
         Don't ask again for 10 minutes (production hosts always ask)
       </label>
       <div class="mt-5 flex justify-end gap-2">

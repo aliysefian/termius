@@ -494,24 +494,27 @@ export type HealthResult = { host_id: Uuid } & Health;
 
 export const ENVIRONMENTS = [
   { value: "", label: "None" },
-  { value: "production", label: "Production", short: "PROD", cls: "bg-danger/15 text-danger" },
-  { value: "staging", label: "Staging", short: "STG", cls: "bg-warning/15 text-warning" },
-  { value: "development", label: "Development", short: "DEV", cls: "bg-success/15 text-success" },
+  { value: "production", label: "Production", short: "PROD", tone: "danger" },
+  { value: "staging", label: "Staging", short: "STG", tone: "warning" },
+  { value: "development", label: "Development", short: "DEV", tone: "success" },
 ] as const;
+
+/** Matches the Badge component's `tone` prop. */
+export type BadgeTone = "neutral" | "accent" | "danger" | "warning" | "success";
 
 export interface EnvInfo {
   value: string;
   label: string;
   short?: string;
-  cls?: string;
+  tone?: BadgeTone;
 }
 
-/** Known environments get their colour; custom ones a neutral badge. */
+/** Known environments get their colour; custom ones an accent badge. */
 export function envInfo(value: string | undefined): EnvInfo {
   const v = value ?? "";
   const known = ENVIRONMENTS.find((e) => e.value === v);
   if (known) return known;
-  return { value: v, label: v, short: v.slice(0, 5).toUpperCase(), cls: "bg-accent/15 text-accent" };
+  return { value: v, label: v, short: v.slice(0, 5).toUpperCase(), tone: "accent" };
 }
 
 export interface ExecOutput {

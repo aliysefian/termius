@@ -105,7 +105,7 @@
               {d.username} · {authLabel[d.auth.type]}{ownerLabel ? "" : ` · ${usage(ident.id)} hosts`}
             </div>
           </div>
-          <div class="flex {shown[ident.id] ? '' : 'opacity-0'} group-hover:opacity-100">
+          <div class="flex {shown[ident.id] ? '' : 'reveal'}">
             {#if d.auth.type === "password" || d.auth.type === "private_key" || d.auth.type === "key_file"}
               <button
                 class="icon-btn h-6 w-6 {shown[ident.id] ? 'text-accent' : ''}"
@@ -140,7 +140,7 @@
             {#if s.private_key !== null}
               <div class="flex items-start gap-2">
                 <span class="w-16 shrink-0 text-fg-muted">Private key</span>
-                <pre class="max-h-28 min-w-0 flex-1 overflow-auto font-mono text-[10px] leading-tight select-all">{s.private_key}</pre>
+                <pre class="max-h-28 min-w-0 flex-1 overflow-auto font-mono text-[11px] leading-tight select-all">{s.private_key}</pre>
                 <button class="icon-btn h-6 w-6" title="Copy private key" onclick={() => copySecret(s.private_key!, "Private key")}><Copy size={12} /></button>
               </div>
             {/if}
@@ -151,7 +151,7 @@
                 <button class="icon-btn h-6 w-6" title="Copy passphrase" onclick={() => copySecret(s.passphrase!, "Passphrase")}><Copy size={12} /></button>
               </div>
             {/if}
-            <p class="text-[10px] text-fg-muted">Hides automatically in {REVEAL_SECS} seconds.</p>
+            <p class="text-[11px] text-fg-muted">Hides automatically in {REVEAL_SECS} seconds.</p>
           </div>
         {/if}
       {/snippet}

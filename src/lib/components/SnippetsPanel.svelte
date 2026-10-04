@@ -70,7 +70,7 @@
         <div class="group rounded-md px-2 py-1.5 hover:bg-panel-hover">
           <div class="flex items-center gap-2">
             <div class="min-w-0 flex-1 truncate text-sm">{d.label}</div>
-            <div class="flex opacity-0 group-hover:opacity-100">
+            <div class="reveal flex">
               <button class="icon-btn h-6 w-6" title="Run on several hosts…" onclick={() => (ui.modal = { kind: "run-on-hosts", command: d.command })}><ServerCog size={12} /></button>
               <button class="icon-btn h-6 w-6" title="Paste into active terminal" onclick={() => runSnippet(d.command, { execute: false, scope: "pane" })}><ClipboardPaste size={12} /></button>
               <button class="icon-btn h-6 w-6 text-accent" title="Run in active terminal" onclick={() => runSnippet(d.command, { execute: true, scope: "pane" })}><Play size={12} /></button>
@@ -80,7 +80,7 @@
           </div>
           <pre class="mt-1 truncate rounded bg-base px-2 py-1 font-mono text-xs text-fg-muted">{d.command}</pre>
           {#if d.tags?.length}
-            <div class="mt-1 flex flex-wrap gap-1">{#each d.tags as t (t)}<span class="rounded bg-accent/10 px-1 text-[10px] text-accent">{t}</span>{/each}</div>
+            <div class="mt-1 flex flex-wrap gap-1">{#each d.tags as t (t)}<span class="rounded bg-accent/10 px-1 text-[11px] text-accent">{t}</span>{/each}</div>
           {/if}
         </div>
       {/each}

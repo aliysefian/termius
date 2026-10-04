@@ -29,11 +29,11 @@
         same synced folder as the vault. Anyone with this key and a copy of the vault can open it.
       </p>
       <div class="flex gap-2">
-        <button class="btn-ghost border border-line" onclick={() => copySecret(key, "Recovery key")}><Copy size={14} /> Copy</button>
-        <button class="btn-ghost border border-line" onclick={() => window.print()}><Printer size={14} /> Print</button>
+        <button class="btn-secondary" onclick={() => copySecret(key, "Recovery key")}><Copy size={14} /> Copy</button>
+        <button class="btn-secondary" onclick={() => window.print()}><Printer size={14} /> Print</button>
       </div>
       <label class="flex items-center gap-2">
-        <input type="checkbox" class="accent-[#7b61ff]" bind:checked={saved} />
+        <input type="checkbox" class="accent-input" bind:checked={saved} />
         I've stored the recovery key safely
       </label>
     </div>

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Copy, Download, ExternalLink, Loader2, Lock, Palette, RefreshCw, RotateCcw, ShieldAlert, SquareTerminal, TerminalSquare } from "lucide-svelte";
+  import { Copy, Download, ExternalLink, Loader2, Lock, Palette, RefreshCw, RotateCcw, ShieldAlert, SquareTerminal, TerminalSquare, X } from "lucide-svelte";
   import { onMount } from "svelte";
   import type { CliStatus } from "$lib/types";
   import { RELEASES_URL, formatSize, installHint, installUpdate, updates } from "$lib/stores/updates.svelte";
@@ -126,7 +126,7 @@
 </script>
 
 <div class="flex-1 overflow-y-auto bg-base p-8">
-  <div class="mx-auto max-w-2xl space-y-8">
+  <div class="mx-auto max-w-3xl space-y-8">
     <h1 class="text-lg font-semibold">Settings</h1>
 
     <section class="rounded-xl border border-line bg-panel p-5">
@@ -146,9 +146,14 @@
       <span class="label">Terminal colour theme</span>
       <div class="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
         {#each allThemes(settings.prefs.customThemes) as t (t.id)}
-          <button
+          <!-- A div, not a button: it holds a real nested button (Remove),
+               and a button can't contain another interactive control. -->
+          <div
+            role="button"
+            tabindex="0"
             class="overflow-hidden rounded-md border text-left text-xs {settings.prefs.themeId === t.id ? 'border-accent ring-1 ring-accent' : 'border-line hover:border-fg-muted'}"
             onclick={() => (settings.prefs.themeId = t.id)}
+            onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); settings.prefs.themeId = t.id; } }}
           >
             <div class="flex h-10 flex-col justify-center gap-1 px-2 font-mono text-[10px]" style:background={t.theme.background} style:color={t.theme.foreground}>
               <span><span style:color={t.theme.green}>user@host</span>:<span style:color={t.theme.blue}>~</span>$ ls</span>
@@ -161,16 +166,18 @@
             <div class="flex items-center justify-between bg-base px-2 py-1">
               <span class="truncate">{t.name}</span>
               {#if t.id.startsWith("custom-")}
-                <span role="button" tabindex="0" class="text-fg-muted hover:text-danger" title="Remove" onclick={(e) => { e.stopPropagation(); removeTheme(t.id); }} onkeydown={(e) => e.key === "Enter" && removeTheme(t.id)}>✕</span>
+                <button type="button" class="icon-btn h-5 w-5 text-fg-muted hover:text-danger" aria-label="Remove {t.name}" title="Remove" onclick={(e) => { e.stopPropagation(); removeTheme(t.id); }}>
+                  <X size={11} />
+                </button>
               {/if}
             </div>
-          </button>
+          </div>
         {/each}
       </div>
       <div class="-mt-2 mb-4 flex flex-wrap items-center gap-3 text-xs">
-        <button class="btn-ghost border border-line py-1 text-xs" onclick={importThemeFile}>Import colour scheme…</button>
+        <button class="btn-secondary py-1 text-xs" onclick={importThemeFile}>Import colour scheme…</button>
         <label class="flex items-center gap-2 text-fg-muted">
-          <input type="checkbox" class="accent-[#7b61ff]" bind:checked={settings.prefs.prodTint} /> Tint production terminals red
+          <input type="checkbox" class="accent-input" bind:checked={settings.prefs.prodTint} /> Tint production terminals red
         </label>
       </div>
 
@@ -181,11 +188,11 @@
         </div>
         <div>
           <label class="label" for="s-size">Font size: {settings.prefs.fontSize}px</label>
-          <input id="s-size" type="range" min="8" max="28" class="w-full accent-[#7b61ff]" bind:value={settings.prefs.fontSize} />
+          <input id="s-size" type="range" min="8" max="28" class="w-full accent-input" bind:value={settings.prefs.fontSize} />
         </div>
         <div>
           <label class="label" for="s-lh">Line height: {settings.prefs.lineHeight.toFixed(1)}</label>
-          <input id="s-lh" type="range" min="1" max="2" step="0.1" class="w-full accent-[#7b61ff]" bind:value={settings.prefs.lineHeight} />
+          <input id="s-lh" type="range" min="1" max="2" step="0.1" class="w-full accent-input" bind:value={settings.prefs.lineHeight} />
         </div>
         <div>
           <label class="label" for="s-cursor">Cursor</label>
@@ -200,16 +207,16 @@
           <input id="s-sb" class="input" type="number" min="100" max="100000" step="500" bind:value={settings.prefs.scrollback} />
         </div>
         <label class="flex items-center gap-2 text-sm">
-          <input type="checkbox" class="accent-[#7b61ff]" bind:checked={settings.prefs.cursorBlink} /> Blinking cursor
+          <input type="checkbox" class="accent-input" bind:checked={settings.prefs.cursorBlink} /> Blinking cursor
         </label>
         <label class="flex items-center gap-2 text-sm">
-          <input type="checkbox" class="accent-[#7b61ff]" bind:checked={settings.prefs.copyOnSelect} /> Copy on select
+          <input type="checkbox" class="accent-input" bind:checked={settings.prefs.copyOnSelect} /> Copy on select
         </label>
         <label class="col-span-2 flex items-center gap-2 text-sm" title="OSC 52. tmux (with set-clipboard on), Claude Code and Neovim copy this way.">
-          <input type="checkbox" class="accent-[#7b61ff]" bind:checked={settings.prefs.remoteClipboard} /> Let programs in the terminal copy to the clipboard
+          <input type="checkbox" class="accent-input" bind:checked={settings.prefs.remoteClipboard} /> Let programs in the terminal copy to the clipboard
         </label>
         <label class="col-span-2 flex items-center gap-2 text-sm">
-          <input type="checkbox" class="accent-[#7b61ff]" bind:checked={settings.prefs.logRaw} /> Session logs keep colours and
+          <input type="checkbox" class="accent-input" bind:checked={settings.prefs.logRaw} /> Session logs keep colours and
           control codes (raw) instead of plain text
         </label>
       </div>
@@ -238,11 +245,11 @@
         and are only installed if they match the checksum GitHub publishes{updates.info?.enabled ? " or the signing key built into this app" : ""}.
       </p>
       <label class="flex items-center gap-2 text-sm">
-        <input type="checkbox" class="accent-[#7b61ff]" bind:checked={settings.prefs.autoUpdateCheck} />
+        <input type="checkbox" class="accent-input" bind:checked={settings.prefs.autoUpdateCheck} />
         Check for updates when SSHVault starts
       </label>
       <div class="mt-3 flex flex-wrap items-center gap-3">
-        <button class="btn-ghost border border-line py-1 text-xs" disabled={updates.checking || updates.installing} onclick={() => updates.check()}>
+        <button class="btn-secondary py-1 text-xs" disabled={updates.checking || updates.installing} onclick={() => updates.check()}>
           {#if updates.checking}<Loader2 size={12} class="animate-spin" /> Checking…{:else}<RefreshCw size={12} /> Check for updates{/if}
         </button>
         {#if updates.available && !updates.installing}
@@ -283,7 +290,7 @@
           </select>
         </div>
         <label class="mt-5 flex items-center gap-2 text-sm">
-          <input type="checkbox" class="accent-[#7b61ff]" bind:checked={settings.prefs.focusMode} />
+          <input type="checkbox" class="accent-input" bind:checked={settings.prefs.focusMode} />
           Focus mode <span class="text-xs text-fg-muted">(Ctrl+Shift+U)</span>
         </label>
       </div>
@@ -313,21 +320,21 @@
     <section class="rounded-xl border border-line bg-panel p-5">
       <h2 class="mb-1 text-sm font-semibold">Connections</h2>
       <label class="flex items-start gap-2 text-sm">
-        <input type="checkbox" class="mt-0.5 accent-[#7b61ff]" bind:checked={settings.prefs.autoReconnect} />
+        <input type="checkbox" class="mt-0.5 accent-input" bind:checked={settings.prefs.autoReconnect} />
         <span>
           Reconnect automatically when a connection drops
           <span class="block text-xs text-fg-muted">Up to three attempts, a few seconds apart. Typing <code>exit</code> or closing the tab never reconnects.</span>
         </span>
       </label>
       <label class="mt-3 flex items-start gap-2 text-sm">
-        <input type="checkbox" class="mt-0.5 accent-[#7b61ff]" bind:checked={settings.prefs.notifyBackground} />
+        <input type="checkbox" class="mt-0.5 accent-input" bind:checked={settings.prefs.notifyBackground} />
         <span>
           Notify me when a long command finishes in a background tab
           <span class="block text-xs text-fg-muted">Needs shell integration (below) to know when commands end; the terminal bell always notifies.</span>
         </span>
       </label>
       <label class="mt-3 flex items-start gap-2 text-sm">
-        <input type="checkbox" class="mt-0.5 accent-[#7b61ff]" bind:checked={settings.prefs.rememberCommands} />
+        <input type="checkbox" class="mt-0.5 accent-input" bind:checked={settings.prefs.rememberCommands} />
         <span>
           Remember the commands I run on each host
           <span class="block text-xs text-fg-muted">
@@ -359,7 +366,7 @@ sshvault run web-01 db-01 --json -- df -h /</pre>
           <p class="mt-2 text-xs text-fg-muted">If <code>sshvault</code> isn't on your PATH, add this to your shell profile:</p>
           <div class="mt-1 flex items-center gap-2">
             <code class="min-w-0 flex-1 truncate rounded-md border border-line bg-base px-2 py-1.5 font-mono text-xs" title={aliasLine}>{aliasLine}</code>
-            <button class="btn-ghost border border-line py-1 text-xs" onclick={() => { void writeText(aliasLine); ui.notify("info", "Copied."); }}><Copy size={12} /> Copy</button>
+            <button class="btn-secondary py-1 text-xs" onclick={() => { void writeText(aliasLine); ui.notify("info", "Copied."); }}><Copy size={12} /> Copy</button>
           </div>
         {/if}
       {/if}
@@ -429,8 +436,8 @@ sshvault run web-01 db-01 --json -- df -h /</pre>
         names, addresses, users, ports and jump hosts.
       </p>
       <div class="flex gap-2">
-        <button class="btn-ghost border border-line" onclick={exportToFile}>Save to file…</button>
-        <button class="btn-ghost border border-line" onclick={exportToClipboard}>Copy to clipboard</button>
+        <button class="btn-secondary" onclick={exportToFile}>Save to file…</button>
+        <button class="btn-secondary" onclick={exportToClipboard}>Copy to clipboard</button>
       </div>
     </section>
 

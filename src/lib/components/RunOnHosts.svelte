@@ -216,9 +216,9 @@
         {#each hosts as h (h.id)}
           {@const ok = unattended(h.id)}
           <label class="flex items-center gap-2 px-2 py-1 text-sm {ok ? 'hover:bg-panel-hover' : 'opacity-50'}" title={ok ? "" : "Needs saved credentials to run unattended"}>
-            <input type="checkbox" class="accent-[#7b61ff]" checked={picked.has(h.id)} disabled={!ok || running} onchange={() => toggle(h.id)} />
+            <input type="checkbox" class="accent-input" checked={picked.has(h.id)} disabled={!ok || running} onchange={() => toggle(h.id)} />
             <span class="min-w-0 flex-1 truncate">{h.data?.label}</span>
-            {#if h.data?.group}<span class="truncate text-[10px] text-fg-muted">{h.data.group}</span>{/if}
+            {#if h.data?.group}<span class="truncate text-[11px] text-fg-muted">{h.data.group}</span>{/if}
           </label>
         {:else}
           <p class="px-2 py-4 text-center text-xs text-fg-muted">No hosts.</p>

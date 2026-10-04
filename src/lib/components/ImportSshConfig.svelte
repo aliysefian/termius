@@ -224,11 +224,11 @@
     <div class="space-y-4">
       <div class="flex items-center gap-2">
         <div class="input flex-1 truncate font-mono text-xs">{preview?.path ?? "~/.ssh/config"}</div>
-        <button class="btn-ghost border border-line" onclick={chooseFile}><FileInput size={14} /> SSH config…</button>
-        <button class="btn-ghost border border-line" onclick={chooseInventory}><FileInput size={14} /> Ansible…</button>
-        <button class="btn-ghost border border-line" onclick={choosePutty}><FileInput size={14} /> PuTTY</button>
-        <button class="btn-ghost border border-line" onclick={chooseMobaxterm}><FileInput size={14} /> MobaXterm…</button>
-        <button class="btn-ghost border border-line" onclick={chooseCsv} title="Termius export or any spreadsheet"><FileInput size={14} /> CSV…</button>
+        <button class="btn-secondary" onclick={chooseFile}><FileInput size={14} /> SSH config…</button>
+        <button class="btn-secondary" onclick={chooseInventory}><FileInput size={14} /> Ansible…</button>
+        <button class="btn-secondary" onclick={choosePutty}><FileInput size={14} /> PuTTY</button>
+        <button class="btn-secondary" onclick={chooseMobaxterm}><FileInput size={14} /> MobaXterm…</button>
+        <button class="btn-secondary" onclick={chooseCsv} title="Termius export or any spreadsheet"><FileInput size={14} /> CSV…</button>
       </div>
 
       {#if error}
@@ -260,7 +260,7 @@
                   <th class="w-8 px-2 py-1.5">
                     <input
                       type="checkbox"
-                      class="accent-[#7b61ff]"
+                      class="accent-input"
                       aria-label="Select all"
                       checked={picked.size === preview.hosts.length - preview.existing.length}
                       onchange={(e) => {
@@ -283,7 +283,7 @@
                   {@const exists = preview.existing.includes(h.alias)}
                   <tr class="border-b border-line/50 {exists ? 'opacity-50' : ''}">
                     <td class="px-2 py-1.5">
-                      <input type="checkbox" class="accent-[#7b61ff]" disabled={exists} checked={picked.has(h.alias)} onchange={() => toggle(h.alias)} aria-label="Import {h.alias}" />
+                      <input type="checkbox" class="accent-input" disabled={exists} checked={picked.has(h.alias)} onchange={() => toggle(h.alias)} aria-label="Import {h.alias}" />
                     </td>
                     <td class="px-2 py-1.5 font-medium">{h.alias}{exists ? " (exists)" : ""}</td>
                     <td class="px-2 py-1.5 font-mono">{h.hostname}{h.port !== 22 ? `:${h.port}` : ""}</td>
@@ -322,11 +322,11 @@
             <fieldset class="space-y-1.5 rounded-md border border-line p-3 text-xs">
               <legend class="px-1 font-medium">Key files (IdentityFile)</legend>
               <label class="flex items-start gap-2">
-                <input type="radio" class="mt-0.5 accent-[#7b61ff]" bind:group={keyImport} value="reference" />
+                <input type="radio" class="mt-0.5 accent-input" bind:group={keyImport} value="reference" />
                 <span><strong>Reference by path</strong> (default). The key stays in <code>~/.ssh</code> on this computer; other computers need the same file.</span>
               </label>
               <label class="flex items-start gap-2">
-                <input type="radio" class="mt-0.5 accent-[#7b61ff]" bind:group={keyImport} value="copy" />
+                <input type="radio" class="mt-0.5 accent-input" bind:group={keyImport} value="copy" />
                 <span><strong>Copy into the vault.</strong> Keys are stored encrypted in the Key Manager and sync to all your devices. Encrypted keys stay passphrase-protected.</span>
               </label>
             </fieldset>

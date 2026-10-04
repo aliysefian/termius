@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import { FileInput, History, RefreshCw, ShieldCheck, Trash2 } from "lucide-svelte";
   import { open } from "@tauri-apps/plugin-dialog";
+  import Spinner from "./Spinner.svelte";
   import * as api from "$lib/api";
   import { ask } from "$lib/dialogs.svelte";
   import { ui } from "$lib/stores/ui.svelte";
@@ -75,8 +76,8 @@
       <h1 class="flex items-center gap-2 text-lg font-semibold"><ShieldCheck size={18} class="text-accent" /> Known hosts</h1>
       <div class="flex gap-2">
         <button class="icon-btn" title="Reload" onclick={load}><RefreshCw size={14} class={loading ? "animate-spin" : ""} /></button>
-        <button class="btn-ghost border border-line" onclick={() => importFile(true)}>From file…</button>
-        <button class="btn-ghost border border-line" onclick={() => importFile(false)}><FileInput size={14} /> Import ~/.ssh/known_hosts</button>
+        <button class="btn-secondary" onclick={() => importFile(true)}>From file…</button>
+        <button class="btn-secondary" onclick={() => importFile(false)}><FileInput size={14} /> Import ~/.ssh/known_hosts</button>
       </div>
     </div>
     <p class="text-xs text-fg-muted">
@@ -101,7 +102,7 @@
             {#if e.history.length}
               <button class="icon-btn h-7 w-7" title="Replaced keys" onclick={() => (openHistory = openHistory === e.id ? null : e.id)}><History size={13} /></button>
             {/if}
-            <button class="icon-btn h-7 w-7 opacity-0 hover:text-danger group-hover:opacity-100" title="Stop trusting" onclick={() => forget(e)}>
+            <button class="icon-btn reveal h-7 w-7 hover:text-danger" title="Stop trusting" onclick={() => forget(e)}>
               <Trash2 size={13} />
             </button>
           </div>
@@ -114,7 +115,11 @@
           {/if}
         </div>
       {:else}
-        <p class="px-4 py-8 text-center text-sm text-fg-muted">{loading ? "Loading…" : "No trusted host keys yet. You'll be asked the first time you connect to a server."}</p>
+        {#if loading}
+          <div class="flex justify-center py-8"><Spinner label="Loading…" /></div>
+        {:else}
+          <p class="px-4 py-8 text-center text-sm text-fg-muted">No trusted host keys yet. You'll be asked the first time you connect to a server.</p>
+        {/if}
       {/each}
     </div>
   </div>

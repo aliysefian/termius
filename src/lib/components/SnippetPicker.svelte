@@ -42,7 +42,7 @@
         </div>
         {#if canBroadcast}
           <label class="mt-2 flex items-center gap-2 px-1 text-xs text-fg-muted">
-            <input type="checkbox" bind:checked={broadcast} class="accent-[#7b61ff]" />
+            <input type="checkbox" bind:checked={broadcast} class="accent-input" />
             <Megaphone size={12} /> Send to every pane in this tab
           </label>
         {/if}

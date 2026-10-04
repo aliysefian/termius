@@ -1,6 +1,8 @@
 <script lang="ts">
   import { keepInView } from "$lib/actions";
   import { Circle, Columns2, Command, FolderSync, Keyboard, Maximize2, Minimize2, Plus, Rows2, SquareTerminal, Terminal, TextSelect, X, Zap } from "lucide-svelte";
+  import Badge from "./Badge.svelte";
+  import Kbd from "./Kbd.svelte";
   import { save } from "@tauri-apps/plugin-dialog";
   import * as api from "$lib/api";
   import { MAX_PANES, layoutRects, type Divider } from "$lib/layout";
@@ -219,16 +221,16 @@
             <span class="truncate">{t.customTitle ?? t.title}</span>
           {/if}
           {#if hasProd(t)}
-            <span class="shrink-0 rounded bg-danger/15 px-1 text-[9px] font-bold text-danger">PROD</span>
+            <Badge tone="danger">PROD</Badge>
           {/if}
           {#if t.syncInput}
-            <span class="shrink-0 rounded bg-warning/15 px-1 text-[9px] font-bold text-warning" title="Typing goes to every pane">SYNC</span>
+            <Badge tone="warning" title="Typing goes to every pane">SYNC</Badge>
           {/if}
           {#if t.panes.some((p) => ui.paneInfo[p.id]?.recording)}
             <Circle size={8} class="shrink-0 fill-danger text-danger" />
           {/if}
           <button
-            class="rounded p-0.5 opacity-0 hover:bg-panel-hover group-hover:opacity-100 {t.id === ui.activeTabId ? 'opacity-60' : ''}"
+            class="reveal rounded p-0.5 hover:bg-panel-hover {t.id === ui.activeTabId ? 'opacity-60' : ''}"
             onclick={(e) => { e.stopPropagation(); void ui.requestCloseTab(t.id); }}
             aria-label="Close tab"
             title="Close (Ctrl+Shift+W)"
@@ -312,11 +314,11 @@
               title={multi ? "Double-click to maximize or restore (Ctrl+Shift+Enter)" : undefined}
             >
               {#if env.value}
-                <span class="shrink-0 rounded px-1 text-[9px] font-bold {'cls' in env ? env.cls : ''}">{"short" in env ? env.short : ""}</span>
+                <Badge tone={"tone" in env ? env.tone : undefined}>{"short" in env ? env.short : ""}</Badge>
               {/if}
               <span class="truncate">{paneLabel(pane)}</span>
               {#if pane.target.kind === "telnet" || (pane.target.kind === "host" && vaultStore.hostById.get(pane.target.hostId)?.data?.protocol === "telnet")}
-                <span class="shrink-0 rounded bg-warning/15 px-1 text-[9px] font-bold text-warning" title="Telnet sends everything, including passwords, unencrypted">UNENCRYPTED</span>
+                <Badge tone="warning" title="Telnet sends everything, including passwords, unencrypted">UNENCRYPTED</Badge>
               {/if}
               {#if info?.remoteTitle}
                 <span class="truncate text-fg-muted/70">— {info.remoteTitle}</span>
@@ -406,7 +408,7 @@
       </p>
       <div class="mt-5 flex gap-2">
         <button class="btn-primary" onclick={() => (ui.modal = { kind: "quick-connect" })}><Zap size={14} /> Quick connect</button>
-        <button class="btn-ghost border border-line" onclick={() => (ui.paletteOpen = true)}><Command size={14} /> Command palette</button>
+        <button class="btn-secondary" onclick={() => (ui.paletteOpen = true)}><Command size={14} /> Command palette</button>
       </div>
       <div class="mt-6 grid grid-cols-2 gap-x-6 gap-y-1.5 text-left text-xs text-fg-muted">
         {#each [
@@ -419,7 +421,7 @@
           ["Ctrl+Shift+C / V", "Copy / paste"],
           ["Ctrl+= / Ctrl+-", "Zoom in / out"],
         ] as [keys, what] (keys)}
-          <kbd class="rounded border border-line bg-panel px-1.5 py-0.5 font-mono text-[11px] text-fg">{keys}</kbd>
+          <Kbd {keys} />
           <span class="self-center">{what}</span>
         {/each}
       </div>

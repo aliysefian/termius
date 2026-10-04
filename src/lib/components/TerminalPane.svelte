@@ -418,12 +418,21 @@
 
   // -- find ---------------------------------------------------------------
 
-  const searchDecorations = {
-    matchBackground: "#7b61ff55",
-    activeMatchBackground: "#7b61ff",
-    matchOverviewRuler: "#7b61ff",
-    activeMatchColorOverviewRuler: "#ffffff",
-  };
+  /**
+   * Read live rather than hard-coded, so a match highlight follows the
+   * active app theme's accent colour (and light vs. dark) instead of
+   * always being the dark theme's purple.
+   */
+  function searchDecorations() {
+    const accent = getComputedStyle(document.documentElement).getPropertyValue("--color-accent").trim() || "#7b61ff";
+    const fg = getComputedStyle(document.documentElement).getPropertyValue("--color-fg").trim() || "#ffffff";
+    return {
+      matchBackground: `${accent}55`,
+      activeMatchBackground: accent,
+      matchOverviewRuler: accent,
+      activeMatchColorOverviewRuler: fg,
+    };
+  }
 
   function openFind() {
     findOpen = true;
@@ -440,7 +449,7 @@
 
   function findNext(backwards = false) {
     if (!findQuery) return;
-    const opts = { decorations: searchDecorations, incremental: false };
+    const opts = { decorations: searchDecorations(), incremental: false };
     if (backwards) search.findPrevious(findQuery, opts);
     else search.findNext(findQuery, opts);
   }
@@ -680,7 +689,7 @@
         class="w-48 bg-transparent px-1 py-0.5 text-xs outline-none"
         placeholder="Find"
         bind:value={findQuery}
-        oninput={() => findQuery && search.findNext(findQuery, { decorations: searchDecorations, incremental: true })}
+        oninput={() => findQuery && search.findNext(findQuery, { decorations: searchDecorations(), incremental: true })}
         onkeydown={(e) => {
           if (e.key === "Enter") findNext(e.shiftKey);
           else if (e.key === "Escape") closeFind();
@@ -785,7 +794,7 @@
           <input id="c-pw-{paneId}" class="input" type="password" bind:value={password} required autocomplete="current-password" />
         </div>
         <label class="flex items-center gap-2 text-xs text-fg-muted">
-          <input type="checkbox" class="accent-[#7b61ff]" bind:checked={remember} />
+          <input type="checkbox" class="accent-input" bind:checked={remember} />
           Remember for this host (encrypted in your vault)
         </label>
         {#if credentialError}

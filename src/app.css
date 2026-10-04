@@ -64,6 +64,50 @@ body {
   .icon-btn {
     @apply inline-flex h-8 w-8 items-center justify-center rounded-md text-fg-muted transition-colors hover:bg-panel-hover hover:text-fg;
   }
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 rounded-md border border-line px-3 py-2 text-sm font-medium text-fg-muted transition-colors hover:bg-panel-hover hover:text-fg disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  /* Accent colour for checkboxes, radios and range sliders: tokened so it
+     follows the active theme instead of a hard-coded purple that ignored
+     the light theme. */
+  .accent-input {
+    accent-color: var(--color-accent);
+  }
+  /* A small label, like an environment or status pill. 11px is the floor for
+     comfortable reading; anything smaller lives only inside one of these. */
+  .badge {
+    @apply inline-flex shrink-0 items-center gap-1 rounded px-1 py-0.5 text-[11px] font-bold leading-none;
+  }
+  .badge-neutral {
+    @apply bg-fg-muted/15 text-fg-muted;
+  }
+  .badge-accent {
+    @apply bg-accent/15 text-accent;
+  }
+  .badge-danger {
+    @apply bg-danger/15 text-danger;
+  }
+  .badge-warning {
+    @apply bg-warning/15 text-warning;
+  }
+  .badge-success {
+    @apply bg-success/15 text-success;
+  }
+  /*
+   * Row actions shown on hover. Focus (Tab into the row) reveals them too,
+   * so they're keyboard-reachable, and touch devices (no hover) always
+   * show them, so they're not just invisible until an accidental tap.
+   * Use on the action wrapper inside an ancestor with the `group` class.
+   */
+  .reveal {
+    @apply opacity-0 group-hover:opacity-100 group-focus-within:opacity-100;
+  }
+}
+
+@media (hover: none) {
+  .reveal {
+    opacity: 1;
+  }
 }
 
 ::-webkit-scrollbar {

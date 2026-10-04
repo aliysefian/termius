@@ -1,5 +1,6 @@
 <script lang="ts">
   import Modal from "./Modal.svelte";
+  import Kbd from "./Kbd.svelte";
   import { ACTIONS, comboFor, comboOf } from "$lib/shortcuts";
   import { settings } from "$lib/stores/settings.svelte";
   import { ui } from "$lib/stores/ui.svelte";
@@ -54,9 +55,9 @@
             {recording === a.id ? "press keys…" : combo || "unbound"}
           </button>
           {#if settings.prefs.keybindings[a.id] !== undefined}
-            <button class="text-[10px] text-fg-muted hover:text-fg" onclick={() => delete settings.prefs.keybindings[a.id]}>reset</button>
+            <button class="text-[11px] text-fg-muted hover:text-fg" onclick={() => delete settings.prefs.keybindings[a.id]}>reset</button>
           {:else}
-            <button class="text-[10px] text-fg-muted hover:text-fg" onclick={() => (settings.prefs.keybindings[a.id] = "")}>unbind</button>
+            <button class="text-[11px] text-fg-muted hover:text-fg" onclick={() => (settings.prefs.keybindings[a.id] = "")}>unbind</button>
           {/if}
         </span>
       </div>
@@ -67,7 +68,7 @@
     {#each fixed as [k, what] (k)}
       <div class="flex items-center justify-between gap-2 text-xs">
         <span class="text-fg-muted">{what}</span>
-        <span class="rounded border border-line bg-base px-1.5 py-0.5 font-mono text-[11px]">{k}</span>
+        <Kbd keys={k} />
       </div>
     {/each}
   </div>

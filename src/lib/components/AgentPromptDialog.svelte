@@ -54,7 +54,7 @@
       {#if queue.length > 1}<p class="mt-2 text-xs text-fg-muted">{queue.length - 1} more waiting.</p>{/if}
       <div class="mt-5 flex justify-end gap-2">
         <!-- svelte-ignore a11y_autofocus -->
-        <button class="btn-ghost border border-line" autofocus onclick={() => answer(false)}>Deny</button>
+        <button class="btn-secondary" autofocus onclick={() => answer(false)}>Deny</button>
         <button class="btn-primary" onclick={() => answer(true)}>Allow once</button>
       </div>
     </div>

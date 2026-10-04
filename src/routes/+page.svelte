@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { Copy, X } from "lucide-svelte";
+  import Spinner from "$lib/components/Spinner.svelte";
   import { writeText } from "@tauri-apps/plugin-clipboard-manager";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import ActivityBar from "$lib/components/ActivityBar.svelte";
@@ -110,7 +111,7 @@
 </script>
 
 {#if !ready}
-  <div class="flex h-screen items-center justify-center text-sm text-fg-muted">Starting…</div>
+  <div class="flex h-screen items-center justify-center"><Spinner label="Starting…" /></div>
 {:else if !vaultStore.unlocked}
   <UnlockScreen />
 {:else}

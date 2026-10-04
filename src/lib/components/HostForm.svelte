@@ -415,7 +415,7 @@
                   <div class="input flex-1 truncate font-mono text-xs {keyFile ? '' : 'text-fg-muted/60'}" title={keyFile ?? ""}>
                     {keyFile ?? "No file chosen, for example ~/.ssh/id_ed25519"}
                   </div>
-                  <button type="button" class="btn-ghost border border-line" onclick={chooseKeyFile}><FileKey size={14} /> Choose…</button>
+                  <button type="button" class="btn-secondary" onclick={chooseKeyFile}><FileKey size={14} /> Choose…</button>
                 </div>
                 <p class="text-xs text-fg-muted">The key is copied into the encrypted vault, so it syncs to your other computers.</p>
               {:else if keySource === "paste"}
@@ -440,7 +440,7 @@
             {/if}
 
             <label class="flex items-center gap-2 text-xs text-fg-muted">
-              <input type="checkbox" class="accent-[#7b61ff]" bind:checked={saveToKeychain} />
+              <input type="checkbox" class="accent-input" bind:checked={saveToKeychain} />
               Also save to Credentials so other hosts can use them
             </label>
             {#if saveToKeychain}
@@ -493,7 +493,7 @@
           {/if}
         </div>
         <label class="col-span-2 flex items-start gap-2 text-sm">
-          <input type="checkbox" class="mt-0.5 accent-[#7b61ff]" bind:checked={form.forward_agent} />
+          <input type="checkbox" class="mt-0.5 accent-input" bind:checked={form.forward_agent} />
           <span>
             Forward ssh-agent
             <span class="block text-xs text-fg-muted">
@@ -528,7 +528,7 @@
           />
         </div>
         <label class="col-span-2 flex items-start gap-2 text-sm">
-          <input type="checkbox" class="mt-0.5 accent-[#7b61ff]" bind:checked={form.forward_x11} />
+          <input type="checkbox" class="mt-0.5 accent-input" bind:checked={form.forward_x11} />
           <span>
             Forward X11
             <span class="block text-xs text-fg-muted">
@@ -552,7 +552,7 @@
           <input id="h-keepalive" class="input font-mono" type="number" min="0" max="3600" bind:value={form.keepalive_secs} placeholder="30 (0 = off)" />
         </div>
         <label class="col-span-2 flex items-center gap-2 text-sm">
-          <input type="checkbox" class="accent-[#7b61ff]" bind:checked={form.favorite} />
+          <input type="checkbox" class="accent-input" bind:checked={form.favorite} />
           Favorite
         </label>
         <div>
@@ -574,7 +574,7 @@
           <input id="h-tags" class="input" bind:value={tags} placeholder="db, eu-west" />
         </div>
         <div class="col-span-2">
-          <span class="label">Color</span>
+          <span class="label">Colour</span>
           <div class="flex gap-2">
             {#each colors as c (c)}
               <button
@@ -582,7 +582,7 @@
                 class="h-6 w-6 rounded-full ring-offset-2 ring-offset-panel {form.color === c ? 'ring-2 ring-fg' : ''}"
                 style:background={c}
                 onclick={() => (form.color = c)}
-                aria-label="Color {c}"
+                aria-label="Colour {c}"
               ></button>
             {/each}
           </div>
@@ -604,7 +604,7 @@
   {/if}
   {#snippet footer()}
     {#if generatedKey}
-      <button class="btn-ghost border border-line" onclick={copyKey}>
+      <button class="btn-secondary" onclick={copyKey}>
         {#if copied}<Check size={14} /> Copied{:else}<Copy size={14} /> Copy public key{/if}
       </button>
       <button class="btn-primary" onclick={() => (ui.modal = null)}>Done</button>

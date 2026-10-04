@@ -73,7 +73,7 @@
 
 <aside class="flex min-w-0 flex-1 flex-col border-r border-line bg-panel">
   <div class="flex items-center justify-between px-4 pt-4 pb-2">
-    <h2 class="text-sm font-semibold">Port Forwarding</h2>
+    <h2 class="text-sm font-semibold">Tunnels</h2>
     <button class="icon-btn" title="New rule" onclick={() => (ui.modal = { kind: "forward", id: null })}>
       <Plus size={16} />
     </button>
@@ -133,7 +133,7 @@
             <div class="flex items-center gap-2">
               <span class="h-2 w-2 shrink-0 rounded-full {dot(st)}" title={st?.state ?? "stopped"}></span>
               <div class="min-w-0 flex-1 truncate text-sm">{d.label}</div>
-              <div class="flex opacity-0 group-hover:opacity-100">
+              <div class="reveal flex">
                 <button class="icon-btn h-6 w-6" title="Edit" disabled={running} onclick={() => (ui.modal = { kind: "forward", id: f.id })}><Pencil size={12} /></button>
                 <button class="icon-btn h-6 w-6 hover:text-danger" title="Delete" onclick={() => remove(f.id, d.label)}><Trash2 size={12} /></button>
               </div>

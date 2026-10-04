@@ -63,12 +63,12 @@
       <div class="space-y-2 rounded-md border border-line bg-base p-3 font-mono text-xs">
         {#if changed && q.previous}
           <div>
-            <div class="text-[10px] uppercase tracking-wide text-fg-muted">Previously trusted</div>
+            <div class="text-[11px] uppercase tracking-wide text-fg-muted">Previously trusted</div>
             <div class="break-all">{q.previous.algorithm} {q.previous.fingerprint || "(unknown)"}</div>
           </div>
         {/if}
         <div>
-          <div class="text-[10px] uppercase tracking-wide text-fg-muted">{changed ? "Now presented" : "Fingerprint"}</div>
+          <div class="text-[11px] uppercase tracking-wide text-fg-muted">{changed ? "Now presented" : "Fingerprint"}</div>
           <div class="break-all {changed ? 'text-danger' : ''}">{q.algorithm} {q.fingerprint}</div>
         </div>
       </div>
@@ -99,7 +99,7 @@
               Replace key
             </button>
           {:else}
-            <button class="btn-ghost border border-line" onclick={() => answer(true)}>Trust and connect</button>
+            <button class="btn-secondary" onclick={() => answer(true)}>Trust and connect</button>
           {/if}
         </div>
       </div>

@@ -323,7 +323,7 @@ cancel button.
 
 ## Port forwarding
 
-Open the **Port Forwarding** view, add a rule, and press the play button.
+Open the **Tunnels** view, add a rule, and press the play button.
 
 | Type | OpenSSH equivalent | What it does |
 |---|---|---|

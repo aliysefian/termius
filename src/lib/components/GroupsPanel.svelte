@@ -1,5 +1,6 @@
 <script lang="ts">
   import { CircleCheck, CircleX, FolderTree, Loader2, Network, Pencil, Plus, ShieldAlert, Trash2 } from "lucide-svelte";
+  import Badge from "./Badge.svelte";
   import * as api from "$lib/api";
   import { ui } from "$lib/stores/ui.svelte";
   import { ask } from "$lib/dialogs.svelte";
@@ -197,14 +198,14 @@
 <div class="flex-1 overflow-y-auto bg-base p-8">
   <div class="mx-auto max-w-3xl space-y-8">
     <section class="space-y-3">
-      <h1 class="flex items-center gap-2 text-lg font-semibold"><FolderTree size={18} class="text-accent" /> Groups</h1>
+      <h1 class="flex items-center gap-2 text-lg font-semibold"><FolderTree size={18} class="text-accent" /> Groups and proxies</h1>
       <p class="text-xs text-fg-muted">
         Hosts in a group (or any sub-group) use its defaults when they don't set their own: credential, jump host, proxy and
         environment. The nearest group wins. Assign hosts to groups in the host form or by dragging them in the host list.
       </p>
       <form class="flex gap-2" onsubmit={(e) => (e.preventDefault(), newPath.trim() && (edit(newPath.trim().replace(/\s*\/\s*/g, "/")), (newPath = "")))}>
         <input class="input flex-1" bind:value={newPath} placeholder="New group, e.g. Production/Databases" />
-        <button class="btn-ghost border border-line" disabled={!newPath.trim()}><Plus size={14} /> Add</button>
+        <button class="btn-secondary" disabled={!newPath.trim()}><Plus size={14} /> Add</button>
       </form>
 
       <div class="divide-y divide-line rounded-xl border border-line bg-panel">
@@ -279,7 +280,7 @@
     <section class="space-y-3">
       <div class="flex items-center justify-between">
         <h2 class="flex items-center gap-2 text-lg font-semibold"><Network size={18} class="text-accent" /> Proxies</h2>
-        <button class="btn-ghost border border-line" onclick={() => editProxy("new")}><Plus size={14} /> Add proxy</button>
+        <button class="btn-secondary" onclick={() => editProxy("new")}><Plus size={14} /> Add proxy</button>
       </div>
       <p class="text-xs text-fg-muted">
         A SOCKS5 or HTTP proxy, or an OpenSSH <code>ProxyCommand</code>, used to reach a host (or the first hop of its jump
@@ -293,7 +294,7 @@
               <div class="flex items-center gap-1.5 text-sm">
                 {d.name}
                 {#if d.spec.kind === "command" && !d.spec.approved}
-                  <span class="rounded bg-warning/15 px-1 text-[9px] font-bold text-warning">NOT APPROVED</span>
+                  <Badge tone="warning">NOT APPROVED</Badge>
                 {/if}
               </div>
               <div class="truncate font-mono text-[11px] text-fg-muted">{describe(d)}</div>
@@ -326,7 +327,7 @@
                 <input id="p-cmd" class="input font-mono text-xs" bind:value={proxyCommand} required placeholder="ssh -W %h:%p bastion" spellcheck="false" />
               </div>
               <label class="col-span-2 flex items-start gap-2 rounded-md border border-warning/30 bg-warning/10 p-3 text-xs">
-                <input type="checkbox" class="mt-0.5 accent-[#7b61ff]" bind:checked={proxyApproved} />
+                <input type="checkbox" class="mt-0.5 accent-input" bind:checked={proxyApproved} />
                 <span>
                   <span class="flex items-center gap-1 font-semibold text-warning"><ShieldAlert size={12} /> Allow this command to run on my computers</span>
                   It runs as you on every device that uses this vault, whenever a host using this proxy connects. Only approve
@@ -355,7 +356,7 @@
               <label class="label" for="p-test">Test connection to <span class="font-normal text-fg-muted">(host:port through this proxy)</span></label>
               <div class="flex gap-2">
                 <input id="p-test" class="input flex-1 font-mono text-xs" bind:value={testTarget} placeholder="github.com:22" spellcheck="false" />
-                <button class="btn-ghost border border-line" type="button" onclick={testProxy} disabled={testing}>
+                <button class="btn-secondary" type="button" onclick={testProxy} disabled={testing}>
                   {#if testing}<Loader2 size={14} class="animate-spin" /> Testing…{:else}<Network size={14} /> Test{/if}
                 </button>
               </div>

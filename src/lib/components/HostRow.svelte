@@ -1,5 +1,6 @@
 <script lang="ts">
   import { Copy, Info, Pencil, Star, TerminalSquare, Trash2 } from "lucide-svelte";
+  import Badge from "./Badge.svelte";
   import { writeText } from "@tauri-apps/plugin-clipboard-manager";
   import { settings } from "$lib/stores/settings.svelte";
   import { sshCommand, timeAgo } from "$lib/sshcmd";
@@ -94,16 +95,16 @@
   }}
   title="Double-click to connect, Space for details, Ctrl+click to select. {usageText}"
 >
-  <span class="ml-4 h-2 w-2 shrink-0 rounded-full" style:background={d.color ?? "#7B61FF"}></span>
+  <span class="ml-4 h-2 w-2 shrink-0 rounded-full {d.color ? '' : 'bg-accent'}" style:background={d.color || undefined}></span>
   <div class="min-w-0 flex-1">
     <div class="flex items-center gap-1.5">
       <span class="truncate text-sm">{d.label}</span>
       {#if env.value}
-        <span class="shrink-0 rounded px-1 text-[9px] font-bold {env.cls ?? ''}">{env.short ?? ""}</span>
+        <Badge tone={env.tone}>{env.short ?? ""}</Badge>
       {/if}
       {#if health}
         <span
-          class="ml-auto shrink-0 font-mono text-[10px] {health.state === 'up' ? 'text-success' : health.state === 'down' ? 'text-danger' : 'text-fg-muted'}"
+          class="ml-auto shrink-0 font-mono text-[11px] {health.state === 'up' ? 'text-success' : health.state === 'down' ? 'text-danger' : 'text-fg-muted'}"
           title={health.state === "up"
             ? `Reachable in ${health.latency_ms} ms${health.banner ? `\n${health.banner}` : ""}`
             : health.state === "down"

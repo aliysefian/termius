@@ -1,5 +1,6 @@
 <script lang="ts">
   import { BadgeCheck, Bot, ChevronDown, ChevronRight, Copy, Download, FileKey, KeyRound, Lock, Pencil, Plus, Sparkles, Trash2, Upload, Users } from "lucide-svelte";
+  import Badge from "./Badge.svelte";
   import { onMount } from "svelte";
   import { open, save } from "@tauri-apps/plugin-dialog";
   import { writeText } from "@tauri-apps/plugin-clipboard-manager";
@@ -232,8 +233,8 @@
     <div class="flex items-center justify-between">
       <h1 class="flex items-center gap-2 text-lg font-semibold"><KeyRound size={18} class="text-accent" /> Keys</h1>
       <div class="flex gap-2">
-        <button class="btn-ghost border border-line" onclick={() => openDialog("public")}><Users size={14} /> Add public key</button>
-        <button class="btn-ghost border border-line" onclick={() => openDialog("import")}><Upload size={14} /> Import</button>
+        <button class="btn-secondary" onclick={() => openDialog("public")}><Users size={14} /> Add public key</button>
+        <button class="btn-secondary" onclick={() => openDialog("import")}><Upload size={14} /> Import</button>
         <button class="btn-primary" onclick={() => openDialog("generate")}><Sparkles size={14} /> Generate</button>
       </div>
     </div>
@@ -260,7 +261,7 @@
           <p class="text-fg-muted">Point your tools at it (add to your shell profile to make it permanent):</p>
           <div class="flex items-center gap-2">
             <code class="min-w-0 flex-1 truncate rounded-md border border-line bg-base px-2 py-1.5 font-mono" title={exportLine}>{exportLine}</code>
-            <button class="btn-ghost border border-line py-1 text-xs" onclick={() => { void writeText(exportLine); ui.notify("info", "Copied."); }}><Copy size={12} /> Copy</button>
+            <button class="btn-secondary py-1 text-xs" onclick={() => { void writeText(exportLine); ui.notify("info", "Copied."); }}><Copy size={12} /> Copy</button>
           </div>
           <p class="text-fg-muted">It stops when the vault locks, and only answers "list keys" and "sign"; nothing can add keys to it.</p>
         </div>
@@ -283,10 +284,10 @@
             <div class="min-w-0 flex-1">
               <div class="flex items-center gap-1.5 text-sm">
                 <span class="truncate">{d.name}</span>
-                {#if pub}<span class="rounded bg-fg-muted/15 px-1 text-[9px] font-bold text-fg-muted">PUBLIC ONLY</span>{/if}
-                {#if d.encrypted}<span class="rounded bg-success/15 px-1 text-[9px] font-bold text-success" title="The private key is passphrase-protected">PASSPHRASE</span>{/if}
-                {#if d.agent && d.agent !== "off"}<span class="rounded bg-accent/15 px-1 text-[9px] font-bold text-accent" title={d.agent === "ask" ? "Offered by the SSH agent; asks each time" : "Offered by the SSH agent"}>AGENT</span>{/if}
-                {#if d.certificate}<span class="rounded bg-accent/15 px-1 text-[9px] font-bold text-accent">CERT</span>{/if}
+                {#if pub}<Badge>PUBLIC ONLY</Badge>{/if}
+                {#if d.encrypted}<Badge tone="success" title="The private key is passphrase-protected">PASSPHRASE</Badge>{/if}
+                {#if d.agent && d.agent !== "off"}<Badge tone="accent" title={d.agent === "ask" ? "Offered by the SSH agent; asks each time" : "Offered by the SSH agent"}>AGENT</Badge>{/if}
+                {#if d.certificate}<Badge tone="accent">CERT</Badge>{/if}
               </div>
               <div class="truncate font-mono text-[11px] text-fg-muted">{d.algorithm} · {d.fingerprint}</div>
             </div>
@@ -340,7 +341,7 @@
                   <input class="input" type="password" bind:value={ppNew} placeholder="New passphrase (empty = none)" autocomplete="off" />
                   <input class="input" type="password" bind:value={ppNew2} placeholder="Confirm" autocomplete="off" />
                   <label class="col-span-2 flex items-center gap-2 text-xs text-fg-muted">
-                    <input type="checkbox" class="accent-[#7b61ff]" bind:checked={ppSave} /> Save the passphrase in the vault (no prompt when connecting)
+                    <input type="checkbox" class="accent-input" bind:checked={ppSave} /> Save the passphrase in the vault (no prompt when connecting)
                   </label>
                   <div class="col-span-2 flex gap-2">
                     <button class="btn-primary" disabled={busy}>Change passphrase</button>
@@ -354,13 +355,13 @@
               {/if}
 
               <div class="flex flex-wrap gap-1.5">
-                <button class="btn-ghost border border-line py-1 text-xs" onclick={() => ((renaming = k.id), (newName = d.name))}><Pencil size={12} /> Rename</button>
+                <button class="btn-secondary py-1 text-xs" onclick={() => ((renaming = k.id), (newName = d.name))}><Pencil size={12} /> Rename</button>
                 {#if !pub}
-                  <button class="btn-ghost border border-line py-1 text-xs" onclick={() => ((certFor = k.id), (certText = d.certificate ?? ""))}><BadgeCheck size={12} /> Certificate</button>
-                  <button class="btn-ghost border border-line py-1 text-xs" onclick={() => ((ppFor = k.id), (ppCurrent = ppNew = ppNew2 = ""), (ppSave = d.passphrase !== undefined || !d.encrypted))}><Lock size={12} /> Passphrase</button>
-                  <button class="btn-ghost border border-line py-1 text-xs" onclick={() => exportPrivate(k)}><Download size={12} /> Export private key…</button>
+                  <button class="btn-secondary py-1 text-xs" onclick={() => ((certFor = k.id), (certText = d.certificate ?? ""))}><BadgeCheck size={12} /> Certificate</button>
+                  <button class="btn-secondary py-1 text-xs" onclick={() => ((ppFor = k.id), (ppCurrent = ppNew = ppNew2 = ""), (ppSave = d.passphrase !== undefined || !d.encrypted))}><Lock size={12} /> Passphrase</button>
+                  <button class="btn-secondary py-1 text-xs" onclick={() => exportPrivate(k)}><Download size={12} /> Export private key…</button>
                 {/if}
-                <button class="btn-ghost border border-line py-1 text-xs hover:text-danger" onclick={() => remove(k)}><Trash2 size={12} /> Delete</button>
+                <button class="btn-secondary py-1 text-xs hover:text-danger" onclick={() => remove(k)}><Trash2 size={12} /> Delete</button>
               </div>
               {#if !pub}
                 <div class="flex items-center gap-2 text-xs">
@@ -419,7 +420,7 @@
       </div>
       {#if passphrase}
         <label class="flex items-center gap-2 text-xs text-fg-muted">
-          <input type="checkbox" class="accent-[#7b61ff]" bind:checked={savePassphrase} /> Save the passphrase in the vault
+          <input type="checkbox" class="accent-input" bind:checked={savePassphrase} /> Save the passphrase in the vault
         </label>
       {/if}
       {#if error}<p class="text-sm text-danger">{error}</p>{/if}
@@ -454,7 +455,7 @@
       </div>
       {#if passphrase}
         <label class="flex items-center gap-2 text-xs text-fg-muted">
-          <input type="checkbox" class="accent-[#7b61ff]" bind:checked={savePassphrase} /> Save the passphrase in the vault
+          <input type="checkbox" class="accent-input" bind:checked={savePassphrase} /> Save the passphrase in the vault
         </label>
       {/if}
       {#if error}<p class="text-sm text-danger">{error}</p>{/if}

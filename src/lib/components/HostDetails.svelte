@@ -1,5 +1,6 @@
 <script lang="ts">
   import { FolderSync, Pencil, Play, TerminalSquare } from "lucide-svelte";
+  import Badge from "./Badge.svelte";
   import { writeText } from "@tauri-apps/plugin-clipboard-manager";
   import Modal from "./Modal.svelte";
   import { renderMarkdown } from "$lib/markdown";
@@ -63,10 +64,10 @@
   <Modal title={d.label} onclose={() => (ui.modal = null)} width="max-w-2xl">
     <div class="space-y-4 text-sm">
       <div class="flex flex-wrap items-center gap-2">
-        <span class="h-2.5 w-2.5 rounded-full" style:background={d.color ?? "#7B61FF"}></span>
+        <span class="h-2.5 w-2.5 rounded-full {d.color ? '' : 'bg-accent'}" style:background={d.color || undefined}></span>
         <code class="font-mono">{d.hostname}{d.port !== 22 ? `:${d.port}` : ""}</code>
-        {#if env.value}<span class="rounded px-1 text-[10px] font-bold {env.cls ?? ''}">{env.label}</span>{/if}
-        {#each d.tags as t (t)}<span class="rounded bg-accent/10 px-1.5 text-[11px] text-accent">{t}</span>{/each}
+        {#if env.value}<Badge tone={env.tone}>{env.label}</Badge>{/if}
+        {#each d.tags as t (t)}<Badge tone="accent">{t}</Badge>{/each}
         {#if d.favorite}<span class="text-[11px] text-warning">★ favorite</span>{/if}
       </div>
 

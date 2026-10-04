@@ -112,7 +112,7 @@
     <p class="text-xs text-fg-muted">Port 0 picks a free port automatically.</p>
 
     <label class="flex items-start gap-2 text-sm">
-      <input type="checkbox" class="mt-0.5 accent-[#7b61ff]" bind:checked={autoStart} />
+      <input type="checkbox" class="mt-0.5 accent-input" bind:checked={autoStart} />
       <span>
         Start automatically when the vault is unlocked
         <span class="block text-xs text-fg-muted">Applies on every computer that syncs this vault.</span>

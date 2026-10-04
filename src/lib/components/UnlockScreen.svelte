@@ -170,7 +170,7 @@
 
 {#snippet rememberBox()}
   <label class="flex items-start gap-2 text-sm">
-    <input type="checkbox" class="mt-0.5 accent-[#7b61ff]" bind:checked={remember} />
+    <input type="checkbox" class="mt-0.5 accent-input" bind:checked={remember} />
     <span>
       Remember on this device
       <span class="block text-xs text-fg-muted">
@@ -239,7 +239,7 @@
               <div class="input flex-1 truncate font-mono text-xs {location ? '' : 'text-fg-muted/60'}" title={location ?? ""}>
                 {location ? join(location, name || "…") : "Choose a folder, e.g. ~/Dropbox"}
               </div>
-              <button class="btn-ghost border border-line" type="button" onclick={chooseLocation}><FolderSearch size={16} /> Browse</button>
+              <button class="btn-secondary" type="button" onclick={chooseLocation}><FolderSearch size={16} /> Browse</button>
             </div>
             <p class="mt-1 text-xs text-fg-muted">Only encrypted files are written there. The sync service never sees your data or password.</p>
           </div>
@@ -247,7 +247,7 @@
         {@render pw("c-pw", "Master password", password, (v) => (password = v), "new-password", true)}
         {@render pw("c-pw2", "Confirm master password", confirm, (v) => (confirm = v), "new-password")}
         <label class="flex items-start gap-2 text-sm">
-          <input type="checkbox" class="mt-0.5 accent-[#7b61ff]" bind:checked={withRecovery} />
+          <input type="checkbox" class="mt-0.5 accent-input" bind:checked={withRecovery} />
           <span>
             Create a recovery key
             <span class="block text-xs text-fg-muted">
@@ -269,7 +269,7 @@
           <span class="label">Vault folder</span>
           <div class="flex gap-2">
             <div class="input flex-1 truncate font-mono text-xs {path ? '' : 'text-fg-muted/60'}" title={path ?? ""}>{path ?? "Not chosen yet"}</div>
-            <button class="btn-ghost border border-line" type="button" onclick={chooseExisting}><FolderSearch size={16} /> Browse</button>
+            <button class="btn-secondary" type="button" onclick={chooseExisting}><FolderSearch size={16} /> Browse</button>
           </div>
         </div>
         {#if needsUpgrade}
