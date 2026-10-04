@@ -360,12 +360,34 @@ at the end.
   Needs a new backend command to authenticate and append to
   `~/.ssh/authorized_keys` over the session. **L**, backend.
 
-- [ ] **E7. Host monitoring widgets and Fleet view.** Sampling CPU/
-  memory/disk is reachable frontend-only (`run_on_hosts` already
-  executes a command and returns output), but a tile-per-host Fleet view
-  with live, colour-coded refresh is a genuinely large UI surface to
-  build and ship without seeing it render. Deferred, not attempted.
-  **L**.
+- [x] **E7. Host monitoring widgets and Fleet view.** Built, on
+  reflection that it's reachable without touching the backend: a small
+  portable script (`src/lib/hostmetrics.ts`) samples CPU, memory, disk,
+  load and uptime over the *existing* `run_on_hosts` command (no new
+  Rust), polled every 30 seconds for hosts the user opts in per host
+  (toggle on the host details card, or a host's tile in Fleet). A new
+  **Fleet** view (`Vault` command palette entry, or the activity icon
+  next to a group in the host tree) shows a tile per host with
+  reachability colour-coding and its own 30-second auto-refresh that
+  doesn't spam the existing "N of M reachable" toast every cycle.
+  **Verified unusually carefully for this sandbox**: the script was
+  actually *run*, not just read — with `sh` and `dash` for the Linux
+  (`/proc`) path, and by stubbing a fake `sysctl` matching the real
+  macOS/BSD output format for the other path. That caught two real bugs
+  before either shipped: a `sed` backreference that silently grabbed
+  `usec` instead of `sec` from `kern.boottime` (a greedy `.*` matching
+  the wrong occurrence), and a brace character that a JS template
+  literal was quietly unescaping, breaking under `sed -E`. Both are
+  fixed by using `awk`'s numeric-prefix conversion instead of `sed`
+  pattern matching, which needs no escaping. The parser itself
+  (`parseMetricsOutput`) is unit-tested against the real captured
+  output of running the script. **Narrower than specified**: CPU and
+  memory aren't sampled on BSD/macOS (no equally portable sysctl
+  reading for either, matched to what `/proc` gives on Linux); the
+  monitoring state and readings are per-computer only, not shown in the
+  pane header (the host details card and Fleet tiles cover the ask);
+  and "colour-coded" in Fleet is the existing up/down/unknown
+  reachability dot, not a separate metrics-based colour scale.
 
 - [ ] **E10. Login scripts (expect/send).** Matching terminal output and
   sending a response is frontend-only, but storing the rules needs a new
