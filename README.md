@@ -16,6 +16,7 @@ service only ever stores ciphertext.
 
 **[Download](https://github.com/aliysefian/termius/releases/latest)** ·
 [Guide](docs/USAGE.md) ·
+[Changelog](CHANGELOG.md) ·
 [Security design](docs/vault-architecture.md) ·
 [Roadmap](ROADMAP.md)
 

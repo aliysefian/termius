@@ -71,6 +71,8 @@ export interface Prefs {
   localCwd: string;
   /** Look for a new version at start-up (at most twice a day). */
   autoUpdateCheck: boolean;
+  /** The version last shown as "what's new"; empty before this existed. */
+  lastSeenVersion: string;
 }
 
 export interface HistoryEntry {
@@ -124,6 +126,7 @@ export const DEFAULT_PREFS: Prefs = {
   localShell: "",
   localCwd: "",
   autoUpdateCheck: true,
+  lastSeenVersion: "",
 };
 
 /** What "Reset" in Terminal appearance touches. */

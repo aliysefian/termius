@@ -1,6 +1,6 @@
 <script lang="ts">
   import {
-    Activity, FileOutput, Keyboard, SquareTerminal, ArrowLeftRight, ServerCog, Code, FileInput, FolderSync, KeyRound, Lock, Play, Plus, Server, Settings, ShieldAlert, SquareSplitHorizontal, SquareSplitVertical, Zap,
+    Activity, FileOutput, History, Keyboard, SquareTerminal, ArrowLeftRight, ServerCog, Code, FileInput, FolderSync, KeyRound, Lock, Play, Plus, Server, Settings, ShieldAlert, SquareSplitHorizontal, SquareSplitVertical, Zap,
   } from "lucide-svelte";
   import * as api from "$lib/api";
   import { fuzzyScore } from "$lib/fuzzy";
@@ -177,6 +177,7 @@
       ["Go to Vault (backups, recovery, integrity)", Lock, go("vault")],
       ["Go to Security review", ShieldAlert, go("security-review")],
       ["Go to Fleet", Activity, go("fleet")],
+      ["View changelog", History, go("changelog")],
       ["Open Settings", Settings, go("settings")],
       ["Lock vault", Lock, () => void vaultStore.lock(), "Ctrl+Shift+L"],
     ];

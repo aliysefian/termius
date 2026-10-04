@@ -19,6 +19,7 @@
   import VaultPanel from "$lib/components/VaultPanel.svelte";
   import SecurityReview from "$lib/components/SecurityReview.svelte";
   import FleetView from "$lib/components/FleetView.svelte";
+  import ChangelogView from "$lib/components/ChangelogView.svelte";
   import HostKeyDialog from "$lib/components/HostKeyDialog.svelte";
   import AgentPromptDialog from "$lib/components/AgentPromptDialog.svelte";
   import CliPromptDialog from "$lib/components/CliPromptDialog.svelte";
@@ -126,6 +127,29 @@
     // After start-up settles, so it never slows the first screen.
     setTimeout(() => void updates.init(), 3000);
   });
+
+  /** Once, after an update actually took effect (the running version changed since last launch), points at the changelog. */
+  async function announceIfUpdated() {
+    await updates.loadInfo();
+    const current = updates.info?.version;
+    if (!current) return;
+    const last = settings.prefs.lastSeenVersion;
+    if (last && last !== current) {
+      ui.notify("info", `Updated to v${current}.`, { label: "View changelog", run: () => (ui.view = "changelog") }, 10000);
+    }
+    settings.prefs.lastSeenVersion = current;
+  }
+
+  // Wait until the vault is actually unlocked (and so the toast is visible
+  // and its countdown means something) before checking, and only once per
+  // run of the app.
+  let announced = false;
+  $effect(() => {
+    if (vaultStore.unlocked && !announced) {
+      announced = true;
+      void announceIfUpdated();
+    }
+  });
 </script>
 
 {#if !ready}
@@ -185,6 +209,8 @@
       <SecurityReview />
     {:else if ui.view === "fleet"}
       <FleetView />
+    {:else if ui.view === "changelog"}
+      <ChangelogView />
     {/if}
     </div>
     <StatusBar />

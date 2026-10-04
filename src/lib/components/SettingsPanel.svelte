@@ -53,7 +53,7 @@
   const ALL_KEYWORDS = [
     "terminal appearance theme colour color dark light font family size letter spacing padding contrast bold bright cursor block bar underline blink scrollback copy select clipboard osc 52 remote session log raw preview screen reader accessibility word separator double-click",
     "auto-lock inactivity lock timeout minutes",
-    "update check version release install download",
+    "update check version release install download changelog whats new",
     "layout density compact comfortable focus mode shortcuts",
     "local terminal shell bash zsh fish powershell wsl start folder cwd",
     "connections auto-reconnect notify background command history remember restore session reopen tabs last time production paste trailing newline",
@@ -359,13 +359,14 @@
     </section>
     {/if}
 
-    {#if visible("updates", "update check version release install download")}
+    {#if visible("updates", "update check version release install download changelog whats new")}
     <section class="rounded-xl border border-line bg-panel p-5">
       <h2 class="mb-1 text-sm font-semibold">Updates</h2>
       <p class="mb-3 text-xs text-fg-muted">
         You have version <strong class="text-fg">{updates.info?.version ?? "…"}</strong>. New versions come from the
         <button class="text-accent hover:underline" onclick={() => openUrl(RELEASES_URL)}>SSHVault releases on GitHub</button>
         and are only installed if they match the checksum GitHub publishes{updates.info?.enabled ? " or the signing key built into this app" : ""}.
+        <button class="text-accent hover:underline" onclick={() => (ui.view = "changelog")}>View changelog</button>
       </p>
       <label class="flex items-center gap-2 text-sm">
         <input type="checkbox" class="accent-input" bind:checked={settings.prefs.autoUpdateCheck} />
