@@ -4,7 +4,7 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
-## Unreleased
+## 0.12.0 — 2026-10-04
 
 - **Host monitoring and a Fleet view.** Turn on monitoring for a host (its
   details card, or a tile in the new Fleet view) to see CPU, memory, disk,
@@ -14,6 +14,10 @@ View changelog**.
   colour-coding and its own auto-refresh; open it from the activity icon
   next to a group in the host list, or the command palette. Off by
   default, per host; CPU and memory aren't sampled on BSD/macOS yet.
+- **A changelog, in the app itself.** Settings → Updates → "View
+  changelog", or the command palette. After an update actually takes
+  effect, the next unlock shows a one-time "Updated to vX.Y.Z" notice
+  with a shortcut straight to it.
 
 ## 0.11.0 — 2026-10-04
 
