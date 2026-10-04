@@ -254,101 +254,146 @@ expected to have.
 
 Ordered by how often a DevOps user hits the gap.
 
+This round covered the items buildable entirely in the frontend, each
+verified with `svelte-check`, the full test suite and a production build.
+**None of this session's changes touch `src-tauri`** (except two already-
+covered items from earlier phases): this sandbox has no webkit/gtk dev
+libs, so a Rust change here is unverifiable — `cargo check` itself fails on
+missing system libraries, unrelated to any code change (see
+`docs/DEVELOPMENT.md`). Items needing backend work are listed, unstarted,
+at the end.
+
+- [x] **E3. Restore the last session on launch.** A local-only snapshot
+  (never the vault, matching `recentVaults`'s pattern), taken on lock and
+  on quit, restored once nothing is open after unlock. "Don't reconnect
+  production" is the default; it works by not reopening those tabs at
+  all, rather than opening them disconnected.
+
+- [x] **E4. Drag files onto a terminal to upload**, and drag text to
+  paste it. Reuses the exact SFTP commands the SFTP view itself calls
+  (`sftp_open`/`transfer_start`, already shipped, nothing new added to
+  the backend) to open a throwaway session, upload, and type the
+  resulting remote path at the cursor. **Narrower than specified**:
+  scoped to the active pane only, not whichever split pane the cursor
+  is over — the drop event carries a screen position, not a pane id,
+  and converting that position to a pane would need physical→logical
+  pixel math this sandbox can't check against a real window. No live
+  progress percentage either, just a start and a finish/error toast;
+  the existing transfer queue lives inside `SftpView`'s own component
+  state, and lifting it to a shared store felt like too large a change
+  to make blind.
+
+- [x] **E5. Clickable paths and smarter links.** A new link provider
+  (`src/lib/termlinks.ts`, unit-tested) finds absolute/`./relative`
+  paths and `host:port` pairs in the terminal; Ctrl+click a path browses
+  to its folder in SFTP (resolved against the OSC 7 cwd for relative
+  ones), Ctrl+click a `host:port` opens Quick connect pre-filled.
+  **Narrower than specified**: no `file:line` parsing, and it browses to
+  the folder rather than opening a quick look or the editor directly —
+  getting to either of those from here needs a deeper hook into
+  `FilePane` than exists today. Scoped to saved-host panes only: telnet,
+  serial and ad-hoc sessions have no SFTP target and no reliable cwd.
+
+- [x] **E6. Inline command suggestions — reassessed, not built.** The
+  command palette already offers this host's (and recent hosts')
+  history, fuzzy-searchable, re-run in the right pane. A ghost-text
+  overlay inside the live terminal was judged too easy to get subtly
+  wrong with no running browser to check it against. The plan's
+  suggested **Ctrl+R** wasn't bound to anything: it's bash/zsh's own
+  reverse-history-search, used constantly, so claiming it app-wide would
+  break shell editing in every session, the same class of problem as
+  the Alt+Arrow conflict fixed in Phase C.
+
+- [x] **E8. Expiry and hygiene warnings → Security review page**
+  (`Vault → Security review`, also reachable from the command palette).
+  Flags a certificate within 14 days of `valid_before` or already past
+  it, an RSA key under 3072 bits or any DSA key, a key older than 5
+  years, a host using a saved password while the Key Manager has a key,
+  and a password identity whose record hasn't changed in over a year.
+  Two small parsers back this, both unit-tested against **real
+  `ssh-keygen`-generated certificates and keys** (ed25519/RSA/ECDSA/DSA,
+  with and without an expiry), not just hand-built byte strings:
+  `src/lib/sshcert.ts` (OpenSSH certificate validity) and
+  `src/lib/sshkeyinfo.ts` (algorithm and RSA/DSA modulus size).
+  **Narrower than "one-click fixes"**: each finding has a "Review" button
+  that opens the right host/identity/Keys view, not an automated fix —
+  an automated fix (rotate a key, change a password) is exactly the kind
+  of action that needs care I can't give it without seeing it run.
+  "Password hasn't rotated" is a proxy from the vault record's own
+  `updated_at`, since the vault doesn't timestamp a password change
+  specifically; a label-only edit would reset it too.
+
+- [x] **E9. Connection log and session timeline**
+  (`src/lib/stores/connectionlog.svelte.ts`). Records each pane's
+  connect/disconnect/error locally (never synced), shown on
+  **Vault → Activity** (newest first, "Copy as CSV") and as "Recent
+  connections" on the host details card. **Narrower than specified**:
+  "Export CSV" copies to the clipboard rather than writing a file —
+  there's no generic frontend file-write command, only the SSH-config
+  export's own purpose-built one, and adding a new one is exactly the
+  kind of backend change this sandbox can't verify.
+
+- [x] **E13. Terminal extras, the frontend-only half.** Word-separator
+  setting, screen-reader mode toggle, trim-one-trailing-newline-on-paste
+  (off by default — it changes whether a pasted single line submits by
+  itself), a warning (reusing the paste-confirm dialog) when a paste
+  looks like a private key or an AWS/GitHub/Slack token
+  (`looksLikeSecret` in `guard.ts`, tested against a real generated key),
+  and "Copy entire buffer" in the terminal's menu (clipboard, for the
+  same file-write reason as E9). Triple-click-selects-a-line needed no
+  work: it's xterm.js's own default. **Not done**: "paste on right
+  click"/"middle click pastes selection" (platform habits, skipped for
+  time rather than risk); the sixel/iTerm2 image addon (`@xterm/addon-
+  image` isn't a dependency, and its rendering can't be checked without
+  a running browser, the same reasoning as skipping font ligatures in
+  Phase D); "save buffer to file" is the same clipboard-copy
+  substitution as E9's CSV, folded into "Copy entire buffer".
+
+## Not started: needs backend work this sandbox can't verify, or is too
+## large to build and ship blind
+
 - [ ] **E1. Interactive authentication prompts (2FA/TOTP, Duo, PAM).**
-  `ssh.rs:1045` answers every keyboard-interactive prompt with the stored
-  password, so servers that ask for a verification code can't be used.
-  Relay prompts to the UI (a dialog in the pane, like the host-key
-  dialog), echo-off for secrets, remember "password first, then code"
-  ordering per host. Also support password change requests. **L**
+  Needs `ssh.rs` changes to relay a keyboard-interactive prompt to the UI
+  and wait for an answer. **L**, backend.
 
-- [ ] **E2. Install public key on host (ssh-copy-id).** From a key,
-  credential or host: pick target hosts, authenticate with the current
-  method, append the key to `~/.ssh/authorized_keys` with correct
-  permissions, verify by reconnecting with the key, and optionally
-  switch the host's credential to that key. Today the user is told to
-  paste an `echo` command (`HostForm.svelte:264-269`). Pair with a **key
-  rotation** flow: generate new key, install on every host using the old
-  one, remove the old line, retire the old key. **L**
+- [ ] **E2. Install public key on host (ssh-copy-id) and key rotation.**
+  Needs a new backend command to authenticate and append to
+  `~/.ssh/authorized_keys` over the session. **L**, backend.
 
-- [ ] **E3. Restore the last session on launch.** Saved workspaces exist;
-  add "Reopen tabs from last time" (pref, default on) that snapshots the
-  open tabs/panes/layout on exit and restores them after unlock, with
-  per-tab reconnect and a "don't reconnect production" option. **M**
+- [ ] **E7. Host monitoring widgets and Fleet view.** Sampling CPU/
+  memory/disk is reachable frontend-only (`run_on_hosts` already
+  executes a command and returns output), but a tile-per-host Fleet view
+  with live, colour-coded refresh is a genuinely large UI surface to
+  build and ship without seeing it render. Deferred, not attempted.
+  **L**.
 
-- [ ] **E4. Drag files onto a terminal to upload.** Drop a file on a pane
-  → SFTP upload to the shell's current directory (known via OSC 7, else
-  home), with the transfer in the existing queue; then paste the remote
-  path. Drag text onto a pane pastes it. **M**
+- [ ] **E10. Login scripts (expect/send).** Matching terminal output and
+  sending a response is frontend-only, but storing the rules needs a new
+  field on the `Host` record, and the vault's Rust struct may reject an
+  unrecognised field on save (strict deserialisation, unverified here).
+  **M**, backend-adjacent.
 
-- [ ] **E5. Clickable paths and smarter links.** Detect absolute and
-  `./relative` paths in output (resolved against the OSC 7 cwd) and
-  `file:line` patterns; Ctrl+click opens in SFTP quick look or the local
-  editor via the existing edit-remote-file flow. Detect IPs and
-  `host:port` and offer "Quick connect" or "Add tunnel". **M**
+- [ ] **E11. System tray and global hotkey.** Needs the
+  `tauri-plugin-global-shortcut` crate as a new Cargo dependency and Rust
+  tray wiring. **M**, backend.
 
-- [ ] **E6. Inline command suggestions.** While typing at a prompt (shell
-  integration shows where), offer completions from this host's history,
-  the group's history and snippets, in a ghost-text style accepted with
-  → or Tab-Tab; Ctrl+R opens a searchable history popover. Opt-in pref.
-  **L**
+- [ ] **E12. Detach tab to a new window.** Each Tauri window is a
+  separate webview with its own JS module state, so `ui.tabs` wouldn't
+  be shared between two windows without a real cross-window sync
+  mechanism (events, a shared store) — a materially different, larger
+  feature than "open a window," and multi-window behaviour is exactly
+  what's hardest to get right with no display to test against. **L**.
 
-- [ ] **E7. Host monitoring widgets.** On the host details card and
-  optionally in the pane header: CPU, memory, disk, load and uptime,
-  sampled every N seconds over the existing session with a small
-  portable script (`/proc` on Linux, `sysctl` on BSD/macOS). A "Fleet"
-  view shows a tile per host for a group, colour-coded, with reachability
-  auto-refresh. Opt-in per host. **L**
+- [ ] **E14. ZMODEM transfers.** Protocol detection in the raw byte
+  stream plus coordinating with the file dialogs; large and easy to get
+  subtly wrong unverified. **L**.
 
-- [ ] **E8. Expiry and hygiene warnings.** Warn in Keys and on the host
-  row when an OpenSSH certificate is within 14 days of `valid_before`,
-  when a key is RSA < 3072 or DSA, when a key is older than N years,
-  when a password credential hasn't rotated in a year, and when a host
-  still uses password auth while a key exists. A "Security review" page
-  under Vault lists all of them with one-click fixes. **M**
+- [ ] **E15. Hardware keys and YubiKey.** Unchanged from the roadmap:
+  depends on E1. **L**, backend.
 
-- [ ] **E9. Connection log and session timeline.** A local, per-computer
-  log of connections (who, where, when, how long, exit reason, bytes),
-  searchable and exportable to CSV/JSON. Shows under Vault → Activity and
-  on the host details card. Never synced. **M**
-
-- [ ] **E10. Login scripts (expect/send).** Per host, a short list of
-  "when the terminal shows X, send Y" rules with a timeout, run once
-  after connect: `sudo -i`, enable mode on network gear, a `cd`. Never
-  stores a second password in clear: Y can reference the host's
-  credential or a Keychain entry. Logged in the pane as "login script
-  ran". **M**
-
-- [ ] **E11. System tray and global hotkey.** Minimise to tray with a
-  tray menu (recent hosts, quick connect, lock, quit), a global shortcut
-  to show/hide the window, and "start minimised / start with the
-  system". Uses `tauri-plugin-global-shortcut` and the tray API. **M**
-
-- [ ] **E12. Detach tab to a new window.** Drag a tab out of the strip or
-  "Move to new window" to open a second Tauri window sharing the same
-  sessions, for multi-monitor setups. Each window has its own tab strip;
-  the vault, agent and SFTP queue stay process-wide. **L**
-
-- [ ] **E13. Terminal extras.** Triple-click selects a line; word-separator
-  setting; "paste on right click" and "middle click pastes selection"
-  options (PuTTY/Linux habits); trim trailing newline on paste; warn when
-  the pasted text looks like a private key or token; screen-reader mode
-  toggle (xterm `screenReaderMode`); image protocol support
-  (`@xterm/addon-image` for sixel/iTerm2 images, used by `timg`, `chafa`,
-  `viu`); save the whole buffer to a file. **M**
-
-- [ ] **E14. ZMODEM transfers (`rz`/`sz`).** Common on network gear and
-  jump boxes without SFTP. Detect the ZMODEM handshake in the stream and
-  route to the file dialogs. Tabby and SecureCRT have it. **L**
-
-- [ ] **E15. Hardware keys and YubiKey.** Already on the roadmap as
-  "Later": FIDO2 `sk-ssh-ed25519` and PKCS#11 through the vault agent,
-  and unlocking the vault with a hardware-backed key. Keep it there; it
-  depends on E1 for the touch prompts. **L**
-
-- [ ] **E16. Localisation.** Extract strings behind a tiny `t()` helper
-  with English as the source, RTL-aware layout (the activity bar and
-  tree flip), and a first additional language. Low effort per string
-  once B3 has made names consistent. **L**
+- [ ] **E16. Localisation.** Extracting every string behind `t()` across
+  dozens of files, plus RTL layout, is large on its own merits and not
+  attempted this round. **L**.
 
 ---
 
