@@ -10,6 +10,9 @@
   import { vaultStore } from "$lib/stores/vault.svelte";
   import { envInfo, errorMessage, type Uuid } from "$lib/types";
   import { connectionLog } from "$lib/stores/connectionlog.svelte";
+  import { hostMetrics } from "$lib/stores/hostmetrics.svelte";
+  import { formatUptime } from "$lib/hostmetrics";
+  import { Activity } from "lucide-svelte";
 
   let { id }: { id: Uuid } = $props();
   const rec = $derived(vaultStore.hostById.get(id));
@@ -22,6 +25,9 @@
   const usage = $derived(settings.usage[id]);
   const history = $derived((settings.history[id] ?? []).slice(0, 8));
   const sessions = $derived(connectionLog.forHost(id, 5));
+  const monitored = $derived(hostMetrics.isMonitored(id));
+  const canMonitor = $derived(hostMetrics.canMonitor(id));
+  const reading = $derived(hostMetrics.readings[id]);
 
   function formatDuration(ms: number): string {
     const s = Math.round(ms / 1000);
@@ -95,6 +101,40 @@
         <dt class="text-fg-muted">ssh</dt>
         <dd class="flex items-center gap-2"><code class="min-w-0 flex-1 truncate font-mono">{command}</code><button class="btn-ghost py-0.5 text-xs" onclick={() => copy(command, "Command")}>Copy</button></dd>
       </dl>
+
+      <div class="rounded-md border border-line p-3">
+        <div class="mb-1 flex items-center justify-between gap-2">
+          <h3 class="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-fg-muted"><Activity size={11} /> Live metrics</h3>
+          <button
+            class="btn-ghost py-0.5 text-xs"
+            disabled={!canMonitor}
+            title={canMonitor ? "" : "Needs saved credentials to run unattended"}
+            onclick={() => hostMetrics.setMonitored(id, !monitored)}
+          >
+            {monitored ? "Stop monitoring" : "Start monitoring"}
+          </button>
+        </div>
+        {#if !monitored}
+          <p class="text-xs text-fg-muted">
+            Off. Turning it on runs a small read-only script on this host every 30 seconds (CPU, memory, disk, load,
+            uptime) while the vault is unlocked. Nothing is installed; nothing leaves this computer.
+          </p>
+        {:else if reading?.error}
+          <p class="text-xs text-danger">Last poll failed: {reading.error}</p>
+        {:else if reading?.metrics}
+          {@const m = reading.metrics}
+          <div class="grid grid-cols-5 gap-2 text-center text-xs">
+            <div><div class="font-mono text-sm">{m.cpuPct != null ? `${m.cpuPct}%` : "—"}</div><div class="text-fg-muted">CPU</div></div>
+            <div><div class="font-mono text-sm">{m.memPct != null ? `${m.memPct}%` : "—"}</div><div class="text-fg-muted">Memory</div></div>
+            <div><div class="font-mono text-sm">{m.diskPct != null ? `${m.diskPct}%` : "—"}</div><div class="text-fg-muted">Disk (/)</div></div>
+            <div><div class="truncate font-mono text-sm" title={m.load ?? ""}>{m.load ?? "—"}</div><div class="text-fg-muted">Load</div></div>
+            <div><div class="font-mono text-sm">{m.uptimeSecs != null ? formatUptime(m.uptimeSecs) : "—"}</div><div class="text-fg-muted">Uptime</div></div>
+          </div>
+          <p class="mt-1 text-[11px] text-fg-muted">As of {timeAgo(reading.at)}.{m.cpuPct == null ? " CPU and memory aren't sampled on BSD/macOS yet." : ""}</p>
+        {:else}
+          <p class="text-xs text-fg-muted">Waiting for the first reading…</p>
+        {/if}
+      </div>
 
       {#if d.notes.trim()}
         <div class="notes rounded-md border border-line bg-base p-3 text-xs">{@html renderMarkdown(d.notes)}</div>

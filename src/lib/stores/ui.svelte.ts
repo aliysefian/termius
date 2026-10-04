@@ -18,10 +18,11 @@ export type View =
   | "sftp"
   | "vault"
   | "security-review"
+  | "fleet"
   | "settings";
 
 /** Views that fill the window instead of sitting beside the terminals. */
-export const PAGE_VIEWS: View[] = ["groups", "keys", "knownhosts", "vault", "security-review", "settings"];
+export const PAGE_VIEWS: View[] = ["groups", "keys", "knownhosts", "vault", "security-review", "fleet", "settings"];
 
 /** What a pane connects to: a saved host, or an unsaved quick connection. */
 export type PaneTarget =
@@ -245,6 +246,8 @@ class UiStore {
 
   /** Ask the SFTP view to connect to a host and show a directory. */
   sftpRequest = $state<{ hostId: Uuid; path: string; n: number } | null>(null);
+  /** Read once by the Fleet view on open, to pre-select a group; not kept reactive after that. */
+  fleetGroup = $state("");
   openSftpAt(hostId: Uuid, path: string) {
     this.sftpRequest = { hostId, path, n: (this.sftpRequest?.n ?? 0) + 1 };
     this.sftpVisited = true;

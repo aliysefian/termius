@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ChevronDown, ChevronRight, Folder, FolderOpen, LayoutGrid, ListPlus, Plus } from "lucide-svelte";
+  import { Activity, ChevronDown, ChevronRight, Folder, FolderOpen, LayoutGrid, ListPlus, Plus } from "lucide-svelte";
   import { MAX_PANES } from "$lib/layout";
   import { ui } from "$lib/stores/ui.svelte";
   import { ask } from "$lib/dialogs.svelte";
@@ -75,6 +75,13 @@
           onclick={() => openGroup(child, "tiled")}
         >
           <LayoutGrid size={12} />
+        </button>
+        <button
+          class="icon-btn h-6 w-6"
+          title="View {child.name} in the Fleet view"
+          onclick={() => { ui.view = "fleet"; ui.fleetGroup = child.path; }}
+        >
+          <Activity size={12} />
         </button>
         <button
           class="icon-btn h-6 w-6"

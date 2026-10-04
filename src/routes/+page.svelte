@@ -18,6 +18,7 @@
   import KnownHostsPanel from "$lib/components/KnownHostsPanel.svelte";
   import VaultPanel from "$lib/components/VaultPanel.svelte";
   import SecurityReview from "$lib/components/SecurityReview.svelte";
+  import FleetView from "$lib/components/FleetView.svelte";
   import HostKeyDialog from "$lib/components/HostKeyDialog.svelte";
   import AgentPromptDialog from "$lib/components/AgentPromptDialog.svelte";
   import CliPromptDialog from "$lib/components/CliPromptDialog.svelte";
@@ -182,6 +183,8 @@
       <VaultPanel />
     {:else if ui.view === "security-review"}
       <SecurityReview />
+    {:else if ui.view === "fleet"}
+      <FleetView />
     {/if}
     </div>
     <StatusBar />

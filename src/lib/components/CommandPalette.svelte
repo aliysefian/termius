@@ -176,6 +176,7 @@
       ["Go to Known Hosts", Settings, go("knownhosts")],
       ["Go to Vault (backups, recovery, integrity)", Lock, go("vault")],
       ["Go to Security review", ShieldAlert, go("security-review")],
+      ["Go to Fleet", Activity, go("fleet")],
       ["Open Settings", Settings, go("settings")],
       ["Lock vault", Lock, () => void vaultStore.lock(), "Ctrl+Shift+L"],
     ];

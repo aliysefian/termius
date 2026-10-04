@@ -64,6 +64,9 @@ Linux and Windows · Built with Rust, Tauri, Svelte and xterm.js
   forwarding, keep-alive, auto-reconnect
 - Quick connect (`user@host:port`), command palette, "copy as `ssh`
   command", reachability check
+- A Fleet view: a tile per host with reachability colour-coding and
+  auto-refresh, plus opt-in CPU, memory, disk, load and uptime for any
+  host, sampled over SSH with nothing installed on it
 
 ### Keys and credentials
 - Generate Ed25519, ECDSA and RSA keys; import OpenSSH, PEM, PKCS#8 and PuTTY

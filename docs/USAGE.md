@@ -81,6 +81,16 @@ been copied since.
   host shows its latency or "down". Hover it to see the server's version
   line, such as `SSH-2.0-OpenSSH_9.6p1`, handy for spotting outdated servers.
   Hosts behind a jump host are marked "jump" rather than probed.
+- **Fleet view.** The activity icon next to a group in the host tree, or
+  "Go to Fleet" in the command palette, opens a tile per host with
+  reachability colour-coding and a 30-second auto-refresh. Turn on
+  **monitoring** for a host (on its details card, or the small activity icon
+  on its tile) to also sample CPU, memory, disk, load and uptime every 30
+  seconds, over the same SSH connection mechanism as everything else — no
+  agent, nothing installed on the host. Off by default, per host, and never
+  synced; needs a saved credential, since it runs unattended. CPU and memory
+  aren't sampled on BSD/macOS yet (no single portable reading for either
+  there), though disk, load and uptime are.
 - **Local terminals.** **Ctrl+Shift+`**, or the terminal icon next to the tabs,
   opens your own shell in a tab: your login shell on Linux and macOS, the
   default shell on Windows. Local tabs work with splits, recording, snippets
