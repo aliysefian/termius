@@ -229,8 +229,8 @@
   /** The chosen theme, with a red cast on production hosts if enabled. */
   function paneTheme() {
     const base = themeById(settings.prefs.themeId, settings.prefs.customThemes).theme;
-    if (!production || !settings.prefs.prodTint || !base.background) return base;
-    return { ...base, background: mix(base.background, "#ff0000", 0.08) };
+    const tinted = production && settings.prefs.prodTint && base.background ? { ...base, background: mix(base.background, "#ff0000", 0.08) } : base;
+    return settings.prefs.cursorColor ? { ...tinted, cursor: settings.prefs.cursorColor } : tinted;
   }
 
   function setInfo(s: SessionStatus["kind"]) {
@@ -638,7 +638,8 @@
   $effect(() => {
     const p = settings.prefs;
     const theme = paneTheme();
-    const { fontFamily, fontSize, lineHeight, cursorStyle, cursorBlink, scrollback } = p;
+    const { fontFamily, fontSize, lineHeight, cursorStyle, cursorBlink, scrollback, letterSpacing, minimumContrastRatio, boldAsBright, terminalPadding } = p;
+    void terminalPadding; // read so this effect (and its safeFit()) reruns when padding changes too
     if (!term) return;
     term.options.theme = theme;
     term.options.fontFamily = fontFamily;
@@ -647,6 +648,9 @@
     term.options.cursorStyle = cursorStyle;
     term.options.cursorBlink = cursorBlink;
     term.options.scrollback = scrollback;
+    term.options.letterSpacing = letterSpacing;
+    term.options.minimumContrastRatio = minimumContrastRatio;
+    term.options.drawBoldTextInBrightColors = boldAsBright;
     safeFit();
   });
 
@@ -696,7 +700,8 @@
   <!-- `isolate` keeps xterm's internal z-indexed layers (up to 11) inside
        this box, so the overlays below always sit on top and stay clickable. -->
   <div
-    class="relative isolate z-0 min-h-0 flex-1 p-1"
+    class="relative isolate z-0 min-h-0 flex-1"
+    style:padding="{settings.prefs.terminalPadding}px"
     bind:this={container}
     role="presentation"
     oncontextmenu={(e) => {

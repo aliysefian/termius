@@ -31,6 +31,7 @@
   import SettingsPanel from "$lib/components/SettingsPanel.svelte";
   import SnippetForm from "$lib/components/SnippetForm.svelte";
   import SnippetsPanel from "$lib/components/SnippetsPanel.svelte";
+  import Onboarding from "$lib/components/Onboarding.svelte";
   import StatusBar from "$lib/components/StatusBar.svelte";
   import TerminalArea from "$lib/components/TerminalArea.svelte";
   import UnlockScreen from "$lib/components/UnlockScreen.svelte";
@@ -216,6 +217,8 @@
     {#key ui.modal.id}
       <HostDetails id={ui.modal.id} />
     {/key}
+  {:else if ui.modal?.kind === "onboarding"}
+    <Onboarding />
   {/if}
 
   <HostKeyDialog />

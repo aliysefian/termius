@@ -1,15 +1,21 @@
 <script lang="ts">
   import { Copy, KeyRound, Printer } from "lucide-svelte";
   import Modal from "./Modal.svelte";
-  import { ask } from "$lib/dialogs.svelte";
   import { copySecret } from "$lib/secrets.svelte";
+  import { ui } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
 
   const key = $derived(vaultStore.pendingRecoveryKey);
   let saved = $state(false);
 
-  async function close() {
-    if (!saved && !await ask("Close without saving the recovery key? It can't be shown again, but you can create a new one on the Vault screen.")) return;
+  // This key is shown exactly once. No bypass: Escape, the backdrop and the
+  // X all route here, and none of them close the dialog until the checkbox
+  // is ticked, so it can't be dismissed by a stray keypress.
+  function close() {
+    if (!saved) {
+      ui.notify("info", "Tick the box once you've stored the recovery key, then close.");
+      return;
+    }
     vaultStore.pendingRecoveryKey = null;
     saved = false;
   }

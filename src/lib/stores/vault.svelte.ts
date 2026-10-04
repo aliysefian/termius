@@ -4,6 +4,7 @@ import type { UnlistenFn } from "@tauri-apps/api/event";
 import * as api from "$lib/api";
 import { ask } from "$lib/dialogs.svelte";
 import { ui } from "$lib/stores/ui.svelte";
+import { settings } from "$lib/stores/settings.svelte";
 import {
   errorMessage,
   isApiError,
@@ -270,6 +271,7 @@ class VaultStore {
     const res = await api.vault.create(password, withRecovery, remember);
     this.pendingRecoveryKey = res.recovery_key;
     this.status = res.status;
+    if ("path" in res.status) settings.markRecentVault(res.status.path);
     await this.reloadAll();
     return res;
   }
@@ -278,6 +280,7 @@ class VaultStore {
     this.status = res.status;
     this.lastUnlock = res.report;
     this.openConflicts = res.report.open_conflicts;
+    if ("path" in res.status) settings.markRecentVault(res.status.path);
     await this.reloadAll();
     await this.#autoStartForwards();
     const notes: string[] = [];

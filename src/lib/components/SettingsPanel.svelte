@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Copy, Download, ExternalLink, Loader2, Lock, Palette, RefreshCw, RotateCcw, ShieldAlert, SquareTerminal, TerminalSquare, X } from "lucide-svelte";
+  import { Copy, Download, ExternalLink, Loader2, Lock, Palette, RefreshCw, RotateCcw, Search, ShieldAlert, SquareTerminal, TerminalSquare, X } from "lucide-svelte";
   import { onMount } from "svelte";
     import { RELEASES_URL, formatSize, installHint, installUpdate, updates } from "$lib/stores/updates.svelte";
   import { openUrl } from "@tauri-apps/plugin-opener";
@@ -15,6 +15,8 @@
   import { vaultStore } from "$lib/stores/vault.svelte";
   import { errorMessage, type VaultSettings } from "$lib/types";
   import { ask } from "$lib/dialogs.svelte";
+  import Badge from "./Badge.svelte";
+  import TerminalPreview from "./TerminalPreview.svelte";
 
   async function resetAppearance() {
     if (await ask("Put the theme, font, cursor, scrollback and density back to their defaults? Shortcuts and imported themes stay.", { title: "Reset appearance", confirm: "Reset" })) settings.resetAppearance();
@@ -24,7 +26,55 @@
     if (await ask("Reset every setting on this computer to its default? Your custom shortcuts and imported colour themes are removed too.", { title: "Reset all settings", confirm: "Reset everything", danger: true })) settings.reset();
   }
 
-  let msg = $state<{ ok: boolean; text: string } | null>(null);
+  const CATEGORIES = [
+    { id: "appearance", label: "Appearance" },
+    { id: "terminal", label: "Terminal" },
+    { id: "connections", label: "Connections" },
+    { id: "safety", label: "Safety" },
+    { id: "integrations", label: "Integrations" },
+    { id: "updates", label: "Updates" },
+    { id: "advanced", label: "Advanced" },
+  ] as const;
+  type Category = (typeof CATEGORIES)[number]["id"];
+  let activeCategory = $state<Category>("appearance");
+  let searchQuery = $state("");
+
+  /** While searching, every category's matching sections show at once. */
+  function visible(category: Category, keywords: string): boolean {
+    const q = searchQuery.trim().toLowerCase();
+    if (q) return keywords.toLowerCase().includes(q);
+    return category === activeCategory;
+  }
+
+  const searching = $derived(!!searchQuery.trim());
+
+  // Mirrors the keyword strings each section's `visible()` guard uses, just
+  // to say "no matches" when a search comes up empty.
+  const ALL_KEYWORDS = [
+    "terminal appearance theme colour color dark light font family size letter spacing padding contrast bold bright cursor block bar underline blink scrollback copy select clipboard osc 52 remote session log raw preview",
+    "auto-lock inactivity lock timeout minutes",
+    "update check version release install download",
+    "layout density compact comfortable focus mode shortcuts",
+    "local terminal shell bash zsh fish powershell wsl start folder cwd",
+    "connections auto-reconnect notify background command history remember",
+    "command line cli scripting sshvault run list connect",
+    "shell integration osc 133 7 prompt directory",
+    "safety clipboard clear paste confirm destructive production backup retention pattern",
+    "export ssh config openssh include scp ansible git",
+    "reset default settings",
+  ];
+  const anyMatch = $derived.by(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return !q || ALL_KEYWORDS.some((k) => k.includes(q));
+  });
+
+  type Msg = { ok: boolean; text: string } | null;
+  // Each section keeps its own message, shown right under its own controls
+  // (a shared one used to surface far from whatever action set it).
+  let themeMsg = $state<Msg>(null);
+  let cliMsg = $state<Msg>(null);
+  let exportMsg = $state<Msg>(null);
+  let safetyMsg = $state<Msg>(null);
 
   // -- command line ------------------------------------------------------------
   const cli = $derived(vaultStore.cliStatus);
@@ -38,7 +88,7 @@
     try {
       await vaultStore.setCliEnabled(!cli?.enabled);
     } catch (e) {
-      msg = { ok: false, text: errorMessage(e) };
+      cliMsg = { ok: false, text: errorMessage(e) };
     }
   }
 
@@ -55,9 +105,9 @@
       if (!t) throw new Error("That file isn't a VS Code, Windows Terminal or iTerm2 colour scheme.");
       settings.prefs.customThemes = [...settings.prefs.customThemes.filter((x) => x.id !== t.id), t];
       settings.prefs.themeId = t.id;
-      msg = { ok: true, text: `Imported "${t.name}".` };
+      themeMsg = { ok: true, text: `Imported "${t.name}".` };
     } catch (e) {
-      msg = { ok: false, text: errorMessage(e) };
+      themeMsg = { ok: false, text: errorMessage(e) };
     }
   }
 
@@ -82,7 +132,7 @@
     e.preventDefault();
     if (!draft) return;
     savingShared = true;
-    msg = null;
+    safetyMsg = null;
     try {
       const patterns = patternsText.split("\n").map((p) => p.trim()).filter(Boolean);
       for (const p of patterns) {
@@ -93,9 +143,9 @@
         }
       }
       await vaultStore.saveSettings({ ...$state.snapshot(draft), destructive_patterns: patterns });
-      msg = { ok: true, text: "Saved. Every device using this vault picks it up." };
+      safetyMsg = { ok: true, text: "Saved. Every device using this vault picks it up." };
     } catch (err) {
-      msg = { ok: false, text: errorMessage(err) };
+      safetyMsg = { ok: false, text: errorMessage(err) };
       draft = null; // reload what's stored
     } finally {
       savingShared = false;
@@ -107,26 +157,60 @@
     if (!path) return;
     try {
       await api.exportSshConfig(path);
-      msg = { ok: true, text: `Exported to ${path}. Add "Include ${path}" to ~/.ssh/config.` };
+      exportMsg = { ok: true, text: `Exported to ${path}. Add "Include ${path}" to ~/.ssh/config.` };
     } catch (e) {
-      msg = { ok: false, text: errorMessage(e) };
+      exportMsg = { ok: false, text: errorMessage(e) };
     }
   }
 
   async function exportToClipboard() {
     try {
       await writeText(await api.exportSshConfig(null));
-      msg = { ok: true, text: "SSH config copied to the clipboard." };
+      exportMsg = { ok: true, text: "SSH config copied to the clipboard." };
     } catch (e) {
-      msg = { ok: false, text: errorMessage(e) };
+      exportMsg = { ok: false, text: errorMessage(e) };
     }
   }
 </script>
 
-<div class="flex-1 overflow-y-auto bg-base p-8">
-  <div class="mx-auto max-w-3xl space-y-8">
-    <h1 class="text-lg font-semibold">Settings</h1>
+{#snippet msgBox(m: Msg)}
+  {#if m}
+    <p class="mt-2 rounded-md border px-3 py-2 text-sm {m.ok ? 'border-success/30 bg-success/10 text-success' : 'border-danger/30 bg-danger/10 text-danger'}">
+      {m.text}
+    </p>
+  {/if}
+{/snippet}
 
+<div class="flex-1 overflow-y-auto bg-base p-8">
+  <div class="mx-auto flex max-w-5xl gap-8">
+    <nav class="w-40 shrink-0 space-y-4">
+      <h1 class="text-lg font-semibold">Settings</h1>
+      <div class="relative">
+        <Search size={13} class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-muted" />
+        <input class="input py-1.5 pl-8 text-sm" placeholder="Search…" bind:value={searchQuery} />
+      </div>
+      <div class="flex flex-col gap-0.5">
+        {#each CATEGORIES as c (c.id)}
+          <button
+            class="rounded-md px-2.5 py-1.5 text-left text-sm {!searching && activeCategory === c.id ? 'bg-accent/15 text-accent' : 'text-fg-muted hover:bg-panel-hover hover:text-fg'} {searching ? 'opacity-50' : ''}"
+            disabled={searching}
+            onclick={() => (activeCategory = c.id)}
+          >
+            {c.label}
+          </button>
+        {/each}
+      </div>
+    </nav>
+
+    <div class="min-w-0 max-w-3xl flex-1 space-y-8 pb-8">
+    {#if searching}
+      <h1 class="text-lg font-semibold">Search results</h1>
+      {#if !anyMatch}
+        <p class="text-sm text-fg-muted">No settings match "{searchQuery.trim()}".</p>
+      {/if}
+    {/if}
+
+    {#if visible("appearance", "terminal appearance theme colour color dark light font family size letter spacing padding contrast bold bright cursor block bar underline blink scrollback copy select clipboard osc 52 remote session log raw preview")}
     <section class="rounded-xl border border-line bg-panel p-5">
       <div class="mb-1 flex items-center justify-between">
         <h2 class="flex items-center gap-2 text-sm font-semibold"><Palette size={15} class="text-accent" /> Terminal appearance</h2>
@@ -178,6 +262,12 @@
           <input type="checkbox" class="accent-input" bind:checked={settings.prefs.prodTint} /> Tint production terminals red
         </label>
       </div>
+      {@render msgBox(themeMsg)}
+
+      <div class="mb-4">
+        <span class="label">Preview</span>
+        <TerminalPreview />
+      </div>
 
       <div class="grid grid-cols-2 gap-3">
         <div class="col-span-2">
@@ -192,6 +282,29 @@
           <label class="label" for="s-lh">Line height: {settings.prefs.lineHeight.toFixed(1)}</label>
           <input id="s-lh" type="range" min="1" max="2" step="0.1" class="w-full accent-input" bind:value={settings.prefs.lineHeight} />
         </div>
+        <div>
+          <label class="label" for="s-ls">Letter spacing: {settings.prefs.letterSpacing}px</label>
+          <input id="s-ls" type="range" min="-1" max="5" step="0.5" class="w-full accent-input" bind:value={settings.prefs.letterSpacing} />
+        </div>
+        <div>
+          <label class="label" for="s-pad">Padding: {settings.prefs.terminalPadding}px</label>
+          <input id="s-pad" type="range" min="0" max="24" class="w-full accent-input" bind:value={settings.prefs.terminalPadding} />
+        </div>
+        <div>
+          <label class="label" for="s-contrast">Minimum contrast ratio: {settings.prefs.minimumContrastRatio}</label>
+          <input id="s-contrast" type="range" min="1" max="21" class="w-full accent-input" bind:value={settings.prefs.minimumContrastRatio} />
+          <p class="mt-0.5 text-[11px] text-fg-muted">Brightens low-contrast text (dim colours on a dark background) for readability. 1 leaves colours as the theme sets them.</p>
+        </div>
+        <div>
+          <label class="label" for="s-cursor-color">Cursor colour</label>
+          <div class="flex items-center gap-2">
+            <input id="s-cursor-color" type="color" class="h-9 w-10 shrink-0 cursor-pointer rounded-md border border-line bg-base p-0.5" value={settings.prefs.cursorColor || "#ffffff"} oninput={(e) => (settings.prefs.cursorColor = e.currentTarget.value)} />
+            <button class="btn-secondary py-1 text-xs" disabled={!settings.prefs.cursorColor} onclick={() => (settings.prefs.cursorColor = "")}>Use theme's</button>
+          </div>
+        </div>
+        <label class="flex items-center gap-2 text-sm">
+          <input type="checkbox" class="accent-input" bind:checked={settings.prefs.boldAsBright} /> Bold text uses the bright colour
+        </label>
         <div>
           <label class="label" for="s-cursor">Cursor</label>
           <select id="s-cursor" class="input" bind:value={settings.prefs.cursorStyle}>
@@ -219,7 +332,9 @@
         </label>
       </div>
     </section>
+    {/if}
 
+    {#if visible("connections", "auto-lock inactivity lock timeout minutes")}
     <section class="rounded-xl border border-line bg-panel p-5">
       <h2 class="mb-1 flex items-center gap-2 text-sm font-semibold"><Lock size={15} class="text-accent" /> Auto-lock</h2>
       <p class="mb-3 text-xs text-fg-muted">
@@ -234,7 +349,9 @@
       </select>
       <p class="mt-2 text-xs text-fg-muted">Lock now, change the master password or manage backups on the <strong>Vault</strong> screen.</p>
     </section>
+    {/if}
 
+    {#if visible("updates", "update check version release install download")}
     <section class="rounded-xl border border-line bg-panel p-5">
       <h2 class="mb-1 text-sm font-semibold">Updates</h2>
       <p class="mb-3 text-xs text-fg-muted">
@@ -276,7 +393,9 @@
         </p>
       {/if}
     </section>
+    {/if}
 
+    {#if visible("appearance", "layout density compact comfortable focus mode shortcuts")}
     <section class="rounded-xl border border-line bg-panel p-5">
       <h2 class="mb-1 text-sm font-semibold">Layout</h2>
       <div class="grid grid-cols-2 gap-3">
@@ -296,7 +415,9 @@
         Focus mode hides everything but the terminal. <button class="text-accent hover:underline" onclick={() => (ui.modal = { kind: "shortcuts" })}>Change keyboard shortcuts…</button>
       </p>
     </section>
+    {/if}
 
+    {#if visible("terminal", "local terminal shell bash zsh fish powershell wsl start folder cwd")}
     <section class="rounded-xl border border-line bg-panel p-5">
       <h2 class="mb-1 text-sm font-semibold">Local terminal</h2>
       <p class="mb-3 text-xs text-fg-muted">Which program local tabs run, and where they start. Empty uses your system's default shell in your home folder.</p>
@@ -314,7 +435,9 @@
         </div>
       </div>
     </section>
+    {/if}
 
+    {#if visible("connections", "connections auto-reconnect notify background command history remember")}
     <section class="rounded-xl border border-line bg-panel p-5">
       <h2 class="mb-1 text-sm font-semibold">Connections</h2>
       <label class="flex items-start gap-2 text-sm">
@@ -342,7 +465,9 @@
       </label>
       <button class="btn-ghost mt-2 border border-line py-1 text-xs" onclick={() => { settings.clearHistory(); ui.notify("info", "Command history cleared."); }}>Clear command history</button>
     </section>
+    {/if}
 
+    {#if visible("integrations", "command line cli scripting sshvault run list connect")}
     <section class="rounded-xl border border-line bg-panel p-5">
       <div class="flex items-start justify-between gap-3">
         <div>
@@ -354,6 +479,7 @@
         </div>
         <button class="btn-{cli?.enabled ? 'ghost border border-line' : 'primary'} shrink-0" onclick={toggleCli}>{cli?.enabled ? "Turn off" : "Turn on"}</button>
       </div>
+      {@render msgBox(cliMsg)}
       {#if cli?.enabled}
         <pre class="mt-3 overflow-x-auto rounded-md border border-line bg-base p-2 font-mono text-[11px] leading-snug">sshvault status
 sshvault list --group Production
@@ -369,7 +495,9 @@ sshvault run web-01 db-01 --json -- df -h /</pre>
         {/if}
       {/if}
     </section>
+    {/if}
 
+    {#if visible("terminal", "shell integration osc 133 7 prompt directory")}
     <section class="rounded-xl border border-line bg-panel p-5">
       <h2 class="mb-1 flex items-center gap-2 text-sm font-semibold"><TerminalSquare size={15} class="text-accent" /> Shell integration</h2>
       <p class="mb-3 text-xs text-fg-muted">
@@ -390,11 +518,20 @@ sshvault run web-01 db-01 --json -- df -h /</pre>
         {/each}
       </div>
     </section>
+    {/if}
 
+    {#if visible("safety", "safety clipboard clear paste confirm destructive production backup retention pattern")}
     {#if draft}
       <form class="rounded-xl border border-line bg-panel p-5" onsubmit={saveShared}>
-        <h2 class="mb-1 flex items-center gap-2 text-sm font-semibold"><ShieldAlert size={15} class="text-accent" /> Safety</h2>
-        <p class="mb-4 text-xs text-fg-muted">Stored in the vault and shared by every device that opens it.</p>
+        <div class="mb-1 flex items-center gap-2">
+          <h2 class="flex items-center gap-2 text-sm font-semibold"><ShieldAlert size={15} class="text-accent" /> Safety</h2>
+          <Badge tone="accent">Synced</Badge>
+        </div>
+        <p class="mb-4 text-xs text-fg-muted">
+          Stored in the vault and shared by every device that opens it. Unlike the rest of this page, changes here need
+          <strong>Save</strong>, so a slip of the keyboard never lowers a safety check on every computer that opens this
+          vault.
+        </p>
         <div class="grid grid-cols-2 gap-3">
           <div>
             <label class="label" for="s-clip">Clear copied secrets after</label>
@@ -423,9 +560,12 @@ sshvault run web-01 db-01 --json -- df -h /</pre>
           </div>
         </div>
         <button class="btn-primary mt-4" type="submit" disabled={savingShared}>{savingShared ? "Saving…" : "Save"}</button>
+        {@render msgBox(safetyMsg)}
       </form>
     {/if}
+    {/if}
 
+    {#if visible("integrations", "export ssh config openssh include scp ansible git")}
     <section class="rounded-xl border border-line bg-panel p-5">
       <h2 class="mb-1 text-sm font-semibold">Use your hosts from the command line</h2>
       <p class="mb-3 text-xs text-fg-muted">
@@ -437,14 +577,11 @@ sshvault run web-01 db-01 --json -- df -h /</pre>
         <button class="btn-secondary" onclick={exportToFile}>Save to file…</button>
         <button class="btn-secondary" onclick={exportToClipboard}>Copy to clipboard</button>
       </div>
+      {@render msgBox(exportMsg)}
     </section>
-
-    {#if msg}
-      <p class="rounded-md border px-3 py-2 text-sm {msg.ok ? 'border-success/30 bg-success/10 text-success' : 'border-danger/30 bg-danger/10 text-danger'}">
-        {msg.text}
-      </p>
     {/if}
 
+    {#if visible("advanced", "reset default settings")}
     <section class="rounded-xl border border-line bg-panel p-5">
       <h2 class="mb-1 flex items-center gap-2 text-sm font-semibold"><RotateCcw size={15} class="text-accent" /> Reset</h2>
       <p class="mb-4 text-xs text-fg-muted">
@@ -453,5 +590,7 @@ sshvault run web-01 db-01 --json -- df -h /</pre>
       </p>
       <button class="btn-ghost border border-danger/40 text-danger hover:bg-danger/10" onclick={resetAll}>Reset all settings…</button>
     </section>
+    {/if}
+    </div>
   </div>
 </div>

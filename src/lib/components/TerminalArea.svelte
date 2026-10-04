@@ -3,6 +3,7 @@
   import { keepInView } from "$lib/actions";
   import { writeText } from "@tauri-apps/plugin-clipboard-manager";
   import { sshCommand } from "$lib/sshcmd";
+  import { ACTIONS, comboFor } from "$lib/shortcuts";
   import { ArrowLeftRight, BellRing, Check, Circle, Columns2, Command, Copy, Ellipsis, FolderSync, Keyboard, List, Loader2, Maximize2, Minimize2, Plus, RefreshCw, Rows2, Search, SquareTerminal, Terminal, TextSelect, X, Zap } from "lucide-svelte";
   import Badge from "./Badge.svelte";
   import Kbd from "./Kbd.svelte";
@@ -239,6 +240,9 @@
     ui.tabs.length;
     queueMicrotask(checkScroll);
   });
+
+  const splitRight = ACTIONS.find((a) => a.id === "split-right");
+  const splitDown = ACTIONS.find((a) => a.id === "split-down");
 
   const filteredTabs = $derived(
     tabListQuery.trim() ? ui.tabs.filter((t) => (t.customTitle ?? t.title).toLowerCase().includes(tabListQuery.trim().toLowerCase())) : ui.tabs,
@@ -624,18 +628,27 @@
       </div>
       <div class="mt-6 grid grid-cols-2 gap-x-6 gap-y-1.5 text-left text-xs text-fg-muted">
         {#each [
-          ["Ctrl+Shift+P", "Command palette"],
-          ["Ctrl+Shift+T", "Quick connect"],
-          ["Ctrl+Tab", "Next tab"],
-          ["Ctrl+Shift+W", "Close tab"],
-          ["Ctrl+Shift+D / E", "Split right / down"],
-          ["Ctrl+Shift+F", "Find in terminal"],
-          ["Ctrl+Shift+C / V", "Copy / paste"],
-          ["Ctrl+= / Ctrl+-", "Zoom in / out"],
-        ] as [keys, what] (keys)}
-          <Kbd {keys} />
-          <span class="self-center">{what}</span>
+          ["palette", "Command palette"],
+          ["quick-connect", "Quick connect"],
+          ["next-tab", "Next tab"],
+          ["close-tab", "Close tab"],
+          ["find", "Find in terminal"],
+        ] as [id, label] (id)}
+          {@const a = ACTIONS.find((x) => x.id === id)}
+          {#if a && comboFor(a)}
+            <Kbd keys={comboFor(a)} />
+            <span class="self-center">{label}</span>
+          {/if}
         {/each}
+        {#if splitRight && splitDown && (comboFor(splitRight) || comboFor(splitDown))}
+          <Kbd keys="{comboFor(splitRight) || "—"} / {comboFor(splitDown) || "—"}" />
+          <span class="self-center">Split right / down</span>
+        {/if}
+        <!-- Not remappable actions, so always accurate without reading settings. -->
+        <Kbd keys="Ctrl+Shift+C / V" />
+        <span class="self-center">Copy / paste</span>
+        <Kbd keys="Ctrl+= / Ctrl+-" />
+        <span class="self-center">Zoom in / out</span>
       </div>
     </div>
   {/if}

@@ -3,7 +3,12 @@
 
 ## Hosts and identities
 
-- Create a host with the **+** button in the **Hosts** view. Enter the
+- Create a host with the **+** button in the **Hosts** view. The form has
+  four tabs: **Connection** (address and credentials), **Route** (jump host,
+  proxy, agent/X11 forwarding, keep-alive), **Organise** (group, environment,
+  tags, colour, notes) and **Automation** (a startup command and which of
+  this host's tunnels start automatically). **Test connection** checks
+  reachability for an already-saved host. Enter the
   hostname and port, then choose how to log in under **Credentials**:
   - **Password**: a username and password.
   - **SSH key**: a username and a key. You can generate a new Ed25519 key,
@@ -208,8 +213,11 @@ For a one-off connection, type an `ssh -J` command in Quick connect instead
   rather remote programs could not write to it.
 - If the connection drops, a **Reconnect** button appears at the bottom of the
   pane.
-- Change the colour theme, font, cursor and scrollback under **Settings**.
-  These settings are per computer and are not synced.
+- Change the colour theme, font, cursor, scrollback, letter spacing, padding,
+  minimum contrast and cursor colour under **Settings**, with a live preview
+  next to the controls. These settings are per computer and are not synced.
+  Settings has a category list on the left and a search box that finds a
+  setting by name across every category.
 
 ## Quick connect and the command palette
 
@@ -318,11 +326,17 @@ Open the **SFTP** view. The left pane is this computer and the right pane is
 the remote host.
 
 1. Choose a host at the top of the right pane and click **Connect**.
-2. Double-click a folder to open it, or type a path and press Enter.
+2. Click a folder in the breadcrumb to jump to it, or the pencil icon next
+   to it to type a path.
 3. Select files with click, **Ctrl**+click or **Shift**+click.
 4. Drag files to the other pane, or use **Upload →** and **← Download**.
+5. Right-click a file for open, download/upload, copy path, rename,
+   permissions and delete.
 
-The eye icon in each pane's toolbar shows or hides dotfiles. Folders are copied recursively.
+Click a column heading to sort by it; click again to reverse. The filter box
+narrows the current folder by name. The eye icon in each pane's toolbar shows
+or hides dotfiles, and folders are copied recursively. Drag the divider
+between the two panes to resize them.
 
 To edit a remote file, double-click it, or select it and press the edit
 button. It opens in this computer's default app for that file type. Each time

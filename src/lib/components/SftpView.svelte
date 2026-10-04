@@ -10,6 +10,7 @@
   import { local, remote, sftp, type Direction, type FileSource } from "$lib/sftp";
   import { ui } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
+  import { settings } from "$lib/stores/settings.svelte";
   import { errorMessage, formatBytes, type FileEntry, type TransferProgress, type Uuid } from "$lib/types";
 
   interface Transfer {
@@ -43,6 +44,25 @@
   let password = $state("");
 
   let transfers = $state<Transfer[]>([]);
+  let paneRow = $state<HTMLDivElement>();
+
+  function startSplitDrag(e: PointerEvent) {
+    e.preventDefault();
+    const el = e.currentTarget as HTMLElement;
+    el.setPointerCapture(e.pointerId);
+    el.focus();
+    const box = paneRow!.getBoundingClientRect();
+    const move = (ev: PointerEvent) => {
+      const ratio = (ev.clientX - box.left) / box.width;
+      settings.prefs.sftpSplitRatio = Math.min(0.85, Math.max(0.15, ratio));
+    };
+    const up = () => {
+      el.removeEventListener("pointermove", move);
+      el.removeEventListener("pointerup", up);
+    };
+    el.addEventListener("pointermove", move);
+    el.addEventListener("pointerup", up);
+  }
 
   // Taskbar/dock progress across every transfer, so the queue's state is
   // visible without switching back to this window.
@@ -290,7 +310,8 @@
       Drop to upload to {remotePath || "the remote folder"} on {connectedLabel}
     </div>
   {/if}
-  <div class="flex min-h-0 flex-1 divide-x divide-line">
+  <div bind:this={paneRow} class="flex min-h-0 flex-1">
+    <div class="min-w-0 overflow-hidden" style:flex="0 0 {settings.prefs.sftpSplitRatio * 100}%">
     <FilePane
       side="local"
       source={local}
@@ -305,7 +326,30 @@
         <span class="text-sm font-medium">This computer</span>
       {/snippet}
     </FilePane>
+    </div>
 
+    <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
+    <div
+      class="relative w-1.5 shrink-0 cursor-col-resize outline-none after:absolute after:left-1/2 after:top-0 after:h-full after:w-px after:-translate-x-1/2 after:bg-line after:transition-colors hover:after:bg-accent/60 focus-visible:after:bg-accent"
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize the local and remote panes"
+      aria-valuenow={Math.round(settings.prefs.sftpSplitRatio * 100)}
+      aria-valuemin={15}
+      aria-valuemax={85}
+      tabindex="0"
+      title="Drag to resize · double-click to centre"
+      onpointerdown={startSplitDrag}
+      ondblclick={() => (settings.prefs.sftpSplitRatio = 0.5)}
+      onkeydown={(e) => {
+        const step = e.shiftKey ? 0.05 : 0.01;
+        if (e.key === "ArrowLeft") { e.preventDefault(); settings.prefs.sftpSplitRatio = Math.max(0.15, settings.prefs.sftpSplitRatio - step); }
+        else if (e.key === "ArrowRight") { e.preventDefault(); settings.prefs.sftpSplitRatio = Math.min(0.85, settings.prefs.sftpSplitRatio + step); }
+        else if (e.key === "Home" || e.key === "Enter") { e.preventDefault(); settings.prefs.sftpSplitRatio = 0.5; }
+      }}
+    ></div>
+
+    <div class="min-w-0 flex-1 overflow-hidden border-l border-line">
     <FilePane
       side="remote"
       source={remoteSource}
@@ -351,9 +395,29 @@
               }}
             >
               <div class="text-sm font-semibold">Credentials for {host?.label}</div>
-              <input class="input font-mono" placeholder="username" bind:value={username} required />
-              <input class="input" type="password" placeholder="password" bind:value={password} required />
-              <button class="btn-primary w-full" type="submit">Connect</button>
+              <div>
+                <label class="label" for="sftp-user">Username</label>
+                <input id="sftp-user" class="input font-mono" autocomplete="username" bind:value={username} required />
+              </div>
+              <div>
+                <label class="label" for="sftp-pass">Password</label>
+                <input id="sftp-pass" class="input" type="password" autocomplete="current-password" bind:value={password} required />
+              </div>
+              <div class="flex gap-2">
+                <button
+                  class="btn-ghost flex-1"
+                  type="button"
+                  onclick={() => {
+                    askCreds = false;
+                    hostId = "";
+                    username = "";
+                    password = "";
+                  }}
+                >
+                  Cancel
+                </button>
+                <button class="btn-primary flex-1" type="submit">Connect</button>
+              </div>
             </form>
           {:else}
             <HardDrive size={28} class="mx-auto mb-3 text-fg-muted/50" />
@@ -365,6 +429,7 @@
         </div>
       {/snippet}
     </FilePane>
+    </div>
   </div>
 
   {#if edits.length}

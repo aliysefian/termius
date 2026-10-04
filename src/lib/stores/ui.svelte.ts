@@ -91,6 +91,7 @@ export type Modal =
   | { kind: "serial" }
   | { kind: "bulk-edit" }
   | { kind: "host-details"; id: Uuid }
+  | { kind: "onboarding" }
   | null;
 
 export interface ToastAction {

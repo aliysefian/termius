@@ -8,12 +8,24 @@ export interface Prefs {
   cursorStyle: "block" | "bar" | "underline";
   cursorBlink: boolean;
   scrollback: number;
+  /** Extra space between characters, in CSS pixels. */
+  letterSpacing: number;
+  /** Space around the terminal's text, in CSS pixels. */
+  terminalPadding: number;
+  /** Raises dim text's contrast against the background (1 = off, xterm's own scale up to 21). */
+  minimumContrastRatio: number;
+  /** Empty string keeps the active theme's own cursor colour. */
+  cursorColor: string;
+  /** Bold text uses the bright version of its colour (xterm's default). */
+  boldAsBright: boolean;
   copyOnSelect: boolean;
   /** Programs may put text on the clipboard with OSC 52 (tmux, Claude Code, Neovim). */
   remoteClipboard: boolean;
   /** 0 disables auto-lock. */
   autoLockMinutes: number;
   showHiddenFiles: boolean;
+  /** The SFTP view's local/remote split, 0.15-0.85. */
+  sftpSplitRatio: number;
   /** Session logs keep colours and control codes instead of plain text. */
   logRaw: boolean;
   appTheme: "dark" | "light" | "system";
@@ -70,11 +82,17 @@ export const DEFAULT_PREFS: Prefs = {
   lineHeight: 1.2,
   cursorStyle: "block",
   cursorBlink: true,
+  letterSpacing: 0,
+  terminalPadding: 4,
+  minimumContrastRatio: 1,
+  cursorColor: "",
+  boldAsBright: true,
   scrollback: 5000,
   copyOnSelect: false,
   remoteClipboard: true,
   autoLockMinutes: 0,
   showHiddenFiles: false,
+  sftpSplitRatio: 0.5,
   logRaw: false,
   appTheme: "dark",
   sidebarHidden: false,
@@ -94,10 +112,14 @@ export const DEFAULT_PREFS: Prefs = {
 };
 
 /** What "Reset" in Terminal appearance touches. */
-export const APPEARANCE_PREFS = ["themeId", "fontFamily", "fontSize", "lineHeight", "cursorStyle", "cursorBlink", "scrollback", "appTheme", "prodTint", "density"] as const satisfies readonly (keyof Prefs)[];
+export const APPEARANCE_PREFS = [
+  "themeId", "fontFamily", "fontSize", "lineHeight", "cursorStyle", "cursorBlink", "scrollback", "appTheme", "prodTint",
+  "density", "letterSpacing", "terminalPadding", "minimumContrastRatio", "cursorColor", "boldAsBright",
+] as const satisfies readonly (keyof Prefs)[];
 
 const KEY = "sshvault.prefs.v1";
 const RECENT_KEY = "sshvault.recent.v1";
+const RECENT_VAULTS_KEY = "sshvault.recentvaults.v1";
 const COLLAPSED_KEY = "sshvault.collapsed.v1";
 const USAGE_KEY = "sshvault.usage.v1";
 const HISTORY_KEY = "sshvault.history.v1";
@@ -134,6 +156,8 @@ class SettingsStore {
   prefs = $state<Prefs>(load(KEY, DEFAULT_PREFS));
   /** Host ids, most recent first. */
   recent = $state<string[]>(load<string[]>(RECENT_KEY, []));
+  /** Vault folder paths opened on this computer, most recent first. Never synced. */
+  recentVaults = $state<string[]>(load<string[]>(RECENT_VAULTS_KEY, []));
   /** Collapsed host-group paths, remembered per computer. */
   collapsedGroups = $state<string[]>(load<string[]>(COLLAPSED_KEY, []));
   usage = $state<Record<string, HostUsage>>(load<Record<string, HostUsage>>(USAGE_KEY, {}));
@@ -151,6 +175,7 @@ class SettingsStore {
       });
       $effect(() => save(KEY, $state.snapshot(this.prefs)));
       $effect(() => save(RECENT_KEY, $state.snapshot(this.recent)));
+      $effect(() => save(RECENT_VAULTS_KEY, $state.snapshot(this.recentVaults)));
       $effect(() => save(COLLAPSED_KEY, $state.snapshot(this.collapsedGroups)));
       $effect(() => save(USAGE_KEY, $state.snapshot(this.usage)));
       $effect(() => {
@@ -165,6 +190,14 @@ class SettingsStore {
     this.recent = [hostId, ...this.recent.filter((id) => id !== hostId)].slice(0, 20);
     const u = this.usage[hostId];
     this.usage[hostId] = { last: Date.now(), count: (u?.count ?? 0) + 1 };
+  }
+
+  markRecentVault(path: string) {
+    this.recentVaults = [path, ...this.recentVaults.filter((p) => p !== path)].slice(0, 5);
+  }
+
+  forgetRecentVault(path: string) {
+    this.recentVaults = this.recentVaults.filter((p) => p !== path);
   }
 
   recordCommand(hostId: string, command: string, exit: number | null) {

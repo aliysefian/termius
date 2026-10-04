@@ -1,7 +1,7 @@
 <script lang="ts">
   import Combobox from "./Combobox.svelte";
   import { groupOptions, hostOptions } from "$lib/pickeroptions";
-  import { Bot, Check, Copy, Eye, EyeOff, FileKey, HelpCircle, KeyRound, Lock, Sparkles, Users } from "lucide-svelte";
+  import { Bot, Check, Copy, Eye, EyeOff, FileKey, HelpCircle, KeyRound, Loader2, Lock, Sparkles, Users, Wifi, X } from "lucide-svelte";
   import { open } from "@tauri-apps/plugin-dialog";
   import { writeText } from "@tauri-apps/plugin-clipboard-manager";
   import Modal, { DISCARD } from "./Modal.svelte";
@@ -212,6 +212,46 @@
 
   const colors = ["#7B61FF", "#3DDC84", "#FFB020", "#FF5C5C", "#38BDF8", "#F472B6"];
 
+  // -- tabs -------------------------------------------------------------------
+
+  type Tab = "connection" | "route" | "organise" | "automation";
+  const TABS: { id: Tab; label: string }[] = [
+    { id: "connection", label: "Connection" },
+    { id: "route", label: "Route" },
+    { id: "organise", label: "Organise" },
+    { id: "automation", label: "Automation" },
+  ];
+  let activeTab = $state<Tab>("connection");
+
+  // Problems worth a glance before switching tabs: shown under the tab strip
+  // regardless of which one is open, in addition to where the field itself is.
+  const warnings = $derived([jumpMissingIdentity ? `"${jumpMissingIdentity}" has no saved credentials.` : null].filter((w): w is string => !!w));
+
+  // -- test connection ---------------------------------------------------------
+  // Reads the saved host record, so it needs this host saved already; testing
+  // unsaved address/port changes would need a new backend command this
+  // environment has no way to compile (no webkit/gtk dev libs here).
+  let testing = $state(false);
+
+  async function testConnection() {
+    if (!id) return;
+    testing = true;
+    try {
+      await vaultStore.checkHealth([id]);
+    } finally {
+      testing = false;
+    }
+  }
+  const health = $derived(id ? vaultStore.health[id] : undefined);
+
+  // -- tunnels that start automatically with this host --------------------
+  const hostForwards = $derived(id ? vaultStore.forwards.filter((f) => f.data?.host_id === id) : []);
+
+  async function toggleAutoStart(f: (typeof hostForwards)[number]) {
+    if (!f.data) return;
+    await vaultStore.saveForward(f.id, { ...f.data, auto_start: !f.data.auto_start }, f.rev);
+  }
+
   async function save(e: SubmitEvent) {
     e.preventDefault();
     error = null;
@@ -238,6 +278,7 @@
       else ui.modal = null;
     } catch (err) {
       error = errorMessage(err);
+      activeTab = "connection";
     } finally {
       busy = false;
     }
@@ -280,6 +321,28 @@
     </div>
   {:else}
     <form id="host-form" onsubmit={save} class="space-y-5">
+      <div class="-mb-1 flex overflow-hidden rounded-md border border-line text-xs" role="tablist">
+        {#each TABS as t (t.id)}
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === t.id}
+            class="flex-1 py-2 {activeTab === t.id ? 'bg-accent text-white' : 'text-fg-muted hover:bg-panel-hover'}"
+            onclick={() => (activeTab = t.id)}
+          >
+            {t.label}
+          </button>
+        {/each}
+      </div>
+
+      {#if error}
+        <p class="rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger">{error}</p>
+      {/if}
+      {#each warnings as w (w)}
+        <p class="rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning">{w}</p>
+      {/each}
+
+      {#if activeTab === "connection"}
       <!-- Address -->
       <div class="grid grid-cols-6 gap-3">
         <div class="col-span-6">
@@ -318,6 +381,21 @@
             </p>
           {/if}
         </div>
+      </div>
+
+      <div class="flex items-center gap-2">
+        <button type="button" class="btn-secondary py-1 text-xs" disabled={!id || testing} title={id ? undefined : "Save the host first"} onclick={testConnection}>
+          {#if testing}<Loader2 size={13} class="animate-spin" /> Testing…{:else}<Wifi size={13} /> Test connection{/if}
+        </button>
+        {#if !id}
+          <span class="text-xs text-fg-muted">Available once the host is saved.</span>
+        {:else if health}
+          <span class="text-xs {health.state === 'up' ? 'text-success' : health.state === 'down' ? 'text-danger' : 'text-fg-muted'}">
+            {#if health.state === "up"}Reachable in {health.latency_ms} ms{#if health.banner} · {health.banner}{/if}
+            {:else if health.state === "down"}Unreachable: {health.reason}
+            {:else}Behind a jump host; the jump itself wasn't probed{/if}
+          </span>
+        {/if}
       </div>
 
       {#if form.protocol !== "telnet"}
@@ -471,7 +549,9 @@
       </div>
       {/if}
 
-      <!-- Organise -->
+      {/if}
+
+      {#if activeTab === "route"}
       <div class="grid grid-cols-2 gap-3">
         <div class="col-span-2">
           <label class="label" for="h-jump">Jump host</label>
@@ -503,6 +583,35 @@
           </span>
         </label>
         <div>
+          <label class="label" for="h-proxy">Proxy</label>
+          <select id="h-proxy" class="input" bind:value={proxyValue, setProxy}>
+            <option value="">{groupProxy ? `Group default: ${groupProxyName}` : "None, connect directly"}</option>
+            {#if groupProxy}<option value={DIRECT}>None, ignore the group's proxy</option>{/if}
+            {#each vaultStore.proxies as p (p.id)}
+              <option value={p.id}>{p.data?.name}{p.data?.spec.kind === "command" && !p.data.spec.approved ? " (not approved)" : ""}</option>
+            {/each}
+          </select>
+        </div>
+        <div>
+          <label class="label" for="h-keepalive">Keep-alive (seconds)</label>
+          <input id="h-keepalive" class="input font-mono" type="number" min="0" max="3600" bind:value={form.keepalive_secs} placeholder="30 (0 = off)" />
+        </div>
+        <label class="col-span-2 flex items-start gap-2 text-sm">
+          <input type="checkbox" class="mt-0.5 accent-input" bind:checked={form.forward_x11} />
+          <span>
+            Forward X11
+            <span class="block text-xs text-fg-muted">
+              Show the host's graphical programs on this computer. Needs an X server here (built into most Linux
+              desktops, XQuartz on macOS, VcXsrv or X410 on Windows) and <code>xauth</code> on the host.
+            </span>
+          </span>
+        </label>
+      </div>
+      {/if}
+
+      {#if activeTab === "organise"}
+      <div class="grid grid-cols-2 gap-3">
+        <div>
           <label class="label" for="h-env">Environment</label>
           <select id="h-env" class="input" bind:value={envChoice}>
             {#each ENVIRONMENTS as e (e.value)}
@@ -517,41 +626,7 @@
             <p class="mt-1 text-xs text-danger">Marked in red, and bulk actions ask before touching it.</p>
           {/if}
         </div>
-        <div>
-          <label class="label" for="h-startup">Run after connecting</label>
-          <input
-            id="h-startup"
-            class="input font-mono text-xs"
-            bind:value={form.startup_command}
-            placeholder="sudo -i, cd /srv/app, tmux attach"
-            spellcheck="false"
-          />
-        </div>
-        <label class="col-span-2 flex items-start gap-2 text-sm">
-          <input type="checkbox" class="mt-0.5 accent-input" bind:checked={form.forward_x11} />
-          <span>
-            Forward X11
-            <span class="block text-xs text-fg-muted">
-              Show the host's graphical programs on this computer. Needs an X server here (built into most Linux
-              desktops, XQuartz on macOS, VcXsrv or X410 on Windows) and <code>xauth</code> on the host.
-            </span>
-          </span>
-        </label>
-        <div>
-          <label class="label" for="h-proxy">Proxy</label>
-          <select id="h-proxy" class="input" bind:value={proxyValue, setProxy}>
-            <option value="">{groupProxy ? `Group default: ${groupProxyName}` : "None, connect directly"}</option>
-            {#if groupProxy}<option value={DIRECT}>None, ignore the group's proxy</option>{/if}
-            {#each vaultStore.proxies as p (p.id)}
-              <option value={p.id}>{p.data?.name}{p.data?.spec.kind === "command" && !p.data.spec.approved ? " (not approved)" : ""}</option>
-            {/each}
-          </select>
-        </div>
-        <div>
-          <label class="label" for="h-keepalive">Keep-alive (seconds)</label>
-          <input id="h-keepalive" class="input font-mono" type="number" min="0" max="3600" bind:value={form.keepalive_secs} placeholder="30 (0 = off)" />
-        </div>
-        <label class="col-span-2 flex items-center gap-2 text-sm">
+        <label class="flex items-end gap-2 pb-2 text-sm">
           <input type="checkbox" class="accent-input" bind:checked={form.favorite} />
           Favorite
         </label>
@@ -575,7 +650,16 @@
         </div>
         <div class="col-span-2">
           <span class="label">Colour</span>
-          <div class="flex gap-2">
+          <div class="flex items-center gap-2">
+            <button
+              type="button"
+              class="flex h-6 w-6 items-center justify-center rounded-full border border-line {!form.color ? 'ring-2 ring-fg' : ''}"
+              onclick={() => (form.color = undefined)}
+              title="No colour"
+              aria-label="No colour"
+            >
+              {#if !form.color}<X size={12} class="text-fg-muted" />{/if}
+            </button>
             {#each colors as c (c)}
               <button
                 type="button"
@@ -585,6 +669,14 @@
                 aria-label="Colour {c}"
               ></button>
             {/each}
+            <input
+              type="color"
+              class="h-6 w-6 shrink-0 cursor-pointer rounded-full border border-line bg-base p-0"
+              value={form.color ?? "#7b61ff"}
+              oninput={(e) => (form.color = e.currentTarget.value)}
+              aria-label="Custom colour"
+              title="Custom colour"
+            />
           </div>
         </div>
         <div class="col-span-2">
@@ -596,9 +688,38 @@
           <textarea id="h-custom" class="input font-mono text-xs" rows="2" bind:value={customFields} placeholder="owner=platform-team" spellcheck="false"></textarea>
         </div>
       </div>
+      {/if}
 
-      {#if error}
-        <p class="rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger">{error}</p>
+      {#if activeTab === "automation"}
+      <div class="space-y-4">
+        <div>
+          <label class="label" for="h-startup">Run after connecting</label>
+          <input
+            id="h-startup"
+            class="input font-mono text-xs"
+            bind:value={form.startup_command}
+            placeholder="sudo -i, cd /srv/app, tmux attach"
+            spellcheck="false"
+          />
+        </div>
+        <div>
+          <span class="label">Tunnels that start when the vault unlocks</span>
+          {#if !id}
+            <p class="text-xs text-fg-muted">Save the host first to add tunnels for it, under <strong>Tunnels</strong>.</p>
+          {:else if hostForwards.length === 0}
+            <p class="text-xs text-fg-muted">No tunnels for this host yet. Add one under <strong>Tunnels</strong>.</p>
+          {:else}
+            <div class="space-y-1">
+              {#each hostForwards as f (f.id)}
+                <label class="flex items-center gap-2 rounded-md border border-line px-2.5 py-1.5 text-sm">
+                  <input type="checkbox" class="accent-input" checked={!!f.data?.auto_start} onchange={() => toggleAutoStart(f)} />
+                  <span class="min-w-0 flex-1 truncate">{f.data?.label}</span>
+                </label>
+              {/each}
+            </div>
+          {/if}
+        </div>
+      </div>
       {/if}
     </form>
   {/if}

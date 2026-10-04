@@ -1,10 +1,11 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import type { HTMLInputAttributes } from "svelte/elements";
-  import { ArrowLeft, Eye, EyeOff, FileInput, FolderOpen, FolderPlus, FolderSearch, KeyRound, Lock, ShieldCheck, Smartphone } from "lucide-svelte";
+  import { ArrowLeft, Eye, EyeOff, FileInput, FolderOpen, FolderPlus, FolderSearch, History, KeyRound, Lock, ShieldCheck, Smartphone, X } from "lucide-svelte";
   import { pickFolder } from "$lib/api";
   import StrengthMeter from "./StrengthMeter.svelte";
   import { ui } from "$lib/stores/ui.svelte";
+  import { settings } from "$lib/stores/settings.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
   import { errorMessage, isApiError } from "$lib/types";
 
@@ -56,14 +57,45 @@
     try {
       await vaultStore.setPath(dir);
       if (vaultStore.status.state === "needs_setup") error = "There is no vault in that folder. Create one instead, or pick another folder.";
+      else settings.markRecentVault(dir);
     } catch (e) {
       error = errorMessage(e);
     }
   }
 
-  function finished() {
+  /** Just the folder's own name, for a short label; the full path is the title. */
+  function folderName(p: string): string {
+    return p.split(/[\\/]/).filter(Boolean).at(-1) ?? p;
+  }
+
+  async function openRecentVault(vaultPath: string) {
+    error = null;
+    busy = true;
+    try {
+      await vaultStore.setPath(vaultPath);
+      if (vaultStore.status.state === "needs_setup") {
+        error = "There is no vault in that folder anymore.";
+        settings.forgetRecentVault(vaultPath);
+        return;
+      }
+      go("open");
+      if (remembered) await unlockWithDevice(true);
+    } catch (e) {
+      error = errorMessage(e);
+    } finally {
+      busy = false;
+    }
+  }
+
+  function finished(created = false) {
     password = confirm = recoveryKey = "";
     if (importAfter) ui.modal = { kind: "import-ssh-config" };
+    else if (created) {
+      // A brand-new, empty vault: offer a way in, and don't leave the
+      // terminal area looking broken with nothing open.
+      ui.modal = { kind: "onboarding" };
+      ui.openLocal();
+    }
   }
 
   async function create(e: SubmitEvent) {
@@ -82,7 +114,7 @@
         }
       }
       await vaultStore.create(password, withRecovery, remember);
-      finished();
+      finished(true);
     } catch (err) {
       error = errorMessage(err);
     } finally {
@@ -214,6 +246,32 @@
           <span><span class="block text-sm font-medium">Import SSH Config</span><span class="text-xs text-fg-muted">Create a vault, then bring in hosts from ~/.ssh/config</span></span>
         </button>
       </div>
+      {#if settings.recentVaults.length}
+        <div class="mt-5">
+          <div class="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-fg-muted">
+            <History size={11} /> Recent vaults
+          </div>
+          <div class="space-y-1">
+            {#each settings.recentVaults as p (p)}
+              <div class="group relative flex items-center rounded-md hover:bg-panel-hover">
+                <button class="min-w-0 flex-1 truncate rounded-md px-2 py-1.5 text-left text-xs" title={p} disabled={busy} onclick={() => openRecentVault(p)}>
+                  {folderName(p)}
+                  <span class="block truncate text-fg-muted/70">{p}</span>
+                </button>
+                <button
+                  class="icon-btn reveal mr-1 h-6 w-6 shrink-0"
+                  title="Remove from this list"
+                  aria-label="Remove {folderName(p)} from recent vaults"
+                  onclick={(e) => { e.stopPropagation(); settings.forgetRecentVault(p); }}
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            {/each}
+          </div>
+        </div>
+      {/if}
+      <div class="mt-3">{@render problem()}</div>
     {:else}
       <button class="btn-ghost -ml-2 mb-3 py-1 text-xs" onclick={() => go(screen === "forgot" ? "open" : "home")}>
         <ArrowLeft size={13} /> Back
