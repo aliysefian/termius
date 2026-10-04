@@ -31,6 +31,7 @@
   import SettingsPanel from "$lib/components/SettingsPanel.svelte";
   import SnippetForm from "$lib/components/SnippetForm.svelte";
   import SnippetsPanel from "$lib/components/SnippetsPanel.svelte";
+  import StatusBar from "$lib/components/StatusBar.svelte";
   import TerminalArea from "$lib/components/TerminalArea.svelte";
   import UnlockScreen from "$lib/components/UnlockScreen.svelte";
   import CommandPalette from "$lib/components/CommandPalette.svelte";
@@ -42,7 +43,7 @@
   import SnippetVarsDialog from "$lib/components/SnippetVarsDialog.svelte";
   import { handleShortcut } from "$lib/shortcuts";
   import { settings } from "$lib/stores/settings.svelte";
-  import { PAGE_VIEWS, ui } from "$lib/stores/ui.svelte";
+  import { PAGE_VIEWS, paneLabel, ui } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
 
   let ready = $state(false);
@@ -57,6 +58,17 @@
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
+  });
+
+  // -- window title follows the active pane --------------------------------
+  const windowTitle = $derived.by(() => {
+    const tab = ui.activeTab;
+    const pane = tab?.panes.find((p) => p.id === tab.activePaneId) ?? tab?.panes[0];
+    if (!tab || !pane) return "SSHVault";
+    return `${tab.customTitle ?? paneLabel(pane.target).split(" · ")[0]} · SSHVault`;
+  });
+  $effect(() => {
+    void getCurrentWindow().setTitle(windowTitle).catch(() => {});
   });
 
   // -- quitting with live sessions asks first ------------------------------
@@ -115,7 +127,7 @@
 {:else if !vaultStore.unlocked}
   <UnlockScreen />
 {:else}
-  <div class="flex h-screen overflow-hidden {settings.prefs.density === 'compact' ? 'density-compact' : ''} {settings.prefs.focusMode ? 'focus-mode' : ''}">
+  <div class="flex h-screen flex-col overflow-hidden {settings.prefs.density === 'compact' ? 'density-compact' : ''} {settings.prefs.focusMode ? 'focus-mode' : ''}">
     {#if settings.prefs.focusMode}
       <button
         class="fixed right-2 top-1 z-40 rounded-md border border-line bg-panel/80 px-2 py-0.5 text-[11px] text-fg-muted opacity-40 hover:opacity-100"
@@ -123,6 +135,7 @@
         title="Leave focus mode (Ctrl+Shift+U)">Exit focus</button
       >
     {/if}
+    <div class="flex min-h-0 flex-1 overflow-hidden">
     {#if !settings.prefs.focusMode}
       <ActivityBar />
     {/if}
@@ -163,6 +176,8 @@
     {:else if ui.view === "vault"}
       <VaultPanel />
     {/if}
+    </div>
+    <StatusBar />
   </div>
 
   {#if ui.modal?.kind === "host"}

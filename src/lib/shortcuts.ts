@@ -39,6 +39,12 @@ export const ACTIONS: Action[] = [
   { id: "sidebar", label: "Hide or show the list panel", combo: "Ctrl+Shift+H", run: () => ui.toggleSidebar() },
   { id: "focus-mode", label: "Focus mode (toggle)", combo: "Ctrl+Shift+U", run: () => void (settings.prefs.focusMode = !settings.prefs.focusMode) },
   { id: "local-terminal", label: "New local terminal", combo: "Ctrl+Shift+`", run: () => ui.openLocal() },
+  // Alt+Shift, not plain Alt: bare Alt+Left/Right is readline's back/forward
+  // word jump, used constantly in a shell, so that combo stays free.
+  { id: "focus-pane-left", label: "Focus the pane to the left", combo: "Alt+Shift+ArrowLeft", run: () => ui.focusPane("left") },
+  { id: "focus-pane-right", label: "Focus the pane to the right", combo: "Alt+Shift+ArrowRight", run: () => ui.focusPane("right") },
+  { id: "focus-pane-up", label: "Focus the pane above", combo: "Alt+Shift+ArrowUp", run: () => ui.focusPane("up") },
+  { id: "focus-pane-down", label: "Focus the pane below", combo: "Alt+Shift+ArrowDown", run: () => ui.focusPane("down") },
   { id: "shortcuts", label: "Keyboard shortcuts", combo: "Ctrl+Shift+/", run: () => void (ui.modal = ui.modal?.kind === "shortcuts" ? null : { kind: "shortcuts" }) },
   { id: "prev-tab", label: "Previous tab", combo: "Ctrl+Shift+Tab", run: () => ui.cycleTab(-1) },
   { id: "next-tab", label: "Next tab", combo: "Ctrl+Tab", run: () => ui.cycleTab(1) },

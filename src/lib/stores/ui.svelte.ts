@@ -1,9 +1,10 @@
 // Ephemeral UI state: which sidebar view is active, open tabs, modals.
-import { MAX_PANES, grid, leaf, paneIds, remove, setRatio, split, type LayoutNode } from "$lib/layout";
+import { MAX_PANES, grid, layoutRects, leaf, paneIds, remove, setRatio, split, type LayoutNode } from "$lib/layout";
 import { askRemember } from "$lib/dialogs.svelte";
 import { settings } from "$lib/stores/settings.svelte";
 import type { AdhocTarget, SessionStatus } from "$lib/ssh";
 import type { SerialConfig, Uuid } from "$lib/types";
+import { vaultStore } from "$lib/stores/vault.svelte";
 
 export type View =
   | "hosts"
@@ -65,6 +66,15 @@ export interface PaneInfo {
   selectMode?: boolean;
   /** A command is running (shell integration saw its start but not its end). */
   running?: boolean;
+  /** Terminal size in character cells, kept live by the pane's onResize. */
+  cols?: number;
+  rows?: number;
+  /** Output arrived while this pane wasn't the one on screen. */
+  unread?: boolean;
+  /** The terminal bell rang while this pane wasn't the one on screen. */
+  bell?: boolean;
+  /** Bumped to ask this specific pane to reconnect, from outside it. */
+  reconnectRequest?: number;
 }
 
 export type Modal =
@@ -115,6 +125,26 @@ const nextId = (prefix: string) => `${prefix}-${++counter}-${Date.now().toString
 
 export function adhocLabel(a: Omit<AdhocTarget, "password">) {
   return `${a.username}@${a.hostname}${a.port !== 22 ? `:${a.port}` : ""}`;
+}
+
+/** One colour per connection state, shared by the tab strip and the status bar. */
+export const STATUS_DOT: Record<SessionStatus["kind"], string> = {
+  connected: "bg-success",
+  connecting: "bg-warning animate-pulse",
+  error: "bg-danger",
+  disconnected: "bg-fg-muted/50",
+  new_host_key: "bg-warning animate-pulse",
+  host_key_changed: "bg-danger",
+};
+
+/** What a pane's title/status-bar entry should say, given what it's connected to. */
+export function paneLabel(target: PaneTarget): string {
+  if (target.kind === "adhoc") return adhocLabel(target.adhoc);
+  if (target.kind === "local") return "Local shell";
+  if (target.kind === "telnet") return `telnet ${target.host}:${target.port}`;
+  if (target.kind === "serial") return `${target.config.path} · ${target.config.baud}`;
+  const h = vaultStore.hostById.get(target.hostId)?.data;
+  return h ? `${h.label} · ${h.hostname}` : "host removed";
 }
 
 class UiStore {
@@ -367,7 +397,21 @@ class UiStore {
     const tab = this.tabs.find((t) => t.id === id);
     if (!tab) return;
     const source = tab.panes.find((p) => p.id === tab.activePaneId) ?? tab.panes[0];
-    this.#openTab(structuredClone($state.snapshot(source.target)) as PaneTarget, tab.customTitle ?? tab.title);
+    this.duplicatePane(id, source.id);
+  }
+
+  /** Opens one pane's target in a new tab, whether or not it's the tab's active pane. */
+  duplicatePane(tabId: string, paneId: string) {
+    const tab = this.tabs.find((t) => t.id === tabId);
+    const pane = tab?.panes.find((p) => p.id === paneId);
+    if (!tab || !pane) return;
+    this.#openTab(structuredClone($state.snapshot(pane.target)) as PaneTarget, tab.customTitle ?? tab.title);
+  }
+
+  /** Asks a specific pane to reconnect, even if it isn't the active one. */
+  requestReconnect(paneId: string) {
+    const info = this.paneInfo[paneId];
+    this.paneInfo[paneId] = { ...(info ?? { status: "disconnected" }), reconnectRequest: (info?.reconnectRequest ?? 0) + 1 };
   }
 
   renameTab(id: string, title: string) {
@@ -418,6 +462,56 @@ class UiStore {
   resizeSplit(tabId: string, splitId: string, ratio: number) {
     const tab = this.tabs.find((t) => t.id === tabId);
     if (tab) tab.layout = setRatio($state.snapshot(tab.layout) as LayoutNode, splitId, ratio);
+  }
+
+  /**
+   * Moves the active pane to its spatial neighbour in a split (Alt+Arrow).
+   * Picks the closest pane whose centre lies in that direction, weighting a
+   * sideways offset more than distance so an aligned neighbour wins over a
+   * nearer but diagonal one.
+   */
+  focusPane(direction: "left" | "right" | "up" | "down") {
+    const tab = this.activeTab;
+    if (!tab || tab.panes.length < 2) return;
+    const rects = layoutRects($state.snapshot(tab.layout) as LayoutNode).panes;
+    const cur = rects.get(tab.activePaneId);
+    if (!cur) return;
+    const curCenter = { x: cur.x + cur.w / 2, y: cur.y + cur.h / 2 };
+    let best: string | null = null;
+    let bestScore = Infinity;
+    for (const [id, r] of rects) {
+      if (id === tab.activePaneId) continue;
+      const center = { x: r.x + r.w / 2, y: r.y + r.h / 2 };
+      const dx = center.x - curCenter.x;
+      const dy = center.y - curCenter.y;
+      let primary: number;
+      let perpendicular: number;
+      if (direction === "left" || direction === "right") {
+        primary = direction === "left" ? -dx : dx;
+        perpendicular = dy;
+      } else {
+        primary = direction === "up" ? -dy : dy;
+        perpendicular = dx;
+      }
+      if (primary <= 0.01) continue;
+      const score = primary + Math.abs(perpendicular) * 2;
+      if (score < bestScore) {
+        bestScore = score;
+        best = id;
+      }
+    }
+    if (best) tab.activePaneId = best;
+  }
+
+  /** Swaps two panes' targets, keeping their positions in the split. */
+  swapPanes(tabId: string, paneId: string, otherId: string) {
+    const tab = this.tabs.find((t) => t.id === tabId);
+    const a = tab?.panes.find((p) => p.id === paneId);
+    const b = tab?.panes.find((p) => p.id === otherId);
+    if (!a || !b) return;
+    const target = a.target;
+    a.target = b.target;
+    b.target = target;
   }
 
   /** Move a tab to `toIndex` (drag to reorder). */

@@ -1,8 +1,7 @@
 <script lang="ts">
   import { Copy, Download, ExternalLink, Loader2, Lock, Palette, RefreshCw, RotateCcw, ShieldAlert, SquareTerminal, TerminalSquare, X } from "lucide-svelte";
   import { onMount } from "svelte";
-  import type { CliStatus } from "$lib/types";
-  import { RELEASES_URL, formatSize, installHint, installUpdate, updates } from "$lib/stores/updates.svelte";
+    import { RELEASES_URL, formatSize, installHint, installUpdate, updates } from "$lib/stores/updates.svelte";
   import { openUrl } from "@tauri-apps/plugin-opener";
   import { SHELL_SNIPPETS } from "$lib/shellintegration";
   import { ui } from "$lib/stores/ui.svelte";
@@ -28,8 +27,7 @@
   let msg = $state<{ ok: boolean; text: string } | null>(null);
 
   // -- command line ------------------------------------------------------------
-  let cli = $state<CliStatus | null>(null);
-  onMount(() => void api.cli.status().then((s) => (cli = s)));
+  const cli = $derived(vaultStore.cliStatus);
   onMount(() => void updates.loadInfo());
   const isWindows = navigator.userAgent.includes("Windows");
   const aliasLine = $derived(
@@ -38,7 +36,7 @@
 
   async function toggleCli() {
     try {
-      cli = await api.cli.setEnabled(!cli?.enabled);
+      await vaultStore.setCliEnabled(!cli?.enabled);
     } catch (e) {
       msg = { ok: false, text: errorMessage(e) };
     }

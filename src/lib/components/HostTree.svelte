@@ -5,7 +5,7 @@
   import Spinner from "./Spinner.svelte";
   import { ui } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
-  import { buildTree, groupPaths, type HostSort } from "$lib/tree";
+  import { buildTree, flattenTree, groupPaths, type HostSort, type TreeRow } from "$lib/tree";
   import { ENVIRONMENTS } from "$lib/types";
   import { acceptsHost, dropHostInto } from "$lib/hostdrag.svelte";
   import HostTreeNode from "./HostTreeNode.svelte";
@@ -44,6 +44,108 @@
       .filter((h): h is NonNullable<typeof h> => !!h?.data)
       .slice(0, 5),
   );
+
+  // -- keyboard navigation -------------------------------------------------
+  // One flat, visibility-aware order (Recent first, then the real tree) so
+  // arrow keys, Home/End and type-ahead move through exactly what's drawn.
+  const recentRows = $derived<TreeRow[]>(recent.map((h) => ({ kind: "host", key: `r:${h.id}`, id: h.id, depth: 0, parentKey: null })));
+  const treeRows = $derived(flattenTree(tree, ui.collapsedGroups));
+  const navRows = $derived([...(!ui.search.trim() && !favoritesOnly ? recentRows : []), ...treeRows]);
+  let focusedKey = $state<string | null>(null);
+  const effectiveFocusedKey = $derived(focusedKey ?? navRows[0]?.key ?? null);
+  let treeEl = $state<HTMLDivElement>();
+
+  function rowName(row: TreeRow): string {
+    return row.kind === "group" ? row.name : (vaultStore.hostById.get(row.id)?.data?.label ?? "");
+  }
+
+  function focusRow(key: string | undefined) {
+    if (!key || !treeEl) return;
+    treeEl.querySelector<HTMLElement>(`[data-tree-key="${CSS.escape(key)}"]`)?.focus();
+  }
+
+  let typeAhead = "";
+  let typeAheadTimer: ReturnType<typeof setTimeout> | undefined;
+
+  function onTreeKeydown(e: KeyboardEvent) {
+    const idx = navRows.findIndex((r) => r.key === effectiveFocusedKey);
+    const row = navRows[idx];
+    switch (e.key) {
+      case "ArrowDown":
+        e.preventDefault();
+        focusRow(navRows[Math.min(idx + 1, navRows.length - 1)]?.key);
+        return;
+      case "ArrowUp":
+        e.preventDefault();
+        focusRow(navRows[Math.max(idx - 1, 0)]?.key);
+        return;
+      case "Home":
+        e.preventDefault();
+        focusRow(navRows[0]?.key);
+        return;
+      case "End":
+        e.preventDefault();
+        focusRow(navRows.at(-1)?.key);
+        return;
+      case "*":
+        e.preventDefault();
+        ui.expandAllGroups();
+        return;
+      case "ArrowRight":
+        if (!row || row.kind !== "group") return;
+        e.preventDefault();
+        if (ui.collapsedGroups.has(row.path)) ui.toggleGroup(row.path);
+        else focusRow(navRows[idx + 1]?.key);
+        return;
+      case "ArrowLeft":
+        if (!row) return;
+        e.preventDefault();
+        if (row.kind === "group" && !ui.collapsedGroups.has(row.path)) ui.toggleGroup(row.path);
+        else if (row.parentKey) focusRow(row.parentKey);
+        return;
+      case "Enter":
+        if (!row) return;
+        e.preventDefault();
+        if (row.kind === "host") ui.openTerminal(row.id, vaultStore.hostById.get(row.id)?.data?.label ?? "");
+        else ui.toggleGroup(row.path);
+        return;
+      case " ":
+        if (!row) return;
+        e.preventDefault();
+        if (row.kind === "host") ui.modal = { kind: "host-details", id: row.id };
+        else ui.toggleGroup(row.path);
+        return;
+      case "F2":
+        if (row?.kind === "host") {
+          e.preventDefault();
+          ui.modal = { kind: "host", id: row.id };
+        }
+        return;
+      case "Delete":
+        if (row?.kind === "host") {
+          e.preventDefault();
+          void vaultStore.requestDeleteHost(row.id);
+        }
+        return;
+    }
+    // Type-ahead: letters/digits jump to the next row starting with what
+    // was typed, buffering consecutive keystrokes like a native listbox.
+    if (e.key.length === 1 && /[a-z0-9]/i.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      e.preventDefault();
+      clearTimeout(typeAheadTimer);
+      typeAhead += e.key.toLowerCase();
+      typeAheadTimer = setTimeout(() => (typeAhead = ""), 600);
+      const query = typeAhead;
+      const n = navRows.length;
+      for (let step = 1; step <= n; step++) {
+        const row = navRows[(idx + step) % n];
+        if (rowName(row).toLowerCase().startsWith(query)) {
+          focusRow(row.key);
+          return;
+        }
+      }
+    }
+  }
 </script>
 
 <aside class="flex min-w-0 flex-1 flex-col border-r border-line bg-panel">
@@ -112,9 +214,15 @@
 
   <!-- Dropping a host on empty space moves it to the top level. -->
   <div
+    bind:this={treeEl}
     class="flex-1 overflow-y-auto px-2 pb-4 {rootDrop ? 'bg-accent/5' : ''}"
     role="tree"
     tabindex="-1"
+    onkeydown={onTreeKeydown}
+    onfocusin={(e) => {
+      const key = (e.target as HTMLElement).closest("[data-tree-key]")?.getAttribute("data-tree-key");
+      if (key) focusedKey = key;
+    }}
     ondragover={(e) => {
       if (acceptsHost(e)) {
         e.preventDefault();
@@ -150,12 +258,12 @@
             <Clock size={11} /> Recent
           </div>
           {#each recent as host (host.id)}
-            <HostRow {host} depth={0} />
+            <HostRow {host} depth={0} treeKey="r:{host.id}" focused={`r:${host.id}` === effectiveFocusedKey} />
           {/each}
           <div class="mx-2 mt-2 border-t border-line"></div>
         </div>
       {/if}
-      <HostTreeNode node={tree} depth={0} />
+      <HostTreeNode node={tree} depth={0} {effectiveFocusedKey} />
     {/if}
   </div>
 </aside>

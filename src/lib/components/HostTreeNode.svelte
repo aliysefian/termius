@@ -8,7 +8,7 @@
   import HostTreeNode from "./HostTreeNode.svelte";
   import HostRow from "./HostRow.svelte";
 
-  let { node, depth }: { node: GroupNode; depth: number } = $props();
+  let { node, depth, effectiveFocusedKey = null }: { node: GroupNode; depth: number; effectiveFocusedKey?: string | null } = $props();
   const indent = $derived(`${depth * 12 + 8}px`);
 
   function allHosts(n: GroupNode): GroupNode["hosts"] {
@@ -31,11 +31,18 @@
 
 {#each node.children as child (child.path)}
   {@const collapsed = ui.collapsedGroups.has(child.path)}
+  {@const key = `g:${child.path}`}
+  {@const focused = key === effectiveFocusedKey}
   <div>
     <div
       class="group relative flex items-center gap-1.5 rounded-md py-1 pr-1 text-sm text-fg-muted hover:bg-panel-hover {dropTarget === child.path ? 'bg-accent/15 ring-1 ring-accent' : ''}"
       style:padding-left={indent}
-      role="group"
+      role="treeitem"
+      aria-expanded={!collapsed}
+      aria-selected={false}
+      aria-level={depth + 1}
+      data-tree-key={key}
+      tabindex={focused ? 0 : -1}
       ondragover={(e) => {
         if (acceptsHost(e)) {
           e.preventDefault();
@@ -48,7 +55,7 @@
         void dropHostInto(e, child.path);
       }}
     >
-      <button class="flex min-w-0 flex-1 items-center gap-1.5 text-left" onclick={() => ui.toggleGroup(child.path)}>
+      <button class="flex min-w-0 flex-1 items-center gap-1.5 text-left" tabindex="-1" onclick={() => ui.toggleGroup(child.path)}>
         {#if collapsed}<ChevronRight size={14} class="shrink-0" />{:else}<ChevronDown size={14} class="shrink-0" />{/if}
         {#if collapsed}<Folder size={14} class="shrink-0 text-accent" />{:else}<FolderOpen size={14} class="shrink-0 text-accent" />{/if}
         <span class="truncate font-medium text-fg">{child.name}</span>
@@ -79,11 +86,11 @@
       </div>
     </div>
     {#if !collapsed}
-      <HostTreeNode node={child} depth={depth + 1} />
+      <HostTreeNode node={child} depth={depth + 1} {effectiveFocusedKey} />
     {/if}
   </div>
 {/each}
 
 {#each node.hosts as host (host.id)}
-  <HostRow {host} {depth} />
+  <HostRow {host} {depth} treeKey="h:{host.id}" focused={`h:${host.id}` === effectiveFocusedKey} />
 {/each}

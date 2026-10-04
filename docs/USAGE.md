@@ -259,9 +259,21 @@ connection too. Outside a terminal, **Ctrl+K** also opens it.
 | Ctrl+Shift+/ | Keyboard shortcuts (and rebinding them) |
 | Ctrl+Shift+↑ / ↓ | Previous / next prompt (with shell integration) |
 | Ctrl+Shift+` | New local terminal |
+| Alt+Shift+arrows | Focus the pane to the left/right/up/down in a split |
+| Shift+End | Jump a terminal to the bottom |
 
 Plain Ctrl shortcuts such as Ctrl+W, Ctrl+T and Ctrl+K go to the remote
-shell, where editors and readline use them.
+shell, where editors and readline use them. Pane navigation uses Alt+Shift,
+not plain Alt, so it doesn't take over Alt+Left/Right, which readline uses
+for back/forward-a-word.
+
+A split's divider can be dragged, or focused (Tab) and resized with the
+arrow keys; double-click or Home/Enter centres it.
+
+The host list is a full keyboard tree: arrow keys move between hosts and
+groups, Left/Right collapses or expands a group, Home/End jump to the top
+or bottom, typing jumps to the next matching name, F2 edits the focused
+host and Delete removes it (after confirming).
 
 ## Snippets
 

@@ -23,6 +23,30 @@ export function groupPaths(node: GroupNode): string[] {
   return node.children.flatMap((c) => [c.path, ...groupPaths(c)]);
 }
 
+/** One row of a flattened tree, in the same order the tree renders them. */
+export type TreeRow =
+  | { kind: "group"; key: string; path: string; name: string; depth: number; parentKey: string | null }
+  | { kind: "host"; key: string; id: string; depth: number; parentKey: string | null };
+
+/**
+ * Flattens a tree into the order it's drawn in, respecting which groups are
+ * collapsed, so arrow-key navigation can move through exactly what's on
+ * screen. Each child group (with its subtree, if expanded) comes before
+ * this node's own hosts, matching HostTreeNode's render order.
+ */
+export function flattenTree(node: GroupNode, collapsed: ReadonlySet<string>, depth = 0, parentKey: string | null = null): TreeRow[] {
+  const rows: TreeRow[] = [];
+  for (const child of node.children) {
+    const key = `g:${child.path}`;
+    rows.push({ kind: "group", key, path: child.path, name: child.name, depth, parentKey });
+    if (!collapsed.has(child.path)) rows.push(...flattenTree(child, collapsed, depth + 1, key));
+  }
+  for (const host of node.hosts) {
+    rows.push({ kind: "host", key: `h:${host.id}`, id: host.id, depth, parentKey });
+  }
+  return rows;
+}
+
 /** Fold a flat host list into a tree keyed by each host's slash-separated group path. */
 export function buildTree(hosts: VaultRecord<Host>[], sortBy: HostSort | HostComparator = "name"): GroupNode {
   const root: GroupNode = { name: "", path: "", children: [], hosts: [] };

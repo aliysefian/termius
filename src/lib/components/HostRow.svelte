@@ -7,11 +7,10 @@
   import { envInfo, errorMessage } from "$lib/types";
   import { hostDragStart } from "$lib/hostdrag.svelte";
   import { ui } from "$lib/stores/ui.svelte";
-  import { ask } from "$lib/dialogs.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
   import type { Host, VaultRecord } from "$lib/types";
 
-  let { host, depth }: { host: VaultRecord<Host>; depth: number } = $props();
+  let { host, depth, treeKey, focused }: { host: VaultRecord<Host>; depth: number; treeKey: string; focused: boolean } = $props();
   const d = $derived(host.data!);
   const identityId = $derived(vaultStore.effectiveIdentity(d));
   const identity = $derived(identityId ? vaultStore.identityById.get(identityId)?.data : undefined);
@@ -67,32 +66,27 @@
     }
   }
 
-  async function remove(e: MouseEvent) {
+  function remove(e: MouseEvent) {
     e.stopPropagation();
-    const dependents = vaultStore.hosts.filter((h) => h.data?.jump_host_id === host.id).length;
-    const note = dependents ? ` ${dependents} host(s) use it as a jump host and will connect directly instead.` : "";
-    if (!await ask(`Delete host "${d.label}"?${note}`)) return;
-    await vaultStore.deleteHost(host.id).catch((err) => ui.notify("error", errorMessage(err)));
+    void vaultStore.requestDeleteHost(host.id);
   }
 </script>
 
+<!-- Enter/Space/F2/Delete/arrows are handled by the tree container's keydown
+     (HostTree.svelte), which sees this row's keydowns bubble up to it. -->
+<!-- svelte-ignore a11y_click_events_have_key_events -->
 <div
   class="host-row group relative flex cursor-pointer items-center gap-2.5 rounded-md py-1.5 pr-1 {selected ? 'bg-accent/15 ring-1 ring-inset ring-accent/40' : 'hover:bg-panel-hover'}"
-  aria-pressed={selected}
+  aria-selected={selected}
+  aria-level={depth + 1}
+  data-tree-key={treeKey}
   onclick={click}
   style:padding-left={indent}
-  role="button"
-  tabindex="0"
+  role="treeitem"
+  tabindex={focused ? 0 : -1}
   draggable="true"
   ondragstart={(e) => hostDragStart(e, host.id)}
   ondblclick={connect}
-  onkeydown={(e) => {
-    if (e.key === "Enter") connect();
-    else if (e.key === " ") {
-      e.preventDefault();
-      ui.modal = { kind: "host-details", id: host.id };
-    }
-  }}
   title="Double-click to connect, Space for details, Ctrl+click to select. {usageText}"
 >
   <span class="ml-4 h-2 w-2 shrink-0 rounded-full {d.color ? '' : 'bg-accent'}" style:background={d.color || undefined}></span>

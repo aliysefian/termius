@@ -1,14 +1,17 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import { keepInView } from "$lib/actions";
-  import { Circle, Columns2, Command, FolderSync, Keyboard, Maximize2, Minimize2, Plus, Rows2, SquareTerminal, Terminal, TextSelect, X, Zap } from "lucide-svelte";
+  import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+  import { sshCommand } from "$lib/sshcmd";
+  import { ArrowLeftRight, BellRing, Check, Circle, Columns2, Command, Copy, Ellipsis, FolderSync, Keyboard, List, Loader2, Maximize2, Minimize2, Plus, RefreshCw, Rows2, Search, SquareTerminal, Terminal, TextSelect, X, Zap } from "lucide-svelte";
   import Badge from "./Badge.svelte";
   import Kbd from "./Kbd.svelte";
   import { save } from "@tauri-apps/plugin-dialog";
   import * as api from "$lib/api";
-  import { MAX_PANES, layoutRects, type Divider } from "$lib/layout";
+  import { MAX_PANES, MIN_RATIO, layoutRects, type Divider } from "$lib/layout";
   import { settings } from "$lib/stores/settings.svelte";
   import { ask } from "$lib/dialogs.svelte";
-  import { adhocLabel, ui, type Pane, type Tab } from "$lib/stores/ui.svelte";
+  import { paneLabel, STATUS_DOT, ui, type Pane, type Tab } from "$lib/stores/ui.svelte";
   import { writeToPane } from "$lib/terminalio";
   import { envInfo } from "$lib/types";
   import { vaultStore } from "$lib/stores/vault.svelte";
@@ -22,15 +25,14 @@
   let tabMenu = $state<{ id: string; x: number; y: number } | null>(null);
   let dragTab = $state<string | null>(null);
   let dropIndex = $state<number | null>(null);
+  let tabStrip = $state<HTMLDivElement>();
+  let overflowing = $state(false);
+  let atStart = $state(true);
+  let atEnd = $state(true);
+  let tabListOpen = $state<{ x: number; y: number } | null>(null);
+  let tabListQuery = $state("");
+  let paneMenu = $state<{ tabId: string; paneId: string; x: number; y: number } | null>(null);
 
-  function paneLabel(p: Pane) {
-    if (p.target.kind === "adhoc") return adhocLabel(p.target.adhoc);
-    if (p.target.kind === "local") return "Local shell";
-    if (p.target.kind === "telnet") return `telnet ${p.target.host}:${p.target.port}`;
-    if (p.target.kind === "serial") return `${p.target.config.path} · ${p.target.config.baud}`;
-    const h = vaultStore.hostById.get(p.target.hostId)?.data;
-    return h ? `${h.label} · ${h.hostname}` : "host removed";
-  }
 
   function paneEnv(p: Pane) {
     return p.target.kind === "host" ? envInfo(vaultStore.hostById.get(p.target.hostId)?.data?.environment) : envInfo("");
@@ -46,7 +48,7 @@
 
   async function toggleSync(t: Tab) {
     if (!t.syncInput && hasProd(t)) {
-      const names = t.panes.filter((p) => paneEnv(p).value === "production").map((p) => paneLabel(p).split(" · ")[0]);
+      const names = t.panes.filter((p) => paneEnv(p).value === "production").map((p) => paneLabel(p.target).split(" · ")[0]);
       if (!await ask(`This tab includes production hosts:\n\n${names.join("\n")}\n\nType into all panes at once anyway?`)) return;
     }
     t.syncInput = !t.syncInput;
@@ -73,13 +75,6 @@
     return p?.target.kind === "host" ? vaultStore.hostById.get(p.target.hostId)?.data?.color : undefined;
   }
 
-  const dot: Record<string, string> = {
-    connected: "bg-success",
-    connecting: "bg-warning animate-pulse",
-    error: "bg-danger",
-    disconnected: "bg-fg-muted/50",
-  };
-
   function startRename(t: Tab) {
     renaming = t.id;
     renameValue = t.customTitle ?? t.title;
@@ -92,11 +87,21 @@
 
   // -- divider dragging ------------------------------------------------------
 
+  /** The divider's own current ratio, worked back out of where it's drawn. */
+  function dividerRatio(d: Divider): number {
+    return d.dir === "row" ? (d.at.x - d.area.x) / d.area.w : (d.at.y - d.area.y) / d.area.h;
+  }
+
+  /** Escape mid-drag puts the split back where it started. */
+  let dividerCancel: (() => void) | null = null;
+
   function startResize(e: PointerEvent, t: Tab, d: Divider, container: HTMLElement) {
     e.preventDefault();
     const el = e.currentTarget as HTMLElement;
     el.setPointerCapture(e.pointerId);
+    el.focus();
     const box = container.getBoundingClientRect();
+    const startRatio = dividerRatio(d);
     const move = (ev: PointerEvent) => {
       const ratio =
         d.dir === "row"
@@ -105,11 +110,31 @@
       ui.resizeSplit(t.id, d.splitId, ratio);
     };
     const up = () => {
+      dividerCancel = null;
       el.removeEventListener("pointermove", move);
       el.removeEventListener("pointerup", up);
     };
     el.addEventListener("pointermove", move);
     el.addEventListener("pointerup", up);
+    dividerCancel = () => {
+      ui.resizeSplit(t.id, d.splitId, startRatio);
+      up();
+    };
+  }
+
+  /** Arrow keys nudge the split; Home/Enter centres it; double-click centres it too. */
+  function dividerKeydown(e: KeyboardEvent, t: Tab, d: Divider) {
+    const horizontal = d.dir === "row";
+    const isForward = horizontal ? e.key === "ArrowRight" : e.key === "ArrowDown";
+    const isBack = horizontal ? e.key === "ArrowLeft" : e.key === "ArrowUp";
+    if (isForward || isBack) {
+      e.preventDefault();
+      const step = e.shiftKey ? 0.1 : 0.02;
+      ui.resizeSplit(t.id, d.splitId, dividerRatio(d) + (isForward ? step : -step));
+    } else if (e.key === "Home" || e.key === "Enter") {
+      e.preventDefault();
+      ui.resizeSplit(t.id, d.splitId, 0.5);
+    }
   }
 
   // -- session logs -------------------------------------------------------------
@@ -123,7 +148,7 @@
       return;
     }
     const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
-    const name = paneLabel(p).split(" · ")[0].replace(/[^\w.@-]+/g, "_");
+    const name = paneLabel(p.target).split(" · ")[0].replace(/[^\w.@-]+/g, "_");
     const path = await save({
       title: "Record session to…",
       defaultPath: `${name}-${stamp}.log`,
@@ -132,8 +157,36 @@
     if (!path) return;
     try {
       const raw = settings.prefs.logRaw;
-      await api.sessionLogs.start(p.id, path, !raw, `# SSHVault session log: ${paneLabel(p)}, started ${new Date().toLocaleString()}`);
+      await api.sessionLogs.start(p.id, path, !raw, `# SSHVault session log: ${paneLabel(p.target)}, started ${new Date().toLocaleString()}`);
       ui.paneInfo[p.id] = { ...(ui.paneInfo[p.id] ?? { status: "connected" }), recording: path };
+    } catch (e) {
+      ui.notify("error", errorMessage(e));
+    }
+  }
+
+  // -- pane overflow menu -------------------------------------------------------
+
+  function openPaneMenu(e: MouseEvent, tabId: string, paneId: string) {
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    paneMenu = { tabId, paneId, x: r.right, y: r.bottom + 4 };
+  }
+
+  async function copyPaneSsh(p: Pane) {
+    if (p.target.kind !== "host") return;
+    const host = vaultStore.hostById.get(p.target.hostId)?.data;
+    if (!host) return;
+    const cmd = sshCommand({
+      host,
+      hostId: p.target.hostId,
+      hostById: vaultStore.hostById,
+      identityById: vaultStore.identityById,
+      identityFor: (h) => vaultStore.effectiveIdentity(h),
+      jumpFor: (h, id) => vaultStore.effectiveJump(h, id),
+      proxyFor: (h) => vaultStore.proxyById.get(vaultStore.effectiveProxy(h) ?? "")?.data?.spec,
+    });
+    try {
+      await writeText(cmd);
+      ui.notify("info", `Copied: ${cmd}`);
     } catch (e) {
       ui.notify("error", errorMessage(e));
     }
@@ -157,13 +210,63 @@
     dragTab = null;
     dropIndex = null;
   }
+
+  // -- overflow: a fade on either scrolled edge, and a searchable list of
+  // every tab once there are too many to see at once -------------------------
+
+  function checkScroll() {
+    if (!tabStrip) return;
+    overflowing = tabStrip.scrollWidth > tabStrip.clientWidth + 1;
+    atStart = tabStrip.scrollLeft <= 1;
+    atEnd = tabStrip.scrollLeft + tabStrip.clientWidth >= tabStrip.scrollWidth - 1;
+  }
+
+  onMount(() => {
+    if (!tabStrip) return;
+    const ro = new ResizeObserver(checkScroll);
+    ro.observe(tabStrip);
+    tabStrip.addEventListener("scroll", checkScroll, { passive: true });
+    checkScroll();
+    return () => {
+      ro.disconnect();
+      tabStrip?.removeEventListener("scroll", checkScroll);
+    };
+  });
+
+  // The strip's content width changes whenever a tab opens, closes or is
+  // renamed; recheck once the DOM has caught up.
+  $effect(() => {
+    ui.tabs.length;
+    queueMicrotask(checkScroll);
+  });
+
+  const filteredTabs = $derived(
+    tabListQuery.trim() ? ui.tabs.filter((t) => (t.customTitle ?? t.title).toLowerCase().includes(tabListQuery.trim().toLowerCase())) : ui.tabs,
+  );
+
+  function openTabList(e: MouseEvent) {
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    tabListQuery = "";
+    tabListOpen = { x: r.left, y: r.bottom + 4 };
+  }
 </script>
 
-<svelte:window onkeydown={(e) => { if (tabMenu && e.key === "Escape") tabMenu = null; }} onresize={() => (tabMenu = null)} />
+<svelte:window
+  onkeydown={(e) => {
+    if (e.key !== "Escape") return;
+    if (dividerCancel) dividerCancel();
+    else if (tabMenu) tabMenu = null;
+    else if (tabListOpen) tabListOpen = null;
+    else if (paneMenu) paneMenu = null;
+  }}
+  onresize={() => { tabMenu = null; tabListOpen = null; paneMenu = null; checkScroll(); }}
+/>
 
 <section class="flex min-w-0 flex-1 flex-col bg-base">
   {#if ui.tabs.length > 0 && !settings.prefs.focusMode}
-    <div class="flex h-10 items-end gap-0.5 overflow-x-auto border-b border-line bg-panel px-2" role="tablist" tabindex="-1" ondrop={onTabDrop} ondragover={(e) => dragTab && e.preventDefault()}>
+    <div class="flex h-10 items-stretch border-b border-line bg-panel">
+    <div class="relative min-w-0 flex-1">
+    <div bind:this={tabStrip} class="flex h-10 items-end gap-0.5 overflow-x-auto px-2" role="tablist" tabindex="-1" ondrop={onTabDrop} ondragover={(e) => dragTab && e.preventDefault()}>
       {#each ui.tabs as t, i (t.id)}
         {@const color = tabColor(t)}
         <div
@@ -203,7 +306,7 @@
           {#if t.id === ui.activeTabId}
             <span class="absolute inset-x-2 top-0 h-0.5 rounded-b" style:background={color ?? "var(--color-accent)"}></span>
           {/if}
-          <span class="h-2 w-2 shrink-0 rounded-full {dot[ui.tabStatus(t)]}"></span>
+          <span class="h-2 w-2 shrink-0 rounded-full {STATUS_DOT[ui.tabStatus(t)]}"></span>
           {#if renaming === t.id}
             <!-- svelte-ignore a11y_autofocus -->
             <input
@@ -229,6 +332,14 @@
           {#if t.panes.some((p) => ui.paneInfo[p.id]?.recording)}
             <Circle size={8} class="shrink-0 fill-danger text-danger" />
           {/if}
+          {#if t.id !== ui.activeTabId && t.panes.some((p) => ui.paneInfo[p.id]?.running)}
+            <Loader2 size={11} class="shrink-0 animate-spin text-fg-muted" aria-label="A command is running" />
+          {/if}
+          {#if t.id !== ui.activeTabId && t.panes.some((p) => ui.paneInfo[p.id]?.bell)}
+            <BellRing size={11} class="shrink-0 text-warning" aria-label="Bell" />
+          {:else if t.id !== ui.activeTabId && t.panes.some((p) => ui.paneInfo[p.id]?.unread)}
+            <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" aria-label="New output" title="New output"></span>
+          {/if}
           <button
             class="reveal rounded p-0.5 hover:bg-panel-hover {t.id === ui.activeTabId ? 'opacity-60' : ''}"
             onclick={(e) => { e.stopPropagation(); void ui.requestCloseTab(t.id); }}
@@ -245,11 +356,129 @@
       <button class="icon-btn mb-1 h-7 w-7 shrink-0" title="Local terminal (Ctrl+Shift+`)" onclick={() => ui.openLocal()}>
         <SquareTerminal size={15} />
       </button>
-      <div class="flex-1"></div>
-      <div class="flex h-10 items-center gap-0.5">
-        <button class="icon-btn h-8 w-8" title="Command palette (Ctrl+Shift+P)" onclick={() => (ui.paletteOpen = true)}><Command size={15} /></button>
-        <SnippetPicker />
+    </div>
+    {#if !atStart}
+      <div class="pointer-events-none absolute inset-y-0 left-0 w-6 bg-gradient-to-r from-panel to-transparent"></div>
+    {/if}
+    {#if !atEnd}
+      <div class="pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-panel to-transparent"></div>
+    {/if}
+    </div>
+    {#if overflowing}
+      <button class="icon-btn mb-1 h-7 w-7 shrink-0 self-end" title="List all tabs" aria-label="List all tabs" onclick={openTabList}>
+        <List size={15} />
+      </button>
+    {/if}
+    <div class="flex h-10 shrink-0 items-center gap-0.5 px-1">
+      <button class="icon-btn h-8 w-8" title="Command palette (Ctrl+Shift+P)" onclick={() => (ui.paletteOpen = true)}><Command size={15} /></button>
+      <SnippetPicker />
+    </div>
+    </div>
+  {/if}
+
+  {#if tabListOpen}
+    <button class="fixed inset-0 z-40 cursor-default" aria-label="Close menu" onclick={() => (tabListOpen = null)}></button>
+    <div class="fixed z-50 w-64 overflow-hidden rounded-md border border-line bg-panel shadow-2xl" use:keepInView={tabListOpen} role="menu">
+      <div class="relative border-b border-line p-1.5">
+        <Search size={12} class="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-fg-muted" />
+        <!-- svelte-ignore a11y_autofocus -->
+        <input
+          autofocus
+          class="input py-1 pl-7 text-xs"
+          placeholder="Filter tabs…"
+          bind:value={tabListQuery}
+          onkeydown={(e) => {
+            if (e.key === "Escape") {
+              e.stopPropagation();
+              tabListOpen = null;
+            } else if (e.key === "Enter" && filteredTabs[0]) {
+              ui.activeTabId = filteredTabs[0].id;
+              tabListOpen = null;
+            }
+          }}
+        />
       </div>
+      <div class="max-h-72 overflow-y-auto py-1">
+        {#each filteredTabs as t (t.id)}
+          <button
+            class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-panel-hover {t.id === ui.activeTabId ? 'text-accent' : ''}"
+            role="menuitem"
+            onclick={() => {
+              ui.activeTabId = t.id;
+              tabListOpen = null;
+            }}
+          >
+            <span class="h-2 w-2 shrink-0 rounded-full {STATUS_DOT[ui.tabStatus(t)]}"></span>
+            <span class="min-w-0 flex-1 truncate">{t.customTitle ?? t.title}</span>
+            {#if t.panes.some((p) => ui.paneInfo[p.id]?.unread)}<span class="h-1.5 w-1.5 shrink-0 rounded-full bg-accent"></span>{/if}
+          </button>
+        {:else}
+          <p class="px-3 py-4 text-center text-xs text-fg-muted">No matches.</p>
+        {/each}
+      </div>
+    </div>
+  {/if}
+
+  {#if paneMenu}
+    {@const pm = paneMenu}
+    {@const menuTab = ui.tabs.find((x) => x.id === pm.tabId)}
+    {@const menuPane = menuTab?.panes.find((x) => x.id === pm.paneId)}
+    {@const menuInfo = ui.paneInfo[pm.paneId]}
+    {@const menuMulti = (menuTab?.panes.length ?? 0) > 1}
+    {@const menuFull = menuTab?.zoomedPaneId === pm.paneId}
+    <button class="fixed inset-0 z-40 cursor-default" aria-label="Close menu" onclick={() => (paneMenu = null)} oncontextmenu={(e) => { e.preventDefault(); paneMenu = null; }}></button>
+    <div class="fixed z-50 w-56 rounded-md border border-line bg-panel py-1 text-sm shadow-2xl" use:keepInView={pm} role="menu">
+      {#if menuTab && menuPane}
+        {#if menuInfo?.status === "error" || menuInfo?.status === "disconnected"}
+          <button class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-panel-hover" role="menuitem" onclick={() => { ui.requestReconnect(menuPane.id); paneMenu = null; }}>
+            <RefreshCw size={13} /> Reconnect
+          </button>
+        {/if}
+        <button class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-panel-hover" role="menuitem" onclick={() => { ui.duplicatePane(menuTab.id, menuPane.id); paneMenu = null; }}>
+          <Copy size={13} /> Duplicate pane
+        </button>
+        {#if menuPane.target.kind === "host"}
+          {@const hid = menuPane.target.hostId}
+          <button class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-panel-hover" role="menuitem" onclick={() => { ui.openSftpAt(hid, menuInfo?.cwd ?? ""); paneMenu = null; }}>
+            <FolderSync size={13} /> Open SFTP here
+          </button>
+          <button class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-panel-hover" role="menuitem" onclick={() => { void copyPaneSsh(menuPane); paneMenu = null; }}>
+            <SquareTerminal size={13} /> Copy ssh command
+          </button>
+        {/if}
+        <div class="my-1 border-t border-line"></div>
+        {#if menuInfo?.mouseTracked}
+          <button class="flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left hover:bg-panel-hover {menuInfo.selectMode ? 'text-accent' : ''}" role="menuitem" onclick={() => { ui.paneInfo[menuPane.id] = { ...menuInfo, selectMode: !menuInfo.selectMode }; paneMenu = null; }}>
+            <span class="flex items-center gap-2"><TextSelect size={13} /> Select text with the mouse</span>
+            {#if menuInfo.selectMode}<Check size={13} />{/if}
+          </button>
+        {/if}
+        {#if menuMulti}
+          <button class="flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left hover:bg-panel-hover {menuTab.syncInput ? 'text-warning' : ''}" role="menuitem" onclick={() => { toggleSync(menuTab); paneMenu = null; }}>
+            <span class="flex items-center gap-2"><Keyboard size={13} /> Type into all panes</span>
+            {#if menuTab.syncInput}<Check size={13} />{/if}
+          </button>
+        {/if}
+        <button
+          class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-panel-hover disabled:opacity-40 disabled:hover:bg-transparent {menuInfo?.recording ? 'text-danger' : ''}"
+          role="menuitem"
+          disabled={menuInfo?.status !== "connected" && !menuInfo?.recording}
+          onclick={() => { toggleRecording(menuPane); paneMenu = null; }}
+        >
+          <Circle size={13} class={menuInfo?.recording ? "fill-danger" : ""} /> {menuInfo?.recording ? "Stop recording" : "Record session to a file"}
+        </button>
+        {#if menuMulti}
+          <button class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-panel-hover" role="menuitem" onclick={() => { ui.toggleZoom(menuTab.id, menuPane.id); paneMenu = null; }}>
+            {#if menuFull}<Minimize2 size={13} /> Restore the split{:else}<Maximize2 size={13} /> Maximize this pane{/if}
+          </button>
+        {/if}
+        {#if menuTab.panes.length === 2}
+          {@const other = menuTab.panes.find((p) => p.id !== menuPane.id)}
+          <button class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-panel-hover" role="menuitem" onclick={() => { if (other) ui.swapPanes(menuTab.id, menuPane.id, other.id); paneMenu = null; }}>
+            <ArrowLeftRight size={13} /> Swap panes
+          </button>
+        {/if}
+      {/if}
     </div>
   {/if}
 
@@ -316,7 +545,7 @@
               {#if env.value}
                 <Badge tone={"tone" in env ? env.tone : undefined}>{"short" in env ? env.short : ""}</Badge>
               {/if}
-              <span class="truncate">{paneLabel(pane)}</span>
+              <span class="truncate">{paneLabel(pane.target)}</span>
               {#if pane.target.kind === "telnet" || (pane.target.kind === "host" && vaultStore.hostById.get(pane.target.hostId)?.data?.protocol === "telnet")}
                 <Badge tone="warning" title="Telnet sends everything, including passwords, unencrypted">UNENCRYPTED</Badge>
               {/if}
@@ -328,41 +557,15 @@
                 {@const cwd = info.cwd}
                 <span class="truncate font-mono text-fg-muted/70" title={cwd}>{cwd.replace(/^\/home\/[^/]+/, "~")}</span>
                 <button class="icon-btn h-6 w-6" title="Browse {cwd} in SFTP" onclick={() => ui.openSftpAt(hid, cwd)}><FolderSync size={12} /></button>
-                <button class="icon-btn h-6 w-6" title="New tab in {cwd}" onclick={() => ui.openTerminal(hid, paneLabel(pane), `cd ${shellQuote(cwd)}`)}><SquareTerminal size={12} /></button>
+                <button class="icon-btn h-6 w-6" title="New tab in {cwd}" onclick={() => ui.openTerminal(hid, paneLabel(pane.target), `cd ${shellQuote(cwd)}`)}><SquareTerminal size={12} /></button>
               {/if}
               <div class="flex-1"></div>
-              {#if info?.mouseTracked}
-                <button
-                  class="icon-btn h-6 w-6 {info.selectMode ? 'text-accent' : ''}"
-                  title={info.selectMode ? "Give the mouse back to the program (tmux, vim…)" : "Select text with the mouse even though the program is using it"}
-                  aria-pressed={!!info.selectMode}
-                  onclick={() => (ui.paneInfo[pane.id] = { ...info, selectMode: !info.selectMode })}
-                >
-                  <TextSelect size={13} />
-                </button>
+              {#if info?.recording}
+                <span title="Recording to {info.recording}"><Circle size={10} class="shrink-0 fill-danger text-danger animate-pulse" aria-label="Recording" /></span>
               {/if}
-              {#if multi}
-                <button
-                  class="icon-btn h-6 w-6 {t.syncInput ? 'text-warning' : ''}"
-                  title={t.syncInput ? "Stop typing into all panes (Ctrl+Shift+B)" : "Type into all panes at once (Ctrl+Shift+B)"}
-                  onclick={() => toggleSync(t)}
-                >
-                  <Keyboard size={13} />
-                </button>
-              {/if}
-              <button
-                class="icon-btn h-6 w-6 {info?.recording ? 'text-danger' : ''}"
-                title={info?.recording ? `Stop recording (${info.recording})` : "Record session to a file"}
-                disabled={info?.status !== "connected" && !info?.recording}
-                onclick={() => toggleRecording(pane)}
-              >
-                <Circle size={11} class={info?.recording ? "fill-danger animate-pulse" : ""} />
+              <button class="icon-btn h-6 w-6" title="More pane actions" aria-label="More pane actions" onclick={(e) => openPaneMenu(e, t.id, pane.id)}>
+                <Ellipsis size={14} />
               </button>
-              {#if multi}
-                <button class="icon-btn h-6 w-6 {full ? 'text-accent' : ''}" title={full ? "Restore the split (Ctrl+Shift+Enter)" : "Maximize this pane (Ctrl+Shift+Enter)"} onclick={() => ui.toggleZoom(t.id, pane.id)}>
-                  {#if full}<Minimize2 size={13} />{:else}<Maximize2 size={13} />{/if}
-                </button>
-              {/if}
               {#if t.panes.length < MAX_PANES}
                 <button class="icon-btn h-6 w-6" title="Split right (Ctrl+Shift+D)" onclick={() => { t.activePaneId = pane.id; ui.splitActive("vertical"); }}><Columns2 size={13} /></button>
                 <button class="icon-btn h-6 w-6" title="Split down (Ctrl+Shift+E)" onclick={() => { t.activePaneId = pane.id; ui.splitActive("horizontal"); }}><Rows2 size={13} /></button>
@@ -381,17 +584,26 @@
       {/each}
 
       {#each zoomed ? [] : rects.dividers as d (d.splitId)}
+        <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
         <div
-          class="group absolute z-10 flex items-center justify-center {d.dir === 'row' ? 'cursor-col-resize' : 'cursor-row-resize'}"
+          class="group absolute z-10 flex items-center justify-center outline-none {d.dir === 'row' ? 'cursor-col-resize' : 'cursor-row-resize'}"
           style:left={d.dir === "row" ? `calc(${d.at.x}% - 3px)` : `${d.at.x}%`}
           style:top={d.dir === "row" ? `${d.at.y}%` : `calc(${d.at.y}% - 3px)`}
           style:width={d.dir === "row" ? "6px" : `${d.at.w}%`}
           style:height={d.dir === "row" ? `${d.at.h}%` : "6px"}
           role="separator"
           aria-orientation={d.dir === "row" ? "vertical" : "horizontal"}
+          aria-label="Resize split"
+          aria-valuenow={Math.round(dividerRatio(d) * 100)}
+          aria-valuemin={Math.round(MIN_RATIO * 100)}
+          aria-valuemax={Math.round((1 - MIN_RATIO) * 100)}
+          tabindex="0"
+          title="Drag to resize · double-click to centre"
           onpointerdown={(e) => startResize(e, t, d, (e.currentTarget as HTMLElement).parentElement!)}
+          ondblclick={() => ui.resizeSplit(t.id, d.splitId, 0.5)}
+          onkeydown={(e) => dividerKeydown(e, t, d)}
         >
-          <div class="bg-line transition-colors group-hover:bg-accent {d.dir === 'row' ? 'h-full w-px' : 'h-px w-full'}"></div>
+          <div class="bg-line transition-colors group-hover:bg-accent focus-visible:bg-accent {d.dir === 'row' ? 'h-full w-px' : 'h-px w-full'}"></div>
         </div>
       {/each}
     </div>

@@ -2,10 +2,13 @@
 // Populated from IPC on unlock and patched live by `vault:changed` events.
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import * as api from "$lib/api";
+import { ask } from "$lib/dialogs.svelte";
 import { ui } from "$lib/stores/ui.svelte";
 import {
   errorMessage,
   isApiError,
+  type AgentStatus,
+  type CliStatus,
   type Collection,
   type CreateResult,
   type HostGroup,
@@ -63,6 +66,9 @@ class VaultStore {
   pendingRecoveryKey = $state<string | null>(null);
   /** Live status per forwarding rule, pushed by the Rust side. */
   forwardStatus = $state<Record<Uuid, ForwardStatus>>({});
+  /** Shared so every view (Keys, Settings, the status bar) agrees without re-fetching. */
+  agentStatus = $state<AgentStatus | null>(null);
+  cliStatus = $state<CliStatus | null>(null);
   loading = $state(false);
   error = $state<string | null>(null);
 
@@ -166,6 +172,8 @@ class VaultStore {
         this.proxies,
         this.settings,
         this.workspaces,
+        this.agentStatus,
+        this.cliStatus,
       ] = await Promise.all([
         api.hosts.list(),
         api.identities.list(),
@@ -177,6 +185,8 @@ class VaultStore {
         api.proxies.list(),
         api.vault.getSettings(),
         api.workspaces.list(),
+        api.agent.status(),
+        api.cli.status(),
       ]);
       this.error = null;
     } catch (e) {
@@ -199,6 +209,8 @@ class VaultStore {
     this.openConflicts = 0;
     this.forwardStatus = {};
     this.health = {};
+    this.agentStatus = null;
+    this.cliStatus = null;
   }
 
   /** Called for every record the Rust watcher sees change on disk. */
@@ -240,6 +252,14 @@ class VaultStore {
   }
 
   // -- lifecycle --------------------------------------------------------
+
+  async setAgentEnabled(enabled: boolean) {
+    this.agentStatus = await api.agent.setEnabled(enabled);
+  }
+
+  async setCliEnabled(enabled: boolean) {
+    this.cliStatus = await api.cli.setEnabled(enabled);
+  }
 
   async setPath(path: string) {
     this.status = await api.vault.setPath(path);
@@ -341,6 +361,16 @@ class VaultStore {
           .then(() => this.reloadAll())
           .catch((e) => ui.notify("error", errorMessage(e))),
     });
+  }
+
+  /** Confirms (naming any hosts that use this one as a jump host), then deletes it. */
+  async requestDeleteHost(id: Uuid) {
+    const host = this.hostById.get(id)?.data;
+    if (!host) return;
+    const dependents = this.hosts.filter((h) => h.data?.jump_host_id === id).length;
+    const note = dependents ? ` ${dependents} host(s) use it as a jump host and will connect directly instead.` : "";
+    if (!(await ask(`Delete host "${host.label}"?${note}`))) return;
+    await this.deleteHost(id).catch((err) => ui.notify("error", errorMessage(err)));
   }
 
   async deleteHost(id: Uuid, baseRev?: number | null) {

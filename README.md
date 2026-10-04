@@ -45,6 +45,9 @@ Linux and Windows · Built with Rust, Tauri, Svelte and xterm.js
 ### Terminal
 - Tabs that stay connected in the background, up to six split panes per tab,
   pane maximize, and synchronized typing across panes
+- A status bar for the vault, SSH agent, CLI and tunnels; tabs show unread
+  output, a running command or a bell while in the background, with a
+  searchable tab list once they overflow the strip
 - Find, clickable links, copy on select, WebGL rendering, Ctrl+scroll zoom
 - Themes, including imported VS Code, Windows Terminal and iTerm2 schemes
 - Works with tmux and vim: select text while they own the mouse, scroll

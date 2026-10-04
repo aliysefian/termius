@@ -1,7 +1,6 @@
 <script lang="ts">
   import { BadgeCheck, Bot, ChevronDown, ChevronRight, Copy, Download, FileKey, KeyRound, Lock, Pencil, Plus, Sparkles, Trash2, Upload, Users } from "lucide-svelte";
   import Badge from "./Badge.svelte";
-  import { onMount } from "svelte";
   import { open, save } from "@tauri-apps/plugin-dialog";
   import { writeText } from "@tauri-apps/plugin-clipboard-manager";
   import Modal from "./Modal.svelte";
@@ -10,12 +9,11 @@
   import { withMasterPassword } from "$lib/secrets.svelte";
   import { ui } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
-  import { errorMessage, type AgentStatus, type AgentUse, type KeyAlgorithm, type KeyUsage, type SshKey, type Uuid, type VaultRecord } from "$lib/types";
+  import { errorMessage, type AgentUse, type KeyAlgorithm, type KeyUsage, type SshKey, type Uuid, type VaultRecord } from "$lib/types";
 
   // -- SSH agent -------------------------------------------------------------
-  let agent = $state<AgentStatus | null>(null);
+  const agent = $derived(vaultStore.agentStatus);
   const isWindows = navigator.userAgent.includes("Windows");
-  onMount(() => void api.agent.status().then((s) => (agent = s)));
   const offered = $derived(vaultStore.keys.filter((k) => k.data?.agent && k.data.agent !== "off").length);
   const exportLine = $derived(
     agent?.path ? (isWindows ? `$env:SSH_AUTH_SOCK = "${agent.path}"` : `export SSH_AUTH_SOCK=${agent.path}`) : "",
@@ -23,7 +21,7 @@
 
   async function toggleAgent() {
     try {
-      agent = await api.agent.setEnabled(!agent?.enabled);
+      await vaultStore.setAgentEnabled(!agent?.enabled);
     } catch (e) {
       ui.notify("error", errorMessage(e));
     }

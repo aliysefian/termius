@@ -222,6 +222,9 @@
   let findQuery = $state("");
   let findInput = $state<HTMLInputElement>();
   let menu = $state<{ x: number; y: number } | null>(null);
+  // Scrolled back into the buffer, with output since: offer a way back down.
+  let scrolledUp = $state(false);
+  let newOutputWhileScrolled = $state(false);
 
   /** The chosen theme, with a red cast on production hosts if enabled. */
   function paneTheme() {
@@ -343,7 +346,13 @@
     setInfo("connecting");
     term.clear();
     safeFit();
-    const onData = (bytes: Uint8Array) => term.write(bytes);
+    const onData = (bytes: Uint8Array) => {
+      term.write(bytes);
+      if (!active && !ui.paneInfo[paneId]?.unread) {
+        ui.paneInfo[paneId] = { ...(ui.paneInfo[paneId] ?? { status: status.kind }), unread: true };
+      }
+      if (scrolledUp) newOutputWhileScrolled = true;
+    };
     try {
       markRaw(paneId, isRaw);
       if (target.kind === "telnet") {
@@ -488,6 +497,11 @@
     // Terminal-local shortcuts. Returning false stops xterm from sending
     // the key to the remote shell.
     term.attachCustomKeyEventHandler((e) => {
+      // Shift+End jumps to the bottom, matching the "New output" pill's click.
+      if (e.type === "keydown" && e.shiftKey && !e.ctrlKey && !e.altKey && e.code === "End") {
+        term.scrollToBottom();
+        return false;
+      }
       if (e.type !== "keydown" || !e.ctrlKey || !e.shiftKey) return true;
       switch (e.code) {
         case "KeyC":
@@ -529,7 +543,10 @@
     // ends the drag, so programs that re-send the mode while redrawing
     // (Claude Code, tmux) made Shift+drag and select mode unusable.
     term.parser.registerCsiHandler({ prefix: "?", final: "h" }, (params) => redundantMouseEnable(params, term.modes.mouseTrackingMode));
-    term.onBell(() => void notifyDone(`Bell from ${label}`));
+    term.onBell(() => {
+      void notifyDone(`Bell from ${label}`);
+      if (!active) ui.paneInfo[paneId] = { ...(ui.paneInfo[paneId] ?? { status: status.kind }), bell: true };
+    });
 
     // Native paste (Ctrl+V, middle click): intercept before xterm sends it.
     container.addEventListener(
@@ -560,7 +577,12 @@
       else void writeToPane(pane, bytes);
     });
     term.onResize(({ cols, rows }) => {
+      ui.paneInfo[paneId] = { ...(ui.paneInfo[paneId] ?? { status: status.kind }), cols, rows };
       if (status.kind === "connected") void resizePane(pane, cols, rows);
+    });
+    term.onScroll((y) => {
+      scrolledUp = y < term.buffer.active.baseY;
+      if (!scrolledUp) newOutputWhileScrolled = false;
     });
     term.onSelectionChange(() => {
       if (settings.prefs.copyOnSelect && term.hasSelection()) void copySelection();
@@ -632,6 +654,24 @@
     if (active && status.kind === "connected") term?.focus();
   });
 
+  // Coming back to this pane clears what you missed while it was in the background.
+  $effect(() => {
+    if (active && (ui.paneInfo[paneId]?.unread || ui.paneInfo[paneId]?.bell)) {
+      ui.paneInfo[paneId] = { ...ui.paneInfo[paneId], unread: false, bell: false };
+    }
+  });
+
+  // Reconnect requested from outside (the pane header's overflow menu),
+  // for a specific pane rather than only the active one.
+  let lastReconnectRequest = ui.paneInfo[paneId]?.reconnectRequest ?? 0;
+  $effect(() => {
+    const n = ui.paneInfo[paneId]?.reconnectRequest ?? 0;
+    if (n !== lastReconnectRequest) {
+      lastReconnectRequest = n;
+      reconnect();
+    }
+  });
+
   // Global "find" shortcut targets the active pane only.
   let lastFind = ui.findRequest;
   $effect(() => {
@@ -664,6 +704,16 @@
       menu = { x: e.clientX, y: e.clientY };
     }}
   ></div>
+
+  {#if newOutputWhileScrolled}
+    <button
+      class="absolute bottom-2 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-md border border-line bg-panel/90 px-2.5 py-1 text-[11px] text-fg shadow hover:bg-panel-hover"
+      title="Shift+End also jumps to the bottom"
+      onclick={() => { term.scrollToBottom(); newOutputWhileScrolled = false; }}
+    >
+      <ChevronDown size={12} /> New output
+    </button>
+  {/if}
 
   {#if mouseTracked && !selectMode && status.kind === "connected"}
     <button

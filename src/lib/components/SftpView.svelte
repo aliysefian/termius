@@ -2,6 +2,7 @@
   import Combobox from "./Combobox.svelte";
   import { hostOptions } from "$lib/pickeroptions";
   import { onDestroy, onMount } from "svelte";
+  import { getCurrentWindow, ProgressBarStatus } from "@tauri-apps/api/window";
   import { CircleStop, FilePen, HardDrive, Loader2, Monitor, Pause, Play, RotateCcw, Server, Unplug, X } from "lucide-svelte";
   import type { UnlistenFn } from "@tauri-apps/api/event";
   import * as api from "$lib/api";
@@ -42,6 +43,31 @@
   let password = $state("");
 
   let transfers = $state<Transfer[]>([]);
+
+  // Taskbar/dock progress across every transfer, so the queue's state is
+  // visible without switching back to this window.
+  $effect(() => {
+    let done = 0;
+    let total = 0;
+    let activeCount = 0;
+    for (const t of transfers) {
+      const p = t.progress;
+      if (p.state === "progress" || p.state === "paused") {
+        activeCount++;
+        done += p.bytes;
+        total += p.total_bytes;
+      } else if (p.state === "started") {
+        activeCount++;
+        total += p.total_bytes;
+      }
+    }
+    if (activeCount === 0) {
+      void getCurrentWindow().setProgressBar({ status: ProgressBarStatus.None }).catch(() => {});
+      return;
+    }
+    const progress = total > 0 ? Math.round((done / total) * 100) : 0;
+    void getCurrentWindow().setProgressBar({ status: ProgressBarStatus.Normal, progress }).catch(() => {});
+  });
 
   const remoteSource = $derived<FileSource | null>(connectedHost ? remote(sessionId) : null);
   const host = $derived(hostId ? vaultStore.hostById.get(hostId)?.data : undefined);
