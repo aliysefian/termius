@@ -1,5 +1,5 @@
 <script lang="ts">
-  import Modal from "./Modal.svelte";
+  import Modal, { DISCARD } from "./Modal.svelte";
   import { ui } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
   import { emptySnippet, errorMessage, type Snippet, type Uuid } from "$lib/types";
@@ -15,6 +15,10 @@
   const folders = $derived([...new Set(vaultStore.snippets.map((s) => s.data?.folder).filter(Boolean))].sort());
   let error = $state<string | null>(null);
   let busy = $state(false);
+
+  const fingerprint = () => JSON.stringify([$state.snapshot(form), tags]);
+  const initial = fingerprint();
+  const dirty = $derived(fingerprint() !== initial);
 
   async function save(e: SubmitEvent) {
     e.preventDefault();
@@ -33,7 +37,7 @@
   }
 </script>
 
-<Modal title={id ? "Edit snippet" : "New snippet"} onclose={() => (ui.modal = null)}>
+<Modal title={id ? "Edit snippet" : "New snippet"} onclose={() => (ui.modal = null)} confirmClose={dirty ? DISCARD : null}>
   <form id="snippet-form" onsubmit={save} class="space-y-4">
     <div>
       <label class="label" for="s-label">Label</label>

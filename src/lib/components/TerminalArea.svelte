@@ -186,7 +186,7 @@
           onclick={() => (ui.activeTabId = t.id)}
           ondblclick={() => startRename(t)}
           onkeydown={(e) => e.key === "Enter" && (ui.activeTabId = t.id)}
-          onauxclick={(e) => e.button === 1 && ui.closeTab(t.id)}
+          onauxclick={(e) => e.button === 1 && void ui.requestCloseTab(t.id)}
           oncontextmenu={(e) => {
             e.preventDefault();
             tabMenu = { id: t.id, x: e.clientX, y: e.clientY };
@@ -229,7 +229,7 @@
           {/if}
           <button
             class="rounded p-0.5 opacity-0 hover:bg-panel-hover group-hover:opacity-100 {t.id === ui.activeTabId ? 'opacity-60' : ''}"
-            onclick={(e) => { e.stopPropagation(); ui.closeTab(t.id); }}
+            onclick={(e) => { e.stopPropagation(); void ui.requestCloseTab(t.id); }}
             aria-label="Close tab"
             title="Close (Ctrl+Shift+W)"
           >
@@ -260,8 +260,8 @@
       {#each [
         { label: "Rename", run: (id: string) => { const t = ui.tabs.find((x) => x.id === id); if (t) startRename(t); } },
         { label: "Duplicate", run: (id: string) => ui.duplicateTab(id) },
-        { label: "Close", run: (id: string) => ui.closeTab(id) },
-        { label: "Close other tabs", run: (id: string) => ui.closeOtherTabs(id), disabled: ui.tabs.length < 2 },
+        { label: "Close", run: (id: string): void => void ui.requestCloseTab(id) },
+        { label: "Close other tabs", run: (id: string): void => void ui.requestCloseOtherTabs(id), disabled: ui.tabs.length < 2 },
       ] as item (item.label)}
         <button
           class="w-full px-3 py-1.5 text-left hover:bg-panel-hover disabled:opacity-40 disabled:hover:bg-transparent"
@@ -366,7 +366,7 @@
                 <button class="icon-btn h-6 w-6" title="Split down (Ctrl+Shift+E)" onclick={() => { t.activePaneId = pane.id; ui.splitActive("horizontal"); }}><Rows2 size={13} /></button>
               {/if}
               {#if multi}
-                <button class="icon-btn h-6 w-6" title="Close pane" onclick={() => ui.closePane(t.id, pane.id)}><X size={13} /></button>
+                <button class="icon-btn h-6 w-6" title="Close pane" onclick={() => void ui.requestClosePane(t.id, pane.id)}><X size={13} /></button>
               {/if}
             </div>
             <TerminalPane

@@ -7,6 +7,8 @@ export interface AskOptions {
   confirm?: string;
   /** Red confirm button; Cancel keeps the focus. */
   danger?: boolean;
+  /** Label of an optional checkbox ("Don't ask again"); see askRemember. */
+  checkbox?: string;
 }
 
 interface Pending {
@@ -17,7 +19,8 @@ interface Pending {
   danger: boolean;
   value: string;
   placeholder: string;
-  resolve: (v: boolean | string | null) => void;
+  checkbox: string;
+  resolve: (v: boolean | string | null, checked: boolean) => void;
 }
 
 /** "Delete snippet …?" → a red "Delete" button. */
@@ -32,13 +35,18 @@ class DialogStore {
     else this.pending = p;
   }
 
-  close(answer: boolean | string | null) {
+  close(answer: boolean | string | null, checked = false) {
     const p = this.pending;
     this.pending = this.#queue.shift() ?? null;
-    p?.resolve(answer);
+    p?.resolve(answer, checked);
   }
 
   ask(message: string, opts: AskOptions = {}): Promise<boolean> {
+    return this.askRemember(message, opts).then((r) => r.ok);
+  }
+
+  /** Like ask(), and also reports whether the optional checkbox was ticked. */
+  askRemember(message: string, opts: AskOptions = {}): Promise<{ ok: boolean; checked: boolean }> {
     const verb = DANGER.exec(message)?.[1];
     const danger = opts.danger ?? !!verb;
     return new Promise((resolve) =>
@@ -50,7 +58,8 @@ class DialogStore {
         danger,
         value: "",
         placeholder: "",
-        resolve: (v) => resolve(v === true),
+        checkbox: opts.checkbox ?? "",
+        resolve: (v, checked) => resolve({ ok: v === true, checked }),
       }),
     );
   }
@@ -65,6 +74,7 @@ class DialogStore {
         danger: false,
         value: initial,
         placeholder: opts.placeholder ?? "",
+        checkbox: "",
         resolve: (v) => resolve(typeof v === "string" ? v : null),
       }),
     );
@@ -73,5 +83,6 @@ class DialogStore {
 
 export const dialogs = new DialogStore();
 export const ask = (message: string, opts?: AskOptions) => dialogs.ask(message, opts);
+export const askRemember = (message: string, opts?: AskOptions) => dialogs.askRemember(message, opts);
 export const askText = (message: string, initial?: string, opts?: AskOptions & { placeholder?: string }) =>
   dialogs.askText(message, initial, opts);

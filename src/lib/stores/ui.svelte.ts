@@ -1,5 +1,6 @@
 // Ephemeral UI state: which sidebar view is active, open tabs, modals.
 import { MAX_PANES, grid, leaf, paneIds, remove, setRatio, split, type LayoutNode } from "$lib/layout";
+import { askRemember } from "$lib/dialogs.svelte";
 import { settings } from "$lib/stores/settings.svelte";
 import type { AdhocTarget, SessionStatus } from "$lib/ssh";
 import type { SerialConfig, Uuid } from "$lib/types";
@@ -62,6 +63,8 @@ export interface PaneInfo {
   mouseTracked?: boolean;
   /** Mouse selects text even while the program wants the mouse. */
   selectMode?: boolean;
+  /** A command is running (shell integration saw its start but not its end). */
+  running?: boolean;
 }
 
 export type Modal =
@@ -84,6 +87,16 @@ export interface ToastAction {
   label: string;
   run: () => void;
 }
+
+export interface Toast {
+  id: number;
+  kind: "info" | "error";
+  text: string;
+  action?: ToastAction;
+}
+
+/** Toasts shown at once; older ones make room. */
+export const MAX_TOASTS = 3;
 
 /** A tab as saved in a workspace: what each pane connects to, never secrets. */
 export interface WorkspaceTab {
@@ -119,20 +132,31 @@ class UiStore {
   activeTab = $derived(this.tabs.find((t) => t.id === this.activeTabId) ?? null);
   /** Mounted lazily on first visit, then kept alive so sessions survive view switches. */
   sftpVisited = $state(false);
-  toast = $state<{ kind: "info" | "error"; text: string; action?: ToastAction } | null>(null);
-  #toastTimer: ReturnType<typeof setTimeout> | undefined;
+  toasts = $state<Toast[]>([]);
+  #toastTimers = new Map<number, ReturnType<typeof setTimeout>>();
 
-  notify(kind: "info" | "error", text: string, action?: ToastAction, ms = action ? 8000 : 4000) {
-    this.toast = { kind, text, action };
-    clearTimeout(this.#toastTimer);
-    this.#toastTimer = setTimeout(() => (this.toast = null), ms);
+  /**
+   * Show a toast. Info toasts go away by themselves; errors stay until
+   * dismissed, so a failure isn't missed while looking elsewhere.
+   */
+  notify(kind: "info" | "error", text: string, action?: ToastAction, ms = kind === "error" ? 0 : action ? 8000 : 4000) {
+    const id = ++counter;
+    this.toasts.push({ id, kind, text, action });
+    while (this.toasts.length > MAX_TOASTS) this.dismissToast(this.toasts[0].id);
+    if (ms > 0) this.#toastTimers.set(id, setTimeout(() => this.dismissToast(id), ms));
+  }
+
+  dismissToast(id: number) {
+    clearTimeout(this.#toastTimers.get(id));
+    this.#toastTimers.delete(id);
+    const i = this.toasts.findIndex((t) => t.id === id);
+    if (i >= 0) this.toasts.splice(i, 1);
   }
 
   /** Run the toast's action (e.g. Undo) and dismiss it. */
-  runToastAction() {
-    const a = this.toast?.action;
-    this.toast = null;
-    clearTimeout(this.#toastTimer);
+  runToastAction(id: number) {
+    const a = this.toasts.find((t) => t.id === id)?.action;
+    this.dismissToast(id);
     a?.run();
   }
 
@@ -269,6 +293,59 @@ class UiStore {
 
   openAdhoc(adhoc: AdhocTarget) {
     this.#openTab({ kind: "adhoc", adhoc }, adhocLabel(adhoc));
+  }
+
+  /** Panes in these tabs that are connected, and how many are mid-command. */
+  liveSessions(tabs: Tab[]): { connected: number; running: number } {
+    let connected = 0;
+    let running = 0;
+    for (const t of tabs) {
+      for (const p of t.panes) {
+        const info = this.paneInfo[p.id];
+        if (info?.status !== "connected") continue;
+        connected++;
+        if (info.running) running++;
+      }
+    }
+    return { connected, running };
+  }
+
+  /**
+   * Ask before dropping live sessions, unless the user turned that off.
+   * `what` names what is being closed ("this tab", "the other 3 tabs").
+   */
+  async confirmClose(live: { connected: number; running: number }, what: string): Promise<boolean> {
+    if (live.connected === 0 || !settings.prefs.confirmCloseSessions) return true;
+    const sessions = live.connected === 1 ? "a connected session" : `${live.connected} connected sessions`;
+    const running = live.running ? ` ${live.running === 1 ? "A command is" : `${live.running} commands are`} still running.` : "";
+    const r = await askRemember(`Closing ${what} ends ${sessions}.${running}`, {
+      title: "Close and disconnect?",
+      confirm: "Close",
+      danger: live.running > 0,
+      checkbox: "Don't ask again",
+    });
+    if (r.ok && r.checked) settings.prefs.confirmCloseSessions = false;
+    return r.ok;
+  }
+
+  async requestCloseTab(id: string) {
+    const tab = this.tabs.find((t) => t.id === id);
+    if (!tab) return;
+    if (await this.confirmClose(this.liveSessions([tab]), "this tab")) this.closeTab(id);
+  }
+
+  async requestCloseOtherTabs(keepId: string) {
+    const others = this.tabs.filter((t) => t.id !== keepId);
+    if (others.length === 0) return;
+    if (await this.confirmClose(this.liveSessions(others), others.length === 1 ? "the other tab" : `the other ${others.length} tabs`)) this.closeOtherTabs(keepId);
+  }
+
+  async requestClosePane(tabId: string, paneId: string) {
+    const tab = this.tabs.find((t) => t.id === tabId);
+    const pane = tab?.panes.find((p) => p.id === paneId);
+    if (!tab || !pane) return;
+    const only = tab.panes.length === 1;
+    if (await this.confirmClose(this.liveSessions([{ ...tab, panes: [pane] }]), only ? "this tab" : "this pane")) this.closePane(tabId, paneId);
   }
 
   closeTab(id: string) {

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { Loader2, LockKeyhole } from "lucide-svelte";
   import { secrets } from "$lib/secrets.svelte";
+  import { pushLayer } from "$lib/layers";
 
   let password = $state("");
   const p = $derived(secrets.prompt);
@@ -10,14 +11,18 @@
     if (p && !p.busy) password = "";
   });
 
+  // Escape cancels this prompt only; the form that asked stays open.
+  $effect(() => {
+    if (!p) return;
+    return pushLayer(() => secrets.cancel());
+  });
+
   function submit(e: SubmitEvent) {
     e.preventDefault();
     if (!password) return;
     secrets.submit(password);
   }
 </script>
-
-<svelte:window onkeydown={(e) => e.key === "Escape" && secrets.cancel()} />
 
 {#if p}
   <div class="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4" role="presentation">

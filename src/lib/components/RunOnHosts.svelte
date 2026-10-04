@@ -91,6 +91,11 @@
     }
   }
 
+  async function closeWindow() {
+    if (running && !(await ask("Close this window and cancel the commands still running?", { title: "Commands are still running", confirm: "Cancel and close", danger: true }))) return;
+    ui.modal = null;
+  }
+
   onDestroy(() => {
     if (running && runId) void api.runs.cancel(runId);
   });
@@ -117,7 +122,12 @@
   }
 </script>
 
-<Modal title="Run on hosts" onclose={() => (ui.modal = null)} width="max-w-3xl">
+<Modal
+  title="Run on hosts"
+  onclose={() => (ui.modal = null)}
+  width="max-w-3xl"
+  confirmClose={running ? { title: "Commands are still running", message: "Close this window and cancel the commands still running?", confirm: "Cancel and close" } : null}
+>
   <div class="grid gap-4 md:grid-cols-[1fr_16rem]">
     <div class="min-w-0 space-y-3">
       <div>
@@ -223,7 +233,7 @@
     </div>
   </div>
   {#snippet footer()}
-    <button class="btn-ghost" onclick={() => (ui.modal = null)}><X size={14} /> Close</button>
+    <button class="btn-ghost" onclick={closeWindow}><X size={14} /> Close</button>
     {#if running}
       <button class="btn-danger border border-danger/40" onclick={cancel}><CircleStop size={14} /> Cancel</button>
     {:else}

@@ -33,7 +33,7 @@
   const changed = $derived(Object.keys(settings.prefs.keybindings).length);
 </script>
 
-<svelte:window onkeydown={onKey} />
+<svelte:window onkeydowncapture={onKey} />
 
 <Modal title="Keyboard shortcuts" onclose={() => (ui.modal = null)} width="max-w-2xl">
   <p class="mb-3 text-xs text-fg-muted">

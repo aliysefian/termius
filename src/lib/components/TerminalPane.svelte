@@ -15,6 +15,7 @@
   import { closePane, markRaw, resizePane, writeToPane } from "$lib/terminalio";
   import { hostContextFor } from "$lib/runsnippet";
   import { render } from "$lib/snippetvars";
+  import { ask } from "$lib/dialogs.svelte";
   import { settings } from "$lib/stores/settings.svelte";
   import { adhocLabel, ui, type Pane } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
@@ -151,7 +152,23 @@
       void notifyDone(`${rec.command.split("\n")[0].slice(0, 80)} finished${rec.exit ? ` (exit ${rec.exit})` : ""} on ${label}`);
     }
     if (mark.kind === "command") tracker.reset();
+    if ((ui.paneInfo[paneId]?.running ?? false) !== commands.running) {
+      ui.paneInfo[paneId] = { ...(ui.paneInfo[paneId] ?? { status: status.kind }), running: commands.running };
+    }
     return true;
+  }
+
+  /** The whole connection error, with a Copy button; the bar only has room for a line or two. */
+  async function showError() {
+    if (status.kind !== "error") return;
+    const message = status.message;
+    if (await ask(message, { title: "Connection error", confirm: "Copy" })) {
+      try {
+        await writeText(message);
+      } catch {
+        // Nothing to do; the text is on screen.
+      }
+    }
   }
 
   async function notifyDone(body: string) {
@@ -810,7 +827,8 @@
     <div class="absolute inset-x-0 bottom-0 z-10 flex items-center gap-3 border-t border-line bg-panel px-4 py-2 text-xs">
       {#if status.kind === "error"}
         <ShieldAlert size={14} class="shrink-0 text-danger" />
-        <span class="min-w-0 flex-1 truncate text-danger" title={status.message}>{status.message}</span>
+        <span class="line-clamp-2 min-w-0 flex-1 break-words text-danger">{status.message}</span>
+        <button class="btn-ghost py-1" onclick={showError}>Details</button>
       {:else}
         <Unplug size={14} class="shrink-0 text-fg-muted" />
         <span class="flex-1 text-fg-muted">Disconnected</span>

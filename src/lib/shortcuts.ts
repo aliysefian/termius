@@ -30,7 +30,7 @@ const inTerminal = () => document.activeElement?.classList.contains("xterm-helpe
 export const ACTIONS: Action[] = [
   { id: "palette", label: "Command palette", combo: "Ctrl+Shift+P", run: () => void (ui.paletteOpen = !ui.paletteOpen) },
   { id: "quick-connect", label: "Quick connect", combo: "Ctrl+Shift+T", run: () => void (ui.modal = { kind: "quick-connect" }) },
-  { id: "close-tab", label: "Close tab", combo: "Ctrl+Shift+W", run: () => void (ui.activeTabId && ui.closeTab(ui.activeTabId)) },
+  { id: "close-tab", label: "Close tab", combo: "Ctrl+Shift+W", run: () => void (ui.activeTabId && ui.requestCloseTab(ui.activeTabId)) },
   { id: "split-right", label: "Split right", combo: "Ctrl+Shift+D", run: () => ui.splitActive("vertical") },
   { id: "split-down", label: "Split down", combo: "Ctrl+Shift+E", run: () => ui.splitActive("horizontal") },
   { id: "zoom-pane", label: "Maximize or restore the pane", combo: "Ctrl+Shift+Enter", run: () => ui.toggleZoomActive() },

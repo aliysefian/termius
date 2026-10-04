@@ -237,6 +237,7 @@
       run(results[selected]);
     } else if (e.key === "Escape") {
       e.preventDefault();
+      e.stopPropagation();
       close();
     }
     queueMicrotask(() => list?.querySelector(`[data-index="${selected}"]`)?.scrollIntoView({ block: "nearest" }));

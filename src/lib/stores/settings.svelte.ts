@@ -23,6 +23,8 @@ export interface Prefs {
   sidebarWidth: number;
   /** Reconnect by itself when a connection drops (not when you exit). */
   autoReconnect: boolean;
+  /** Ask before closing a tab, pane or the app while sessions are connected. */
+  confirmCloseSessions: boolean;
   /**
    * Keep a per-computer history of commands run on each host. Off by default:
    * commands can carry passwords and tokens, and the history is plain text.
@@ -78,6 +80,7 @@ export const DEFAULT_PREFS: Prefs = {
   sidebarHidden: false,
   sidebarWidth: 288,
   autoReconnect: true,
+  confirmCloseSessions: true,
   rememberCommands: false,
   notifyBackground: true,
   focusMode: false,
@@ -89,6 +92,9 @@ export const DEFAULT_PREFS: Prefs = {
   localCwd: "",
   autoUpdateCheck: true,
 };
+
+/** What "Reset" in Terminal appearance touches. */
+export const APPEARANCE_PREFS = ["themeId", "fontFamily", "fontSize", "lineHeight", "cursorStyle", "cursorBlink", "scrollback", "appTheme", "prodTint", "density"] as const satisfies readonly (keyof Prefs)[];
 
 const KEY = "sshvault.prefs.v1";
 const RECENT_KEY = "sshvault.recent.v1";
@@ -176,8 +182,15 @@ class SettingsStore {
     this.prefs.fontSize = delta === 0 ? DEFAULT_PREFS.fontSize : Math.min(32, Math.max(8, this.prefs.fontSize + delta));
   }
 
+  /** Back to the defaults for everything. */
   reset() {
     this.prefs = { ...DEFAULT_PREFS };
+  }
+
+  /** Back to the default look only; shortcuts, custom themes and the rest stay. */
+  resetAppearance() {
+    const prefs = this.prefs as unknown as Record<string, unknown>;
+    for (const k of APPEARANCE_PREFS) prefs[k] = DEFAULT_PREFS[k];
   }
 }
 

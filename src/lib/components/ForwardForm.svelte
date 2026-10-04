@@ -1,7 +1,7 @@
 <script lang="ts">
   import Combobox from "./Combobox.svelte";
   import { hostOptions } from "$lib/pickeroptions";
-  import Modal from "./Modal.svelte";
+  import Modal, { DISCARD } from "./Modal.svelte";
   import { ui } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
   import { emptyForward, errorMessage, type ForwardKind, type ForwardRule, type Uuid } from "$lib/types";
@@ -26,6 +26,10 @@
   let busy = $state(false);
 
   const hostChoices = $derived(hostOptions(vaultStore.hosts));
+
+  const fingerprint = () => JSON.stringify([label, autoStart, hostId, kind, bindAddr, bindPort, destHost, destPort]);
+  const initial = fingerprint();
+  const dirty = $derived(fingerprint() !== initial);
   const hostHasIdentity = $derived(!!vaultStore.effectiveIdentity(vaultStore.hostById.get(hostId)?.data));
 
   const help: Record<ForwardKind["kind"], string> = {
@@ -53,7 +57,7 @@
   }
 </script>
 
-<Modal title={id ? "Edit forwarding rule" : "New forwarding rule"} onclose={() => (ui.modal = null)}>
+<Modal title={id ? "Edit forwarding rule" : "New forwarding rule"} onclose={() => (ui.modal = null)} confirmClose={dirty ? DISCARD : null}>
   <form id="forward-form" onsubmit={save} class="space-y-4">
     <div class="grid grid-cols-2 gap-3">
       <div>

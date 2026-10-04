@@ -1,5 +1,8 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { Copy, X } from "lucide-svelte";
+  import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+  import { getCurrentWindow } from "@tauri-apps/api/window";
   import ActivityBar from "$lib/components/ActivityBar.svelte";
   import ForwardForm from "$lib/components/ForwardForm.svelte";
   import ForwardingPanel from "$lib/components/ForwardingPanel.svelte";
@@ -53,6 +56,23 @@
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
+  });
+
+  // -- quitting with live sessions asks first ------------------------------
+  onMount(() => {
+    let closing = false;
+    const win = getCurrentWindow();
+    const un = win.onCloseRequested(async (e) => {
+      if (closing) return;
+      const live = ui.liveSessions(ui.tabs);
+      if (live.connected === 0 || !settings.prefs.confirmCloseSessions) return;
+      e.preventDefault();
+      if (await ui.confirmClose(live, "SSHVault")) {
+        closing = true;
+        await win.destroy();
+      }
+    });
+    return () => void un.then((f) => f());
   });
 
   // -- auto-lock after inactivity -----------------------------------------
@@ -194,22 +214,31 @@
   <MasterPasswordPrompt />
   <RecoveryKeyDialog />
 
-  {#if ui.toast}
-    <div
-      class="fixed bottom-4 left-1/2 z-50 max-w-md -translate-x-1/2 rounded-md border px-4 py-2 text-sm shadow-xl
-        {ui.toast.kind === 'error' ? 'border-danger/30 bg-panel text-danger' : 'border-line bg-panel text-fg'}"
-      role="status"
-    >
-      {ui.toast.text}
-      {#if ui.toast.action}
-        <button class="ml-3 font-semibold text-accent hover:underline" onclick={() => ui.runToastAction()}>{ui.toast.action.label}</button>
-      {/if}
+  {#if ui.toasts.length}
+    <div class="pointer-events-none fixed inset-x-0 bottom-4 z-50 flex flex-col items-center gap-2 px-4">
+      {#each ui.toasts as toast (toast.id)}
+        <div
+          class="pointer-events-auto flex w-full max-w-md items-start gap-3 rounded-md border px-4 py-2 text-sm shadow-xl
+            {toast.kind === 'error' ? 'border-danger/30 bg-panel text-danger' : 'border-line bg-panel text-fg'}"
+          role={toast.kind === "error" ? "alert" : "status"}
+        >
+          <span class="line-clamp-3 min-w-0 flex-1 break-words">{toast.text}</span>
+          {#if toast.action}
+            <button class="shrink-0 font-semibold text-accent hover:underline" onclick={() => ui.runToastAction(toast.id)}>{toast.action.label}</button>
+          {/if}
+          {#if toast.kind === "error" && toast.text.length > 120}
+            <button class="shrink-0 text-fg-muted hover:text-fg" title="Copy the full message" aria-label="Copy the full message" onclick={() => void writeText(toast.text).catch(() => {})}><Copy size={14} /></button>
+          {/if}
+          <button class="-mr-1 shrink-0 text-fg-muted hover:text-fg" aria-label="Dismiss" onclick={() => ui.dismissToast(toast.id)}><X size={14} /></button>
+        </div>
+      {/each}
     </div>
   {/if}
 
   {#if vaultStore.error}
-    <div class="fixed bottom-4 right-4 max-w-sm rounded-md border border-danger/30 bg-panel px-4 py-3 text-sm text-danger shadow-xl">
-      {vaultStore.error}
+    <div class="fixed bottom-4 right-4 flex max-w-sm items-start gap-3 rounded-md border border-danger/30 bg-panel px-4 py-3 text-sm text-danger shadow-xl" role="alert">
+      <span class="min-w-0 flex-1 break-words">{vaultStore.error}</span>
+      <button class="-mr-1 shrink-0 text-fg-muted hover:text-fg" aria-label="Dismiss" onclick={() => (vaultStore.error = null)}><X size={14} /></button>
     </div>
   {/if}
 {/if}

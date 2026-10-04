@@ -4,7 +4,7 @@
   import { Bot, Check, Copy, Eye, EyeOff, FileKey, HelpCircle, KeyRound, Lock, Sparkles, Users } from "lucide-svelte";
   import { open } from "@tauri-apps/plugin-dialog";
   import { writeText } from "@tauri-apps/plugin-clipboard-manager";
-  import Modal from "./Modal.svelte";
+  import Modal, { DISCARD } from "./Modal.svelte";
   import { revealIdentity } from "$lib/secrets.svelte";
   import { ui } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
@@ -73,6 +73,15 @@
 
   // Keychain choices: shared identities, plus this host's own if it has one.
   const keychainChoices = $derived(vaultStore.identities.filter((i) => !i.data?.for_host || i.data.for_host === id));
+
+  // Everything the user can edit, as one string: closing with changes asks first.
+  const fingerprint = () =>
+    JSON.stringify([
+      $state.snapshot(form), tags, envChoice, customEnv, customFields, mode, username, password, keySource, managerKeyId,
+      keyText, keyFile, passphrase, identityId, saveToKeychain, keychainLabel,
+    ]);
+  const initial = fingerprint();
+  const dirty = $derived(fingerprint() !== initial);
 
   let generatedKey = $state<string | null>(null);
   let copied = $state(false);
@@ -256,7 +265,7 @@
   ];
 </script>
 
-<Modal title={generatedKey ? "Install your new key" : id ? "Edit host" : "New host"} onclose={() => (ui.modal = null)} width="max-w-xl">
+<Modal title={generatedKey ? "Install your new key" : id ? "Edit host" : "New host"} onclose={() => (ui.modal = null)} width="max-w-xl" confirmClose={dirty && !generatedKey ? DISCARD : null}>
   {#if generatedKey}
     <div class="space-y-3 text-sm">
       <p>

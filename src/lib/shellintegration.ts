@@ -76,6 +76,11 @@ export class CommandTracker {
     private readonly maxPrompts = 500,
   ) {}
 
+  /** A command has started (B or C mark) and its end (D) hasn't arrived. */
+  get running(): boolean {
+    return this.#commandStart !== null || this.#outputStart !== null;
+  }
+
   /** The shell has emitted at least one mark. */
   get active(): boolean {
     return this.prompts.length > 0 || this.records.length > 0 || this.#commandStart !== null;

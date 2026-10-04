@@ -2,7 +2,7 @@
   import { Copy, Eye, KeyRound, Loader2, Sparkles } from "lucide-svelte";
   import { revealIdentity } from "$lib/secrets.svelte";
   import { writeText } from "@tauri-apps/plugin-clipboard-manager";
-  import Modal from "./Modal.svelte";
+  import Modal, { DISCARD } from "./Modal.svelte";
   import { ask } from "$lib/dialogs.svelte";
   import * as api from "$lib/api";
   import { ui } from "$lib/stores/ui.svelte";
@@ -34,6 +34,10 @@
   let busy = $state(false);
 
   const savedPassword = stored?.auth.type === "password";
+
+  const fingerprint = () => JSON.stringify([$state.snapshot(form), authType, password, privateKey, passphrase, keyId, keyPath]);
+  const initial = fingerprint();
+  const dirty = $derived(fingerprint() !== initial);
   const savedKey = stored?.auth.type === "private_key";
 
   async function reveal() {
@@ -112,7 +116,7 @@
   }
 </script>
 
-<Modal title={id ? "Edit identity" : "New identity"} onclose={() => (ui.modal = null)}>
+<Modal title={id ? "Edit identity" : "New identity"} onclose={() => (ui.modal = null)} confirmClose={dirty ? DISCARD : null}>
     <form id="identity-form" onsubmit={save} class="space-y-4">
       <div class="grid grid-cols-2 gap-3">
         <div>

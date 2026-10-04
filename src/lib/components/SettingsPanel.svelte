@@ -15,6 +15,15 @@
   import * as api from "$lib/api";
   import { vaultStore } from "$lib/stores/vault.svelte";
   import { errorMessage, type VaultSettings } from "$lib/types";
+  import { ask } from "$lib/dialogs.svelte";
+
+  async function resetAppearance() {
+    if (await ask("Put the theme, font, cursor, scrollback and density back to their defaults? Shortcuts and imported themes stay.", { title: "Reset appearance", confirm: "Reset" })) settings.resetAppearance();
+  }
+
+  async function resetAll() {
+    if (await ask("Reset every setting on this computer to its default? Your custom shortcuts and imported colour themes are removed too.", { title: "Reset all settings", confirm: "Reset everything", danger: true })) settings.reset();
+  }
 
   let msg = $state<{ ok: boolean; text: string } | null>(null);
 
@@ -123,7 +132,7 @@
     <section class="rounded-xl border border-line bg-panel p-5">
       <div class="mb-1 flex items-center justify-between">
         <h2 class="flex items-center gap-2 text-sm font-semibold"><Palette size={15} class="text-accent" /> Terminal appearance</h2>
-        <button class="btn-ghost py-1 text-xs" onclick={() => settings.reset()}><RotateCcw size={12} /> Reset</button>
+        <button class="btn-ghost py-1 text-xs" onclick={resetAppearance}><RotateCcw size={12} /> Reset</button>
       </div>
       <p class="mb-4 text-xs text-fg-muted">Saved on this computer only. Changes apply to open terminals immediately.</p>
 
@@ -430,5 +439,14 @@ sshvault run web-01 db-01 --json -- df -h /</pre>
         {msg.text}
       </p>
     {/if}
+
+    <section class="rounded-xl border border-line bg-panel p-5">
+      <h2 class="mb-1 flex items-center gap-2 text-sm font-semibold"><RotateCcw size={15} class="text-accent" /> Reset</h2>
+      <p class="mb-4 text-xs text-fg-muted">
+        Puts every per-computer setting back to its default: appearance, layout, shortcuts, imported themes, auto-lock,
+        local shell and update checks. Vault settings and your hosts are not touched.
+      </p>
+      <button class="btn-ghost border border-danger/40 text-danger hover:bg-danger/10" onclick={resetAll}>Reset all settings…</button>
+    </section>
   </div>
 </div>
