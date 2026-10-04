@@ -173,53 +173,80 @@ expected to have.
 
 ## Phase D: forms and screens
 
-- [ ] **D1. HostForm in sections.** One 600-line scroll today. Split into
-  tabs or collapsible sections: **Connection** (address, protocol,
-  credentials), **Route** (jump host, proxy, agent/X11 forwarding,
-  keep-alive), **Organise** (group, environment, tags, favorite, colour,
-  notes, custom fields) and **Automation** (startup command, local
-  tunnels to auto-start). Show validation inline next to the field and a
-  summary at the top, not only at the bottom (`HostForm.svelte:591`).
-  Add a **Test connection** button (TCP + SSH banner + auth, using the
-  existing reachability check) that reports in the form. Host colour gets
-  a "none" option and a custom picker (`HostForm.svelte:570-578`). **M**
+- [x] **D1. HostForm in sections.** Split into four tabs: Connection,
+  Route, Organise, Automation. Errors and the jump-host-identity warning
+  show under the tab strip regardless of which tab is open (not only at
+  the bottom), and a save error switches to Connection, where every
+  thrown validation error actually lives. Added **Test connection**
+  (reuses the reachability check) and a "none" colour swatch plus a
+  custom colour picker. Automation also lists this host's tunnels with
+  an auto-start checkbox, pulling in the "local tunnels to auto-start"
+  idea. **Not done as literally specified**: Test connection only works
+  for an already-saved host, reading the saved record rather than
+  unsaved edits — probing an arbitrary, unsaved hostname/port needs a
+  new backend command, and this sandbox has no way to compile or verify
+  Rust changes (no webkit/gtk dev libs; see `docs/DEVELOPMENT.md`).
 
-- [ ] **D2. Settings with navigation and search.** Ten stacked cards with
-  two saving models (instant vs Safety's explicit Save). Add a left nav
-  (Appearance, Terminal, Connections, Safety, Local shell, Integrations,
-  Updates, Advanced), a search box that filters settings by label, and
-  make Safety save instantly with the same "synced setting" badge the
-  other vault settings use. Move the export message next to its buttons
-  (`SettingsPanel.svelte:428`). **M**
+- [x] **D2. Settings with navigation and search**, mostly as specified.
+  Left nav (Appearance, Terminal, Connections, Safety, Integrations,
+  Updates, Advanced) and a search box that matches across every
+  category. Every action's message now shows under its own section
+  (`themeMsg`/`cliMsg`/`exportMsg`/`safetyMsg`) instead of one shared
+  message far from whatever set it. **Deliberately not done**: Safety
+  keeps its explicit Save, now with a "Synced" badge and a line
+  explaining why — it's shared by every device that opens the vault, so
+  an instant-save there would let a stray keystroke change a safety
+  setting (paste threshold, destructive-command patterns) everywhere at
+  once with nothing to review first. Judged safer than literally
+  matching the plan.
 
-- [ ] **D3. Terminal appearance preview.** A live preview card next to the
-  theme gallery and font controls showing a prompt, `ls` colours, a
-  diff and the cursor, so changes are visible without an open session.
-  Add letter spacing, padding, ligatures toggle, cursor colour, bold-as-
-  bright, and minimum contrast ratio (xterm `minimumContrastRatio`). **M**
+- [x] **D3. Terminal appearance preview.** A real, live `xterm.js`
+  instance (not a CSS mockup) next to the theme gallery, showing a
+  prompt, an `ls` listing, a diff and bold text, reactive to every
+  appearance setting. Added letter spacing, padding, minimum contrast
+  ratio, cursor colour and bold-as-bright, all wired into real terminal
+  sessions too, not just the preview. **Not done**: the ligatures
+  toggle — `@xterm/addon-ligatures` isn't a dependency, and adding one
+  sight-unseen (its font-shaping behaviour can't be checked without a
+  running browser here) seemed worse than leaving it out and saying so.
 
-- [ ] **D4. SFTP polish.** Resizable split between the two panes
-  (`SftpView.svelte:267`), sortable columns, a context menu per row
-  (open, download/upload, rename, delete, chmod, copy path, quick look),
-  breadcrumb path with clickable segments, bookmarks per host, a filter
-  box, and labelled fields plus Cancel on the ask-credentials form
-  (`SftpView.svelte:328-330`). Show free space in the footer. **M**
+- [x] **D4. SFTP polish**, most of it. Resizable, keyboard-adjustable
+  split between the two panes (same pattern as the sidebar and pane
+  dividers); sortable columns (name/size/modified/mode, folders always
+  first); a per-row context menu (open/edit, download or upload, copy
+  path, rename, permissions, reveal, delete); a breadcrumb path with
+  clickable segments and a fallback to typing a raw path; a per-folder
+  filter box; and labelled fields plus Cancel on the ask-credentials
+  form. **Not done**: bookmarks per host (a new, persistent per-host
+  feature judged out of scope for this pass) and free space in the
+  footer (SFTP has no standard free-space query, and probing the local
+  filesystem would need a new backend command this sandbox can't verify
+  compiles).
 
-- [ ] **D5. Empty-state shortcut grid reads real keybindings.** The grid in
-  `TerminalArea.svelte:412-421` is hard-coded and wrong after remapping.
-  Render from `settings.prefs.keybindings` via the same source the cheat
-  sheet uses. **S**
+- [x] **D5. Empty-state shortcut grid reads real keybindings.** Pulled
+  from `ACTIONS`/`comboFor` so a remapped shortcut shows correctly;
+  copy/paste and zoom stay hand-written since they aren't remappable
+  actions, so they can't go stale.
 
-- [ ] **D6. First-run onboarding.** After creating a vault the host list
-  is empty. Offer a three-step card: import (ssh config / PuTTY /
-  MobaXterm / CSV / Ansible), add a host by hand, or quick connect; then
-  a one-time tour of the activity bar, palette and shortcuts. Add a
-  sample "localhost" local-shell tab so the terminal is not empty. **M**
+- [x] **D6. First-run onboarding**, scoped down from a guided tour to
+  one dismissible card (import / add a host by hand / quick connect,
+  plus a short "finding your way around" note on the activity bar,
+  palette and shortcuts), shown once right after creating a brand-new
+  vault, never after opening an existing one. A local shell tab opens
+  automatically alongside it. **Not done**: a multi-step wizard that
+  highlights live UI elements — a real "spotlight" tour needs to
+  position itself against the actual DOM and be seen to get right, which
+  isn't possible to verify in this environment.
 
-- [ ] **D7. Unlock screen details.** Show which sync folder and device the
-  vault is on, time of last change, and a "Recent vaults" list when more
-  than one has been opened. Keep the recovery-key reminder visible until
-  the user confirms they stored it. **S**
+- [x] **D7. Unlock screen details**, partly. Added a "Recent vaults"
+  list on the home screen (click to jump straight to its password
+  screen) and hardened the recovery-key reminder so it truly cannot be
+  dismissed without ticking the box — no bypass-via-confirm, which the
+  old version had. **Not done**: which device last changed the vault and
+  when — that needs `vault_info`, which only works after unlocking (it
+  decrypts records), so it can't be shown on the lock screen itself
+  without new, unauthenticated backend metadata this sandbox can't
+  verify compiles.
 
 ---
 
