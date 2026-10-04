@@ -203,7 +203,17 @@ For a one-off connection, type an `ssh -J` command in Quick connect instead
   other tabs. Middle-click to close it.
 - The dot on each tab shows its connection: green connected, yellow
   connecting, red failed, grey closed.
-- Right-click inside a terminal for copy, paste, select all, find and clear.
+- Right-click inside a terminal for copy, paste, select all, find, clear and
+  copying the entire scroll buffer.
+- Ctrl+click an absolute or `./relative` path in the output to browse to it
+  in SFTP, or a `host:port` to quick connect to it.
+- Drop a file from your file manager onto a terminal to upload it over SFTP
+  to that pane's current directory (needs shell integration to know it;
+  otherwise it uses the home directory), then the remote path is typed at
+  the cursor. Drop plain text to paste it.
+- Pasting something that looks like a private key or an API token asks you
+  to confirm first; turn this off under **Settings → Connections**, where
+  you can also have one trailing newline dropped from every paste.
 - When a program such as tmux, vim or Claude Code takes the mouse, hold
   **Shift** while dragging to select text, or click the **Program has the
   mouse** pill to make plain drags select until you switch back.
@@ -373,6 +383,21 @@ terminal, SFTP session and forwarding rule, removes temporary copies of
 remote files, and wipes the key from memory. Under **Settings → Auto-lock**
 you can lock automatically after 5, 15, 30 or 60 minutes without keyboard
 or mouse activity.
+
+Unlocking again (or restarting the app) reopens the tabs that were open last
+time, each reconnecting on its own, unless you turn this off under
+**Settings → Connections**. Production hosts are left closed by default, to
+reconnect by hand.
+
+## Security review
+
+**Vault → Security review** lists certificates nearing or past expiry, weak
+(RSA under 3072 bits) or deprecated (DSA) keys, keys older than five years,
+hosts still using a saved password when a key is available, and passwords
+that haven't changed in a while. Everything is computed locally from what's
+already in the vault; nothing is sent anywhere, and nothing is fixed
+automatically. The connection log on the **Vault** screen (local to this
+computer, never synced) shows when and how long each session lasted.
 
 ## Known hosts
 

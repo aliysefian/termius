@@ -89,9 +89,13 @@ Linux and Windows · Built with Rust, Tauri, Svelte and xterm.js
 - Confirmation for multi-line pastes and destructive commands (`rm -rf /`,
   `DROP TABLE`, `terraform destroy`…) on production hosts, plus red
   production banners
+- A paste that looks like a private key or an API token asks first
 - Undo for deletes, auto-lock, and clipboard clearing for copied secrets
 - Encrypted automatic backups, restore, integrity checks, sync-conflict
   resolution
+- A Security review page: certificate expiry, weak or ageing keys, and
+  passwords worth rotating, checked locally; a local connection log
+- Reopen the tabs that were open last time, after unlocking
 
 ## Install
 

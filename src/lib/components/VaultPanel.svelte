@@ -3,18 +3,25 @@
   import {
     Archive,
     CheckCircle2,
+    Download,
     FolderInput,
     GitMerge,
+    History,
     KeyRound,
     Laptop,
     Lock,
     RefreshCw,
     RotateCcw,
+    ShieldAlert,
     ShieldCheck,
     Stethoscope,
     TriangleAlert,
   } from "lucide-svelte";
   import StrengthMeter from "./StrengthMeter.svelte";
+  import Badge from "./Badge.svelte";
+  import { connectionLog } from "$lib/stores/connectionlog.svelte";
+  import { checkKeyHygiene } from "$lib/hygiene";
+  import { writeText } from "@tauri-apps/plugin-clipboard-manager";
   import Spinner from "./Spinner.svelte";
   import { ask } from "$lib/dialogs.svelte";
   import * as api from "$lib/api";
@@ -52,6 +59,29 @@
   }
 
   const when = (ms: number | null | undefined) => (ms ? new Date(ms).toLocaleString() : "never");
+  const keyFindingCount = $derived(checkKeyHygiene(vaultStore.keys).length);
+
+  function formatDuration(ms: number): string {
+    const s = Math.round(ms / 1000);
+    if (s < 60) return `${s}s`;
+    const m = Math.floor(s / 60);
+    if (m < 60) return `${m}m ${s % 60}s`;
+    const h = Math.floor(m / 60);
+    return `${h}h ${m % 60}m`;
+  }
+
+  async function copyLogCsv() {
+    try {
+      await writeText(connectionLog.toCsv());
+      ui.notify("info", "Connection log copied as CSV.");
+    } catch (e) {
+      ui.notify("error", errorMessage(e));
+    }
+  }
+
+  async function clearLog() {
+    if (await ask(`Clear ${connectionLog.entries.length} connection log entries? This only affects this computer.`, { title: "Clear activity log", confirm: "Clear" })) connectionLog.clear();
+  }
   const folderName = $derived(info?.path.split(/[\\/]/).filter(Boolean).at(-1) ?? "");
 
   // -- password -------------------------------------------------------------
@@ -305,6 +335,43 @@
             </div>
           {/each}
         </div>
+      </section>
+
+      <section class="rounded-xl border border-line bg-panel p-5">
+        <div class="mb-1 flex items-center justify-between gap-3">
+          <h2 class="flex items-center gap-2 text-sm font-semibold">
+            <ShieldAlert size={15} class="text-accent" /> Security review
+            {#if keyFindingCount}<Badge tone="warning">{keyFindingCount}</Badge>{/if}
+          </h2>
+          <button class="btn-secondary py-1 text-xs" onclick={() => (ui.view = "security-review")}>Open</button>
+        </div>
+        <p class="text-xs text-fg-muted">Weak or ageing keys, certificates nearing expiry, and passwords worth rotating.</p>
+      </section>
+
+      <section class="rounded-xl border border-line bg-panel p-5">
+        <div class="mb-1 flex items-center justify-between gap-3">
+          <h2 class="flex items-center gap-2 text-sm font-semibold"><History size={15} class="text-accent" /> Activity</h2>
+          <div class="flex gap-2">
+            <button class="btn-ghost py-1 text-xs" disabled={!connectionLog.entries.length} onclick={copyLogCsv}><Download size={12} /> Copy as CSV</button>
+            <button class="btn-ghost py-1 text-xs" disabled={!connectionLog.entries.length} onclick={clearLog}>Clear</button>
+          </div>
+        </div>
+        <p class="mb-3 text-xs text-fg-muted">Connections made from this computer. Kept locally only, never in the vault.</p>
+        {#if connectionLog.entries.length === 0}
+          <p class="text-xs text-fg-muted">Nothing yet.</p>
+        {:else}
+          <div class="max-h-72 divide-y divide-line overflow-y-auto rounded-md border border-line text-xs">
+            {#each connectionLog.entries.slice(0, 100) as e (e.id)}
+              <div class="flex items-center justify-between gap-3 px-3 py-1.5">
+                <span class="min-w-0 flex-1 truncate">{e.label}</span>
+                <span class="shrink-0 text-fg-muted">
+                  {when(e.startedAt)}
+                  {#if e.endedAt}· {formatDuration(e.endedAt - e.startedAt)}{#if e.exitCode != null} · exit {e.exitCode}{:else if e.reason === "dropped"} · dropped{:else if e.reason === "failed"} · failed{/if}{:else}· connected{/if}
+                </span>
+              </div>
+            {/each}
+          </div>
+        {/if}
       </section>
 
       <section class="rounded-xl border border-line bg-panel p-5">

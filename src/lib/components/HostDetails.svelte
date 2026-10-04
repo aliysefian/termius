@@ -9,6 +9,7 @@
   import { ui } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
   import { envInfo, errorMessage, type Uuid } from "$lib/types";
+  import { connectionLog } from "$lib/stores/connectionlog.svelte";
 
   let { id }: { id: Uuid } = $props();
   const rec = $derived(vaultStore.hostById.get(id));
@@ -20,6 +21,15 @@
   const env = $derived(envInfo(d ? vaultStore.effectiveEnv(d) : ""));
   const usage = $derived(settings.usage[id]);
   const history = $derived((settings.history[id] ?? []).slice(0, 8));
+  const sessions = $derived(connectionLog.forHost(id, 5));
+
+  function formatDuration(ms: number): string {
+    const s = Math.round(ms / 1000);
+    if (s < 60) return `${s}s`;
+    const m = Math.floor(s / 60);
+    if (m < 60) return `${m}m`;
+    return `${Math.floor(m / 60)}h ${m % 60}m`;
+  }
   const health = $derived(vaultStore.health[id]);
 
   const route = $derived.by(() => {
@@ -88,6 +98,22 @@
 
       {#if d.notes.trim()}
         <div class="notes rounded-md border border-line bg-base p-3 text-xs">{@html renderMarkdown(d.notes)}</div>
+      {/if}
+
+      {#if sessions.length}
+        <div>
+          <h3 class="mb-1 text-[11px] font-medium uppercase tracking-wide text-fg-muted">Recent connections (this computer)</h3>
+          <ul class="divide-y divide-line rounded-md border border-line">
+            {#each sessions as s (s.id)}
+              <li class="flex items-center justify-between gap-2 px-2 py-1 text-xs">
+                <span>{timeAgo(s.startedAt)}</span>
+                <span class="text-fg-muted">
+                  {#if s.endedAt}{formatDuration(s.endedAt - s.startedAt)}{#if s.exitCode != null} · exit {s.exitCode}{:else if s.reason === "dropped"} · dropped{:else if s.reason === "failed"} · failed{/if}{:else}connected now{/if}
+                </span>
+              </li>
+            {/each}
+          </ul>
+        </div>
       {/if}
 
       {#if history.length}

@@ -1,5 +1,6 @@
 <script lang="ts">
-  import type { Component, Snippet as SvelteSnippet } from "svelte";
+  import type { Snippet as SvelteSnippet } from "svelte";
+  import type { Server } from "lucide-svelte";
 
   /**
    * One look for every "nothing here yet" panel: an icon, a line of text,
@@ -12,7 +13,7 @@
     compact = false,
     children,
   }: {
-    icon?: Component;
+    icon?: typeof Server;
     text: string;
     compact?: boolean;
     children?: SvelteSnippet;

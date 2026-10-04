@@ -18,6 +18,12 @@ export interface Prefs {
   cursorColor: string;
   /** Bold text uses the bright version of its colour (xterm's default). */
   boldAsBright: boolean;
+  /** Extra characters xterm treats as word boundaries for double-click selection; empty keeps xterm's own default. */
+  wordSeparator: string;
+  /** Announces terminal output to assistive tech; on by default in most screen readers' own detection, but can be forced here. */
+  screenReaderMode: boolean;
+  /** Drops one trailing newline from a paste, so it lands on the prompt instead of also submitting a blank line. */
+  trimPasteNewline: boolean;
   copyOnSelect: boolean;
   /** Programs may put text on the clipboard with OSC 52 (tmux, Claude Code, Neovim). */
   remoteClipboard: boolean;
@@ -35,6 +41,10 @@ export interface Prefs {
   sidebarWidth: number;
   /** Reconnect by itself when a connection drops (not when you exit). */
   autoReconnect: boolean;
+  /** Reopen the tabs that were open when the vault was last locked or the app quit. */
+  restoreLastSession: boolean;
+  /** When restoring, leave production hosts closed; reconnect them by hand. */
+  restoreSkipProduction: boolean;
   /** Ask before closing a tab, pane or the app while sessions are connected. */
   confirmCloseSessions: boolean;
   /**
@@ -87,6 +97,9 @@ export const DEFAULT_PREFS: Prefs = {
   minimumContrastRatio: 1,
   cursorColor: "",
   boldAsBright: true,
+  wordSeparator: "",
+  screenReaderMode: false,
+  trimPasteNewline: false,
   scrollback: 5000,
   copyOnSelect: false,
   remoteClipboard: true,
@@ -98,6 +111,8 @@ export const DEFAULT_PREFS: Prefs = {
   sidebarHidden: false,
   sidebarWidth: 288,
   autoReconnect: true,
+  restoreLastSession: true,
+  restoreSkipProduction: true,
   confirmCloseSessions: true,
   rememberCommands: false,
   notifyBackground: true,
@@ -114,12 +129,13 @@ export const DEFAULT_PREFS: Prefs = {
 /** What "Reset" in Terminal appearance touches. */
 export const APPEARANCE_PREFS = [
   "themeId", "fontFamily", "fontSize", "lineHeight", "cursorStyle", "cursorBlink", "scrollback", "appTheme", "prodTint",
-  "density", "letterSpacing", "terminalPadding", "minimumContrastRatio", "cursorColor", "boldAsBright",
+  "density", "letterSpacing", "terminalPadding", "minimumContrastRatio", "cursorColor", "boldAsBright", "wordSeparator", "screenReaderMode",
 ] as const satisfies readonly (keyof Prefs)[];
 
 const KEY = "sshvault.prefs.v1";
 const RECENT_KEY = "sshvault.recent.v1";
 const RECENT_VAULTS_KEY = "sshvault.recentvaults.v1";
+const LAST_SESSION_KEY = "sshvault.lastsession.v1";
 const COLLAPSED_KEY = "sshvault.collapsed.v1";
 const USAGE_KEY = "sshvault.usage.v1";
 const HISTORY_KEY = "sshvault.history.v1";
@@ -158,6 +174,8 @@ class SettingsStore {
   recent = $state<string[]>(load<string[]>(RECENT_KEY, []));
   /** Vault folder paths opened on this computer, most recent first. Never synced. */
   recentVaults = $state<string[]>(load<string[]>(RECENT_VAULTS_KEY, []));
+  /** The tabs open when the vault was last locked or the app quit. Never synced; never holds secrets. */
+  lastSession = $state<import("./ui.svelte").WorkspaceTab[]>(load(LAST_SESSION_KEY, []));
   /** Collapsed host-group paths, remembered per computer. */
   collapsedGroups = $state<string[]>(load<string[]>(COLLAPSED_KEY, []));
   usage = $state<Record<string, HostUsage>>(load<Record<string, HostUsage>>(USAGE_KEY, {}));
@@ -194,6 +212,11 @@ class SettingsStore {
 
   markRecentVault(path: string) {
     this.recentVaults = [path, ...this.recentVaults.filter((p) => p !== path)].slice(0, 5);
+  }
+
+  saveLastSession(tabs: import("./ui.svelte").WorkspaceTab[]) {
+    this.lastSession = tabs;
+    save(LAST_SESSION_KEY, tabs);
   }
 
   forgetRecentVault(path: string) {

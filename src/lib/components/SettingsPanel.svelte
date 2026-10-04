@@ -51,12 +51,12 @@
   // Mirrors the keyword strings each section's `visible()` guard uses, just
   // to say "no matches" when a search comes up empty.
   const ALL_KEYWORDS = [
-    "terminal appearance theme colour color dark light font family size letter spacing padding contrast bold bright cursor block bar underline blink scrollback copy select clipboard osc 52 remote session log raw preview",
+    "terminal appearance theme colour color dark light font family size letter spacing padding contrast bold bright cursor block bar underline blink scrollback copy select clipboard osc 52 remote session log raw preview screen reader accessibility word separator double-click",
     "auto-lock inactivity lock timeout minutes",
     "update check version release install download",
     "layout density compact comfortable focus mode shortcuts",
     "local terminal shell bash zsh fish powershell wsl start folder cwd",
-    "connections auto-reconnect notify background command history remember",
+    "connections auto-reconnect notify background command history remember restore session reopen tabs last time production paste trailing newline",
     "command line cli scripting sshvault run list connect",
     "shell integration osc 133 7 prompt directory",
     "safety clipboard clear paste confirm destructive production backup retention pattern",
@@ -210,7 +210,7 @@
       {/if}
     {/if}
 
-    {#if visible("appearance", "terminal appearance theme colour color dark light font family size letter spacing padding contrast bold bright cursor block bar underline blink scrollback copy select clipboard osc 52 remote session log raw preview")}
+    {#if visible("appearance", "terminal appearance theme colour color dark light font family size letter spacing padding contrast bold bright cursor block bar underline blink scrollback copy select clipboard osc 52 remote session log raw preview screen reader accessibility word separator double-click")}
     <section class="rounded-xl border border-line bg-panel p-5">
       <div class="mb-1 flex items-center justify-between">
         <h2 class="flex items-center gap-2 text-sm font-semibold"><Palette size={15} class="text-accent" /> Terminal appearance</h2>
@@ -305,6 +305,14 @@
         <label class="flex items-center gap-2 text-sm">
           <input type="checkbox" class="accent-input" bind:checked={settings.prefs.boldAsBright} /> Bold text uses the bright colour
         </label>
+        <label class="flex items-center gap-2 text-sm">
+          <input type="checkbox" class="accent-input" bind:checked={settings.prefs.screenReaderMode} /> Screen reader mode
+        </label>
+        <div class="col-span-2">
+          <label class="label" for="s-wordsep">Double-click word boundaries</label>
+          <input id="s-wordsep" class="input font-mono text-xs" bind:value={settings.prefs.wordSeparator} placeholder="Default (space and common punctuation)" spellcheck="false" />
+          <p class="mt-0.5 text-[11px] text-fg-muted">Extra characters that end a double-click selection, e.g. add <code>/</code> to stop at path separators. Empty keeps the default.</p>
+        </div>
         <div>
           <label class="label" for="s-cursor">Cursor</label>
           <select id="s-cursor" class="input" bind:value={settings.prefs.cursorStyle}>
@@ -437,7 +445,7 @@
     </section>
     {/if}
 
-    {#if visible("connections", "connections auto-reconnect notify background command history remember")}
+    {#if visible("connections", "connections auto-reconnect notify background command history remember restore session reopen tabs last time production paste trailing newline")}
     <section class="rounded-xl border border-line bg-panel p-5">
       <h2 class="mb-1 text-sm font-semibold">Connections</h2>
       <label class="flex items-start gap-2 text-sm">
@@ -447,6 +455,21 @@
           <span class="block text-xs text-fg-muted">Up to three attempts, a few seconds apart. Typing <code>exit</code> or closing the tab never reconnects.</span>
         </span>
       </label>
+      <label class="mt-3 flex items-start gap-2 text-sm">
+        <input type="checkbox" class="mt-0.5 accent-input" bind:checked={settings.prefs.restoreLastSession} />
+        <span>
+          Reopen the tabs that were open last time, after unlocking
+          <span class="block text-xs text-fg-muted">Only when nothing's open yet. The targets are remembered on this computer, never in the vault; saved passwords and keys apply as usual.</span>
+        </span>
+      </label>
+      {#if settings.prefs.restoreLastSession}
+        <label class="ml-6 mt-2 flex items-start gap-2 text-sm">
+          <input type="checkbox" class="mt-0.5 accent-input" bind:checked={settings.prefs.restoreSkipProduction} />
+          <span>
+            Leave production hosts closed; reconnect them by hand
+          </span>
+        </label>
+      {/if}
       <label class="mt-3 flex items-start gap-2 text-sm">
         <input type="checkbox" class="mt-0.5 accent-input" bind:checked={settings.prefs.notifyBackground} />
         <span>
@@ -464,6 +487,13 @@
         </span>
       </label>
       <button class="btn-ghost mt-2 border border-line py-1 text-xs" onclick={() => { settings.clearHistory(); ui.notify("info", "Command history cleared."); }}>Clear command history</button>
+      <label class="mt-3 flex items-start gap-2 text-sm">
+        <input type="checkbox" class="mt-0.5 accent-input" bind:checked={settings.prefs.trimPasteNewline} />
+        <span>
+          Drop one trailing newline from a paste
+          <span class="block text-xs text-fg-muted">Copying a line from a file or editor often adds a trailing newline; without this, pasting it submits an extra blank line.</span>
+        </span>
+      </label>
     </section>
     {/if}
 

@@ -1,5 +1,6 @@
 <script lang="ts">
-  import type { Component, Snippet as SvelteSnippet } from "svelte";
+  import type { Snippet as SvelteSnippet } from "svelte";
+  import type { Server } from "lucide-svelte";
 
   /** One card shell for a full-page view's sections (Settings, Keys, Vault, Groups). */
   let {
@@ -11,7 +12,7 @@
     children,
   }: {
     title: string;
-    icon?: Component;
+    icon?: typeof Server;
     description?: string;
     /** Rendered at the top right of the header, next to the title. */
     action?: SvelteSnippet;

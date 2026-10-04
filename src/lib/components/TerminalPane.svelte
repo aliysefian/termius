@@ -16,13 +16,15 @@
   import { hostContextFor } from "$lib/runsnippet";
   import { render } from "$lib/snippetvars";
   import { ask } from "$lib/dialogs.svelte";
+  import { connectionLog } from "$lib/stores/connectionlog.svelte";
+  import { findHostPortMatches, findPathMatches, resolveBrowsePath } from "$lib/termlinks";
   import { settings } from "$lib/stores/settings.svelte";
   import { adhocLabel, ui, type Pane } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
   import { themeById } from "$lib/themes";
   import { mix } from "$lib/themeimport";
   import { errorMessage } from "$lib/types";
-  import { LineTracker, matchDestructive, pastedLines, pasteNeedsConfirm } from "$lib/guard";
+  import { LineTracker, looksLikeSecret, matchDestructive, pastedLines, pasteNeedsConfirm } from "$lib/guard";
   import { CommandTracker, parseOsc133, parseOsc7 } from "$lib/shellintegration";
   import { decodeOsc52, redundantMouseEnable } from "$lib/termprotocol";
   import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
@@ -65,7 +67,7 @@
   // -- input guards (a safety net, not a guarantee) -------------------------
   const tracker = new LineTracker();
   type Pending =
-    | { kind: "paste"; text: string; lines: number; danger: string | null }
+    | { kind: "paste"; text: string; lines: number; danger: string | null; secretWarning: string | null }
     | { kind: "command"; line: string; pattern: string };
   let pending = $state<Pending | null>(null);
 
@@ -93,10 +95,13 @@
   /** Every paste path (menu, shortcut, native Ctrl+V) goes through here. */
   function guardedPaste(text: string) {
     if (!text || status.kind !== "connected") return;
+    if (settings.prefs.trimPasteNewline) text = text.replace(/\r\n$|\r$|\n$/, "");
+    if (!text) return;
     const lines = pastedLines(text);
     const danger = production && shared ? text.split(/\r\n|\r|\n/).map((l) => matchDestructive(l, shared.destructive_patterns)).find(Boolean) ?? null : null;
-    if (danger || pasteNeedsConfirm(text, shared?.paste_confirm_lines ?? 2, production)) {
-      pending = { kind: "paste", text, lines, danger };
+    const secretWarning = looksLikeSecret(text);
+    if (danger || secretWarning || pasteNeedsConfirm(text, shared?.paste_confirm_lines ?? 2, production)) {
+      pending = { kind: "paste", text, lines, danger, secretWarning };
       return;
     }
     doPaste(text);
@@ -140,6 +145,8 @@
   const commands = new CommandTracker((line) => term.buffer.active.getLine(line)?.translateToString(true) ?? "");
   const cursor = () => ({ line: term.buffer.active.baseY + term.buffer.active.cursorY, col: term.buffer.active.cursorX });
   const hostId = target.kind === "host" ? target.hostId : null;
+  const logKind = target.kind === "adhoc" ? "adhoc" : target.kind;
+  let logId: string | null = null;
   /** Long enough that the user probably switched away while it ran. */
   const NOTIFY_AFTER_MS = 8000;
 
@@ -194,6 +201,22 @@
     try {
       await writeText(text);
       ui.notify("info", `Copied the output of "${last.command.split("\n")[0].slice(0, 40)}".`);
+    } catch (e) {
+      ui.notify("error", `Copy failed: ${errorMessage(e)}`);
+    }
+  }
+
+  async function copyEntireBuffer() {
+    const buf = term.buffer.active;
+    const lines: string[] = [];
+    for (let i = 0; i < buf.length; i++) lines.push(buf.getLine(i)?.translateToString(true) ?? "");
+    // Trailing blank lines are just unused scrollback rows, not real output.
+    while (lines.length && !lines[lines.length - 1]) lines.pop();
+    const text = lines.join("\n");
+    if (!text) return ui.notify("info", "Nothing in the buffer yet.");
+    try {
+      await writeText(text);
+      ui.notify("info", `Copied ${lines.length} line${lines.length === 1 ? "" : "s"} of buffer.`);
     } catch (e) {
       ui.notify("error", `Copy failed: ${errorMessage(e)}`);
     }
@@ -484,6 +507,42 @@
     term.loadAddon(fit);
     term.loadAddon(search);
     term.loadAddon(new WebLinksAddon());
+    // Ctrl+click a path to browse to it in SFTP, or a host:port to quick
+    // connect. Saved-host panes only: there's no SFTP target for a telnet,
+    // serial or ad-hoc session, and no reliable remote cwd without one.
+    term.registerLinkProvider({
+      provideLinks(lineNumber, callback) {
+        const lineText = term.buffer.active.getLine(lineNumber - 1)?.translateToString(true);
+        if (!lineText) {
+          callback(undefined);
+          return;
+        }
+        const links: import("@xterm/xterm").ILink[] = [];
+        if (hostId) {
+          for (const m of findPathMatches(lineText)) {
+            links.push({
+              range: { start: { x: m.start + 1, y: lineNumber }, end: { x: m.end + 1, y: lineNumber } },
+              text: m.text,
+              activate: (e) => {
+                if (!e.ctrlKey && !e.metaKey) return;
+                ui.openSftpAt(hostId, resolveBrowsePath(m.text, ui.paneInfo[paneId]?.cwd));
+              },
+            });
+          }
+        }
+        for (const m of findHostPortMatches(lineText)) {
+          links.push({
+            range: { start: { x: m.start + 1, y: lineNumber }, end: { x: m.end + 1, y: lineNumber } },
+            text: m.text,
+            activate: (e) => {
+              if (!e.ctrlKey && !e.metaKey) return;
+              ui.modal = { kind: "quick-connect", initial: m.text };
+            },
+          });
+        }
+        callback(links.length ? links : undefined);
+      },
+    });
     term.open(container);
     try {
       const webgl = new WebglAddon();
@@ -607,6 +666,7 @@
         reconnectAttempts = 0;
         safeFit();
         term.focus();
+        logId = connectionLog.start(hostId, label, logKind);
         if (target.kind === "host") {
           settings.markRecent(target.hostId);
           const startup = [host?.startup_command?.trim(), target.command?.trim()].filter(Boolean).join(" && ");
@@ -616,8 +676,15 @@
       } else if (e.status.kind === "disconnected") {
         term.write(`\r\n\x1b[90m[session closed${e.status.code != null ? `, exit ${e.status.code}` : ""}]\x1b[0m\r\n`);
         if (wasConnected && !active) ui.notify("info", `Session to ${label} closed.`);
+        if (logId) {
+          connectionLog.end(logId, e.status.code, e.status.code != null ? "exited" : "dropped");
+          logId = null;
+        }
         // No exit code means the link dropped rather than the shell ending.
         if (wasConnected && e.status.code == null) scheduleReconnect();
+      } else if (e.status.kind === "error" && logId) {
+        connectionLog.end(logId, null, "failed");
+        logId = null;
       }
     });
 
@@ -630,6 +697,7 @@
     clearTimeout(zoomHintTimer);
     unlisten?.();
     resizeObserver?.disconnect();
+    if (logId) connectionLog.end(logId, null, "closed");
     void closePane(pane);
     term?.dispose();
   });
@@ -638,7 +706,7 @@
   $effect(() => {
     const p = settings.prefs;
     const theme = paneTheme();
-    const { fontFamily, fontSize, lineHeight, cursorStyle, cursorBlink, scrollback, letterSpacing, minimumContrastRatio, boldAsBright, terminalPadding } = p;
+    const { fontFamily, fontSize, lineHeight, cursorStyle, cursorBlink, scrollback, letterSpacing, minimumContrastRatio, boldAsBright, terminalPadding, wordSeparator, screenReaderMode } = p;
     void terminalPadding; // read so this effect (and its safeFit()) reruns when padding changes too
     if (!term) return;
     term.options.theme = theme;
@@ -651,6 +719,8 @@
     term.options.letterSpacing = letterSpacing;
     term.options.minimumContrastRatio = minimumContrastRatio;
     term.options.drawBoldTextInBrightColors = boldAsBright;
+    term.options.screenReaderMode = screenReaderMode;
+    if (wordSeparator) term.options.wordSeparator = wordSeparator;
     safeFit();
   });
 
@@ -707,6 +777,18 @@
     oncontextmenu={(e) => {
       e.preventDefault();
       menu = { x: e.clientX, y: e.clientY };
+    }}
+    ondragover={(e) => {
+      // Only text drags here; OS file drops are handled at the webview
+      // level (uploads), not as a native browser drop on this element.
+      if (e.dataTransfer?.types.includes("text/plain")) e.preventDefault();
+    }}
+    ondrop={(e) => {
+      if (e.dataTransfer?.types.includes("Files")) return;
+      const text = e.dataTransfer?.getData("text/plain");
+      if (!text) return;
+      e.preventDefault();
+      guardedPaste(text);
     }}
   ></div>
 
@@ -767,6 +849,7 @@
         { label: "Copy last command output", keys: "", run: copyLastOutput, disabled: !commands.last },
         { label: "Previous / next prompt", keys: "Ctrl+Shift+↑ / ↓", run: () => jumpPrompt(-1), disabled: !commands.active },
         { label: selectMode ? "Give the mouse back to the program" : "Select text with the mouse", keys: "", run: toggleSelectMode, disabled: !mouseTracked },
+        { label: "Copy entire buffer", keys: "", run: copyEntireBuffer, disabled: false },
         { label: "Clear scrollback", keys: "", run: () => term.clear(), disabled: false },
       ] as item (item.label)}
         <button
@@ -794,13 +877,15 @@
           <pre class="max-h-32 overflow-auto rounded-md bg-base px-3 py-2 font-mono text-xs whitespace-pre-wrap">{pending.line}</pre>
           <p class="mt-2 text-xs text-fg-muted">It matches a destructive-command pattern for <strong>{label}</strong>. This check only sees what you typed; it's a reminder, not a guarantee.</p>
         {:else}
-          <div class="mb-2 flex items-center gap-2 text-sm font-semibold {pending.danger ? 'text-danger' : ''}">
+          <div class="mb-2 flex items-center gap-2 text-sm font-semibold {pending.danger || pending.secretWarning ? 'text-danger' : ''}">
             <ShieldAlert size={16} /> Paste {pending.lines} line{pending.lines === 1 ? "" : "s"} into {label}?
           </div>
           <pre class="max-h-48 overflow-auto rounded-md bg-base px-3 py-2 font-mono text-xs whitespace-pre-wrap">{pending.text.length > 4000 ? `${pending.text.slice(0, 4000)}
 …` : pending.text}</pre>
           <p class="mt-2 text-xs text-fg-muted">
-            {pending.danger ? "It contains a command that looks destructive, and this is a production host. " : ""}Each line runs as soon as it's pasted.
+            {#if pending.secretWarning}{pending.secretWarning} {/if}
+            {#if pending.danger}It contains a command that looks destructive, and this is a production host. {/if}
+            {#if /[\r\n]/.test(pending.text)}Each line runs as soon as it's pasted.{/if}
           </p>
         {/if}
         <div class="mt-4 flex justify-end gap-2">

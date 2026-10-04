@@ -39,6 +39,20 @@ export function matchDestructive(line: string, patterns: string[]): string | nul
 }
 
 /**
+ * A short reason to pause before pasting, if `text` looks like it contains
+ * a private key or an API token rather than ordinary shell input. A
+ * best-effort scan of recognisable formats, not a secret scanner: it won't
+ * catch everything, and a false negative here is still just a paste.
+ */
+export function looksLikeSecret(text: string): string | null {
+  if (/-----BEGIN (RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----/.test(text)) return "This looks like it contains a private key.";
+  if (/\bAKIA[0-9A-Z]{16}\b/.test(text)) return "This looks like it contains an AWS access key.";
+  if (/\bgh[pousr]_[A-Za-z0-9]{36,}\b/.test(text)) return "This looks like it contains a GitHub token.";
+  if (/\bxox[baprs]-[A-Za-z0-9-]{10,}\b/.test(text)) return "This looks like it contains a Slack token.";
+  return null;
+}
+
+/**
  * The first line of `text` that matches a destructive pattern, with the
  * pattern, or null. Used for snippets and anything else sent as a whole.
  */

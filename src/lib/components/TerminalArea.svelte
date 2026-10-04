@@ -14,6 +14,8 @@
   import { ask } from "$lib/dialogs.svelte";
   import { paneLabel, STATUS_DOT, ui, type Pane, type Tab } from "$lib/stores/ui.svelte";
   import { writeToPane } from "$lib/terminalio";
+  import { sftp } from "$lib/sftp";
+  import { PAGE_VIEWS } from "$lib/stores/ui.svelte";
   import { envInfo } from "$lib/types";
   import { vaultStore } from "$lib/stores/vault.svelte";
   import { errorMessage } from "$lib/types";
@@ -43,6 +45,52 @@
 
   /** Synchronized input: type once, every pane in the tab receives it. */
   /** Single-quote a path for POSIX shells. */
+  // Dropping OS files onto a terminal uploads them to the active pane's
+  // host, at its known directory (OSC 7), then types the remote path at
+  // the cursor so it's ready to use. Scoped to the active pane only: the
+  // drop event carries a screen position, not which split pane it landed
+  // on, and guessing from coordinates risked uploading to the wrong host.
+  onMount(() => {
+    let off: (() => void) | undefined;
+    void import("@tauri-apps/api/webview").then(async ({ getCurrentWebview }) => {
+      off = await getCurrentWebview().onDragDropEvent((ev) => {
+        if (PAGE_VIEWS.includes(ui.view) || ui.view === "sftp") return;
+        const p = ev.payload;
+        if (p.type !== "drop" || !p.paths.length) return;
+        const tab = ui.activeTab;
+        const pane = tab?.panes.find((x) => x.id === tab.activePaneId);
+        if (pane?.target.kind !== "host") return;
+        void uploadDropped(pane, pane.target.hostId, p.paths);
+      });
+    });
+    return () => off?.();
+  });
+
+  async function uploadDropped(pane: Pane, hostId: string, localPaths: string[]) {
+    const host = vaultStore.hostById.get(hostId)?.data;
+    if (!host || !vaultStore.effectiveIdentity(host)) {
+      ui.notify("error", "This host has no saved credentials for SFTP. Open it in the SFTP view to upload there.");
+      return;
+    }
+    const info = ui.paneInfo[pane.id];
+    const sessionId = `drop-${crypto.randomUUID()}`;
+    const names = localPaths.map((p) => p.split(/[\\/]/).pop() ?? p);
+    ui.notify("info", `Uploading ${names.length === 1 ? names[0] : `${names.length} files`} to ${host.label}…`);
+    try {
+      const opened = await sftp.open(sessionId, hostId, null);
+      const destDir = info?.cwd || opened.home;
+      const transferId = `drop-${crypto.randomUUID()}`;
+      await sftp.transfer(sessionId, transferId, "upload", localPaths, destDir, () => {});
+      await sftp.close(sessionId);
+      const remotePaths = names.map((n) => `${destDir.replace(/\/$/, "")}/${n}`);
+      ui.notify("info", `Uploaded to ${destDir}.`);
+      void writeToPane(pane, remotePaths.map(shellQuote).join(" "));
+    } catch (e) {
+      await sftp.close(sessionId).catch(() => {});
+      ui.notify("error", `Upload failed: ${errorMessage(e)}`);
+    }
+  }
+
   function shellQuote(s: string) {
     return `'${s.replace(/'/g, "'\\''")}'`;
   }

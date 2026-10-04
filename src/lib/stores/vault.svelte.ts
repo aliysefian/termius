@@ -254,6 +254,15 @@ class VaultStore {
 
   // -- lifecycle --------------------------------------------------------
 
+  /** Reopens the tabs from the last time the vault was open, skipping production hosts if asked. */
+  #restoreLastSession() {
+    if (!settings.prefs.restoreLastSession || ui.tabs.length > 0 || settings.lastSession.length === 0) return;
+    const isProduction = (t: (typeof settings.lastSession)[number]) =>
+      t.targets.some((p) => p.kind === "host" && this.hostById.get(p.hostId)?.data?.environment === "production");
+    const tabs = settings.prefs.restoreSkipProduction ? settings.lastSession.filter((t) => !isProduction(t)) : settings.lastSession;
+    if (tabs.length) ui.openWorkspace(tabs);
+  }
+
   async setAgentEnabled(enabled: boolean) {
     this.agentStatus = await api.agent.setEnabled(enabled);
   }
@@ -283,6 +292,7 @@ class VaultStore {
     if ("path" in res.status) settings.markRecentVault(res.status.path);
     await this.reloadAll();
     await this.#autoStartForwards();
+    this.#restoreLastSession();
     const notes: string[] = [];
     if (res.report.migrated) notes.push("The vault was upgraded to the new format; a backup of the old one was kept.");
     if (res.report.merged_conflicts) notes.push(`${res.report.merged_conflicts} sync conflict(s) were merged automatically.`);
@@ -313,6 +323,7 @@ class VaultStore {
   }
 
   async lock() {
+    settings.saveLastSession(ui.snapshotWorkspace());
     this.status = await api.vault.lock();
     this.clearRecords();
     // Backend already closed every session; drop the tabs so they don't

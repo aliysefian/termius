@@ -17,6 +17,7 @@
   import GroupsPanel from "$lib/components/GroupsPanel.svelte";
   import KnownHostsPanel from "$lib/components/KnownHostsPanel.svelte";
   import VaultPanel from "$lib/components/VaultPanel.svelte";
+  import SecurityReview from "$lib/components/SecurityReview.svelte";
   import HostKeyDialog from "$lib/components/HostKeyDialog.svelte";
   import AgentPromptDialog from "$lib/components/AgentPromptDialog.svelte";
   import CliPromptDialog from "$lib/components/CliPromptDialog.svelte";
@@ -78,6 +79,9 @@
     const win = getCurrentWindow();
     const un = win.onCloseRequested(async (e) => {
       if (closing) return;
+      // Save what was open so it can come back next time, unless the vault
+      // was already locked (then there's nothing open worth saving over).
+      if (vaultStore.unlocked) settings.saveLastSession(ui.snapshotWorkspace());
       const live = ui.liveSessions(ui.tabs);
       if (live.connected === 0 || !settings.prefs.confirmCloseSessions) return;
       e.preventDefault();
@@ -176,6 +180,8 @@
       <KnownHostsPanel />
     {:else if ui.view === "vault"}
       <VaultPanel />
+    {:else if ui.view === "security-review"}
+      <SecurityReview />
     {/if}
     </div>
     <StatusBar />

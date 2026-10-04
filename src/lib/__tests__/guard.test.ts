@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { LineTracker, firstDestructiveLine, matchDestructive, pasteNeedsConfirm, pastedLines } from "../guard";
+import { LineTracker, firstDestructiveLine, looksLikeSecret, matchDestructive, pasteNeedsConfirm, pastedLines } from "../guard";
 import { DEFAULT_DESTRUCTIVE } from "./fixtures";
 
 describe("paste protection", () => {
@@ -68,5 +68,43 @@ describe("LineTracker", () => {
     expect(t.line).toBeNull();
     t.feed("\x03");
     expect(t.line).toBe("");
+  });
+});
+
+describe("looksLikeSecret", () => {
+  // A real key from `ssh-keygen`.
+  const REAL_PRIVATE_KEY = `-----BEGIN OPENSSH PRIVATE KEY-----
+b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
+QyNTUxOQAAACBth/xMH0s/rJ66Ct4hWKmhJf3Ztinf9MVDi383QwhHfQAAAIg53Qr5Od0K
++QAAAAtzc2gtZWQyNTUxOQAAACBth/xMH0s/rJ66Ct4hWKmhJf3Ztinf9MVDi383QwhHfQ
+AAAEAQDQ6ecu1/cBUH5OTe9CNcElWQfFLWcT2c+1tIJQUcdm2H/EwfSz+snroK3iFYqaEl
+/dm2Kd/0xUOLfzdDCEd9AAAAAAECAwQF
+-----END OPENSSH PRIVATE KEY-----`;
+
+  it("catches a real OpenSSH private key", () => {
+    expect(looksLikeSecret(REAL_PRIVATE_KEY)).toMatch(/private key/);
+  });
+
+  it("catches other PEM private key headers", () => {
+    expect(looksLikeSecret("-----BEGIN RSA PRIVATE KEY-----\nMIIE...")).toMatch(/private key/);
+    expect(looksLikeSecret("-----BEGIN EC PRIVATE KEY-----\nMHcC...")).toMatch(/private key/);
+  });
+
+  it("catches an AWS access key id", () => {
+    expect(looksLikeSecret("export AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE")).toMatch(/AWS/);
+  });
+
+  it("catches a GitHub token", () => {
+    expect(looksLikeSecret("ghp_" + "a".repeat(36))).toMatch(/GitHub/);
+  });
+
+  it("catches a Slack token", () => {
+    expect(looksLikeSecret("xoxb-1234567890-abcdefghij")).toMatch(/Slack/);
+  });
+
+  it("leaves ordinary text and commands alone", () => {
+    expect(looksLikeSecret("ls -la /var/log")).toBeNull();
+    expect(looksLikeSecret("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIB user@host")).toBeNull();
+    expect(looksLikeSecret("")).toBeNull();
   });
 });
