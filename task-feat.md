@@ -112,48 +112,62 @@ expected to have.
 
 ## Phase C: the shell
 
-- [ ] **C1. Status bar.** A 24 px bar under the terminal area showing, left
-  to right: vault state (locked/unlocked, sync folder, last change and
-  which device made it), SSH agent on/off with request count, CLI on/off,
-  active tunnels (click to open Tunnels), and for the active pane:
-  user@host, latency (from keep-alive round trip), cipher/KEX, terminal
-  size and encoding. Hidden in focus mode. Each segment is a button that
-  jumps to the right view. **M**
+- [x] **C1. Status bar.** Done, narrower than first scoped: a 24 px bar
+  under the terminal area with Lock vault, SSH agent on/off (keys
+  offered), CLI on/off and active-tunnel count, each a button that jumps
+  to its view, plus the active pane's label, cwd and live terminal size.
+  Hidden in focus mode. **Not done**: per-pane latency/cipher/KEX and a
+  vault sync-device readout — both need backend data this environment
+  can't compile or verify (no webkit/gtk dev libs here; see
+  `docs/DEVELOPMENT.md`), and a vault-folder fetch added for low value on
+  its own. Centralizing agent/CLI status also fixed a real bug: Keys and
+  Settings each kept their own local copy, so toggling one didn't update
+  the other until a remount.
 
-- [ ] **C2. Tab strip overflow and activity.** The strip scrolls sideways
-  with no indicator (`TerminalArea.svelte:164`). Add a "list all tabs"
-  dropdown with search when tabs overflow, a fade on the scrolled edges,
-  and per-tab indicators: an "unread output" dot when a background tab
-  printed since you last saw it, a running-command spinner (shell
-  integration), and a bell icon after a bell. Ctrl+1…9 already select
-  tabs; add Ctrl+Shift+Tab-style MRU switching. **M**
+- [x] **C2. Tab strip overflow and activity.** Fade on scrolled edges, a
+  "list all tabs" button (shown once the strip overflows) with a
+  searchable dropdown, and per-tab unread-output dot, running-command
+  spinner and bell icon. Command palette and the new-connection buttons
+  no longer scroll out of view with the tabs (they used to). **Not
+  done**: true MRU tab switching; Ctrl+Tab/Ctrl+Shift+Tab already cycle
+  tabs sequentially, which was judged enough for now.
 
-- [ ] **C3. Pane header overflow menu.** The h-7 header holds up to 12
-  controls and truncates on narrow panes. Keep label, env pill and cwd
-  visible; put select mode, sync, record, zoom, split and close under a
-  single "⋯" menu, with the most common two (split, close) still inline.
-  Add Reconnect, Duplicate pane, Open SFTP here and Copy ssh command to
-  that menu. **S**
+- [x] **C3. Pane header overflow menu.** Select mode, sync, record and
+  maximize moved into a "⋯" menu; split and close stay inline. Added
+  Reconnect (for a specific pane, not just the active one), Duplicate
+  pane, Open SFTP here, Copy ssh command, and Swap panes (two-pane tabs).
+  A recording pane still shows a small dot in the header even with the
+  action moved to the menu.
 
-- [ ] **C4. Keyboard navigation between panes and dividers.** Alt+Arrow
-  focuses the pane in that direction; Ctrl+Shift+Alt+Arrow resizes the
-  divider; double-click on a divider resets to 50/50. Dividers get
-  `role=separator` with `aria-valuenow`, like `ResizablePanel`. Add
-  "Swap panes" and drag-a-pane-header to re-dock. **M**
+- [x] **C4. Keyboard navigation between panes and dividers**, mostly.
+  Added Alt+Shift+Arrow (not plain Alt+Arrow — that's readline's
+  back/forward-word binding, used constantly in a shell) to focus the
+  spatially nearest pane; dividers are keyboard-focusable with
+  `role=separator`, `aria-valuenow/min/max`, arrow-key resize, Home/Enter
+  and double-click to centre, and Escape cancels a drag — all matching
+  `ResizablePanel`'s pattern. Added "Swap panes" (see C3). **Not done**:
+  drag-a-pane-header-to-re-dock; too large and too hard to get right
+  without a running app to try it against.
 
-- [ ] **C5. Scroll-to-bottom pill and scroll position.** When scrolled up
-  in a terminal with new output arriving, show a floating "↓ New output"
-  pill (like Discord/Slack). Shift+End or clicking it jumps down. **S**
+- [x] **C5. Scroll-to-bottom pill.** A floating "New output" pill appears
+  when scrolled back in the buffer and more arrives; click or Shift+End
+  jumps to the bottom.
 
-- [ ] **C6. Host tree keyboard model.** Rows are `role=button`; the tree
-  needs `treeitem`s with Up/Down, Left/Right to collapse/expand, Home/End,
-  type-ahead, and `*` to expand all. Enter connects, Space opens details
-  (already), F2 renames, Delete asks to delete. **M**
+- [x] **C6. Host tree keyboard model.** A new `flattenTree()` (tested)
+  gives a single, visibility-aware row order that Recent and the real
+  tree share. Real roving-tabindex keyboard support: Up/Down/Home/End,
+  Left/Right to collapse/expand or move to parent/child, type-ahead,
+  `*` expands all, Enter connects, Space opens details, F2 opens the
+  host for editing (there's no separate inline-rename to map to), Delete
+  asks to delete. **Gap**: no nested `role=group` wrapper per level, so
+  a screen reader won't announce containment as precisely as a
+  textbook ARIA tree; real keyboard operability was prioritised over
+  that, and it couldn't be checked with an actual screen reader here.
 
-- [ ] **C7. Window title and taskbar.** Set the window title to
-  "web-01 · SSHVault" for the active pane (Tauri `setTitle`), and show
-  progress on the taskbar/dock for SFTP transfers where the platform
-  supports it. **S**
+- [x] **C7. Window title and taskbar.** The window title follows the
+  active pane (`user@host · SSHVault`, or just `SSHVault` with none).
+  SFTP transfers show aggregate progress on the taskbar/dock
+  (`setProgressBar`), on platforms that support it.
 
 ---
 
