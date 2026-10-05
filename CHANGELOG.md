@@ -4,7 +4,7 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
-## Unreleased
+## 0.13.0 — 2026-10-05
 
 - **Databases.** A new view for MySQL, MariaDB and PostgreSQL: saved connections (the
   password lives in the vault), a tree of databases, tables, columns and
