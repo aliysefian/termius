@@ -105,14 +105,24 @@
       <div class="rounded-md border border-line p-3">
         <div class="mb-1 flex items-center justify-between gap-2">
           <h3 class="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-fg-muted"><Activity size={11} /> Live metrics</h3>
-          <button
-            class="btn-ghost py-0.5 text-xs"
-            disabled={!canMonitor}
-            title={canMonitor ? "" : "Needs saved credentials to run unattended"}
-            onclick={() => hostMetrics.setMonitored(id, !monitored)}
-          >
-            {monitored ? "Stop monitoring" : "Start monitoring"}
-          </button>
+          <div class="flex items-center gap-1">
+            <button
+              class="btn-ghost py-0.5 text-xs"
+              disabled={!canMonitor}
+              title={canMonitor ? "Network, processes, ports and interfaces, while this window is open" : "Needs saved credentials to run unattended"}
+              onclick={() => (ui.modal = { kind: "host-monitor", id })}
+            >
+              Open detail view…
+            </button>
+            <button
+              class="btn-ghost py-0.5 text-xs"
+              disabled={!canMonitor}
+              title={canMonitor ? "" : "Needs saved credentials to run unattended"}
+              onclick={() => hostMetrics.setMonitored(id, !monitored)}
+            >
+              {monitored ? "Stop monitoring" : "Start monitoring"}
+            </button>
+          </div>
         </div>
         {#if !monitored}
           <p class="text-xs text-fg-muted">
@@ -130,7 +140,7 @@
             <div><div class="truncate font-mono text-sm" title={m.load ?? ""}>{m.load ?? "—"}</div><div class="text-fg-muted">Load</div></div>
             <div><div class="font-mono text-sm">{m.uptimeSecs != null ? formatUptime(m.uptimeSecs) : "—"}</div><div class="text-fg-muted">Uptime</div></div>
           </div>
-          <p class="mt-1 text-[11px] text-fg-muted">As of {timeAgo(reading.at)}.{m.cpuPct == null ? " CPU and memory aren't sampled on BSD/macOS yet." : ""}</p>
+          <p class="mt-1 text-[11px] text-fg-muted">As of {timeAgo(reading.at)}.{m.cpuPct == null ? " CPU and memory couldn't be read on this host." : ""}</p>
         {:else}
           <p class="text-xs text-fg-muted">Waiting for the first reading…</p>
         {/if}

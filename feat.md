@@ -12,19 +12,18 @@ should be done once, in whichever file is picked first.
 
 ## Status (2026-10-05)
 
-5 of 36 tasks are done. D0 to C0 are committed on `main` and pushed. Release
-`v0.13.0` was never published: CI's newer clippy (1.99) rejected one line, so
-`v0.13.1` is the release that carries them (CI builds it; its result hasn't
-been seen). C1 is in the working tree, not yet committed (`CHANGELOG.md` has it
-under "Unreleased"). Lint with `cargo +1.99.0 clippy`, the CI's version.
+5 of 36 tasks are done and one more is built with a single line of its DoD open
+(M1). D0 to C1 are committed on `main`; D0 to C0 are pushed and released as
+`v0.13.1` (CI builds it; its result hasn't been seen). C1 (`ebe4399`) and M1
+are not pushed or released. Lint with `cargo +1.99.0 clippy`, the CI's version.
 
 | Phase | Done | Next |
 |---|---|---|
 | 1. File transfer | 0 of 7 | F0 |
 | 2. Terminal and connection types | 0 of 5 | T2 |
 | 3. Databases | 3 of 9 (D0 and D1 `acfb247`, D2 `a72c4dd`) | D6, D7, D5, D8, D3, D4 |
-| 4. Containers | 2 of 6 (C0 `45a9743`, C1 uncommitted) | C2 |
-| 5. Monitoring | 0 of 1 | M1 |
+| 4. Containers | 2 of 6 (C0 `45a9743`, C1 `ebe4399`) | C2 (needs a real Podman) |
+| 5. Monitoring | 0 of 1: M1 is built, one DoD line open (a recording from a real macOS or BSD) | that one recording |
 | 6. AI assistant | 0 of 5 | A0 |
 | 7. Sync and languages | 0 of 3 | S1 |
 
@@ -80,6 +79,31 @@ None of this is in the repo; the scratchpad is per session, so recreate it.
   pulled once, with permission implied by the task).
 - Fixtures: record real output where a program exists here, and say plainly in
   the file and the task when one is written from documentation.
+
+**Shell.** The tool that runs commands refuses anything that looks like a removal
+whose target it can't resolve: `docker rm -f $name`, `docker run --rm`, `rm -rf $dir`.
+It matches the text, so don't try to rephrase around it. Use literal names, run
+throwaway containers without `--rm`, and say in the report what is left for the
+person to remove. Unprivileged `unshare -rpfn` is blocked on Ubuntu 24.04
+(AppArmor), so a synthetic namespace isn't available for recordings; a throwaway
+container is.
+
+**Fixtures from tools you can't run.** Record from real systems where possible (a
+container per distro: `python:3.12-slim` is Debian with mawk and almost no tools,
+Alpine has BusyBox) and write the rest by hand, marking each hand-written file at
+its top. A hand-written fixture is only trustworthy if something checks it matches
+what the script prints: run the real script with the tools replaced by shell
+functions that answer from the fixture (`monitor.rs`), and make the script's own
+`have` say "no" for tools the pretend host lacks, because a real copy on this
+machine would otherwise be found and its output (yours) printed. Never paste a
+recording of this machine's own processes, ports or addresses into the repo.
+
+**Charts.** Read the `dataviz` skill first, take the series colours from its
+palette, and run its validator against the app's real surfaces:
+`node .../dataviz/scripts/validate_palette.js "#2a78d6,#eb6834" --mode light --surface "#ffffff"`
+and `"#3987e5,#d95926" --mode dark --surface "#20222b"` (both pass for blue and
+orange). Look at a screenshot in both themes: it caught a plot running past its
+card and odd axis ticks that no test did.
 
 **UI.** No webkit means no real window, so the frontend is driven in headless
 Chromium (Playwright for Python; the cached browser needs `executable_path`
@@ -511,19 +535,48 @@ so closing the channel ends the process). Keep references checked, not escaped.
 Extends E7 (`hostmetrics.ts`, `FleetView.svelte`, `health.rs`). Still opt-in
 per host and agentless.
 
-- [ ] **M1. Network, processes, ports and interfaces.** **M**
+- [ ] **M1. Network, processes, ports and interfaces.** Built 2026-10-05; one DoD
+  line open. **M**
+  Script: `src/lib/hostdetail.sh` (one file the app imports and the tests run).
+  Parsers: `lib/hostdetail.ts`. History and chart geometry: `lib/hosthistory.ts`.
+  Backend: `monitor.rs` (one persistent SSH connection per watched host, on the
+  container transport). UI: `HostMonitor`, `HostChart`; entry points on the host
+  details card and the Fleet tile.
   DoD:
-  - [ ] Per-host monitoring adds: network throughput per interface,
-        top processes (CPU and memory, sortable), listening ports with the
-        owning process, and an interface list with addresses and state.
-  - [ ] "Kill process" sends `SIGTERM` after a confirmation; `SIGKILL` is a
-        second, separate action.
-  - [ ] Works on Linux; BSD/macOS shows what it can and says which panels
-        are unavailable (also fixes the CPU/memory gap noted in 0.12.0).
+  - [x] Per-host monitoring adds network throughput per interface (and a total),
+        top processes (CPU and memory, sortable, searchable), listening ports
+        with the owning process, and an interface list with addresses and state.
+  - [x] "Terminate" sends `SIGTERM` after a confirmation; "Force kill" is a
+        separate button and a separate, stronger confirmation. Both re-check the
+        process name on the host just before signalling (pid reuse), refuse pid 1,
+        and on a production host need the host's name typed. Run against real
+        processes: `TERM` ends one, a process that ignores `TERM` survives it and
+        only `KILL` ends it, a reused pid is left alone, a vanished pid is
+        reported, and a hostile name can't run a command.
+  - [x] Works on Linux (from `/proc` and `awk` alone for processes, so a host
+        without `ps` works; verified with `mawk`, BusyBox `awk` and `gawk`).
+        macOS and BSD show what they can and the window says which panels a host
+        can't fill. The macOS and FreeBSD CPU and memory readings that fix the
+        0.12.0 gap exist and are unit-tested against stubbed tools.
   - [ ] Parsers are unit-tested with recorded outputs from at least Debian,
-        Alpine (BusyBox) and one non-Linux system.
-  - [ ] History charts keep the last 15 minutes in memory only; nothing is
-        written to disk.
+        Alpine (BusyBox) and one non-Linux system. **Debian (four variants: bare,
+        with `iproute2`, with `net-tools`) and Alpine are recorded from real
+        containers; the macOS and FreeBSD fixtures are hand-written from the manuals
+        and marked so.** This line stays open until someone records the script's
+        output on a real Mac or BSD (run `hostdetail.sh` with `sh -c` and save it as
+        `darwin.txt` or `freebsd.txt`); the parser and the script's layout are
+        already tested against the hand-written ones.
+  - [x] History charts keep the last 15 minutes in memory only: nothing is
+        written to disk, and locking the vault clears them. Charts follow the
+        dataviz rules (validated colours, 2 px lines, legend only for two or more
+        series, crosshair tooltip, keyboard readout, table view, light and dark).
+  Also tested: the script over a real `sshd` through the session manager (quoting,
+  exit codes, timeout, reuse), and in headless Chromium with a mocked backend that
+  answers with the recorded outputs (tabs, sorting, search, both kill flows,
+  pause, error recovery, production prompts, Escape closing the readout before the
+  dialog).
+  Not verified: any real macOS or BSD host (the whole non-Linux path is from
+  manuals); hosts whose login shell has no `sh`; the real Tauri window.
 
 ## Phase 6: AI assistant
 

@@ -1,0 +1,78 @@
+@@OS
+Linux
+@@CLK
+100
+@@TA
+686909.52
+@@CPUA
+cpu  21869993 279486 5214078 380173663 159085 0 2280961 633029 0 0
+@@NETA
+Inter-|   Receive                                                |  Transmit
+ face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed
+    lo:       0       0    0    0    0     0          0         0        0       0    0    0    0     0       0          0
+  eth0: 10693170    7267    0    0    0     0          0         0    38284     679    0    0    0     0       0          0
+@@PROCA
+84	0	2020	root	awk
+72	5	1912	root	sh
+67	26	24596	root	python3
+83	0	1340	root	cat
+1	58	22860	root	python3
+62	36	1844	root	sh
+@@TB
+686910.54
+@@CPUB
+cpu  21870469 279486 5214110 380173738 159085 0 2280981 633031 0 0
+@@NETB
+Inter-|   Receive                                                |  Transmit
+ face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed
+    lo:       0       0    0    0    0     0          0         0        0       0    0    0    0     0       0          0
+  eth0: 13790434    9376    0    0    0     0          0         0    49628     885    0    0    0     0       0          0
+@@PROCB
+90	0	1960	root	awk
+72	5	1912	root	sh
+89	0	1432	root	cat
+1	58	22860	root	python3
+62	133	1844	root	sh
+@@MEM
+MemTotal:       12247548 kB
+MemFree:         1066444 kB
+MemAvailable:    7602956 kB
+Buffers:          149984 kB
+Cached:          5286872 kB
+SwapTotal:       3071996 kB
+SwapFree:        2377144 kB
+@@LOAD
+8.23 9.79 6.73 6/884 92
+@@DISK
+overlay          206296436 116580684  79214128      60% /
+@@PORTS
+tool netstat
+Active Internet connections (only servers)
+Proto Recv-Q Send-Q Local Address           Foreign Address         State       PID/Program name    
+tcp        0      0 0.0.0.0:8000            0.0.0.0:*               LISTEN      1/python3           
+tcp        0      0 127.0.0.1:8002          0.0.0.0:*               LISTEN      1/python3           
+tcp6       0      0 :::8001                 :::*                    LISTEN      1/python3           
+udp        0      0 0.0.0.0:5353            0.0.0.0:*                           1/python3           
+@@IPADDR
+@@IPLINK
+@@IFCONFIG
+eth0: flags=4163<UP,BROADCAST,RUNNING,MULTICAST>  mtu 1500
+        inet 172.17.0.6  netmask 255.255.0.0  broadcast 172.17.255.255
+        ether 36:8c:77:8a:39:8f  txqueuelen 0  (Ethernet)
+        RX packets 9376  bytes 13790434 (13.1 MiB)
+        RX errors 0  dropped 0  overruns 0  frame 0
+        TX packets 885  bytes 49628 (48.4 KiB)
+        TX errors 0  dropped 0 overruns 0  carrier 0  collisions 0
+
+lo: flags=73<UP,LOOPBACK,RUNNING>  mtu 65536
+        inet 127.0.0.1  netmask 255.0.0.0
+        inet6 ::1  prefixlen 128  scopeid 0x10<host>
+        loop  txqueuelen 1000  (Local Loopback)
+        RX packets 0  bytes 0 (0.0 B)
+        RX errors 0  dropped 0  overruns 0  frame 0
+        TX packets 0  bytes 0 (0.0 B)
+        TX errors 0  dropped 0 overruns 0  carrier 0  collisions 0
+
+@@SYSNET
+eth0 up 36:8c:77:8a:39:8f 1500
+lo unknown 00:00:00:00:00:00 65536

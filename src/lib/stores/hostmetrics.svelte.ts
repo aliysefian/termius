@@ -6,6 +6,8 @@
 import * as api from "$lib/api";
 import { vaultStore } from "$lib/stores/vault.svelte";
 import { METRICS_SCRIPT, parseMetricsOutput, type HostMetrics } from "$lib/hostmetrics";
+import type { HostDetail } from "$lib/hostdetail";
+import { addSample, fromDetail, fromSummary, type Sample } from "$lib/hosthistory";
 import type { Uuid } from "$lib/types";
 
 const MONITORED_KEY = "sshvault.monitored.v1";
@@ -41,12 +43,21 @@ class HostMetricsStore {
   monitored = $state<Record<Uuid, boolean>>(load());
   /** Last reading per host; absent until the first successful poll. */
   readings = $state<Record<Uuid, MetricsReading>>({});
+  /** The last 15 minutes per host, in memory only: never written to disk, never synced. */
+  history = $state<Record<Uuid, Sample[]>>({});
   #timer: ReturnType<typeof setInterval> | undefined;
   #polling = false;
 
   constructor() {
     $effect.root(() => {
       $effect(() => persist($state.snapshot(this.monitored)));
+      // Readings are not kept past a lock, so locking leaves nothing about a host's load behind.
+      $effect(() => {
+        if (!vaultStore.unlocked) {
+          this.history = {};
+          this.readings = {};
+        }
+      });
       $effect(() => {
         const anyOn = vaultStore.unlocked && Object.values(this.monitored).some(Boolean);
         if (anyOn && !this.#timer) {
@@ -58,6 +69,16 @@ class HostMetricsStore {
         }
       });
     });
+  }
+
+  /** Add a reading to a host's history. */
+  record(id: Uuid, sample: Sample) {
+    this.history[id] = addSample(this.history[id] ?? [], sample);
+  }
+
+  /** A reading from the detail view: CPU, memory and network throughput. */
+  recordDetail(id: Uuid, detail: HostDetail) {
+    this.record(id, fromDetail(detail, Date.now()));
   }
 
   isMonitored(id: Uuid): boolean {
@@ -90,8 +111,11 @@ class HostMetricsStore {
         ids.map((id) => ({ host_id: id, command: METRICS_SCRIPT })),
         TIMEOUT_SECS,
         (e) => {
-          if (e.event === "finished") this.readings[e.host_id] = { metrics: parseMetricsOutput(e.output.stdout), error: null, at: Date.now() };
-          else if (e.event === "failed") this.readings[e.host_id] = { metrics: null, error: e.message, at: Date.now() };
+          if (e.event === "finished") {
+            const metrics = parseMetricsOutput(e.output.stdout);
+            this.readings[e.host_id] = { metrics, error: null, at: Date.now() };
+            this.record(e.host_id, fromSummary(metrics, Date.now()));
+          } else if (e.event === "failed") this.readings[e.host_id] = { metrics: null, error: e.message, at: Date.now() };
         },
       );
     } catch {

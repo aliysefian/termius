@@ -375,3 +375,11 @@ export const containers = {
   },
   compose: (sessionId: Uuid, project: string, verb: ComposeVerb) => invoke<void>("containers_compose", { sessionId, project, verb }),
 };
+
+/** Detail monitoring: one SSH connection per watched host, scripts run under `sh -c`. */
+export const monitor = {
+  open: (hostId: Uuid) => invoke<Uuid>("monitor_open", { hostId }),
+  exec: (sessionId: Uuid, script: string, timeoutSecs: number) =>
+    invoke<{ stdout: string; stderr: string; code: number | null }>("monitor_exec", { sessionId, script, timeoutSecs }),
+  close: (sessionId: Uuid) => invoke<void>("monitor_close", { sessionId }),
+};

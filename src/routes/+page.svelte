@@ -23,6 +23,7 @@
   import ContainersView from "$lib/components/ContainersView.svelte";
   import ContainerLogs from "$lib/components/ContainerLogs.svelte";
   import ContainerInspect from "$lib/components/ContainerInspect.svelte";
+  import HostMonitor from "$lib/components/HostMonitor.svelte";
   import ContainerPull from "$lib/components/ContainerPull.svelte";
   import ContainerPrune from "$lib/components/ContainerPrune.svelte";
   import DbConnectionForm from "$lib/components/DbConnectionForm.svelte";
@@ -254,6 +255,10 @@
   {:else if ui.modal?.kind === "container-inspect"}
     {#key ui.modal.id}
       <ContainerInspect sourceKey={ui.modal.sourceKey} id={ui.modal.id} name={ui.modal.name} />
+    {/key}
+  {:else if ui.modal?.kind === "host-monitor"}
+    {#key ui.modal.id}
+      <HostMonitor id={ui.modal.id} />
     {/key}
   {:else if ui.modal?.kind === "container-pull"}
     <ContainerPull sourceKey={ui.modal.sourceKey} />

@@ -6,6 +6,18 @@ View changelog**.
 
 ## Unreleased
 
+- **A detail view for monitored hosts.** Open it from a host's details card
+  or its Fleet tile to see, over one SSH connection kept open while the window
+  is: charts of CPU, memory and network throughput for the last 15 minutes
+  (kept in memory only), every process with its CPU and memory (sortable,
+  searchable), what is listening on which port and which process owns it, and
+  each network interface with its addresses and state. Terminate a process
+  after a confirmation, or force-kill it as a separate, stronger action; the
+  host is asked first whether that process number still belongs to the same
+  program. On macOS and FreeBSD it shows what those systems can tell, says what
+  it can't, and the summary now includes CPU and memory there (written from the
+  manuals, not yet run on real macOS or BSD hardware).
+
 - **Docker images, volumes, networks and Compose projects.** The Containers
   view gains tabs for volumes and networks (each showing which containers use
   it) and can pull, remove and clean up images, volumes and networks. "Remove

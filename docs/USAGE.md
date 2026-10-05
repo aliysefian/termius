@@ -88,9 +88,45 @@ been copied since.
   on its tile) to also sample CPU, memory, disk, load and uptime every 30
   seconds, over the same SSH connection mechanism as everything else — no
   agent, nothing installed on the host. Off by default, per host, and never
-  synced; needs a saved credential, since it runs unattended. CPU and memory
-  aren't sampled on BSD/macOS yet (no single portable reading for either
-  there), though disk, load and uptime are.
+  synced; needs a saved credential, since it runs unattended. On macOS and
+  FreeBSD, CPU comes from `top` and memory from `vm_stat` or `sysctl`; on
+  another BSD only disk, load and uptime are shown. (The macOS and FreeBSD
+  readings are written from the manuals and have not yet been run on a real
+  Mac or BSD machine.)
+- **Detail view.** **Open detail view…** on a host's details card, or the gauge
+  icon on its Fleet tile, opens a window for that one host. It keeps a single
+  SSH connection open while the window is open (not a new login per
+  refresh) and reads the host every 5 seconds (3, 10 or 30 if you prefer),
+  only while the window is visible. **Pause** stops it. Nothing is installed
+  and nothing is changed: the script only reads. Needs a saved credential.
+  - **Overview** charts CPU, memory and network throughput (received and sent,
+    everything but loopback) for the last 15 minutes. Hover, or focus a chart
+    and use the arrow keys, to read the exact values; **Show as a table** lists
+    every reading. The history is kept **in memory only**: never written to
+    disk, never synced, and locking the vault clears it.
+  - **Processes** lists what is running with its user, CPU (a share of one
+    core over the last second, so it can pass 100) and memory. Sort by any
+    column, and search by name, user or pid. **Terminate** asks a process to
+    stop (SIGTERM) after a confirmation; **Force kill** (SIGKILL) is a
+    separate button with its own, stronger confirmation, because the process
+    can't clean up. Just before signalling, the host is asked whether that
+    process number still belongs to the same program, so a number that was
+    reused in the meantime is left alone and you are told. The first process
+    (pid 1) can't be signalled here. A process of another user may be
+    refused by the host; its answer is shown. On a production host, both ask
+    you to type the host's name.
+  - **Ports** lists what is listening, with the process that owns each. That
+    needs `ss` or `netstat` on the host, and the host only tells you about
+    your own processes unless you are root: the others are marked "owner not
+    shown". Without either tool the listeners still appear, without owners.
+  - **Interfaces** lists each network interface with its state, addresses,
+    MAC, MTU and current throughput. Without `ip` or `ifconfig` on the host,
+    the addresses aren't shown, and the window says so.
+  - Linux needs nothing beyond a shell and `awk` (processes are read straight
+    from `/proc`, so even a host without `ps` works). On macOS and FreeBSD the
+    system's own tools are used, CPU per process is the system's figure, and
+    the CPU and memory charts need monitoring switched on (the 30-second
+    summary supplies them). The window says which panels a host can't fill.
 - **Local terminals.** **Ctrl+Shift+`**, or the terminal icon next to the tabs,
   opens your own shell in a tab: your login shell on Linux and macOS, the
   default shell on Windows. Local tabs work with splits, recording, snippets

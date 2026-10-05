@@ -58,6 +58,8 @@ pub struct AppState {
     pub dbs: Arc<crate::db::DbManager>,
     /// Open container sessions (the Containers view).
     pub containers: Arc<crate::containers::ContainerManager>,
+    /// Open detail-monitoring connections (one per host being watched).
+    pub monitors: Arc<crate::monitor::MonitorManager>,
     pub edits: Arc<crate::remoteedit::EditManager>,
     /// Where remote files are downloaded for editing.
     pub edit_dir: PathBuf,
@@ -587,6 +589,7 @@ pub async fn lock_vault(state: State<'_, AppState>) -> ApiResult<VaultStatus> {
     state.raw.close_all();
     state.dbs.close_all().await;
     state.containers.close_all().await;
+    state.monitors.close_all().await;
     state.edits.stop_all();
     // The agent serves vault keys, so it goes when the vault locks, and
     // the command-line socket with it.
@@ -3338,6 +3341,36 @@ pub fn containers_logs_stop(state: State<'_, AppState>, stream_id: Uuid) {
 }
 
 
+// ---------------------------------------------------------------------------
+// Detail monitoring
+// ---------------------------------------------------------------------------
+
+/// Keep one SSH connection to a host open for sampling. The host needs saved
+/// credentials: the connection is made without asking.
+#[tauri::command]
+pub async fn monitor_open(state: State<'_, AppState>, host_id: Uuid) -> ApiResult<Uuid> {
+    let target = resolve_target(&state, host_id, None)?;
+    Ok(state.monitors.open(target).await?)
+}
+
+/// Run a script on a watched host, under `sh -c`, and wait for it.
+#[tauri::command]
+pub async fn monitor_exec(
+    state: State<'_, AppState>,
+    session_id: Uuid,
+    script: String,
+    timeout_secs: u64,
+) -> ApiResult<crate::monitor::ExecResult> {
+    let timeout = std::time::Duration::from_secs(timeout_secs.clamp(1, 120));
+    Ok(state.monitors.exec(session_id, &script, timeout).await?)
+}
+
+#[tauri::command]
+pub async fn monitor_close(state: State<'_, AppState>, session_id: Uuid) -> ApiResult<()> {
+    state.monitors.close(session_id).await;
+    Ok(())
+}
+
 #[tauri::command]
 pub fn list_workspaces(state: State<'_, AppState>) -> ApiResult<Vec<Record<crate::models::Workspace>>> {
     list_records(&state, Collection::Workspaces)
@@ -3928,6 +3961,7 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         raw: Arc::new(crate::rawterm::RawManager::new()),
         dbs: Arc::new(crate::db::DbManager::new()),
         containers: Arc::new(crate::containers::ContainerManager::new()),
+        monitors: Arc::new(crate::monitor::MonitorManager::new()),
         edits: Arc::new(crate::remoteedit::EditManager::new()),
         edit_dir,
         reveal: Default::default(),

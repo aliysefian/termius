@@ -1,0 +1,66 @@
+@@OS
+Linux
+@@CLK
+100
+@@TA
+686529.20
+@@CPUA
+cpu  21690159 279349 5188175 380155528 158972 0 2278389 632509 0 0
+@@NETA
+Inter-|   Receive                                                |  Transmit
+ face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed
+    lo:       0       0    0    0    0     0          0         0        0       0    0    0    0     0       0          0
+  eth0:     746       7    0    0    0     0          0         0      126       3    0    0    0     0       0          0
+@@PROCA
+31	0	1456	root	cat
+32	0	2092	root	awk
+1	68	22696	root	python3
+7	31	1760	root	sh
+13	17	20908	root	python3
+19	4	1896	root	sh
+@@TB
+686530.22
+@@CPUB
+cpu  21690472 279349 5188210 380155754 158973 0 2278422 632511 0 0
+@@NETB
+Inter-|   Receive                                                |  Transmit
+ face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed
+    lo:       0       0    0    0    0     0          0         0        0       0    0    0    0     0       0          0
+  eth0: 3092713    2102    0    0    0     0          0         0    15724     288    0    0    0     0       0          0
+@@PROCB
+38	0	1964	root	awk
+1	68	22696	root	python3
+37	0	1464	root	cat
+7	128	1760	root	sh
+19	4	1896	root	sh
+@@MEM
+MemTotal:       12247548 kB
+MemFree:         1661380 kB
+MemAvailable:    9089112 kB
+Buffers:          160244 kB
+Cached:          6377028 kB
+SwapTotal:       3071996 kB
+SwapFree:        2361784 kB
+@@LOAD
+9.01 7.84 4.43 6/732 40
+@@DISK
+overlay          206296436 116499208  79295604      60% /
+@@PORTS
+tool proc
+file tcp
+  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode                                                     
+   0: 00000000:1F40 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 22406238 1 0000000000000000 100 0 0 10 0                  
+file tcp6
+  sl  local_address                         remote_address                        st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
+   0: 00000000000000000000000000000000:1F41 00000000000000000000000000000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 22406237 1 0000000000000000 100 0 0 10 0
+file udp
+   sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode ref pointer drops            
+ 6607: 00000000:14E9 00000000:0000 07 00000000:00000000 00:00000000 00000000     0        0 22406236 2 0000000000000000 0      
+file udp6
+  sl  local_address                         remote_address                        st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode ref pointer drops
+@@IPADDR
+@@IPLINK
+@@IFCONFIG
+@@SYSNET
+eth0 up ce:cf:36:ad:e5:bb 1500
+lo unknown 00:00:00:00:00:00 65536

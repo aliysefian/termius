@@ -22,6 +22,7 @@ pub mod keys;
 pub mod knownhosts;
 pub mod localpty;
 pub mod models;
+pub mod monitor;
 pub mod mobaxterm;
 pub mod putty;
 pub mod rawterm;
@@ -168,6 +169,9 @@ pub fn run() {
             commands::containers_prune_run,
             commands::containers_pull,
             commands::containers_compose,
+            commands::monitor_open,
+            commands::monitor_exec,
+            commands::monitor_close,
             commands::sftp_edit_start,
             commands::sftp_edit_stop,
             commands::sftp_open,

@@ -1,0 +1,64 @@
+@@OS
+Linux
+@@CLK
+100
+@@TA
+686897.40
+@@CPUA
+cpu  21863935 279483 5213499 380173198 159081 0 2280822 633014 0 0
+@@NETA
+Inter-|   Receive                                                |  Transmit
+ face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed
+    lo:       0       0    0    0    0     0          0         0        0       0    0    0    0     0       0          0
+  eth0: 14403135    9795    0    0    0     0          0         0    50088     838    0    0    0     0       0          0
+@@PROCA
+408	47	1852	root	sh
+420	5	1948	root	sh
+431	0	1464	root	cat
+1	58	22896	root	python3
+432	0	144	root	sh
+413	23	25120	root	python3
+@@TB
+686898.42
+@@CPUB
+cpu  21864436 279483 5213545 380173242 159081 0 2280839 633016 0 0
+@@NETB
+Inter-|   Receive                                                |  Transmit
+ face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed
+    lo:       0       0    0    0    0     0          0         0        0       0    0    0    0     0       0          0
+  eth0: 17497991   11893    0    0    0     0          0         0    62076    1060    0    0    0     0       0          0
+@@PROCB
+408	142	1852	root	sh
+437	0	1348	root	cat
+420	5	1948	root	sh
+1	58	22896	root	python3
+@@MEM
+MemTotal:       12247548 kB
+MemFree:         1182316 kB
+MemAvailable:    7682256 kB
+Buffers:          149440 kB
+Cached:          5251160 kB
+SwapTotal:       3071996 kB
+SwapFree:        2376888 kB
+@@LOAD
+8.38 9.87 6.72 6/878 440
+@@DISK
+overlay          206296436 116545424  79249388      60% /
+@@PORTS
+tool ss
+Netid State  Recv-Q Send-Q Local Address:Port Peer Address:PortProcess                        
+udp   UNCONN 0      0            0.0.0.0:5353      0.0.0.0:*    users:(("python3",pid=1,fd=3))
+tcp   LISTEN 0      5            0.0.0.0:8000      0.0.0.0:*    users:(("python3",pid=1,fd=6))
+tcp   LISTEN 0      128        127.0.0.1:8002      0.0.0.0:*    users:(("python3",pid=1,fd=5))
+tcp   LISTEN 0      128             [::]:8001         [::]:*    users:(("python3",pid=1,fd=4))
+@@IPADDR
+1: lo    inet 127.0.0.1/8 scope host lo\       valid_lft forever preferred_lft forever
+1: lo    inet6 ::1/128 scope host proto kernel_lo \       valid_lft forever preferred_lft forever
+2: eth0    inet 172.17.0.5/16 brd 172.17.255.255 scope global eth0\       valid_lft forever preferred_lft forever
+@@IPLINK
+1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN mode DEFAULT group default qlen 1000\    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+2: eth0@if284: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP mode DEFAULT group default \    link/ether fe:ee:dd:a7:7a:ea brd ff:ff:ff:ff:ff:ff link-netnsid 0
+@@IFCONFIG
+@@SYSNET
+eth0 up fe:ee:dd:a7:7a:ea 1500
+lo unknown 00:00:00:00:00:00 65536

@@ -68,6 +68,10 @@ Linux and Windows · Built with Rust, Tauri, Svelte and xterm.js
 - A Fleet view: a tile per host with reachability colour-coding and
   auto-refresh, plus opt-in CPU, memory, disk, load and uptime for any
   host, sampled over SSH with nothing installed on it
+- A detail view per host: 15-minute charts of CPU, memory and network
+  throughput (in memory only), sortable processes with Terminate and a
+  separate Force kill, listening ports with their owners, and interfaces
+  with addresses and state; macOS and BSD show what they can
 
 ### Databases
 - Browse and query MySQL, MariaDB and PostgreSQL from the same app: saved connections

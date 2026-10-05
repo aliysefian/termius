@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount } from "svelte";
-  import { Activity, Loader2, RefreshCw, Server } from "lucide-svelte";
+  import { Activity, Gauge, Loader2, RefreshCw, Server } from "lucide-svelte";
   import EmptyState from "./EmptyState.svelte";
   import { buildTree, groupPaths } from "$lib/tree";
   import { formatUptime } from "$lib/hostmetrics";
@@ -120,6 +120,15 @@
               {:else}
                 <span class="text-[11px] text-fg-muted">Not monitored</span>
               {/if}
+              <button
+                class="icon-btn h-5 w-5 shrink-0"
+                title={hostMetrics.canMonitor(rec.id) ? "Open the detail view: network, processes, ports, interfaces" : "Needs saved credentials"}
+                aria-label="Open the detail view of {d.label}"
+                disabled={!hostMetrics.canMonitor(rec.id)}
+                onclick={() => (ui.modal = { kind: "host-monitor", id: rec.id })}
+              >
+                <Gauge size={12} />
+              </button>
               <button
                 class="icon-btn h-5 w-5 shrink-0 {monitored ? 'text-accent' : ''}"
                 title={monitored ? "Stop monitoring" : hostMetrics.canMonitor(rec.id) ? "Start monitoring" : "Needs saved credentials"}
