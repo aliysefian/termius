@@ -55,6 +55,13 @@ notify = "8"
 
 # --- Databases ---
 mysql_async = { version = "0.37", default-features = false, features = ["default-rustls-ring"] }
+# PostgreSQL. TLS reuses the rustls + ring already built for the updater and
+# MySQL; certificates are checked against the operating system's trust store.
+tokio-postgres = "0.7"
+futures-util = { version = "0.3", default-features = false }
+bytes = "1"
+tokio-postgres-rustls = { version = "0.14", default-features = false, features = ["ring"] }
+rustls-platform-verifier = "0.7"
 
 # --- SSH engine ---
 russh = { version = "0.63", default-features = false, features = ["flate2", "ring", "rsa"] }

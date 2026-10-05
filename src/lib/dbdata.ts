@@ -139,6 +139,10 @@ export function cellAfterEdit(kind: DbColumn["kind"], value: string | null): DbC
   return value;
 }
 
-const BACKTICK = /`/g;
-/** `db`.`table` for use in a SELECT. */
-export const quoteName = (...parts: string[]) => parts.map((p) => `\`${p.replace(BACKTICK, "``")}\``).join(".");
+/** One name quoted the way the engine reads it: `a` for MySQL, "a" for PostgreSQL. */
+export function quoteIdent(engine: string, name: string): string {
+  return engine === "postgres" ? `"${name.replace(/"/g, '""')}"` : `\`${name.replace(/`/g, "``")}\``;
+}
+
+/** `db`.`table` (or "schema"."table") for use in a SELECT. */
+export const quoteName = (engine: string, ...parts: string[]) => parts.map((p) => quoteIdent(engine, p)).join(".");

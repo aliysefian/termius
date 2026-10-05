@@ -9,6 +9,7 @@
     Eye,
     History,
     KeyRound,
+    Layers,
     Loader2,
     Pencil,
     Play,
@@ -54,7 +55,7 @@
   const tab = $derived(databases.active);
 
   function kindIcon(kind: DbTreeNode["kind"]) {
-    return { database: Database, table: Table2, view: Eye, column: Columns3, index: KeyRound }[kind];
+    return { database: Database, schema: Layers, table: Table2, view: Eye, column: Columns3, index: KeyRound }[kind];
   }
 
   async function connectAndShow(id: Uuid) {
@@ -74,8 +75,9 @@
     }
   }
 
-  function selectStarOf(db: string, table: string) {
-    return `SELECT * FROM ${quoteName(db, table)}`;
+  /** `db` is the MySQL database or the PostgreSQL schema: the first level of the tree. */
+  function selectStarOf(connId: Uuid, db: string, table: string) {
+    return `SELECT * FROM ${quoteName(databases.engineOf(connId), db, table)}`;
   }
 
   function newQueryFor(connId: Uuid, sql = "") {
@@ -359,13 +361,13 @@
           {:else}
             <span class="w-3 shrink-0"></span>
           {/if}
-          <Icon size={13} class="shrink-0 {node.kind === 'database' ? 'text-accent' : 'text-fg-muted'}" />
+          <Icon size={13} class="shrink-0 {node.kind === 'database' || node.kind === 'schema' ? 'text-accent' : 'text-fg-muted'}" />
           <span class="truncate text-xs {node.detail === 'system' ? 'text-fg-muted' : ''}">{node.name}</span>
           {#if node.detail}<span class="ml-1 shrink-0 truncate text-[11px] text-fg-muted/70">{node.detail}</span>{/if}
         </button>
         {#if isTable}
           <button class="icon-btn h-5 w-5 opacity-0 focus:opacity-100 group-hover/node:opacity-100" title="Open rows" aria-label="Open rows of {node.name}" onclick={() => databases.openTable(connId, path[0], node.name)}><Table2 size={12} /></button>
-          <button class="icon-btn h-5 w-5 opacity-0 focus:opacity-100 group-hover/node:opacity-100" title="New query" aria-label="New query on {node.name}" onclick={() => newQueryFor(connId, selectStarOf(path[0], node.name))}><Plus size={12} /></button>
+          <button class="icon-btn h-5 w-5 opacity-0 focus:opacity-100 group-hover/node:opacity-100" title="New query" aria-label="New query on {node.name}" onclick={() => newQueryFor(connId, selectStarOf(connId, path[0], node.name))}><Plus size={12} /></button>
         {/if}
       </div>
       {#if node.expandable && s?.open[ck]}

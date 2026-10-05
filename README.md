@@ -70,7 +70,7 @@ Linux and Windows · Built with Rust, Tauri, Svelte and xterm.js
   host, sampled over SSH with nothing installed on it
 
 ### Databases
-- Browse and query MySQL and MariaDB from the same app: saved connections
+- Browse and query MySQL, MariaDB and PostgreSQL from the same app: saved connections
   (password in the vault), a tree of databases, tables, columns and indexes,
   a query editor with history, and results that stay fast with 100,000 rows
 - Reach a database through one of your SSH hosts, so its port is never

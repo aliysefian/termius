@@ -601,6 +601,7 @@ export interface DbConnection {
 
 export const DB_ENGINES: { value: string; label: string; port: number }[] = [
   { value: "mysql", label: "MySQL / MariaDB", port: 3306 },
+  { value: "postgres", label: "PostgreSQL", port: 5432 },
 ];
 
 export function emptyDbConnection(): DbConnection {
@@ -627,7 +628,7 @@ export interface DbQueryResult {
   elapsed_ms: number;
 }
 
-export type DbNodeKind = "database" | "table" | "view" | "column" | "index";
+export type DbNodeKind = "database" | "schema" | "table" | "view" | "column" | "index";
 
 export interface DbTreeNode {
   name: string;

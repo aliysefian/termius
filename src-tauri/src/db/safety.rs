@@ -89,6 +89,17 @@ fn statements(sql: &str) -> Vec<Vec<String>> {
                 cur.push("?".to_string());
                 i += 1;
             }
+            // PostgreSQL dollar quoting: $tag$ ... $tag$ is one opaque string, so a
+            // function body's own semicolons and keywords are not statements.
+            '$' if word.is_empty() && dollar_tag_len(&chars[i..]).is_some() => {
+                let tag: Vec<char> = chars[i..i + dollar_tag_len(&chars[i..]).unwrap_or(0)].to_vec();
+                let mut k = i + tag.len();
+                while k + tag.len() <= chars.len() && chars[k..k + tag.len()] != tag[..] {
+                    k += 1;
+                }
+                cur.push("?".to_string());
+                i = if k + tag.len() <= chars.len() { k + tag.len() } else { chars.len() };
+            }
             ';' => {
                 flush(&mut word, &mut cur);
                 if !cur.is_empty() {
@@ -111,6 +122,45 @@ fn statements(sql: &str) -> Vec<Vec<String>> {
         out.push(cur);
     }
     out
+}
+
+/// Length of an opening dollar-quote tag (`$$` or `$name$`) at the start of
+/// `s`, or `None` if it isn't one (`$1` is a parameter, not a tag).
+fn dollar_tag_len(s: &[char]) -> Option<usize> {
+    if s.first() != Some(&'$') {
+        return None;
+    }
+    let mut j = 1;
+    while j < s.len() && (s[j].is_alphanumeric() || s[j] == '_') {
+        j += 1;
+    }
+    let digit_first = s.get(1).is_some_and(|c| c.is_ascii_digit());
+    (s.get(j) == Some(&'$') && !digit_first).then_some(j + 1)
+}
+
+/// Whether the text is exactly one statement (a trailing `;` or comment is fine).
+pub fn is_single_statement(sql: &str) -> bool {
+    statements(sql).len() == 1
+}
+
+/// Whether running `sql` would start a transaction and not end it. Runs may
+/// land on different server connections, so a transaction can't be carried
+/// from one run to the next; better to say so than to lose it silently.
+pub fn leaves_transaction_open(sql: &str) -> bool {
+    let mut open = false;
+    for stmt in statements(sql) {
+        let w: Vec<String> = stmt.iter().map(|w| w.to_ascii_lowercase()).collect();
+        let second = w.get(1).map(String::as_str).unwrap_or("");
+        match w.first().map(String::as_str).unwrap_or("") {
+            "begin" => open = true,
+            "start" if second == "transaction" => open = true,
+            "commit" | "end" => open = false,
+            // ROLLBACK TO SAVEPOINT keeps the transaction going.
+            "rollback" | "abort" if second != "to" && second != "prepared" => open = false,
+            _ => {}
+        }
+    }
+    open
 }
 
 #[cfg(test)]
@@ -177,5 +227,47 @@ mod tests {
         assert!(!flagged("SELECT /* unterminated"));
         assert!(flagged("DROP TABLE t /* unterminated"));
         assert!(!flagged("SELECT 'é'; -- ünï"));
+    }
+
+    #[test]
+    fn dollar_quoted_bodies_are_opaque() {
+        // A function body's DELETE and semicolons are not statements of their own.
+        let f = "CREATE FUNCTION f() RETURNS void AS $$ BEGIN DELETE FROM t; END $$ LANGUAGE plpgsql";
+        assert!(!flagged(f));
+        assert!(is_single_statement(f));
+        assert!(!leaves_transaction_open(f));
+        let tagged = "DO $body$ BEGIN DELETE FROM t; END $body$";
+        assert!(!flagged(tagged) && is_single_statement(tagged));
+        // But a real statement after it still counts.
+        assert!(flagged("SELECT $$a;b$$; DROP TABLE t"));
+        // $1 is a parameter, and an unterminated tag runs to the end without looping.
+        assert!(!flagged("SELECT $1, $2"));
+        assert!(!flagged("SELECT $$ never closed; DROP TABLE t"));
+        assert!(!flagged("SELECT $a"));
+    }
+
+    #[test]
+    fn single_statements() {
+        assert!(is_single_statement("SELECT 1"));
+        assert!(is_single_statement("SELECT 1;"));
+        assert!(is_single_statement("SELECT 1; -- done"));
+        assert!(is_single_statement("/* a */ SELECT ';' "));
+        assert!(!is_single_statement("SELECT 1; SELECT 2"));
+        assert!(!is_single_statement(""));
+        assert!(!is_single_statement("-- only a comment"));
+    }
+
+    #[test]
+    fn open_transactions_are_spotted() {
+        assert!(leaves_transaction_open("BEGIN"));
+        assert!(leaves_transaction_open("begin; update t set a = 1 where id = 2"));
+        assert!(leaves_transaction_open("START TRANSACTION"));
+        assert!(!leaves_transaction_open("BEGIN; UPDATE t SET a = 1 WHERE id = 2; COMMIT"));
+        assert!(!leaves_transaction_open("begin; select 1; rollback;"));
+        assert!(!leaves_transaction_open("BEGIN; SELECT 1; END"));
+        assert!(leaves_transaction_open("BEGIN; SAVEPOINT a; ROLLBACK TO a"));
+        assert!(!leaves_transaction_open("SELECT 'begin'"));
+        assert!(!leaves_transaction_open("UPDATE t SET begin = 1 WHERE id = 1"));
+        assert!(!leaves_transaction_open("START SLAVE"));
     }
 }

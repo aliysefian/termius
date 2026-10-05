@@ -73,6 +73,10 @@ class DatabasesStore {
     return vaultStore.dbConnections.find((c) => c.id === connId)?.data?.name ?? "database";
   }
 
+  engineOf(connId: Uuid): string {
+    return vaultStore.dbConnections.find((c) => c.id === connId)?.data?.engine ?? "mysql";
+  }
+
   isProduction(connId: Uuid): boolean {
     return vaultStore.dbConnections.find((c) => c.id === connId)?.data?.environment === "production";
   }
@@ -178,7 +182,7 @@ class DatabasesStore {
   async openTable(connId: Uuid, database: string, table: string) {
     let tab = this.tabs.find((t) => t.connId === connId && t.table?.database === database && t.table.table === table);
     if (!tab) {
-      tab = this.newTab(connId, `SELECT * FROM ${quoteName(database, table)}`, table);
+      tab = this.newTab(connId, `SELECT * FROM ${quoteName(this.engineOf(connId), database, table)}`, table);
       tab.table = { database, table };
     }
     this.activeTabId = tab.id;

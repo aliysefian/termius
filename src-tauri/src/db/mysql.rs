@@ -11,8 +11,8 @@ use serde_json::{json, Value};
 use uuid::Uuid;
 
 use super::{
-    CellEdit, Column, ColumnInfo, ColumnKind, ConnectSpec, DbError, DbResult, NodeKind, QueryResult, RowEdit, TableInfo,
-    TlsMode, TreeNode, CONNECT_TIMEOUT, MAX_CELL_BYTES,
+    join_with, update_pieces, Column, ColumnInfo, ColumnKind, ConnectSpec, DbError, DbResult, NodeKind, QueryResult, RowEdit,
+    TableInfo, TlsMode, TreeNode, CONNECT_TIMEOUT, MAX_CELL_BYTES,
 };
 
 /// The binary character set: a BLOB with this is bytes, without it is TEXT.
@@ -44,12 +44,17 @@ fn opts(spec: &ConnectSpec) -> Opts {
         ),
         TlsMode::VerifyFull => {
             let o = SslOpts::default();
-            Some(if spec.tunnelled { o.with_danger_skip_domain_validation(true) } else { o })
+            // The tunnel dials loopback, so the name can't be matched; the chain is still checked.
+            Some(if spec.tunnel_port.is_some() { o.with_danger_skip_domain_validation(true) } else { o })
         }
     };
+    let (host, port) = match spec.tunnel_port {
+        Some(p) => ("127.0.0.1".to_string(), p),
+        None => (spec.host.clone(), spec.port),
+    };
     OptsBuilder::default()
-        .ip_or_hostname(spec.host.clone())
-        .tcp_port(spec.port)
+        .ip_or_hostname(host)
+        .tcp_port(port)
         .user(Some(spec.user.clone()))
         .pass(spec.password.clone().filter(|p| !p.is_empty()))
         .db_name(spec.database.clone().filter(|d| !d.is_empty()))
@@ -321,47 +326,13 @@ pub fn quote_literal(value: &Option<String>) -> String {
     }
 }
 
-/// The statement as text pieces with a gap for each value, plus the values
-/// in gap order. Building from pieces (never by replacing text) means a
-/// value or a name can't be mistaken for a placeholder.
-fn update_parts(edit: &RowEdit) -> (Vec<String>, Vec<&CellEdit>) {
-    let mut pieces = vec![format!("UPDATE {}.{} SET ", quote_ident(&edit.database), quote_ident(&edit.table))];
-    let mut cells: Vec<&CellEdit> = Vec::new();
-    for (i, c) in edit.changes.iter().enumerate() {
-        let sep = if i == 0 { "" } else { ", " };
-        pieces.last_mut().expect("never empty").push_str(&format!("{sep}{} = ", quote_ident(&c.column)));
-        pieces.push(String::new());
-        cells.push(c);
-    }
-    pieces.last_mut().expect("never empty").push_str(" WHERE ");
-    for (i, k) in edit.key.iter().enumerate() {
-        let sep = if i == 0 { "" } else { " AND " };
-        pieces.last_mut().expect("never empty").push_str(&format!("{sep}{} = ", quote_ident(&k.column)));
-        pieces.push(String::new());
-        cells.push(k);
-    }
-    pieces.last_mut().expect("never empty").push_str(" LIMIT 1");
-    (pieces, cells)
-}
-
-fn join_with(pieces: &[String], fill: impl Fn(usize) -> String) -> String {
-    let mut out = String::new();
-    for (i, p) in pieces.iter().enumerate() {
-        out.push_str(p);
-        if i + 1 < pieces.len() {
-            out.push_str(&fill(i));
-        }
-    }
-    out
-}
-
 pub fn preview_update(edit: &RowEdit) -> String {
-    let (pieces, cells) = update_parts(edit);
+    let (pieces, cells) = update_pieces(edit, quote_ident, " LIMIT 1");
     join_with(&pieces, |i| quote_literal(&cells[i].value))
 }
 
 fn build_update(edit: &RowEdit) -> (String, Vec<MyValue>) {
-    let (pieces, cells) = update_parts(edit);
+    let (pieces, cells) = update_pieces(edit, quote_ident, " LIMIT 1");
     (
         join_with(&pieces, |_| "?".to_string()),
         cells.into_iter().map(|c| c.value.clone().map_or(MyValue::NULL, |s| MyValue::Bytes(s.into_bytes()))).collect(),
@@ -493,6 +464,8 @@ fn text(bytes: &[u8]) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use super::super::CellEdit;
 
     fn edit(changes: &[(&str, Option<&str>)], key: &[(&str, Option<&str>)]) -> RowEdit {
         let cell = |(c, v): &(&str, Option<&str>)| CellEdit { column: c.to_string(), value: v.map(str::to_string) };

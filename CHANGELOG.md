@@ -6,7 +6,7 @@ View changelog**.
 
 ## Unreleased
 
-- **Databases.** A new view for MySQL and MariaDB: saved connections (the
+- **Databases.** A new view for MySQL, MariaDB and PostgreSQL: saved connections (the
   password lives in the vault), a tree of databases, tables, columns and
   indexes, a query editor with history, and results that stay fast with
   100,000 rows. Connect directly or through one of your SSH hosts, so the
@@ -14,7 +14,10 @@ View changelog**.
   CSV, TSV or JSON, and edit a cell in place after seeing the exact
   `UPDATE`. Destructive statements ask first, and on production
   connections you type the connection's name. Query history stays on this
-  computer.
+  computer. PostgreSQL connections show a database's schemas, check TLS
+  certificates against your system's trust store, and apply edits to any
+  column type. A run that opens a transaction without ending it is refused,
+  since the next run can't continue it.
 
 ## 0.12.0 — 2026-10-04
 

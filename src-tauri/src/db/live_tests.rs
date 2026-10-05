@@ -26,13 +26,14 @@ fn spec() -> Option<ConnectSpec> {
     let (addr, db) = rest.split_once('/')?;
     let (host, port) = addr.rsplit_once(':')?;
     Some(ConnectSpec {
+        engine: "mysql".into(),
         host: host.into(),
         port: port.parse().ok()?,
         user: user.into(),
         password: Some(pass.into()),
         database: Some(db.into()),
         tls: TlsMode::Disable,
-        tunnelled: false,
+        tunnel_port: None,
     })
 }
 
@@ -168,6 +169,10 @@ async fn live_destructive_statements_need_confirmation() {
     run_query(&session, Uuid::new_v4(), "SELECT 1", None, true).await.unwrap();
     assert!(matches!(run_query(&session, Uuid::new_v4(), "  ", None, false).await, Err(DbError::Invalid(_))));
 
+    // A transaction can't be carried to the next run, so a dangling BEGIN is refused up front.
+    assert!(matches!(run_query(&session, Uuid::new_v4(), "BEGIN", None, true).await, Err(DbError::Invalid(_))));
+    run_query(&session, Uuid::new_v4(), "BEGIN; SELECT 1; COMMIT", None, false).await.unwrap();
+
     mgr.close(id).await;
     assert!(matches!(mgr.get(id), Err(DbError::NoSession)));
     assert_eq!(mgr.open_count(), 0);
@@ -224,7 +229,7 @@ async fn live_connects_through_an_ssh_tunnel_and_closes_it() {
     // The tunnel on its own: reachable while held, gone once dropped.
     let tunnel = crate::forward::open_local_tunnel(&via, s.host.clone(), s.port).await.unwrap();
     let port = tunnel.port();
-    let through = Engine::connect(&ConnectSpec { host: "127.0.0.1".into(), port, tunnelled: true, ..s.clone() }).await.unwrap();
+    let through = Engine::connect(&ConnectSpec { tunnel_port: Some(port), ..s.clone() }).await.unwrap();
     assert_eq!(through.query(Uuid::new_v4(), "SELECT 41 + 1", 10).await.unwrap().rows[0][0], json!(42));
     through.close().await;
     drop(tunnel);

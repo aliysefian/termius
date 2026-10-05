@@ -8,8 +8,11 @@
 //! lives exactly as long as the session, and is never exposed otherwise.
 
 pub mod mysql;
+pub mod pg;
 pub mod safety;
 
+#[cfg(test)]
+mod live_pg_tests;
 #[cfg(test)]
 mod live_tests;
 
@@ -21,7 +24,7 @@ use serde_json::Value;
 use uuid::Uuid;
 
 /// Database types a connection can be saved as.
-pub const ENGINES: [&str; 1] = ["mysql"];
+pub const ENGINES: [&str; 2] = ["mysql", "postgres"];
 
 /// Longest a connect may take before it is reported as unreachable.
 pub const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
@@ -72,15 +75,18 @@ pub enum TlsMode {
 /// Everything needed to reach one database server.
 #[derive(Debug, Clone)]
 pub struct ConnectSpec {
+    /// Which driver: one of [`ENGINES`].
+    pub engine: String,
     pub host: String,
     pub port: u16,
     pub user: String,
     pub password: Option<String>,
     pub database: Option<String>,
     pub tls: TlsMode,
-    /// The host and port are a loopback tunnel's, so the certificate is
-    /// still checked but its name can't be matched against `host`.
-    pub tunnelled: bool,
+    /// Set when an SSH tunnel carries the connection: dial this loopback
+    /// port instead of `host:port`. `host` stays the server's name as the SSH
+    /// host sees it, so an engine can still check the certificate against it.
+    pub tunnel_port: Option<u16>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -120,6 +126,8 @@ pub struct QueryResult {
 #[serde(rename_all = "snake_case")]
 pub enum NodeKind {
     Database,
+    /// A PostgreSQL schema (its connection is to one database).
+    Schema,
     Table,
     View,
     Column,
@@ -194,19 +202,62 @@ impl RowEdit {
     }
 }
 
+/// An `UPDATE` as text pieces with a gap for each value, plus the values in
+/// gap order (changes first, then the key). Building from pieces, never by
+/// replacing text, means a value or a name can't be mistaken for a
+/// placeholder. `quote` writes an identifier; `suffix` ends the statement.
+pub(crate) fn update_pieces<'a>(edit: &'a RowEdit, quote: fn(&str) -> String, suffix: &str) -> (Vec<String>, Vec<&'a CellEdit>) {
+    let mut pieces = vec![format!("UPDATE {}.{} SET ", quote(&edit.database), quote(&edit.table))];
+    let mut cells: Vec<&CellEdit> = Vec::new();
+    for (i, c) in edit.changes.iter().enumerate() {
+        let sep = if i == 0 { "" } else { ", " };
+        pieces.last_mut().expect("never empty").push_str(&format!("{sep}{} = ", quote(&c.column)));
+        pieces.push(String::new());
+        cells.push(c);
+    }
+    pieces.last_mut().expect("never empty").push_str(" WHERE ");
+    for (i, k) in edit.key.iter().enumerate() {
+        let sep = if i == 0 { "" } else { " AND " };
+        pieces.last_mut().expect("never empty").push_str(&format!("{sep}{} = ", quote(&k.column)));
+        pieces.push(String::new());
+        cells.push(k);
+    }
+    pieces.last_mut().expect("never empty").push_str(suffix);
+    (pieces, cells)
+}
+
+/// Pieces joined, with `fill(i)` written into gap `i`.
+pub(crate) fn join_with(pieces: &[String], fill: impl Fn(usize) -> String) -> String {
+    let mut out = String::new();
+    for (i, p) in pieces.iter().enumerate() {
+        out.push_str(p);
+        if i + 1 < pieces.len() {
+            out.push_str(&fill(i));
+        }
+    }
+    out
+}
+
 /// A connected engine.
 pub enum Engine {
     Mysql(mysql::MysqlConn),
+    /// Boxed: much larger than the MySQL connection.
+    Postgres(Box<pg::PgConn>),
 }
 
 impl Engine {
     pub async fn connect(spec: &ConnectSpec) -> DbResult<Engine> {
-        Ok(Engine::Mysql(mysql::MysqlConn::connect(spec).await?))
+        match spec.engine.as_str() {
+            "mysql" => Ok(Engine::Mysql(mysql::MysqlConn::connect(spec).await?)),
+            "postgres" => Ok(Engine::Postgres(Box::new(pg::PgConn::connect(spec).await?))),
+            other => Err(DbError::Invalid(format!("unsupported database type \"{other}\""))),
+        }
     }
 
     pub async fn server_version(&self) -> DbResult<String> {
         match self {
             Engine::Mysql(c) => c.server_version().await,
+            Engine::Postgres(c) => c.server_version().await,
         }
     }
 
@@ -214,6 +265,7 @@ impl Engine {
         let limit = limit.clamp(1, MAX_ROW_LIMIT);
         match self {
             Engine::Mysql(c) => c.query(qid, sql, limit).await,
+            Engine::Postgres(c) => c.query(qid, sql, limit).await,
         }
     }
 
@@ -221,18 +273,21 @@ impl Engine {
     pub async fn cancel(&self, qid: Uuid) -> DbResult<()> {
         match self {
             Engine::Mysql(c) => c.cancel(qid).await,
+            Engine::Postgres(c) => c.cancel(qid).await,
         }
     }
 
     pub async fn children(&self, path: &[String]) -> DbResult<Vec<TreeNode>> {
         match self {
             Engine::Mysql(c) => c.children(path).await,
+            Engine::Postgres(c) => c.children(path).await,
         }
     }
 
     pub async fn table_info(&self, database: &str, table: &str) -> DbResult<TableInfo> {
         match self {
             Engine::Mysql(c) => c.table_info(database, table).await,
+            Engine::Postgres(c) => c.table_info(database, table).await,
         }
     }
 
@@ -242,6 +297,7 @@ impl Engine {
         edit.validate()?;
         match self {
             Engine::Mysql(_) => Ok(mysql::preview_update(edit)),
+            Engine::Postgres(_) => pg::preview_update(edit),
         }
     }
 
@@ -251,12 +307,14 @@ impl Engine {
         edit.validate()?;
         match self {
             Engine::Mysql(c) => c.apply_update(edit).await,
+            Engine::Postgres(c) => c.apply_update(edit).await,
         }
     }
 
     pub async fn close(&self) {
         match self {
             Engine::Mysql(c) => c.close().await,
+            Engine::Postgres(c) => c.close().await,
         }
     }
 }
@@ -285,9 +343,7 @@ impl DbManager {
         let tunnel = match via {
             Some(target) => {
                 let t = crate::forward::open_local_tunnel(&target, spec.host.clone(), spec.port).await?;
-                spec.host = "127.0.0.1".into();
-                spec.tunnelled = true;
-                spec.port = t.port();
+                spec.tunnel_port = Some(t.port());
                 Some(t)
             }
             None => None,
@@ -346,6 +402,13 @@ pub async fn run_query(
 ) -> DbResult<QueryResult> {
     if sql.trim().is_empty() {
         return Err(DbError::Invalid("type a statement to run".into()));
+    }
+    if safety::leaves_transaction_open(sql) {
+        return Err(DbError::Invalid(
+            "This opens a transaction without ending it. Each run is its own session slice, so the transaction could not be \
+             continued in the next run. Put BEGIN ... COMMIT (or ROLLBACK) in the same run."
+                .into(),
+        ));
     }
     if !confirmed {
         if let Some(reason) = safety::destructive_reason(sql) {

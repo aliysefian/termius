@@ -237,8 +237,38 @@ result grid. Build D0 first.
   Not verified: Oracle MySQL 8 (different auth plugin defaults, same driver),
   and TLS against a real TLS server.
 
-- [ ] **D2. PostgreSQL.** DoD: same as D1, plus schemas and views; TLS modes
-  `disable`, `require`, `verify-full` offered. **M**
+- [x] **D2. PostgreSQL.** Done 2026-10-05, tested against PostgreSQL 16.
+  Same tree, grid, query and edit flow as D1, with schemas and views; TLS
+  modes none, require and verify-full. **M**
+  Engine: `src-tauri/src/db/pg.rs` (`tokio-postgres`, rustls + ring, the OS
+  trust store through `rustls-platform-verifier`); tests in
+  `live_pg_tests.rs` (setup and env vars at the top of that file).
+  DoD:
+  - [x] Tree of schemas, tables, views, materialized views, foreign and
+        partitioned tables, columns, and indexes (a connection is to one
+        database, so the tree starts at its schemas).
+  - [x] Inline edit previews the `UPDATE`; values are sent as text-format
+        bound parameters, so numeric, boolean, timestamp and jsonb columns
+        take their natural text and a bad value is the server's own error.
+        Composite keys, names with quotes and spaces, and a key that matches
+        nothing are tested live.
+  - [x] Reading stops at the row limit and the rest is cancelled on the
+        server: 3,000,000 rows return 1,000 in well under 10 s and the
+        connection is clean afterwards. Cancel works, and overlapping
+        queries run in parallel.
+  - [x] TLS: "none" is really unencrypted and "require" really encrypted
+        (checked with `pg_stat_ssl`); verify-full refuses an untrusted
+        certificate with the reason, accepts one once its CA is trusted, by
+        name or address, and refuses a name the certificate doesn't cover.
+        Through an SSH tunnel the name is still checked (`hostaddr`).
+  - [x] Works through an SSH tunnel (live test, real `sshd`).
+  Also: the single-statement and open-transaction checks are engine-neutral
+  (they also fix MySQL, where `BEGIN` in one run silently lost its
+  transaction on the next); the SQL reader now understands `$$ ... $$`
+  bodies. Not verified: PostgreSQL versions other than 16, SCRAM vs md5
+  auth variants beyond the default, and the real Tauri window (UI driven
+  headless with mocked IPC, as for D0).
+
 - [ ] **D3. SQL Server.** DoD: same as D1; Windows and SQL logins; tested on a
   container or left unticked with `Not verified:`. **M**
 - [ ] **D4. Oracle Database.** DoD: same as D1 for service name connections;
@@ -369,38 +399,6 @@ secret to a model. Build A0 first.
   - [ ] Tested with a real MCP client or the MCP inspector; if not possible,
         the protocol conformance test output is attached under `Not verified:`.
 
-## Phase 7: sync and personalisation
-
-- [ ] **S1. Sync through Git.** The vault is already encrypted, so a repo
-  only ever holds ciphertext. **M**
-  DoD:
-  - [ ] Settings → Sync → "Git repository": URL, branch, and auth by the
-        vault's own keys or a token.
-  - [ ] Pull on unlock, push after changes, with the existing conflict
-        handling in `sync.rs`; a diverged repo shows a clear choice, never
-        a force push.
-  - [ ] Nothing but vault files is committed; a test checks the repo
-        contents contain no plaintext host names.
-
-- [ ] **S2. Sync through WebDAV.** **S–M**
-  DoD:
-  - [ ] Settings → Sync → "WebDAV": URL and credentials stored in the vault;
-        uses ETags to avoid overwriting a newer file.
-  - [ ] Two vaults converge after edits on both sides (test with a local
-        WebDAV server).
-  - [ ] Works alongside folder sync as an alternative, not at the same time.
-
-- [ ] **P1. Localisation (9 languages).** Same as E16. **L**
-  DoD:
-  - [ ] Every user-visible string goes through `t()`; a lint or test fails on
-        a new hard-coded string in a component.
-  - [ ] English plus at least eight more languages (suggested: Chinese,
-        Spanish, French, German, Portuguese, Russian, Japanese, Persian with
-        right-to-left layout), switchable live in Settings.
-  - [ ] Missing keys fall back to English and a test lists them.
-  - [ ] Dates, numbers and file sizes follow the chosen locale.
-
----
 
 ## Suggested order
 
@@ -416,7 +414,5 @@ secret to a model. Build A0 first.
 
 ## Out of scope
 
-- A hosted account or sync service (the folder, Git and WebDAV sync designs
-  are the point).
 - Mobile apps.
 - Anything that needs an agent installed on the remote host.

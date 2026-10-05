@@ -3051,13 +3051,14 @@ fn resolve_db(
         None => None,
     };
     let spec = crate::db::ConnectSpec {
+        engine: c.engine.clone(),
         host: c.host.trim().to_string(),
         port: c.port,
         user: c.username.clone(),
         password,
         database: Some(c.database.clone()).filter(|d| !d.is_empty()),
         tls: c.tls,
-        tunnelled: false,
+        tunnel_port: None,
     };
     Ok((spec, via))
 }

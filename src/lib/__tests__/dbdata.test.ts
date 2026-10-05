@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildRowEdit, cellAfterEdit, cellText, editBlock, isCut, quoteName, sortedOrder, toCsv, toJson, toTsv, visibleRange } from "../dbdata";
+import { buildRowEdit, cellAfterEdit, cellText, editBlock, isCut, quoteIdent, quoteName, sortedOrder, toCsv, toJson, toTsv, visibleRange } from "../dbdata";
 import { HISTORY_KEY, addEntry, loadHistory, saveHistory } from "../dbhistory";
 import type { DbCell, DbColumn, DbQueryResult, DbTableInfo } from "../types";
 
@@ -142,9 +142,17 @@ describe("inline editing", () => {
 });
 
 describe("names", () => {
-  it("quotes identifiers and doubles backticks", () => {
-    expect(quoteName("shop", "items")).toBe("`shop`.`items`");
-    expect(quoteName("a`b")).toBe("`a``b`");
+  it("quotes MySQL identifiers with backticks and doubles any inside", () => {
+    expect(quoteName("mysql", "shop", "items")).toBe("`shop`.`items`");
+    expect(quoteName("mysql", "a`b")).toBe("`a``b`");
+  });
+  it("quotes PostgreSQL identifiers with double quotes and doubles any inside", () => {
+    expect(quoteName("postgres", "public", "items")).toBe('"public"."items"');
+    expect(quoteName("postgres", 'Odd "Name"')).toBe('"Odd ""Name"""');
+    expect(quoteName("postgres", "a`b")).toBe('"a`b"');
+  });
+  it("falls back to MySQL quoting for an unknown engine, never to bare names", () => {
+    expect(quoteIdent("", "x")).toBe("`x`");
   });
 });
 

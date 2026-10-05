@@ -134,8 +134,13 @@
         />
       </div>
       <div class="col-span-2">
-        <label class="label" for="db-db">Database <span class="font-normal text-fg-muted">(optional, the one to start in)</span></label>
-        <input id="db-db" class="input font-mono" bind:value={database} autocomplete="off" spellcheck="false" />
+        <label class="label" for="db-db">
+          Database <span class="font-normal text-fg-muted">{engine === "postgres" ? "(defaults to postgres)" : "(optional, the one to start in)"}</span>
+        </label>
+        <input id="db-db" class="input font-mono" bind:value={database} autocomplete="off" spellcheck="false" placeholder={engine === "postgres" ? "postgres" : ""} />
+        {#if engine === "postgres"}
+          <p class="mt-1 text-xs text-fg-muted">A PostgreSQL connection is to one database. Add a connection for each database you want to browse; its schemas appear in the tree.</p>
+        {/if}
       </div>
     </div>
 

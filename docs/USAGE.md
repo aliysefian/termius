@@ -389,8 +389,8 @@ because forwarding runs without prompting you.
 ## Databases
 
 Open **Databases** in the activity bar (or **Ctrl+Shift+P** → "Go to
-Databases"). It browses and queries MySQL and MariaDB servers. Other
-database types will follow in the same view.
+Databases"). It browses and queries MySQL, MariaDB and PostgreSQL servers.
+Other database types will follow in the same view.
 
 **Add a connection** with the **+** button: name, server, port, user,
 password, and optionally a database to start in. **Test connection** tries
@@ -407,10 +407,23 @@ identity, because connecting runs without prompting you.
 
 **Encryption.** The default is TLS with the certificate checked. "Don't
 verify" still encrypts but accepts any certificate. "None" is marked
-unencrypted in the form and in the list.
+unencrypted in the form and in the list. For PostgreSQL the certificate is
+checked against your operating system's trust store, so a company CA that is
+already installed works. Through an SSH host, the certificate is checked
+against the server name you entered (as the SSH host sees it), not against
+the loopback address.
 
-**Browse.** Click a connection to connect. Expand a database to see its
-tables and views, and a table to see its columns and indexes. Double-click a
+**PostgreSQL.** A connection is to one database (the one named in the form,
+`postgres` if left empty), so its tree starts at the **schemas** of that
+database; add a connection for each database you want to browse. Tables,
+views, materialized views, foreign and partitioned tables are listed, with
+their columns and indexes below. A statement that can't be described ahead of
+time, such as a script of several statements, shows its values as text and
+only its first result set.
+
+**Browse.** Click a connection to connect. Expand a database (a schema, for
+PostgreSQL) to see its tables and views, and a table to see its columns and
+indexes. Double-click a
 table to open its rows. The tree and queries use the connection's own
 account, so you see what that user is allowed to see.
 
@@ -422,10 +435,25 @@ a column header to sort the rows already loaded (the server's order comes
 back on a third click). Very long values are cut at 64 KB and marked; they
 can't be edited.
 
+**Sessions.** Statements run one at a time on the same server session, so
+`SET`, `USE` and temporary tables carry over from one run to the next. Runs
+that overlap in time (two tabs at once) use separate sessions. Because of
+that, a transaction can't be continued from one run to the next: a run that
+starts one without ending it (`BEGIN` with no `COMMIT` or `ROLLBACK`) is
+refused, so nothing is lost silently. Put `BEGIN … COMMIT` in the same run.
+
+**Row limit and side effects.** The limit stops reading and tells the
+server to stop; a `SELECT` that calls a function with side effects only runs
+that function for the rows that were read.
+
 **Edit a row.** In a table opened from the tree, double-click a cell (or
 press Enter or F2 on it). You are shown the exact `UPDATE` before it runs.
 Only tables with a primary key can be edited, and only one cell at a time;
-the row is found by its key and the statement changes at most one row.
+the row is found by its key and the statement changes at most one row. The
+new value is sent as a bound parameter and read by the column's own type, so
+`12.30` into a numeric column, `false` into a boolean, or JSON text into a
+`jsonb` column all work, and a value the column can't hold is the server's
+own error.
 **NULL** next to the editor sets the value to NULL. Binary and cut values
 are read-only.
 
