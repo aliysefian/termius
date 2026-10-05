@@ -299,6 +299,45 @@ impl Proxy {
     }
 }
 
+/// A saved database connection. The password lives here, encrypted with
+/// the rest of the vault; lists sent to the window carry it blanked.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DbConnection {
+    pub name: String,
+    /// Which driver: `"mysql"` (also MariaDB).
+    pub engine: String,
+    pub host: String,
+    pub port: u16,
+    #[serde(default)]
+    pub username: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub password: Option<String>,
+    /// Database to start in; empty means none.
+    #[serde(default)]
+    pub database: String,
+    #[serde(default)]
+    pub tls: crate::db::TlsMode,
+    /// Reach the database through this saved SSH host, so its port is never
+    /// exposed. `host` and `port` are then as seen from that host.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ssh_host_id: Option<Uuid>,
+    #[serde(default)]
+    pub group: String,
+    /// "production", "staging", "development" or empty, as on hosts.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub environment: String,
+    #[serde(default)]
+    pub notes: String,
+}
+
+impl DbConnection {
+    pub fn redacted(&self) -> Self {
+        let mut c = self.clone();
+        c.password = c.password.as_ref().map(|_| String::new());
+        c
+    }
+}
+
 /// A saved set of tabs and split layouts. The frontend owns the layout
 /// format; the backend just stores it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -471,6 +510,7 @@ pub fn redact_record(c: crate::vault::Collection, v: serde_json::Value) -> Optio
         Collection::Identities => via::<Identity>(v, Identity::redacted),
         Collection::Keys => via::<SshKey>(v, SshKey::redacted),
         Collection::Proxies => via::<Proxy>(v, Proxy::redacted),
+        Collection::Databases => via::<DbConnection>(v, DbConnection::redacted),
         // Locks are internal; the rest hold no secrets.
         Collection::Locks => None,
         _ => Some(v),
@@ -501,6 +541,24 @@ mod tests {
         };
         let out = redact_record(Collection::Proxies, serde_json::to_value(&proxy).unwrap()).unwrap();
         assert!(!out.to_string().contains("s3cret"));
+
+        let db = DbConnection {
+            name: "d".into(),
+            engine: "mysql".into(),
+            host: "h".into(),
+            port: 3306,
+            username: "u".into(),
+            password: Some("dbs3cret".into()),
+            database: String::new(),
+            tls: Default::default(),
+            ssh_host_id: None,
+            group: String::new(),
+            environment: String::new(),
+            notes: String::new(),
+        };
+        let out = redact_record(Collection::Databases, serde_json::to_value(&db).unwrap()).unwrap();
+        assert!(!out.to_string().contains("dbs3cret"));
+        assert_eq!(out["password"], "", "presence is still visible");
 
         let ident = Identity {
             label: "l".into(),

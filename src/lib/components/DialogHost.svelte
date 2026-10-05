@@ -5,9 +5,11 @@
 
   const p = $derived(dialogs.pending);
   let value = $state("");
+  let typed = $state("");
   let checked = $state(false);
   let box = $state<HTMLDivElement>();
   let input = $state<HTMLInputElement>();
+  let typedInput = $state<HTMLInputElement>();
   let cancelBtn = $state<HTMLButtonElement>();
   let okBtn = $state<HTMLButtonElement>();
 
@@ -16,9 +18,11 @@
   $effect(() => {
     if (!p) return;
     value = p.value;
+    typed = "";
     checked = false;
     queueMicrotask(() => {
       if (p.kind === "text") input?.select();
+      else if (p.requireText) typedInput?.focus();
       else if (p.danger) cancelBtn?.focus();
       else okBtn?.focus();
     });
@@ -26,7 +30,7 @@
 
   function submit(e: SubmitEvent) {
     e.preventDefault();
-    if (!p) return;
+    if (!p || (p.requireText && typed.trim() !== p.requireText)) return;
     dialogs.close(p.kind === "text" ? value : true, checked);
   }
 
@@ -61,6 +65,10 @@
       {#if p.kind === "text"}
         <input bind:this={input} class="input mt-3" bind:value placeholder={p.placeholder} spellcheck="false" aria-label={p.title} />
       {/if}
+      {#if p.requireText}
+        <label class="mt-3 block text-xs text-fg-muted" for="dlg-typed">Type <strong class="font-mono text-fg">{p.requireText}</strong> to continue</label>
+        <input id="dlg-typed" bind:this={typedInput} class="input mt-1 font-mono" bind:value={typed} spellcheck="false" autocomplete="off" />
+      {/if}
       {#if p.checkbox}
         <label class="mt-3 flex items-center gap-2 text-xs text-fg-muted">
           <input type="checkbox" class="accent-input" bind:checked /> {p.checkbox}
@@ -72,7 +80,7 @@
           bind:this={okBtn}
           type="submit"
           class={p.danger ? "btn-danger border border-danger/40" : "btn-primary"}
-          disabled={p.kind === "text" && !value.trim()}
+          disabled={(p.kind === "text" && !value.trim()) || (!!p.requireText && typed.trim() !== p.requireText)}
         >
           {p.confirm}
         </button>

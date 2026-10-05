@@ -69,6 +69,15 @@ Linux and Windows · Built with Rust, Tauri, Svelte and xterm.js
   auto-refresh, plus opt-in CPU, memory, disk, load and uptime for any
   host, sampled over SSH with nothing installed on it
 
+### Databases
+- Browse and query MySQL and MariaDB from the same app: saved connections
+  (password in the vault), a tree of databases, tables, columns and indexes,
+  a query editor with history, and results that stay fast with 100,000 rows
+- Reach a database through one of your SSH hosts, so its port is never
+  exposed; cancel running statements; export as CSV, TSV or JSON
+- Edit a cell in place after seeing the exact `UPDATE`; destructive
+  statements ask first, and production connections make you type their name
+
 ### Keys and credentials
 - Generate Ed25519, ECDSA and RSA keys; import OpenSSH, PEM, PKCS#8 and PuTTY
   keys; OpenSSH certificates

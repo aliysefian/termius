@@ -19,11 +19,12 @@ export type View =
   | "vault"
   | "security-review"
   | "fleet"
+  | "databases"
   | "settings"
   | "changelog";
 
 /** Views that fill the window instead of sitting beside the terminals. */
-export const PAGE_VIEWS: View[] = ["groups", "keys", "knownhosts", "vault", "security-review", "fleet", "settings", "changelog"];
+export const PAGE_VIEWS: View[] = ["groups", "keys", "knownhosts", "vault", "security-review", "fleet", "databases", "settings", "changelog"];
 
 /** What a pane connects to: a saved host, or an unsaved quick connection. */
 export type PaneTarget =
@@ -85,6 +86,7 @@ export type Modal =
   | { kind: "identity"; id: Uuid | null }
   | { kind: "snippet"; id: Uuid | null }
   | { kind: "forward"; id: Uuid | null }
+  | { kind: "db-connection"; id: Uuid | null }
   | { kind: "quick-connect"; initial?: string }
   | { kind: "import-ssh-config" }
   | { kind: "snippet-vars"; command: string; names: string[]; opts: SnippetRunOpts }

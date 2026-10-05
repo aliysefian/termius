@@ -9,6 +9,11 @@ import type {
   BackupInfo,
   CliPrompt,
   CliStatus,
+  DbConnection,
+  DbQueryResult,
+  DbRowEdit,
+  DbTableInfo,
+  DbTreeNode,
   Collection,
   ConflictInfo,
   CreateResult,
@@ -303,3 +308,24 @@ export async function pickFolder(title: string): Promise<string | null> {
   const result = await open({ directory: true, multiple: false, title });
   return typeof result === "string" ? result : null;
 }
+
+export const db = {
+  list: () => invoke<VaultRecord<DbConnection>[]>("list_db_connections"),
+  save: (id: Uuid | null, baseRev: number | null, connection: DbConnection) =>
+    invoke<VaultRecord<DbConnection>>("save_db_connection", { id, baseRev, connection }),
+  delete: (id: Uuid, baseRev: number | null) => invoke<void>("delete_db_connection", { id, baseRev }),
+  /** Connect with a saved connection; the password never leaves the Rust side. */
+  open: (id: Uuid) => invoke<{ session_id: Uuid; server_version: string }>("db_open", { id }),
+  /** Try the form's values (saved or not) and hang up. Resolves to the server version. */
+  test: (id: Uuid | null, connection: DbConnection) => invoke<string>("db_test", { id, connection }),
+  close: (sessionId: Uuid) => invoke<void>("db_close", { sessionId }),
+  query: (sessionId: Uuid, queryId: Uuid, sql: string, limit: number | null, confirmed: boolean) =>
+    invoke<DbQueryResult>("db_query", { sessionId, queryId, sql, limit, confirmed }),
+  cancel: (sessionId: Uuid, queryId: Uuid) => invoke<void>("db_cancel", { sessionId, queryId }),
+  children: (sessionId: Uuid, path: string[]) => invoke<DbTreeNode[]>("db_children", { sessionId, path }),
+  tableInfo: (sessionId: Uuid, database: string, table: string) =>
+    invoke<DbTableInfo>("db_table_info", { sessionId, database, table }),
+  previewUpdate: (sessionId: Uuid, edit: DbRowEdit) => invoke<string>("db_preview_update", { sessionId, edit }),
+  applyUpdate: (sessionId: Uuid, edit: DbRowEdit) => invoke<number>("db_apply_update", { sessionId, edit }),
+  saveExport: (path: string, contents: string) => invoke<void>("db_save_export", { path, contents }),
+};

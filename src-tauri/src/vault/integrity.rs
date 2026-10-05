@@ -29,6 +29,7 @@ const REFERENCES: &[(Collection, &str, Collection)] = &[
     (Collection::Hosts, "/proxy_id", Collection::Proxies),
     (Collection::Identities, "/auth/key_id", Collection::Keys),
     (Collection::Forwards, "/host_id", Collection::Hosts),
+    (Collection::Databases, "/ssh_host_id", Collection::Hosts),
     (
         Collection::Groups,
         "/default_identity_id",

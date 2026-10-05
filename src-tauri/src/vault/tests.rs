@@ -633,6 +633,61 @@ fn backup_restore_verifies_first_and_keeps_a_safety_copy() {
 }
 
 #[test]
+fn database_connections_are_encrypted_sync_back_up_and_old_vaults_still_open() {
+    use crate::models::DbConnection;
+    let conn = DbConnection {
+        name: "Orders".into(),
+        engine: "mysql".into(),
+        host: "db-secret-host.internal".into(),
+        port: 3306,
+        username: "app".into(),
+        password: Some("p4ssw0rd-marker".into()),
+        database: String::new(),
+        tls: Default::default(),
+        ssh_host_id: None,
+        group: String::new(),
+        environment: "production".into(),
+        notes: String::new(),
+    };
+    let (_d, a) = new_vault();
+    let b = second_device(&a, "PC-B");
+    let rec = a.insert(Collection::Databases, &conn).unwrap();
+
+    // Nothing readable on disk, not the password and not even the host name.
+    let root = a.root().to_path_buf();
+    for (name, bytes) in snapshot(&root) {
+        let text = String::from_utf8_lossy(&bytes);
+        assert!(
+            !text.contains("p4ssw0rd-marker") && !text.contains("db-secret-host"),
+            "{name} holds the connection in plain text"
+        );
+    }
+
+    // The other device reads it back whole, password included.
+    let got = b.get::<DbConnection>(Collection::Databases, rec.id).unwrap().data.unwrap();
+    assert_eq!(got, conn);
+
+    // It is part of backups, and a restore brings it back.
+    let backup = a.create_backup("manual", 10).unwrap();
+    assert_eq!(backup.records, 1);
+    a.delete(Collection::Databases, rec.id, Base::Rev(1)).unwrap();
+    a.restore_backup(&backup.file_name, 10).unwrap();
+    assert_eq!(a.get::<DbConnection>(Collection::Databases, rec.id).unwrap().data.unwrap(), conn);
+
+    // A vault made before this collection existed has no folder for it.
+    // Opening it must work, create the folder, and leave other records alone.
+    a.insert(Collection::Hosts, &host("web-01")).unwrap();
+    drop(a);
+    drop(b);
+    std::fs::remove_dir_all(root.join("databases")).unwrap();
+    let v = Vault::open(&root, Unlock::Password(b"hunter2"), DeviceInfo::new("PC-C")).unwrap();
+    assert!(root.join("databases").is_dir());
+    assert_eq!(v.list::<Host>(Collection::Hosts).unwrap().records.len(), 1);
+    assert!(v.list::<DbConnection>(Collection::Databases).unwrap().records.is_empty());
+    assert!(v.verify_integrity().errors.is_empty(), "{:?}", v.verify_integrity().errors);
+}
+
+#[test]
 fn corrupted_or_foreign_backups_are_never_restored() {
     let (_d, v) = new_vault();
     v.insert(Collection::Hosts, &host("web-01")).unwrap();

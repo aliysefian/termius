@@ -9,6 +9,7 @@ pub mod config;
 pub mod control;
 pub mod crypto;
 pub mod csvimport;
+pub mod db;
 pub mod dial;
 pub mod forward;
 pub mod health;
@@ -140,6 +141,19 @@ pub fn run() {
             commands::ssh_log_stop,
             commands::run_on_hosts,
             commands::run_cancel,
+            commands::list_db_connections,
+            commands::save_db_connection,
+            commands::delete_db_connection,
+            commands::db_open,
+            commands::db_test,
+            commands::db_close,
+            commands::db_query,
+            commands::db_cancel,
+            commands::db_children,
+            commands::db_table_info,
+            commands::db_preview_update,
+            commands::db_apply_update,
+            commands::db_save_export,
             commands::sftp_edit_start,
             commands::sftp_edit_stop,
             commands::sftp_open,

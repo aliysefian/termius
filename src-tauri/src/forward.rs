@@ -224,6 +224,43 @@ async fn run_rule(
     result
 }
 
+/// A loopback listener that carries each connection over SSH to one fixed
+/// destination, for as long as this value lives. The database client uses
+/// it so a database port never has to be reachable from this computer.
+pub struct LocalTunnel {
+    port: u16,
+    stop: Option<oneshot::Sender<()>>,
+}
+
+impl LocalTunnel {
+    pub fn port(&self) -> u16 {
+        self.port
+    }
+}
+
+impl Drop for LocalTunnel {
+    fn drop(&mut self) {
+        if let Some(stop) = self.stop.take() {
+            let _ = stop.send(());
+        }
+    }
+}
+
+/// Open an SSH connection through `target` and listen on a free loopback
+/// port that forwards to `dest_host:dest_port` as seen from the SSH server.
+pub async fn open_local_tunnel(target: &Target, dest_host: String, dest_port: u16) -> Result<LocalTunnel, ForwardError> {
+    let (handle, _) = open_client(target, None).await?;
+    let handle = Arc::new(handle);
+    let listener = bind("127.0.0.1", 0).await?;
+    let port = listener.local_addr().map(|a| a.port()).unwrap_or(0);
+    let (stop_tx, mut stop_rx) = oneshot::channel();
+    tokio::spawn(async move {
+        let _ = accept_loop(listener, &handle, &mut stop_rx, move |_| Some((dest_host.clone(), dest_port))).await;
+        handle.close().await;
+    });
+    Ok(LocalTunnel { port, stop: Some(stop_tx) })
+}
+
 async fn bind(addr: &str, port: u16) -> Result<TcpListener, ForwardError> {
     TcpListener::bind((addr, port))
         .await

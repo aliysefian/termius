@@ -1,6 +1,6 @@
 <script lang="ts">
   import {
-    Activity, FileOutput, History, Keyboard, SquareTerminal, ArrowLeftRight, ServerCog, Code, FileInput, FolderSync, KeyRound, Lock, Play, Plus, Server, Settings, ShieldAlert, SquareSplitHorizontal, SquareSplitVertical, Zap,
+    Activity, Database, FileOutput, History, Keyboard, SquareTerminal, ArrowLeftRight, ServerCog, Code, FileInput, FolderSync, KeyRound, Lock, Play, Plus, Server, Settings, ShieldAlert, SquareSplitHorizontal, SquareSplitVertical, Zap,
   } from "lucide-svelte";
   import * as api from "$lib/api";
   import { fuzzyScore } from "$lib/fuzzy";
@@ -11,6 +11,7 @@
   import { runSnippet } from "$lib/runsnippet";
   import { adhocLabel, ui, type View, type WorkspaceTab } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
+  import { databases } from "$lib/stores/databases.svelte";
 
   interface Item {
     id: string;
@@ -177,10 +178,26 @@
       ["Go to Vault (backups, recovery, integrity)", Lock, go("vault")],
       ["Go to Security review", ShieldAlert, go("security-review")],
       ["Go to Fleet", Activity, go("fleet")],
+      ["Go to Databases", Database, go("databases")],
+      ["New database connection", Database, () => (ui.modal = { kind: "db-connection", id: null })],
       ["View changelog", History, go("changelog")],
       ["Open Settings", Settings, go("settings")],
       ["Lock vault", Lock, () => void vaultStore.lock(), "Ctrl+Shift+L"],
     ];
+    for (const c of vaultStore.dbConnections) {
+      if (!c.data) continue;
+      out.push({
+        id: `db-${c.id}`,
+        label: `Open database: ${c.data.name}`,
+        hint: `${c.data.host}:${c.data.port}`,
+        group: "Databases",
+        icon: Database,
+        run: () => {
+          ui.view = "databases";
+          void databases.connect(c.id).then((s) => s && databases.newTab(c.id));
+        },
+      });
+    }
     for (const [label, icon, run, hint] of actions) {
       out.push({ id: `act-${label}`, label, hint, group: "Actions", icon, run });
     }

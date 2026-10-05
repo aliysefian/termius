@@ -13,6 +13,7 @@ import {
   type Collection,
   type CreateResult,
   type HostGroup,
+  type DbConnection,
   type Proxy,
   type SshKey,
   type UnlockReport,
@@ -56,6 +57,7 @@ class VaultStore {
   keys = $state<VaultRecord<SshKey>[]>([]);
   groups = $state<VaultRecord<HostGroup>[]>([]);
   proxies = $state<VaultRecord<Proxy>[]>([]);
+  dbConnections = $state<VaultRecord<DbConnection>[]>([]);
   workspaces = $state<VaultRecord<Workspace>[]>([]);
   /** Settings shared by every device using this vault. */
   settings = $state<{ rev: number; settings: VaultSettings } | null>(null);
@@ -171,6 +173,7 @@ class VaultStore {
         this.keys,
         this.groups,
         this.proxies,
+        this.dbConnections,
         this.settings,
         this.workspaces,
         this.agentStatus,
@@ -184,6 +187,7 @@ class VaultStore {
         api.keys.list(),
         api.groups.list(),
         api.proxies.list(),
+        api.db.list(),
         api.vault.getSettings(),
         api.workspaces.list(),
         api.agent.status(),
@@ -205,6 +209,7 @@ class VaultStore {
     this.keys = [];
     this.groups = [];
     this.proxies = [];
+    this.dbConnections = [];
     this.workspaces = [];
     this.settings = null;
     this.openConflicts = 0;
@@ -239,6 +244,9 @@ class VaultStore {
         break;
       case "proxies":
         void api.proxies.list().then((l) => (this.proxies = l));
+        break;
+      case "databases":
+        void api.db.list().then((l) => (this.dbConnections = l));
         break;
       case "groups":
         upsert(this.groups, c.record, c.id);
@@ -467,6 +475,18 @@ class VaultStore {
   async deleteProxy(id: Uuid, baseRev?: number | null) {
     await api.proxies.delete(id, this.#rev(this.proxies, id, baseRev)).catch((e) => this.#onConflict(e));
     upsert(this.proxies, null, id);
+  }
+
+  async saveDbConnection(id: Uuid | null, connection: DbConnection, baseRev?: number | null) {
+    const rec = await api.db
+      .save(id, this.#rev(this.dbConnections, id, baseRev), connection)
+      .catch((e) => this.#onConflict(e));
+    upsert(this.dbConnections, rec!, rec!.id);
+    return rec!;
+  }
+  async deleteDbConnection(id: Uuid, baseRev?: number | null) {
+    await api.db.delete(id, this.#rev(this.dbConnections, id, baseRev)).catch((e) => this.#onConflict(e));
+    upsert(this.dbConnections, null, id);
   }
 
   async saveWorkspace(id: Uuid | null, ws: Workspace, baseRev?: number | null) {

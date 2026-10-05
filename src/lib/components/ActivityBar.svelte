@@ -3,6 +3,7 @@
     ArrowLeftRight,
     ArrowUpCircle,
     Code,
+    Database,
     FolderSync,
     FolderTree,
     KeyRound,
@@ -30,6 +31,7 @@
     { view: "forwarding", label: "Tunnels", icon: ArrowLeftRight },
     { view: "snippets", label: "Snippets", icon: Code },
     { view: "sftp", label: "SFTP", icon: FolderSync },
+    { view: "databases", label: "Databases", icon: Database },
     { view: "knownhosts", label: "Known hosts", icon: ShieldCheck },
     { view: "vault", label: "Vault", icon: Vault },
   ];

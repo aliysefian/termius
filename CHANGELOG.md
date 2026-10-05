@@ -4,6 +4,18 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## Unreleased
+
+- **Databases.** A new view for MySQL and MariaDB: saved connections (the
+  password lives in the vault), a tree of databases, tables, columns and
+  indexes, a query editor with history, and results that stay fast with
+  100,000 rows. Connect directly or through one of your SSH hosts, so the
+  database port is never exposed. Cancel a running statement, export as
+  CSV, TSV or JSON, and edit a cell in place after seeing the exact
+  `UPDATE`. Destructive statements ask first, and on production
+  connections you type the connection's name. Query history stays on this
+  computer.
+
 ## 0.12.0 — 2026-10-04
 
 - **Host monitoring and a Fleet view.** Turn on monitoring for a host (its

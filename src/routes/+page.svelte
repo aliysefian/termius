@@ -19,6 +19,8 @@
   import VaultPanel from "$lib/components/VaultPanel.svelte";
   import SecurityReview from "$lib/components/SecurityReview.svelte";
   import FleetView from "$lib/components/FleetView.svelte";
+  import DatabasesView from "$lib/components/DatabasesView.svelte";
+  import DbConnectionForm from "$lib/components/DbConnectionForm.svelte";
   import ChangelogView from "$lib/components/ChangelogView.svelte";
   import HostKeyDialog from "$lib/components/HostKeyDialog.svelte";
   import AgentPromptDialog from "$lib/components/AgentPromptDialog.svelte";
@@ -209,6 +211,8 @@
       <SecurityReview />
     {:else if ui.view === "fleet"}
       <FleetView />
+    {:else if ui.view === "databases"}
+      <DatabasesView />
     {:else if ui.view === "changelog"}
       <ChangelogView />
     {/if}
@@ -231,6 +235,10 @@
   {:else if ui.modal?.kind === "forward"}
     {#key ui.modal.id}
       <ForwardForm id={ui.modal.id} />
+    {/key}
+  {:else if ui.modal?.kind === "db-connection"}
+    {#key ui.modal.id}
+      <DbConnectionForm id={ui.modal.id} />
     {/key}
   {:else if ui.modal?.kind === "quick-connect"}
     <QuickConnect initial={ui.modal.initial} />

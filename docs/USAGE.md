@@ -386,6 +386,63 @@ its own rules. Tick **Start automatically** to start a rule every time the
 vault is unlocked, on every computer. The rule's host needs an identity,
 because forwarding runs without prompting you.
 
+## Databases
+
+Open **Databases** in the activity bar (or **Ctrl+Shift+P** → "Go to
+Databases"). It browses and queries MySQL and MariaDB servers. Other
+database types will follow in the same view.
+
+**Add a connection** with the **+** button: name, server, port, user,
+password, and optionally a database to start in. **Test connection** tries
+the values without saving. The password is stored in the vault, encrypted
+like every other secret, and synced with it; it is never sent to the
+window except as you type it.
+
+**Connect through an SSH host.** Pick one of your saved hosts and the
+database is reached through it, so the database port never has to be open
+to your computer. The server address is then as seen from that host, often
+`127.0.0.1`. A loopback port is opened for the length of the session only
+and closes when you disconnect or lock the vault. The host needs an
+identity, because connecting runs without prompting you.
+
+**Encryption.** The default is TLS with the certificate checked. "Don't
+verify" still encrypts but accepts any certificate. "None" is marked
+unencrypted in the form and in the list.
+
+**Browse.** Click a connection to connect. Expand a database to see its
+tables and views, and a table to see its columns and indexes. Double-click a
+table to open its rows. The tree and queries use the connection's own
+account, so you see what that user is allowed to see.
+
+**Query.** Press **Ctrl+Enter** to run the editor, or the selected text if
+there is a selection. The row limit (1,000 by default, up to 100,000) stops
+reading once reached and says so; **Cancel** stops a running statement on
+the server. Results are drawn as you scroll, so large ones stay fast. Click
+a column header to sort the rows already loaded (the server's order comes
+back on a third click). Very long values are cut at 64 KB and marked; they
+can't be edited.
+
+**Edit a row.** In a table opened from the tree, double-click a cell (or
+press Enter or F2 on it). You are shown the exact `UPDATE` before it runs.
+Only tables with a primary key can be edited, and only one cell at a time;
+the row is found by its key and the statement changes at most one row.
+**NULL** next to the editor sets the value to NULL. Binary and cut values
+are read-only.
+
+**Safety.** A statement that drops, truncates, deletes or updates without a
+`WHERE`, or alters a table to drop something, asks first and says why.
+Mark a connection's **environment** as production and these questions, and
+every row edit, ask you to type the connection's name. The check reads past
+comments and quoted text but is a safety net, not a guarantee.
+
+**Export.** **Export** copies the result as CSV, TSV or JSON, or saves CSV
+or JSON to a file. Text that a spreadsheet could read as a formula is
+prefixed with `'`.
+
+**History.** **History** lists recent statements. It is kept on this
+computer only and is never synced, because queries often hold names and
+identifiers.
+
 ## Locking
 
 The lock icon at the bottom of the sidebar, or **Ctrl+Shift+L**, closes every

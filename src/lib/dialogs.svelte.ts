@@ -9,6 +9,8 @@ export interface AskOptions {
   danger?: boolean;
   /** Label of an optional checkbox ("Don't ask again"); see askRemember. */
   checkbox?: string;
+  /** The confirm button stays disabled until this exact text is typed (for production-grade actions). */
+  requireText?: string;
 }
 
 interface Pending {
@@ -20,6 +22,7 @@ interface Pending {
   value: string;
   placeholder: string;
   checkbox: string;
+  requireText: string;
   resolve: (v: boolean | string | null, checked: boolean) => void;
 }
 
@@ -59,6 +62,7 @@ class DialogStore {
         value: "",
         placeholder: "",
         checkbox: opts.checkbox ?? "",
+        requireText: opts.requireText ?? "",
         resolve: (v, checked) => resolve({ ok: v === true, checked }),
       }),
     );
@@ -75,6 +79,7 @@ class DialogStore {
         value: initial,
         placeholder: opts.placeholder ?? "",
         checkbox: "",
+        requireText: "",
         resolve: (v) => resolve(typeof v === "string" ? v : null),
       }),
     );

@@ -117,6 +117,7 @@ export type Collection =
   | "known_hosts"
   | "proxies"
   | "workspaces"
+  | "databases"
   | "settings"
   | "devices";
 
@@ -574,4 +575,81 @@ export function describeForward(r: ForwardKind): string {
     case "dynamic":
       return `D SOCKS5 ${r.bind_addr}:${r.bind_port}`;
   }
+}
+
+// -- Databases ---------------------------------------------------------
+
+export type DbTls = "disable" | "require" | "verify_full";
+
+export interface DbConnection {
+  name: string;
+  /** Which driver; "mysql" also covers MariaDB. */
+  engine: string;
+  host: string;
+  port: number;
+  username: string;
+  /** Lists carry "" when one is stored; an empty password on save keeps it. */
+  password?: string;
+  database: string;
+  tls: DbTls;
+  /** Go through this saved SSH host, so the database port is never exposed. */
+  ssh_host_id?: Uuid;
+  group: string;
+  environment?: string;
+  notes: string;
+}
+
+export const DB_ENGINES: { value: string; label: string; port: number }[] = [
+  { value: "mysql", label: "MySQL / MariaDB", port: 3306 },
+];
+
+export function emptyDbConnection(): DbConnection {
+  return { name: "", engine: "mysql", host: "", port: 3306, username: "", password: undefined, database: "", tls: "verify_full", group: "", notes: "" };
+}
+
+export type DbColumnKind = "number" | "text" | "json" | "date_time" | "binary" | "other";
+
+export interface DbColumn {
+  name: string;
+  data_type: string;
+  kind: DbColumnKind;
+}
+
+/** A cell the server sent in full, or one cut short (read-only). */
+export type DbCell = string | number | boolean | null | { truncated: true; preview: string; bytes: number };
+
+export interface DbQueryResult {
+  columns: DbColumn[];
+  rows: DbCell[][];
+  truncated: boolean;
+  affected_rows: number | null;
+  last_insert_id: number | null;
+  elapsed_ms: number;
+}
+
+export type DbNodeKind = "database" | "table" | "view" | "column" | "index";
+
+export interface DbTreeNode {
+  name: string;
+  kind: DbNodeKind;
+  detail?: string;
+  expandable: boolean;
+}
+
+export interface DbTableInfo {
+  columns: { name: string; data_type: string; nullable: boolean; primary_key: boolean; default: string | null }[];
+  primary_key: string[];
+}
+
+export interface DbCellEdit {
+  column: string;
+  /** null is NULL */
+  value: string | null;
+}
+
+export interface DbRowEdit {
+  database: string;
+  table: string;
+  key: DbCellEdit[];
+  changes: DbCellEdit[];
 }

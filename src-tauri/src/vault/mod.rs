@@ -159,6 +159,8 @@ pub enum Collection {
     KnownHosts,
     Proxies,
     Workspaces,
+    /// Saved database connections (the Databases view).
+    Databases,
     Settings,
     Devices,
     /// Advisory "open on this device" markers. Not backed up.
@@ -166,7 +168,7 @@ pub enum Collection {
 }
 
 impl Collection {
-    pub const ALL: [Collection; 12] = [
+    pub const ALL: [Collection; 13] = [
         Collection::Hosts,
         Collection::Identities,
         Collection::Snippets,
@@ -176,6 +178,7 @@ impl Collection {
         Collection::KnownHosts,
         Collection::Proxies,
         Collection::Workspaces,
+        Collection::Databases,
         Collection::Settings,
         Collection::Devices,
         Collection::Locks,
@@ -192,6 +195,7 @@ impl Collection {
             Collection::KnownHosts => "known_hosts",
             Collection::Proxies => "proxies",
             Collection::Workspaces => "workspaces",
+            Collection::Databases => "databases",
             Collection::Settings => "settings",
             Collection::Devices => "devices",
             Collection::Locks => "locks",

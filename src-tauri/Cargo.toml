@@ -53,6 +53,9 @@ getrandom = { version = "0.4", features = ["sys_rng"] }
 keyring = { version = "3.6", features = ["apple-native", "windows-native", "async-secret-service", "crypto-rust", "tokio"] }
 notify = "8"
 
+# --- Databases ---
+mysql_async = { version = "0.37", default-features = false, features = ["default-rustls-ring"] }
+
 # --- SSH engine ---
 russh = { version = "0.63", default-features = false, features = ["flate2", "ring", "rsa"] }
 russh-sftp = "3"
