@@ -12,10 +12,12 @@ should be done once, in whichever file is picked first.
 
 ## Status (2026-10-05)
 
-5 of 36 tasks are done and one more is built with a single line of its DoD open
-(M1). D0 to C1 are committed on `main`; D0 to C0 are pushed and released as
-`v0.13.1` (CI builds it; its result hasn't been seen). C1 (`ebe4399`) and M1
-are not pushed or released. Lint with `cargo +1.99.0 clippy`, the CI's version.
+5 of 36 tasks are done, and one more (M1) is built with a single line of its DoD
+open. D0 to C0 are released as `v0.13.1`, and C1 (`ebe4399`) and M1 (`971bf41`) as
+`v0.14.0`. (`v0.13.0` itself was never published: CI's newer clippy rejected one
+line.) CI builds each release after its checks pass; I have not seen the result of
+either build, so check the Actions tab. Lint with `cargo +1.99.0 clippy`, the CI's
+version.
 
 | Phase | Done | Next |
 |---|---|---|
@@ -23,15 +25,30 @@ are not pushed or released. Lint with `cargo +1.99.0 clippy`, the CI's version.
 | 2. Terminal and connection types | 0 of 5 | T2 |
 | 3. Databases | 3 of 9 (D0 and D1 `acfb247`, D2 `a72c4dd`) | D6, D7, D5, D8, D3, D4 |
 | 4. Containers | 2 of 6 (C0 `45a9743`, C1 `ebe4399`) | C2 (needs a real Podman) |
-| 5. Monitoring | 0 of 1: M1 is built, one DoD line open (a recording from a real macOS or BSD) | that one recording |
+| 5. Monitoring | 0 of 1: M1 (`971bf41`) is built, one DoD line open (a recording from a real macOS or BSD) | that one recording |
 | 6. AI assistant | 0 of 5 | A0 |
 | 7. Sync and languages | 0 of 3 | S1 |
 
-Open items on done tasks (not blockers, but unproven): MySQL and MariaDB
-TLS has never been tried against a real TLS server (the CA-plus-leaf recipe
-in `db/live_pg_tests.rs` shows how); Podman and nerdctl parsers rest on
-fixtures written from their documentation; nothing has run in the real
-Tauri window.
+Open items on done tasks (not blockers, but unproven):
+- MySQL and MariaDB TLS has never been tried against a real TLS server (the
+  CA-plus-leaf recipe in `db/live_pg_tests.rs` shows how).
+- Podman and nerdctl parsers rest on fixtures written from their documentation.
+- Every macOS and BSD path (M1's detail view, and the CPU and memory readings that
+  fix the 0.12.0 gap) is written from the manuals and checked only against
+  hand-written fixtures and stubbed tools.
+- Docker volumes, networks and Compose were only tried on Docker 29 and Compose v5.
+- Nothing has run in the real Tauri window (no webkit here); the UI is checked in
+  headless Chromium with a mocked backend.
+
+Decisions waiting on the person who owns the repo:
+- **Podman for C2.** A real Podman is needed to record fixtures. Options put to
+  them: they install it (`sudo apt install podman`), I download a third-party
+  static build into the scratch folder, or C2 goes ahead on hand-written fixtures
+  and stays "Not verified". The question was dismissed unanswered, so C2 is parked.
+- **Key-browser design before D6, D7 and D8** (see Phase 3).
+- **Whether to delete the never-published `v0.13.0` tag** (it points at the commit
+  CI rejected, and has no release attached).
+- **A real macOS or BSD recording** to close M1's last DoD line.
 
 ## How an agent works on this file
 
@@ -644,11 +661,14 @@ secret to a model. Build A0 first.
 
 ## Suggested order
 
+Done: D0, D1, D2, C0, C1, and M1 (bar one line). Parked: C2.
+
 1. **F0, F1, F4, F5, F2** (file protocols that reuse the SFTP view).
-2. **M1, T2, F6** (small wins on top of what exists).
-3. **C0 (done), then C1, C2, C3, C4, C5** (containers).
+2. **T2, F6** (small wins on top of what exists).
+3. **C2 (once a real Podman is available), C3, C4, C5** (the rest of containers).
 4. **A0, A1, A2, A3, A4** (AI, in this order; A4 last).
-5. **D0, D1, D2 (done), then D6, D7, D5, D8, D3, D4** (databases, common ones first).
+5. **D6, D7, D5, D8, D3, D4** (databases, common ones first; settle the key-browser
+   design on D6).
 6. **S1, S2, P1** (sync and languages).
 7. **F3, T3, T4, T5** (SMB and remote desktop: the largest and hardest to
    verify here).
