@@ -10,6 +10,27 @@ Overlaps with `task-feat.md`: E14 (ZMODEM) and E16 (localisation) are already
 listed there. They are kept below under their uniTerm names, and the work
 should be done once, in whichever file is picked first.
 
+## Status (2026-10-05)
+
+4 of 36 tasks are done. Everything below is committed on `main` and not
+pushed or released (`CHANGELOG.md` has them under "Unreleased").
+
+| Phase | Done | Next |
+|---|---|---|
+| 1. File transfer | 0 of 7 | F0 |
+| 2. Terminal and connection types | 0 of 5 | T2 |
+| 3. Databases | 3 of 9 (D0 and D1 `acfb247`, D2 `a72c4dd`) | D6, D7, D5, D8, D3, D4 |
+| 4. Containers | 1 of 6 (C0 `45a9743`) | C1 |
+| 5. Monitoring | 0 of 1 | M1 |
+| 6. AI assistant | 0 of 5 | A0 |
+| 7. Sync and languages | 0 of 3 | S1 |
+
+Open items on done tasks (not blockers, but unproven): MySQL and MariaDB
+TLS has never been tried against a real TLS server (the CA-plus-leaf recipe
+in `db/live_pg_tests.rs` shows how); Podman and nerdctl parsers rest on
+fixtures written from their documentation; nothing has run in the real
+Tauri window.
+
 ## How an agent works on this file
 
 1. Take one task at a time, in the order of "Suggested order" at the bottom.
@@ -26,6 +47,64 @@ should be done once, in whichever file is picked first.
    container/server where possible.
 6. One task is one commit. Do not mix tasks.
 
+## Tooling and traps (learned building D0 to C0)
+
+None of this is in the repo; the scratchpad is per session, so recreate it.
+
+**Rust.** The Tauri crate cannot build natively here (no webkit, no sudo).
+- *Engine modules* (everything except `commands.rs`, `control.rs`,
+  `selfupdate.rs`, `acceptance_tests.rs`) are tested through a scratch crate:
+  its `Cargo.toml` is `src-tauri/Cargo.toml`'s `[dependencies]` minus the
+  `tauri*` lines, and its `lib.rs` is one `#[path = ".../src/X.rs"] pub mod X;`
+  per module (`X/mod.rs` for folders, skip `fixtures`). **Regenerate the
+  module list when you add a module**, or its tests silently don't run
+  ("0 passed").
+- *The whole crate* (commands, `lib.rs`) is type-checked and linted for
+  Windows: a venv with `pip install ziglang`, a shim folder on `PATH` with an
+  `x86_64-w64-mingw32-gcc` that runs `python -m ziglang cc -target
+  x86_64-windows-gnu` (dropping `--target=*` and `-gdwarf-2`) and an
+  `x86_64-w64-mingw32-windres` that writes `!<arch>` to its output file, then
+  `cargo clippy --target x86_64-pc-windows-gnu --all-targets -- -D warnings`
+  with a `CARGO_TARGET_DIR` outside the repo. A careless `windres` shim once
+  left a file named `src-tauri/--output-format=coff` in the repo: check
+  `git status`.
+- *Live tests* are `#[ignore]` and gated on an environment variable, with the
+  setup in the file's header comment (`db/live_tests.rs`,
+  `db/live_pg_tests.rs`, `containers/live_tests.rs`). `ssh::testutil::spawn_sshd`
+  gives a real user-level `sshd` for tunnel and SSH-exec paths. Use throwaway
+  containers with distinctive names and remove them. Images already on the
+  machine are used; **ask before pulling a large one** (`mariadb:11` was
+  pulled once, with permission implied by the task).
+- Fixtures: record real output where a program exists here, and say plainly in
+  the file and the task when one is written from documentation.
+
+**UI.** No webkit means no real window, so the frontend is driven in headless
+Chromium (Playwright for Python; the cached browser needs `executable_path`
+pointing at `chrome-headless-shell`) against `pnpm exec vite dev --port 1420`,
+with an init script that defines `window.__TAURI_INTERNALS__` (`invoke`,
+`transformCallback`, `metadata`). A `Channel` receives `{ index, message }`
+through `window["_" + channel.id]`. Stop the dev server by port; **never
+`pkill -f` from the shell tool**, it matches (and kills) the shell itself.
+
+**Traps found, each fixed once already.**
+- Pressing Enter in a field that opens a confirm dialog also presses the
+  dialog's focused OK button. `preventDefault()` on that Enter, and make the
+  dialog the careful kind so Cancel has the focus.
+- A Svelte `$derived` that returns the *same* array or object after it was
+  mutated tells nobody. Return a fresh snapshot object (`ContainerLogs`).
+- Don't mutate a prop (`ownership_invalid_mutation`); put the mutation in a
+  store method.
+- `tokio_postgres::Config::port()` appends rather than replaces; the driver
+  sends binary parameters, so text for a typed column needs a text-format
+  `ToSql` wrapper (`TextParam`).
+- Build an `UPDATE` from pieces, never by replacing text, so a value that
+  looks like a placeholder cannot shift the others.
+- A `?` inside a closure that returns a plain value won't compile; use
+  `and_then` with early returns.
+- A run that ends with an explicit transaction open leaves a pooled
+  connection poisoned; engines `ROLLBACK` after a failed script, and
+  `run_query` refuses a dangling `BEGIN`.
+
 ## Global DoD (applies to every task)
 
 - [ ] `cargo test` and `cargo clippy -- -D warnings` pass in `src-tauri`.
@@ -41,6 +120,12 @@ should be done once, in whichever file is picked first.
 - [ ] Anything that sends data unencrypted is labelled UNENCRYPTED the way
       Telnet is.
 - [ ] Off by default if it opens a network listener or runs a remote probe.
+- [ ] A change of data (an UPDATE, a stop, a delete) is confirmed in a dialog
+      that has Cancel focused, never the confirm button, so a stray Enter
+      cannot do it. Production hosts and connections need their name typed.
+- [ ] The UI has been driven in a browser with the IPC mocked (see
+      "Tooling and traps"), at least one check per DoD line that is about
+      behaviour you can see.
 - [ ] `docs/USAGE.md` has a section for it; `CHANGELOG.md` has an entry.
 
 ---
@@ -184,7 +269,28 @@ All of these reuse the existing SFTP view (`SftpView.svelte`,
 ## Phase 3: databases
 
 One shared "Databases" view with a connection tree, a query editor and a
-result grid. Build D0 first.
+result grid. Build D0 first. (Done for MySQL, MariaDB and PostgreSQL.)
+
+**Adding an engine (D3, D4, D5).** `db/<engine>.rs` provides connect, query
+(streaming, stopping at the limit), cancel, children, table_info,
+preview_update, apply_update, close, version; then a variant on `Engine` in
+`db/mod.rs` (box it if it is large) and an entry in `ENGINES`; `DB_ENGINES`
+(label, default port) in `types.ts`; `quoteIdent` in `dbdata.ts` with a test;
+a `NodeKind` if the first level of the tree isn't a database or schema; a
+live-test file with its setup in the header; USAGE and CHANGELOG. Reuse
+`update_pieces`/`join_with`, `safety.rs`, the SSH tunnel (`tunnel_port`) and
+`TlsMode`. `pg.rs` is the closer model (streaming, pool, TLS).
+
+**Decision before D6, D7 and D8.** Redis, MongoDB and Elasticsearch don't
+return rows and columns, so they don't fit the SQL editor and `QueryResult`.
+Give them their own tab type inside the same view (the connection list, vault
+record, redaction, tunnel and production prompts are shared; the tab body is a
+key browser, a document viewer or a console). Settle that shape with the user
+on D6 and let D7 and D8 follow it. D5 (rqlite) is SQL over HTTP and does fit.
+
+**D3 note.** SQL Server's official image needs `ACCEPT_EULA=Y` and is about
+1.5 GB: ask before pulling it, and leave the task `Not verified:` if the user
+says no.
 
 - [x] **D0. Database view shell.** Done 2026-10-05. A new activity-bar view,
   a connection type "Database" in the vault (`Collection::Databases`), a
@@ -289,7 +395,29 @@ result grid. Build D0 first.
 
 One "Containers" view; each runtime is a provider with the same list,
 logs, exec and stats actions. Build C0 first. Run everything over the
-existing SSH connection, so nothing is installed on the host.
+existing SSH connection, so nothing is installed on the host. (C0 is done.)
+
+**Providers (C1 to C3).** A runtime is a `Runtime` variant, an argument list
+(`list_containers_args`, `list_images_args`, `action_args`, `logs_args`), and a
+reader in `containers/parse.rs`. New actions follow `act()`: a checked
+reference, the argument list in `mod.rs` with a test, a case in the store with
+the right confirmation, a button. Streaming work (image pull progress, `events`)
+should copy `start_logs` (a stop channel, a sink, an `End` event, remote PTY
+so closing the channel ends the process). Keep references checked, not escaped.
+- **C1.** Compose groups already have their label (`composeProject`); acting on
+  a project is `docker compose -p NAME start|stop|restart|down`, which works
+  by name without the compose file (verify on a real project). Prune needs a
+  preview first: list what would go (dangling images, stopped containers) and
+  ask.
+- **C2.** First step: run `podman ps`/`images --format json` for real and
+  replace the hand-written fixtures with recorded ones; fix the reader where
+  they differ. Then pods as groups.
+- **C3.** `nerdctl --namespace NAME` is a global flag that goes before the
+  verb; add it to the argument builders, to `Source`, and to the per-host
+  memory.
+- **C4.** `kubectl -o json` is not a runtime variant: a sibling reader module
+  and its own list shapes, reusing `Transport`, the checked references, the
+  log stream and the production prompt.
 
 - [x] **C0. Container provider interface and view.** Done 2026-10-05. **M**
   Engine: `src-tauri/src/containers/` (`mod.rs` manager and argument lists,
@@ -430,9 +558,9 @@ secret to a model. Build A0 first.
 
 1. **F0, F1, F4, F5, F2** (file protocols that reuse the SFTP view).
 2. **M1, T2, F6** (small wins on top of what exists).
-3. **C0, C1, C2, C3, C4, C5** (containers).
+3. **C0 (done), then C1, C2, C3, C4, C5** (containers).
 4. **A0, A1, A2, A3, A4** (AI, in this order; A4 last).
-5. **D0, then D1, D2, D6, D7, D5, D8, D3, D4** (databases, common ones first).
+5. **D0, D1, D2 (done), then D6, D7, D5, D8, D3, D4** (databases, common ones first).
 6. **S1, S2, P1** (sync and languages).
 7. **F3, T3, T4, T5** (SMB and remote desktop: the largest and hardest to
    verify here).
