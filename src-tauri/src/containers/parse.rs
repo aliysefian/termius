@@ -228,7 +228,7 @@ fn port_from_object(p: &Value) -> Option<PortMapping> {
     };
     Some(PortMapping {
         host_ip: p.get("host_ip").and_then(Value::as_str).unwrap_or("").to_string(),
-        host_port: num("host_port").map(&widen).unwrap_or_default(),
+        host_port: num("host_port").map(widen).unwrap_or_default(),
         container_port: widen(container_port),
         proto: p.get("protocol").and_then(Value::as_str).unwrap_or("tcp").to_string(),
     })
