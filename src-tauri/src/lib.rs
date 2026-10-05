@@ -6,6 +6,7 @@ pub mod agent;
 pub mod ansible;
 pub mod commands;
 pub mod config;
+pub mod containers;
 pub mod control;
 pub mod crypto;
 pub mod csvimport;
@@ -154,6 +155,13 @@ pub fn run() {
             commands::db_preview_update,
             commands::db_apply_update,
             commands::db_save_export,
+            commands::containers_open,
+            commands::containers_close,
+            commands::containers_list,
+            commands::containers_act,
+            commands::containers_inspect,
+            commands::containers_logs_start,
+            commands::containers_logs_stop,
             commands::sftp_edit_start,
             commands::sftp_edit_stop,
             commands::sftp_open,

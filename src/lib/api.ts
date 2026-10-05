@@ -9,6 +9,11 @@ import type {
   BackupInfo,
   CliPrompt,
   CliStatus,
+  ContainerAction,
+  ContainerListing,
+  ContainerLogEvent,
+  ContainerLogOptions,
+  ContainerRuntime,
   DbConnection,
   DbQueryResult,
   DbRowEdit,
@@ -328,4 +333,22 @@ export const db = {
   previewUpdate: (sessionId: Uuid, edit: DbRowEdit) => invoke<string>("db_preview_update", { sessionId, edit }),
   applyUpdate: (sessionId: Uuid, edit: DbRowEdit) => invoke<number>("db_apply_update", { sessionId, edit }),
   saveExport: (path: string, contents: string) => invoke<void>("db_save_export", { path, contents }),
+};
+
+export const containers = {
+  /** Open this computer (no host) or a saved host. The host needs saved credentials. */
+  open: (hostId: Uuid | null) => invoke<{ session_id: Uuid; runtimes: ContainerRuntime[] }>("containers_open", { hostId }),
+  close: (sessionId: Uuid) => invoke<void>("containers_close", { sessionId }),
+  list: (sessionId: Uuid, runtime: ContainerRuntime, sizes: boolean) =>
+    invoke<ContainerListing>("containers_list", { sessionId, runtime, sizes }),
+  act: (sessionId: Uuid, runtime: ContainerRuntime, action: ContainerAction, id: string) =>
+    invoke<void>("containers_act", { sessionId, runtime, action, id }),
+  /** The runtime's `inspect` output as JSON text. */
+  inspect: (sessionId: Uuid, runtime: ContainerRuntime, id: string) => invoke<string>("containers_inspect", { sessionId, runtime, id }),
+  /** Resolves to a stream id for `logsStop`; events arrive on `onEvent` until an "end". */
+  logsStart(sessionId: Uuid, runtime: ContainerRuntime, id: string, options: ContainerLogOptions, onEvent: (e: ContainerLogEvent) => void) {
+    const channel = new Channel<ContainerLogEvent>(onEvent);
+    return invoke<Uuid>("containers_logs_start", { sessionId, runtime, id, options, onEvent: channel });
+  },
+  logsStop: (streamId: Uuid) => invoke<void>("containers_logs_stop", { streamId }),
 };

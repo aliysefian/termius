@@ -390,6 +390,9 @@
         await ssh.connectAdhoc(paneId, target.adhoc, term.cols, term.rows, onData);
       } else {
         await api.localTerm.spawn(paneId, term.cols, term.rows, onData, settings.prefs.localShell.trim() || null, settings.prefs.localCwd.trim() || null);
+        // A command to start with (for example a container shell): give the shell a moment to print its prompt.
+        const startup = target.kind === "local" ? target.command?.trim() : "";
+        if (startup) setTimeout(() => void writeToPane(pane, startup + "\r"), 400);
       }
     } catch (e) {
       status = { kind: "error", message: errorMessage(e) };

@@ -291,17 +291,43 @@ One "Containers" view; each runtime is a provider with the same list,
 logs, exec and stats actions. Build C0 first. Run everything over the
 existing SSH connection, so nothing is installed on the host.
 
-- [ ] **C0. Container provider interface and view.** **M**
+- [x] **C0. Container provider interface and view.** Done 2026-10-05. **M**
+  Engine: `src-tauri/src/containers/` (`mod.rs` manager and argument lists,
+  `parse.rs` the JSON readers, `transport.rs` local and SSH, recorded and
+  hand-written `fixtures/`, `live_tests.rs`). UI: `ContainersView`,
+  `ContainerLogs`, `ContainerInspect`, `stores/containers.svelte.ts`,
+  `lib/containerdata.ts`.
   DoD:
-  - [ ] A host (or the local machine) can be opened in the Containers view;
-        the runtime is auto-detected and can be set by hand.
-  - [ ] Lists containers and images with state, ports, age, and size; search
-        and filter; auto-refresh that can be paused.
-  - [ ] Actions: start, stop, restart, remove (asks first), view logs
-        (follow, search, copy), open a shell (a normal terminal tab),
-        inspect (JSON).
-  - [ ] Command output is parsed from `--format json`, never from column
-        text, and unit tests use recorded outputs.
+  - [x] A host (or this computer) opens in the Containers view; the runtime is
+        detected and can be set by hand. Several sources can stay open.
+  - [x] Containers and images are listed with state, ports, age and size;
+        search and a state filter; auto-refresh (2/5/10/30 s) that can be
+        paused, skips a hidden window, and keeps the old list with the error
+        when a refresh fails.
+  - [x] Start, stop, restart, remove (always asks; force only for a running
+        container, and says so), logs (follow, tail, timestamps, search with
+        highlight and next/previous, only-matches, copy), a shell in a normal
+        terminal tab (local or host), and inspect as JSON.
+  - [x] Output is parsed from the runtime's JSON (`--format json` /
+        `{{json .}}`), never from column text. Tests use output recorded from
+        a real Docker 29 (ps, ps with sizes, images). The remote command is
+        one single-quoted `sh -c` script, container references are checked
+        (letters, digits, `_.-:/@` only, never a leading dash) rather than
+        escaped, and the log follow takes a terminal on the remote side.
+  - [x] Nothing is installed on a host; one SSH connection per source is
+        reused (a channel per command), and reopened if it drops.
+  Verified live: local Docker and Docker through a real `sshd` (list,
+  start/stop/restart/remove, errors, inspect, bounded and followed logs with
+  non-ASCII text, and that stopping a followed log ends the remote
+  `docker logs` process), plus the UI in headless Chromium with a mocked
+  runtime (production typed-name prompts, force-remove dialog with Cancel
+  focused, pause, error recovery, shell command typed into a local terminal).
+  Not verified: Podman and nerdctl against the real programs (their parsers
+  are tested on fixtures written from their documentation, marked as such);
+  Docker on Windows or macOS hosts; hosts whose login shell is not POSIX
+  (Windows OpenSSH); the real Tauri window. Podman's JSON `Ports`, `Created`
+  and `RepoTags` shapes in particular should be checked on a real host.
+  Left for C1: image pull/remove/prune, volumes, networks, Compose actions.
 
 - [ ] **C1. Docker.** DoD: C0 plus images (pull, remove, prune with a
   preview of what will be removed), volumes, networks, `docker compose`

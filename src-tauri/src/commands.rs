@@ -56,6 +56,8 @@ pub struct AppState {
     pub raw: Arc<crate::rawterm::RawManager>,
     /// Open database connections (the Databases view).
     pub dbs: Arc<crate::db::DbManager>,
+    /// Open container sessions (the Containers view).
+    pub containers: Arc<crate::containers::ContainerManager>,
     pub edits: Arc<crate::remoteedit::EditManager>,
     /// Where remote files are downloaded for editing.
     pub edit_dir: PathBuf,
@@ -210,6 +212,21 @@ impl From<SftpError> for ApiError {
 impl From<crate::forward::ForwardError> for ApiError {
     fn from(e: crate::forward::ForwardError) -> Self {
         Self::new("forward", e.to_string())
+    }
+}
+
+impl From<crate::containers::ContainerError> for ApiError {
+    fn from(e: crate::containers::ContainerError) -> Self {
+        use crate::containers::ContainerError as E;
+        let code = match &e {
+            E::Ssh(_) => "ssh",
+            E::NotInstalled(_) => "not_installed",
+            E::Invalid(_) => "validation",
+            E::NoSession => "no_session",
+            E::Timeout(_) => "timeout",
+            E::Io(_) | E::Command(_) | E::Parse(_) => "container_error",
+        };
+        Self::new(code, e.to_string())
     }
 }
 
@@ -569,6 +586,7 @@ pub async fn lock_vault(state: State<'_, AppState>) -> ApiResult<VaultStatus> {
     state.local.close_all();
     state.raw.close_all();
     state.dbs.close_all().await;
+    state.containers.close_all().await;
     state.edits.stop_all();
     // The agent serves vault keys, so it goes when the vault locks, and
     // the command-line socket with it.
@@ -3163,6 +3181,94 @@ pub fn db_save_export(path: String, contents: String) -> ApiResult<()> {
     std::fs::write(&path, contents).map_err(|e| ApiError::new("io", format!("could not write {path}: {e}")))
 }
 
+// ---------------------------------------------------------------------------
+// Containers
+// ---------------------------------------------------------------------------
+
+/// What the window learns about an opened source.
+#[derive(Debug, Clone, Serialize)]
+pub struct ContainersOpened {
+    pub session_id: Uuid,
+    pub runtimes: Vec<crate::containers::Runtime>,
+}
+
+/// Open this computer (`host_id` empty) or a saved host. The host needs saved
+/// credentials: the connection is made without asking.
+#[tauri::command]
+pub async fn containers_open(state: State<'_, AppState>, host_id: Option<Uuid>) -> ApiResult<ContainersOpened> {
+    let via = match host_id {
+        Some(id) => Some(resolve_target(&state, id, None)?),
+        None => None,
+    };
+    let (session_id, runtimes) = state.containers.open(via).await?;
+    Ok(ContainersOpened { session_id, runtimes })
+}
+
+#[tauri::command]
+pub async fn containers_close(state: State<'_, AppState>, session_id: Uuid) -> ApiResult<()> {
+    state.containers.close(session_id).await;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn containers_list(
+    state: State<'_, AppState>,
+    session_id: Uuid,
+    runtime: crate::containers::Runtime,
+    sizes: bool,
+) -> ApiResult<crate::containers::Listing> {
+    Ok(state.containers.list(session_id, runtime, sizes).await?)
+}
+
+#[tauri::command]
+pub async fn containers_act(
+    state: State<'_, AppState>,
+    session_id: Uuid,
+    runtime: crate::containers::Runtime,
+    action: crate::containers::Action,
+    id: String,
+) -> ApiResult<()> {
+    Ok(state.containers.act(session_id, runtime, action, &id).await?)
+}
+
+#[tauri::command]
+pub async fn containers_inspect(
+    state: State<'_, AppState>,
+    session_id: Uuid,
+    runtime: crate::containers::Runtime,
+    id: String,
+) -> ApiResult<String> {
+    Ok(state.containers.inspect(session_id, runtime, &id).await?)
+}
+
+struct ChannelLogSink(Channel<crate::containers::LogEvent>);
+impl crate::containers::LogSink for ChannelLogSink {
+    fn event(&self, e: crate::containers::LogEvent) {
+        let _ = self.0.send(e);
+    }
+}
+
+/// Start reading a container's log. Events arrive on `on_event`; the returned
+/// id stops it.
+#[tauri::command]
+pub fn containers_logs_start(
+    state: State<'_, AppState>,
+    session_id: Uuid,
+    runtime: crate::containers::Runtime,
+    id: String,
+    options: crate::containers::LogOptions,
+    on_event: Channel<crate::containers::LogEvent>,
+) -> ApiResult<Uuid> {
+    let sink: Arc<dyn crate::containers::LogSink> = Arc::new(ChannelLogSink(on_event));
+    Ok(state.containers.start_logs(session_id, runtime, &id, options, sink)?)
+}
+
+#[tauri::command]
+pub fn containers_logs_stop(state: State<'_, AppState>, stream_id: Uuid) {
+    state.containers.stop_stream(stream_id);
+}
+
+
 #[tauri::command]
 pub fn list_workspaces(state: State<'_, AppState>) -> ApiResult<Vec<Record<crate::models::Workspace>>> {
     list_records(&state, Collection::Workspaces)
@@ -3752,6 +3858,7 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         local: Arc::new(crate::localpty::LocalManager::new()),
         raw: Arc::new(crate::rawterm::RawManager::new()),
         dbs: Arc::new(crate::db::DbManager::new()),
+        containers: Arc::new(crate::containers::ContainerManager::new()),
         edits: Arc::new(crate::remoteedit::EditManager::new()),
         edit_dir,
         reveal: Default::default(),

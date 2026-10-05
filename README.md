@@ -78,6 +78,13 @@ Linux and Windows · Built with Rust, Tauri, Svelte and xterm.js
 - Edit a cell in place after seeing the exact `UPDATE`; destructive
   statements ask first, and production connections make you type their name
 
+### Containers
+- List, start, stop, restart, remove, inspect and open a shell in the
+  containers of Docker, Podman or nerdctl, on this computer or on any saved
+  host, with nothing installed on the host
+- Follow logs with search, highlight and copy; auto-refreshing lists that
+  can be paused; production hosts ask you to type their name first
+
 ### Keys and credentials
 - Generate Ed25519, ECDSA and RSA keys; import OpenSSH, PEM, PKCS#8 and PuTTY
   keys; OpenSSH certificates

@@ -1,0 +1,209 @@
+// Pure helpers for the Containers view: how things are shown, filtered and
+// split into log lines. Nothing here talks to the backend.
+import type { BadgeTone, ContainerImage, ContainerInfo, ContainerRuntime, ContainerState, PortMapping } from "./types";
+
+// -- state ------------------------------------------------------------------
+
+export function stateTone(s: ContainerState): BadgeTone {
+  switch (s) {
+    case "running":
+      return "success";
+    case "paused":
+    case "restarting":
+      return "warning";
+    case "dead":
+      return "danger";
+    default:
+      return "neutral";
+  }
+}
+
+/** Running, paused and restarting containers hold resources; the rest are stopped. */
+export const isLive = (s: ContainerState) => s === "running" || s === "paused" || s === "restarting";
+
+export type StateFilter = "all" | "running" | "stopped";
+
+// -- ports ------------------------------------------------------------------
+
+/** 0.0.0.0 and :: both mean "every address"; the pair is one line for a person. */
+const ANY = new Set(["", "0.0.0.0", "::", "[::]"]);
+
+/**
+ * One label per published port (IPv4 and IPv6 "any" collapse to one), then the
+ * exposed-only ports. `published` is false for a port nothing listens on from outside.
+ */
+export function portLabels(ports: PortMapping[]): { text: string; published: boolean }[] {
+  const seen = new Set<string>();
+  const published: { text: string; published: boolean }[] = [];
+  const exposed: { text: string; published: boolean }[] = [];
+  for (const p of ports) {
+    if (!p.host_port) {
+      const text = `${p.container_port}/${p.proto}`;
+      if (!seen.has(text)) {
+        seen.add(text);
+        exposed.push({ text, published: false });
+      }
+      continue;
+    }
+    const ip = ANY.has(p.host_ip) ? "0.0.0.0" : p.host_ip;
+    const text = `${ip}:${p.host_port}→${p.container_port}/${p.proto}`;
+    if (!seen.has(text)) {
+      seen.add(text);
+      published.push({ text, published: true });
+    }
+  }
+  return [...published, ...exposed];
+}
+
+export const formatPorts = (ports: PortMapping[]) => portLabels(ports).map((l) => l.text).join(", ");
+
+// -- time and size ----------------------------------------------------------
+
+/** "5s", "3m", "2h", "4d", "3w", "5mo", "2y": how long ago, coarsely. */
+export function formatAge(createdSecs: number | null, nowMs: number = Date.now()): string {
+  if (createdSecs === null) return "—";
+  const s = Math.max(0, Math.floor(nowMs / 1000 - createdSecs));
+  if (s < 60) return `${s}s`;
+  const units: [number, string][] = [
+    [60 * 60 * 24 * 365, "y"],
+    [60 * 60 * 24 * 30, "mo"],
+    [60 * 60 * 24 * 7, "w"],
+    [60 * 60 * 24, "d"],
+    [60 * 60, "h"],
+    [60, "m"],
+  ];
+  for (const [secs, label] of units) if (s >= secs) return `${Math.floor(s / secs)}${label}`;
+  return `${s}s`;
+}
+
+// -- filtering --------------------------------------------------------------
+
+const terms = (q: string) => q.toLowerCase().split(/\s+/).filter(Boolean);
+
+/** Every word must match the name, image, ID, status, ports, a label, or the pod. */
+export function filterContainers(list: ContainerInfo[], query: string, state: StateFilter): ContainerInfo[] {
+  const ts = terms(query);
+  return list.filter((c) => {
+    if (state === "running" && c.state !== "running") return false;
+    if (state === "stopped" && isLive(c.state)) return false;
+    if (ts.length === 0) return true;
+    const hay = [c.name, c.image, c.id, c.status, c.state, c.pod ?? "", formatPorts(c.ports), ...Object.entries(c.labels).map(([k, v]) => `${k}=${v}`)]
+      .join("\n")
+      .toLowerCase();
+    return ts.every((t) => hay.includes(t));
+  });
+}
+
+export function filterImages(list: ContainerImage[], query: string): ContainerImage[] {
+  const ts = terms(query);
+  if (ts.length === 0) return list;
+  return list.filter((i) => {
+    const hay = `${i.repository}:${i.tag} ${i.id}`.toLowerCase();
+    return ts.every((t) => hay.includes(t));
+  });
+}
+
+export function countByState(list: ContainerInfo[]): { all: number; running: number; stopped: number } {
+  const running = list.filter((c) => c.state === "running").length;
+  const stopped = list.filter((c) => !isLive(c.state)).length;
+  return { all: list.length, running, stopped };
+}
+
+/** The Compose project a container belongs to, if the labels say so. */
+export const composeProject = (c: ContainerInfo): string | null =>
+  c.labels["com.docker.compose.project"] ?? c.labels["io.podman.compose.project"] ?? null;
+
+// -- shell ------------------------------------------------------------------
+
+const REF = /^[A-Za-z0-9][A-Za-z0-9_.:/@-]*$/;
+
+/**
+ * The line to type to get a shell in a container: bash if it has one, else sh.
+ * Null for a reference that isn't a plain name or ID (it is never typed).
+ */
+export function shellCommand(runtime: ContainerRuntime, id: string): string | null {
+  if (!REF.test(id) || id.length > 200) return null;
+  return `${runtime} exec -it ${id} sh -c 'command -v bash >/dev/null 2>&1 && exec bash || exec sh'`;
+}
+
+// -- logs -------------------------------------------------------------------
+
+// eslint-disable-next-line no-control-regex
+const ANSI = /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*\x07/g;
+
+/**
+ * Text arriving in chunks, kept as lines. A chunk may end mid-line, so the
+ * unfinished line waits for its rest. Colour codes are removed, and a
+ * carriage return overwrites the line so far (progress bars read as their
+ * final state). Past `max` lines the oldest are dropped.
+ */
+export class LogBuffer {
+  lines: string[] = [];
+  /** Lines dropped from the top to stay within `max`. */
+  dropped = 0;
+  #partial = "";
+
+  constructor(readonly max = 20_000) {}
+
+  /** Adds text; returns how many complete lines it produced. */
+  push(text: string): number {
+    const parts = (this.#partial + text.replace(/\r\n/g, "\n")).split("\n");
+    this.#partial = parts.pop() ?? "";
+    for (const raw of parts) this.lines.push(clean(raw));
+    const over = this.lines.length - this.max;
+    if (over > 0) {
+      this.lines.splice(0, over);
+      this.dropped += over;
+    }
+    return parts.length;
+  }
+
+  /** The line still being written, if any. */
+  get partial(): string {
+    return clean(this.#partial);
+  }
+
+  /** Every line including the unfinished one. */
+  all(): string[] {
+    return this.#partial ? [...this.lines, this.partial] : this.lines;
+  }
+
+  clear() {
+    this.lines = [];
+    this.#partial = "";
+    this.dropped = 0;
+  }
+}
+
+function clean(line: string): string {
+  const stripped = line.replace(ANSI, "");
+  // After a lone \r the rest replaces what came before it.
+  return stripped.includes("\r") ? (stripped.split("\r").filter(Boolean).pop() ?? "") : stripped;
+}
+
+/** Positions of the lines containing `query` (case-insensitive), in order. */
+export function matchingLines(lines: string[], query: string): number[] {
+  const q = query.toLowerCase();
+  if (!q) return [];
+  const out: number[] = [];
+  for (let i = 0; i < lines.length; i++) if (lines[i].toLowerCase().includes(q)) out.push(i);
+  return out;
+}
+
+/** Splits a line around each case-insensitive match, for highlighting. */
+export function splitMatches(line: string, query: string): { text: string; hit: boolean }[] {
+  const q = query.toLowerCase();
+  if (!q) return [{ text: line, hit: false }];
+  const out: { text: string; hit: boolean }[] = [];
+  const lower = line.toLowerCase();
+  let at = 0;
+  for (;;) {
+    const i = lower.indexOf(q, at);
+    if (i < 0) break;
+    if (i > at) out.push({ text: line.slice(at, i), hit: false });
+    out.push({ text: line.slice(i, i + q.length), hit: true });
+    at = i + q.length;
+  }
+  if (at < line.length) out.push({ text: line.slice(at), hit: false });
+  return out.length ? out : [{ text: line, hit: false }];
+}

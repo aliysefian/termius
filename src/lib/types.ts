@@ -654,3 +654,60 @@ export interface DbRowEdit {
   key: DbCellEdit[];
   changes: DbCellEdit[];
 }
+
+// -- Containers ----------------------------------------------------------
+
+export type ContainerRuntime = "docker" | "podman" | "nerdctl";
+export const CONTAINER_RUNTIMES: ContainerRuntime[] = ["docker", "podman", "nerdctl"];
+
+export type ContainerState = "running" | "paused" | "restarting" | "exited" | "created" | "dead" | "removing" | "unknown";
+
+export interface PortMapping {
+  /** Empty when the port is exposed but not published. */
+  host_ip: string;
+  host_port: string;
+  container_port: string;
+  proto: string;
+}
+
+export interface ContainerInfo {
+  /** The full ID. */
+  id: string;
+  name: string;
+  image: string;
+  state: ContainerState;
+  status: string;
+  ports: PortMapping[];
+  /** Seconds since the Unix epoch. */
+  created: number | null;
+  size: string | null;
+  labels: Record<string, string>;
+  command: string;
+  pod: string | null;
+}
+
+export interface ContainerImage {
+  id: string;
+  repository: string;
+  tag: string;
+  size_text: string;
+  size_bytes: number | null;
+  created: number | null;
+  containers: number | null;
+}
+
+export interface ContainerListing {
+  containers: ContainerInfo[];
+  images: ContainerImage[];
+  images_error: string | null;
+}
+
+export type ContainerLogEvent = { event: "chunk"; text: string } | { event: "end"; code: number | null; error: string | null };
+
+export type ContainerAction = { action: "start" } | { action: "stop" } | { action: "restart" } | { action: "remove"; force: boolean };
+
+export interface ContainerLogOptions {
+  tail: number;
+  follow: boolean;
+  timestamps: boolean;
+}

@@ -19,6 +19,14 @@ View changelog**.
   column type. A run that opens a transaction without ending it is refused,
   since the next run can't continue it.
 
+- **Containers.** A new view that lists the containers and images of Docker,
+  Podman or nerdctl, on this computer or on any saved host, over your
+  existing SSH access with nothing installed on the host. Search and filter,
+  start, stop, restart and remove (removing always asks; on production hosts
+  you type the host's name), follow a container's logs with search and copy,
+  open a shell in it as a normal terminal tab, and inspect it as JSON. The
+  list refreshes by itself and can be paused.
+
 ## 0.12.0 — 2026-10-04
 
 - **Host monitoring and a Fleet view.** Turn on monitoring for a host (its

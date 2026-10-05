@@ -1,0 +1,32 @@
+[
+  {
+    "Id": "f1e2d3c4b5a69788796a5b4c3d2e1f00112233445566778899aabbccddeeff00",
+    "ParentId": "",
+    "RepoTags": ["docker.io/library/nginx:latest", "docker.io/library/nginx:1.27"],
+    "RepoDigests": ["docker.io/library/nginx@sha256:aa"],
+    "Size": 196000000,
+    "SharedSize": 0,
+    "VirtualSize": 196000000,
+    "Labels": null,
+    "Containers": 1,
+    "Names": ["docker.io/library/nginx:latest"],
+    "Digest": "sha256:aa",
+    "History": ["docker.io/library/nginx:latest"],
+    "Created": 1759000000,
+    "CreatedAt": "2025-09-27T19:06:40Z"
+  },
+  {
+    "Id": "1111222233334444555566667777888899990000aaaabbbbccccddddeeeeffff",
+    "RepoTags": ["localhost:5000/team/app:v2"],
+    "Size": 50331648,
+    "Containers": 0,
+    "Created": 1758000000
+  },
+  {
+    "Id": "9999888877776666555544443333222211110000ffffeeeeddddccccbbbbaaaa",
+    "RepoTags": null,
+    "Size": 1024,
+    "Containers": 0,
+    "Created": 1757000000
+  }
+]

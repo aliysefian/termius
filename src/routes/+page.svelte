@@ -20,6 +20,9 @@
   import SecurityReview from "$lib/components/SecurityReview.svelte";
   import FleetView from "$lib/components/FleetView.svelte";
   import DatabasesView from "$lib/components/DatabasesView.svelte";
+  import ContainersView from "$lib/components/ContainersView.svelte";
+  import ContainerLogs from "$lib/components/ContainerLogs.svelte";
+  import ContainerInspect from "$lib/components/ContainerInspect.svelte";
   import DbConnectionForm from "$lib/components/DbConnectionForm.svelte";
   import ChangelogView from "$lib/components/ChangelogView.svelte";
   import HostKeyDialog from "$lib/components/HostKeyDialog.svelte";
@@ -213,6 +216,8 @@
       <FleetView />
     {:else if ui.view === "databases"}
       <DatabasesView />
+    {:else if ui.view === "containers"}
+      <ContainersView />
     {:else if ui.view === "changelog"}
       <ChangelogView />
     {/if}
@@ -239,6 +244,14 @@
   {:else if ui.modal?.kind === "db-connection"}
     {#key ui.modal.id}
       <DbConnectionForm id={ui.modal.id} />
+    {/key}
+  {:else if ui.modal?.kind === "container-logs"}
+    {#key ui.modal.id}
+      <ContainerLogs sourceKey={ui.modal.sourceKey} id={ui.modal.id} name={ui.modal.name} />
+    {/key}
+  {:else if ui.modal?.kind === "container-inspect"}
+    {#key ui.modal.id}
+      <ContainerInspect sourceKey={ui.modal.sourceKey} id={ui.modal.id} name={ui.modal.name} />
     {/key}
   {:else if ui.modal?.kind === "quick-connect"}
     <QuickConnect initial={ui.modal.initial} />

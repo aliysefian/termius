@@ -20,11 +20,12 @@ export type View =
   | "security-review"
   | "fleet"
   | "databases"
+  | "containers"
   | "settings"
   | "changelog";
 
 /** Views that fill the window instead of sitting beside the terminals. */
-export const PAGE_VIEWS: View[] = ["groups", "keys", "knownhosts", "vault", "security-review", "fleet", "databases", "settings", "changelog"];
+export const PAGE_VIEWS: View[] = ["groups", "keys", "knownhosts", "vault", "security-review", "fleet", "databases", "containers", "settings", "changelog"];
 
 /** What a pane connects to: a saved host, or an unsaved quick connection. */
 export type PaneTarget =
@@ -32,7 +33,7 @@ export type PaneTarget =
   | { kind: "adhoc"; adhoc: AdhocTarget }
   | { kind: "telnet"; host: string; port: number }
   | { kind: "serial"; config: SerialConfig }
-  | { kind: "local" };
+  | { kind: "local"; /** Typed into the shell once it starts. */ command?: string };
 
 export interface Pane {
   id: string;
@@ -87,6 +88,8 @@ export type Modal =
   | { kind: "snippet"; id: Uuid | null }
   | { kind: "forward"; id: Uuid | null }
   | { kind: "db-connection"; id: Uuid | null }
+  | { kind: "container-logs"; sourceKey: string; id: string; name: string }
+  | { kind: "container-inspect"; sourceKey: string; id: string; name: string }
   | { kind: "quick-connect"; initial?: string }
   | { kind: "import-ssh-config" }
   | { kind: "snippet-vars"; command: string; names: string[]; opts: SnippetRunOpts }
@@ -257,8 +260,8 @@ class UiStore {
     this.view = "sftp";
   }
 
-  openLocal() {
-    this.#openTab({ kind: "local" }, "Local");
+  openLocal(command?: string, title = "Local") {
+    this.#openTab(command ? { kind: "local", command } : { kind: "local" }, title);
   }
 
   /**

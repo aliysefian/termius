@@ -1,6 +1,6 @@
 <script lang="ts">
   import {
-    Activity, Database, FileOutput, History, Keyboard, SquareTerminal, ArrowLeftRight, ServerCog, Code, FileInput, FolderSync, KeyRound, Lock, Play, Plus, Server, Settings, ShieldAlert, SquareSplitHorizontal, SquareSplitVertical, Zap,
+    Activity, Container, Database, FileOutput, History, Keyboard, SquareTerminal, ArrowLeftRight, ServerCog, Code, FileInput, FolderSync, KeyRound, Lock, Play, Plus, Server, Settings, ShieldAlert, SquareSplitHorizontal, SquareSplitVertical, Zap,
   } from "lucide-svelte";
   import * as api from "$lib/api";
   import { fuzzyScore } from "$lib/fuzzy";
@@ -12,6 +12,7 @@
   import { adhocLabel, ui, type View, type WorkspaceTab } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
   import { databases } from "$lib/stores/databases.svelte";
+  import { containers, LOCAL } from "$lib/stores/containers.svelte";
 
   interface Item {
     id: string;
@@ -179,6 +180,8 @@
       ["Go to Security review", ShieldAlert, go("security-review")],
       ["Go to Fleet", Activity, go("fleet")],
       ["Go to Databases", Database, go("databases")],
+      ["Go to Containers", Container, go("containers")],
+      ["Containers on this computer", Container, () => { ui.view = "containers"; void containers.open(LOCAL); }],
       ["New database connection", Database, () => (ui.modal = { kind: "db-connection", id: null })],
       ["View changelog", History, go("changelog")],
       ["Open Settings", Settings, go("settings")],

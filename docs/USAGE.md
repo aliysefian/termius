@@ -471,6 +471,66 @@ prefixed with `'`.
 computer only and is never synced, because queries often hold names and
 identifiers.
 
+## Containers
+
+Open **Containers** in the activity bar (or **Ctrl+Shift+P** → "Go to
+Containers"). It lists the containers and images of Docker, Podman or nerdctl
+on this computer or on any saved host, and nothing is installed on the host:
+it runs the runtime's own command line over your existing SSH access.
+
+**Open a source.** Use the box at the top right: **This computer**, or any
+host (type to search). The host needs saved credentials, because the
+connection is made without asking. Each source you open stays as a chip at
+the top, and its connection stays open so refreshing costs almost nothing;
+close the chip with its **×**, or lock the vault, to hang up.
+
+**Runtime.** What is installed is detected when the source opens, and the
+first one found is used. Pick another from **Runtime** at any time, including
+one marked "not found" if it lives somewhere unusual. On a host, the usual
+install folders (`/usr/local/bin`, `/opt/homebrew/bin`, `/snap/bin`) are
+searched as well as the default PATH.
+
+**The list.** Containers show name, ID, image, state and its status text,
+published ports, and age. A port published on both IPv4 and IPv6 shows once;
+a port that is exposed but not published is greyed. Compose projects and
+Podman pods appear as badges. Tick **Sizes** to ask for container sizes
+(slower on a host with many large containers). The **Images** tab lists
+images with size, age and the number of containers using each. **Search**
+matches name, image, ID, status, port, label and pod; the buttons next to it
+narrow by running or stopped.
+
+**Refreshing.** The list refreshes every 5 seconds (2, 10 or 30 if you
+prefer), only while the window is visible. **Pause** stops the timer, and
+the refresh button still works. If a refresh fails, the old list stays on
+screen with the reason above it, and clears itself when the host answers
+again.
+
+**Actions** are on each row: logs, a shell, inspect, start or stop, restart,
+and remove. Removing always asks, and says if the container is running (it is
+then stopped first; volumes are kept). On a host marked production, stop,
+restart and remove ask you to type the host's name first.
+
+**Logs.** Opens the container's log in a window. **Following** keeps adding
+new lines (click it to take a snapshot instead), **Lines** picks how many
+from the end, and **Timestamps** asks the runtime to prefix each line. Search
+highlights every match, **Enter** and **Shift+Enter** jump between them, and
+**Only matches** hides the other lines. **Copy** copies what is shown
+(or only the matches). Colour codes are removed, a progress bar that rewrites
+its line reads as its final state, and only the newest 20,000 lines are kept,
+which the footer says. Closing the window ends the follow, on the host too.
+
+**Shell.** Opens a normal terminal tab and types
+`docker exec -it <id> sh -c '…bash, or sh if there is none'` into it: on a
+host it is that host's usual terminal, here it is a local terminal. The
+container must be running.
+
+**Inspect.** The runtime's full JSON for the container, with find and copy.
+
+**When it doesn't work.** The runtime's own error is shown in full, with a
+hint for the usual causes: a user who isn't in the `docker` group, a daemon
+that isn't running, a Podman socket that isn't available. Docker is used as
+the signed-in user; there is no `sudo`.
+
 ## Locking
 
 The lock icon at the bottom of the sidebar, or **Ctrl+Shift+L**, closes every
