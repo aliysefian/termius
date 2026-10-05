@@ -11,8 +11,11 @@ import {
   isApiError,
   type ContainerAction,
   type ContainerInfo,
+  type ComposeVerb,
   type ContainerListing,
+  type ContainerResources,
   type ContainerRuntime,
+  type ResourceKind,
   type Uuid,
 } from "$lib/types";
 
@@ -32,8 +35,12 @@ export interface Source {
   error: string | null;
   loading: boolean;
   updatedAt: number;
-  /** Ask the runtime for container sizes (slower on big hosts, on older Docker). */
+  /** Ask the runtime for container and volume sizes (slower on big hosts). */
   sizes: boolean;
+  /** Volumes and networks (Docker). Only fetched while one of their tabs is open. */
+  resources: ContainerResources | null;
+  resourcesError: string | null;
+  wantResources: boolean;
 }
 
 class ContainersStore {
@@ -100,6 +107,9 @@ class ContainersStore {
         loading: false,
         updatedAt: 0,
         sizes: false,
+        resources: null,
+        resourcesError: null,
+        wantResources: false,
       };
       if (detected.length) await this.refresh(key);
       return this.sources[key];
@@ -149,6 +159,15 @@ class ContainersStore {
       s.listing = await api.containers.list(s.sessionId, s.runtime, s.sizes);
       s.updatedAt = Date.now();
       s.error = null;
+      // Volumes and networks only while someone is looking at them: it is two more commands.
+      if (s.wantResources && s.runtime === "docker") {
+        try {
+          s.resources = await api.containers.resources(s.sessionId, s.runtime, s.sizes);
+          s.resourcesError = s.resources.sizes_error;
+        } catch (e) {
+          s.resourcesError = errorMessage(e);
+        }
+      }
     } catch (e) {
       const message = errorMessage(e);
       if (!quiet || s.error !== message) s.error = message;
@@ -200,6 +219,83 @@ class ContainersStore {
       return false;
     } finally {
       delete this.busy[c.id];
+    }
+  }
+
+  // -- images, volumes, networks -----------------------------------------------
+
+  /** One careful question: red button, Cancel focused, and on a production host the host's name to type. */
+  async #confirmChange(key: string, title: string, message: string, confirm: string): Promise<boolean> {
+    const name = this.label(key);
+    const prod = this.isProduction(key);
+    return ask(prod ? `${message}\n\nThis is a PRODUCTION host (${name}).` : message, { title, confirm, danger: true, requireText: prod ? name : undefined });
+  }
+
+  /** Remove one image, volume or network after asking. Returns whether it went. */
+  async removeResource(key: string, kind: ResourceKind, id: string, label: string): Promise<boolean> {
+    const s = this.sources[key];
+    const busyKey = `${kind}:${id}`;
+    if (!s || this.busy[busyKey]) return false;
+    const what = {
+      image: `Remove the image "${label}"? If another tag still names the same image, only this tag goes. Containers keep working.`,
+      volume: `Remove the volume "${label}"? Everything stored in it is deleted and can't be recovered.`,
+      network: `Remove the network "${label}"?`,
+    }[kind];
+    if (!(await this.#confirmChange(key, `Remove ${kind}?`, what, "Remove"))) return false;
+    this.busy[busyKey] = true;
+    try {
+      await api.containers.remove(s.sessionId, s.runtime, kind, id, false);
+      await this.refresh(key);
+      return true;
+    } catch (e) {
+      ui.notify("error", `Remove ${label}: ${errorMessage(e)}`);
+      return false;
+    } finally {
+      delete this.busy[busyKey];
+    }
+  }
+
+  /** Ask before a prune actually removes `count` items. */
+  confirmPrune(key: string, what: string, count: number): Promise<boolean> {
+    return this.#confirmChange(key, "Remove these?", `Remove ${count} ${what}? This can't be undone.`, `Remove ${count}`);
+  }
+
+  // -- Compose --------------------------------------------------------------------
+
+  /** Start, stop, restart or take down every container of a Compose project. */
+  async compose(key: string, project: string, verb: ComposeVerb, count: number): Promise<boolean> {
+    const s = this.sources[key];
+    const busyKey = `project:${project}`;
+    if (!s || this.busy[busyKey]) return false;
+    if (verb === "down") {
+      const ok = await this.#confirmChange(
+        key,
+        `Take down "${project}"?`,
+        `This stops and removes the ${count} container${count === 1 ? "" : "s"} of "${project}" and its networks. Its volumes, and so its data, are kept.`,
+        "Take down",
+      );
+      if (!ok) return false;
+    } else if (this.isProduction(key) && verb !== "start") {
+      const name = this.label(key);
+      const ok = await ask(`${verb === "stop" ? "Stop" : "Restart"} all ${count} containers of "${project}"?\n\nThis is a PRODUCTION host (${name}).`, {
+        title: `Change "${project}" on ${name}?`,
+        confirm: "Continue",
+        danger: true,
+        requireText: name,
+      });
+      if (!ok) return false;
+    }
+    this.busy[busyKey] = true;
+    try {
+      await api.containers.compose(s.sessionId, project, verb);
+      await this.refresh(key);
+      return true;
+    } catch (e) {
+      ui.notify("error", `${project}: ${errorMessage(e)}`);
+      await this.refresh(key);
+      return false;
+    } finally {
+      delete this.busy[busyKey];
     }
   }
 

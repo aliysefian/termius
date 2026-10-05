@@ -684,6 +684,60 @@ export interface ContainerInfo {
   labels: Record<string, string>;
   command: string;
   pod: string | null;
+  /** Volume names and bind-mount source paths. */
+  mounts: string[];
+  networks: string[];
+}
+
+export interface ContainerVolume {
+  name: string;
+  driver: string;
+  mountpoint: string;
+  scope: string;
+  labels: Record<string, string>;
+  /** Only when sizes were asked for. */
+  size: string | null;
+  /** Containers (running or not) that mount it. */
+  used_by: string[];
+}
+
+export interface ContainerNetwork {
+  id: string;
+  name: string;
+  driver: string;
+  scope: string;
+  internal: boolean;
+  ipv6: boolean;
+  created: number | null;
+  labels: Record<string, string>;
+  /** bridge, host, none: the runtime won't remove them. */
+  predefined: boolean;
+  used_by: string[];
+}
+
+export interface ContainerResources {
+  volumes: ContainerVolume[];
+  networks: ContainerNetwork[];
+  sizes_error: string | null;
+}
+
+export type ResourceKind = "image" | "volume" | "network";
+export type PruneKind = { kind: "images"; all: boolean } | { kind: "volumes" } | { kind: "networks" };
+export type ComposeVerb = "start" | "stop" | "restart" | "down";
+
+export interface PruneItem {
+  /** What is handed to the remove command. */
+  id: string;
+  label: string;
+  detail: string;
+  /** The Compose project it belongs to. */
+  project: string | null;
+}
+
+export interface PruneResult {
+  id: string;
+  ok: boolean;
+  error: string | null;
 }
 
 export interface ContainerImage {

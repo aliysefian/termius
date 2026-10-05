@@ -1,0 +1,5 @@
+{"CreatedAt":"2026-10-05 16:28:46.937350694 +0000 UTC","Driver":"bridge","ID":"bf15e3509589","IPv4":"true","IPv6":"false","Internal":"false","Labels":"","Name":"sshvault-c1-net","Scope":"local"}
+{"CreatedAt":"2026-10-05 16:29:08.240875987 +0000 UTC","Driver":"bridge","ID":"58d1027f1b27","IPv4":"true","IPv6":"false","Internal":"false","Labels":"com.docker.compose.config-hash=a82a24007debf5b67ce3fb5359531cd57860308fc0aabbeee0f237813b639865,com.docker.compose.network=default,com.docker.compose.project=sshvault-c1-proj,com.docker.compose.version=5.5.1","Name":"sshvault-c1-proj_default","Scope":"local"}
+{"CreatedAt":"2026-09-27 20:00:24.054353542 +0000 UTC","Driver":"bridge","ID":"210c08ce1699","IPv4":"true","IPv6":"false","Internal":"false","Labels":"","Name":"bridge","Scope":"local"}
+{"CreatedAt":"2026-09-14 16:43:03.542730368 +0000 UTC","Driver":"host","ID":"32ab9fdd5f77","IPv4":"true","IPv6":"false","Internal":"false","Labels":"","Name":"host","Scope":"local"}
+{"CreatedAt":"2026-09-14 16:43:03.53874156 +0000 UTC","Driver":"null","ID":"d4bf537d3a79","IPv4":"true","IPv6":"false","Internal":"false","Labels":"","Name":"none","Scope":"local"}

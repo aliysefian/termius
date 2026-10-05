@@ -90,6 +90,8 @@ export type Modal =
   | { kind: "db-connection"; id: Uuid | null }
   | { kind: "container-logs"; sourceKey: string; id: string; name: string }
   | { kind: "container-inspect"; sourceKey: string; id: string; name: string }
+  | { kind: "container-pull"; sourceKey: string }
+  | { kind: "container-prune"; sourceKey: string; what: "images" | "volumes" | "networks" }
   | { kind: "quick-connect"; initial?: string }
   | { kind: "import-ssh-config" }
   | { kind: "snippet-vars"; command: string; names: string[]; opts: SnippetRunOpts }

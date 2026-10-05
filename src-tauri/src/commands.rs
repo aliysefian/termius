@@ -3263,6 +3263,75 @@ pub fn containers_logs_start(
     Ok(state.containers.start_logs(session_id, runtime, &id, options, sink)?)
 }
 
+/// Volumes and networks of a Docker source, with the containers using each.
+#[tauri::command]
+pub async fn containers_resources(
+    state: State<'_, AppState>,
+    session_id: Uuid,
+    runtime: crate::containers::Runtime,
+    sizes: bool,
+) -> ApiResult<crate::containers::Resources> {
+    Ok(state.containers.resources(session_id, runtime, sizes).await?)
+}
+
+#[tauri::command]
+pub async fn containers_remove(
+    state: State<'_, AppState>,
+    session_id: Uuid,
+    runtime: crate::containers::Runtime,
+    kind: crate::containers::ResourceKind,
+    id: String,
+    force: bool,
+) -> ApiResult<()> {
+    Ok(state.containers.remove(session_id, runtime, kind, &id, force).await?)
+}
+
+/// What a prune would remove. Removes nothing.
+#[tauri::command]
+pub async fn containers_prune_preview(
+    state: State<'_, AppState>,
+    session_id: Uuid,
+    runtime: crate::containers::Runtime,
+    kind: crate::containers::prune::PruneKind,
+) -> ApiResult<Vec<crate::containers::prune::PruneItem>> {
+    Ok(state.containers.prune_preview(session_id, runtime, kind).await?)
+}
+
+/// Remove exactly the given items, each re-checked first.
+#[tauri::command]
+pub async fn containers_prune_run(
+    state: State<'_, AppState>,
+    session_id: Uuid,
+    runtime: crate::containers::Runtime,
+    kind: crate::containers::prune::PruneKind,
+    ids: Vec<String>,
+) -> ApiResult<Vec<crate::containers::prune::PruneResult>> {
+    Ok(state.containers.prune_run(session_id, runtime, kind, ids).await?)
+}
+
+/// Pull an image; progress arrives on `on_event`, and the id stops it.
+#[tauri::command]
+pub fn containers_pull(
+    state: State<'_, AppState>,
+    session_id: Uuid,
+    runtime: crate::containers::Runtime,
+    reference: String,
+    on_event: Channel<crate::containers::LogEvent>,
+) -> ApiResult<Uuid> {
+    let sink: Arc<dyn crate::containers::LogSink> = Arc::new(ChannelLogSink(on_event));
+    Ok(state.containers.start_pull(session_id, runtime, &reference, sink)?)
+}
+
+#[tauri::command]
+pub async fn containers_compose(
+    state: State<'_, AppState>,
+    session_id: Uuid,
+    project: String,
+    verb: crate::containers::ComposeVerb,
+) -> ApiResult<()> {
+    Ok(state.containers.compose(session_id, &project, verb).await?)
+}
+
 #[tauri::command]
 pub fn containers_logs_stop(state: State<'_, AppState>, stream_id: Uuid) {
     state.containers.stop_stream(stream_id);

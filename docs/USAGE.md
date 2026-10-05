@@ -507,8 +507,9 @@ again.
 
 **Actions** are on each row: logs, a shell, inspect, start or stop, restart,
 and remove. Removing always asks, and says if the container is running (it is
-then stopped first; volumes are kept). On a host marked production, stop,
-restart and remove ask you to type the host's name first.
+then stopped first; volumes are kept). On a host marked production, every
+stop, restart, removal, take-down and prune asks you to type the host's name
+first.
 
 **Logs.** Opens the container's log in a window. **Following** keeps adding
 new lines (click it to take a snapshot instead), **Lines** picks how many
@@ -525,6 +526,38 @@ host it is that host's usual terminal, here it is a local terminal. The
 container must be running.
 
 **Inspect.** The runtime's full JSON for the container, with find and copy.
+
+**Compose projects.** Containers started by Docker Compose are grouped under
+their project, with how many are running. The buttons on a project's header
+start, stop, restart or take down the whole project (Docker only), found by
+its name, so the compose file doesn't need to be on this computer. Hover the
+name to see where Compose was run and which files it used, on the host.
+"Take down" removes the project's containers and its networks and **keeps its
+volumes**, so its data survives; it always asks. Untick **Group by Compose
+project** for the flat list.
+
+**Images.** The **Images** tab lists images with size, age and how many
+containers use each. **Pull image…** pulls a reference such as `nginx:1.27`
+or `ghcr.io/org/app@sha256:…` and shows the runtime's progress as it comes
+(Stop ends it, on the host too). The bin on a row removes that tag; if another
+tag still names the same image, only this tag goes. Removing an image a
+container uses is refused by the runtime, with its reason.
+
+**Volumes and networks** (Docker) have their own tabs, with who uses each: a
+container that is stopped still uses its volume and network. The bin is off
+for something in use, and for the built-in `bridge`, `host` and `none`
+networks. Volume sizes appear with **Sizes**.
+
+**Removing what is unused.** **Remove unused…** on Images, Volumes and
+Networks first *shows* what would go, and removes nothing until you press the
+button, and then only what is ticked. It never runs the runtime's own `prune`:
+the list is worked out from what is on the host, and exactly those items are
+removed one at a time. Each is checked again just before, and one that has
+become used since you looked is left alone and reported. Images start with
+only the untagged ones; tick "Also tagged images that no container uses" for
+the rest. **Volumes start with nothing ticked**, because the data in a removed
+volume is gone for good. Items that belong to a Compose project are marked,
+with a note that bringing the project up again would have to create them anew.
 
 **When it doesn't work.** The runtime's own error is shown in full, with a
 hint for the usual causes: a user who isn't in the `docker` group, a daemon

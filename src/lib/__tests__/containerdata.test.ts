@@ -6,15 +6,23 @@ import {
   filterContainers,
   filterImages,
   formatAge,
+  filterNetworks,
+  filterVolumes,
   formatPorts,
+  groupByProject,
+  imageRef,
   isLive,
+  isPullable,
   matchingLines,
   portLabels,
+  pruneProjects,
   shellCommand,
   splitMatches,
   stateTone,
+  summarizePrune,
+  usedByText,
 } from "../containerdata";
-import type { ContainerImage, ContainerInfo, PortMapping } from "../types";
+import type { ContainerImage, ContainerInfo, ContainerNetwork, ContainerVolume, PortMapping, PruneItem } from "../types";
 
 const port = (host_ip: string, host_port: string, container_port: string, proto = "tcp"): PortMapping => ({ host_ip, host_port, container_port, proto });
 
@@ -30,6 +38,8 @@ const box = (o: Partial<ContainerInfo>): ContainerInfo => ({
   labels: {},
   command: "",
   pod: null,
+  mounts: [],
+  networks: [],
   ...o,
 });
 
@@ -210,5 +220,90 @@ describe("log search", () => {
     expect(splitMatches("abc", "x")).toEqual([{ text: "abc", hit: false }]);
     expect(splitMatches("", "x")).toEqual([{ text: "", hit: false }]);
     expect(splitMatches("aaa", "a").filter((p) => p.hit)).toHaveLength(3);
+  });
+});
+
+describe("compose groups", () => {
+  const svc = (name: string, project: string | null, service: string, state: ContainerInfo["state"] = "running") =>
+    box({
+      name,
+      state,
+      labels: project
+        ? { "com.docker.compose.project": project, "com.docker.compose.service": service, "com.docker.compose.project.working_dir": "/srv/" + project, "com.docker.compose.project.config_files": `/srv/${project}/compose.yaml` }
+        : {},
+    });
+  const list = [svc("shop-web-1", "shop", "web"), svc("loose", null, ""), svc("blog-db-1", "blog", "db", "exited"), svc("shop-cache-1", "shop", "cache"), svc("also-loose", null, "")];
+
+  it("gathers by project, projects first and alphabetical, the rest last", () => {
+    const g = groupByProject(list);
+    expect(g.map((x) => x.project)).toEqual(["blog", "shop", null]);
+    expect(g[1].containers.map((c) => c.name)).toEqual(["shop-cache-1", "shop-web-1"]);
+    expect(g[2].containers.map((c) => c.name)).toEqual(["loose", "also-loose"]);
+  });
+  it("counts running and reads where Compose was run", () => {
+    const g = groupByProject(list);
+    expect(g[0]).toMatchObject({ running: 0, workingDir: "/srv/blog", configFiles: "/srv/blog/compose.yaml" });
+    expect(g[1].running).toBe(2);
+    expect(g[2]).toMatchObject({ workingDir: null, configFiles: null });
+  });
+  it("copes with nothing and with everything in one group", () => {
+    expect(groupByProject([])).toEqual([]);
+    expect(groupByProject([svc("a", null, "")]).map((x) => x.project)).toEqual([null]);
+  });
+});
+
+describe("volumes and networks", () => {
+  const vol = (name: string, used_by: string[] = [], labels: Record<string, string> = {}): ContainerVolume => ({ name, driver: "local", mountpoint: "/x", scope: "local", labels, size: null, used_by });
+  const net = (name: string, used_by: string[] = []): ContainerNetwork => ({ id: "abc123def456", name, driver: "bridge", scope: "local", internal: false, ipv6: false, created: null, labels: {}, predefined: name === "bridge", used_by });
+
+  it("searches name, driver, users and labels", () => {
+    const vols = [vol("pgdata", ["db"], { "com.docker.compose.project": "shop" }), vol("cache")];
+    expect(filterVolumes(vols, "pg").map((v) => v.name)).toEqual(["pgdata"]);
+    expect(filterVolumes(vols, "db").map((v) => v.name)).toEqual(["pgdata"]);
+    expect(filterVolumes(vols, "project=shop").map((v) => v.name)).toEqual(["pgdata"]);
+    expect(filterVolumes(vols, "").length).toBe(2);
+    const nets = [net("shop_default", ["web"]), net("bridge")];
+    expect(filterNetworks(nets, "web").map((n) => n.name)).toEqual(["shop_default"]);
+    expect(filterNetworks(nets, "abc123").length).toBe(2);
+    expect(filterNetworks(nets, "zzz")).toEqual([]);
+  });
+  it("says who uses something", () => {
+    expect(usedByText([])).toBe("unused");
+    expect(usedByText(["a"])).toBe("a");
+    expect(usedByText(["a", "b", "c", "d"])).toBe("a, b +2");
+  });
+});
+
+describe("pruning", () => {
+  const item = (id: string, project: string | null = null): PruneItem => ({ id, label: id, detail: "", project });
+  it("names the Compose projects a prune would break up", () => {
+    expect(pruneProjects([item("a", "shop"), item("b"), item("c", "shop"), item("d", "blog")])).toEqual(["blog", "shop"]);
+    expect(pruneProjects([item("a")])).toEqual([]);
+    expect(pruneProjects([])).toEqual([]);
+  });
+  it("separates what went from what didn't", () => {
+    const r = summarizePrune([
+      { id: "a", ok: true, error: null },
+      { id: "b", ok: false, error: "in use" },
+      { id: "c", ok: true, error: null },
+    ]);
+    expect(r.removed).toBe(2);
+    expect(r.failed).toEqual([{ id: "b", ok: false, error: "in use" }]);
+    expect(summarizePrune([])).toEqual({ removed: 0, failed: [] });
+  });
+  it("only pulls plain image references", () => {
+    for (const ok of ["nginx", "nginx:1.27", " nginx:1.27 ", "ghcr.io/org/app@sha256:abc", "localhost:5000/team/app:v2"]) expect(isPullable(ok), ok).toBe(true);
+    for (const bad of ["", "  ", "--all-tags", "-q", "a b", "a;b", "$(x)", "a\nb", "a".repeat(201)]) expect(isPullable(bad), bad).toBe(false);
+  });
+});
+
+describe("image references", () => {
+  const img = (repository: string, tag: string): ContainerImage => ({ id: "abc123def456", repository, tag, size_text: "1MB", size_bytes: 1e6, created: null, containers: 0 });
+  it("names a tagged image by its tag and an untagged one by its ID", () => {
+    expect(imageRef(img("nginx", "1.27"))).toBe("nginx:1.27");
+    expect(imageRef(img("localhost:5000/team/app", "v2"))).toBe("localhost:5000/team/app:v2");
+    expect(imageRef(img("<none>", "<none>"))).toBe("abc123def456");
+    expect(imageRef(img("", ""))).toBe("abc123def456");
+    expect(imageRef(img("nginx", "<none>"))).toBe("abc123def456");
   });
 });

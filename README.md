@@ -84,6 +84,9 @@ Linux and Windows · Built with Rust, Tauri, Svelte and xterm.js
   host, with nothing installed on the host
 - Follow logs with search, highlight and copy; auto-refreshing lists that
   can be paused; production hosts ask you to type their name first
+- Docker: pull and remove images, volumes and networks, see what uses each,
+  preview exactly what an "unused" cleanup would remove, and act on Compose
+  projects as a whole
 
 ### Keys and credentials
 - Generate Ed25519, ECDSA and RSA keys; import OpenSSH, PEM, PKCS#8 and PuTTY

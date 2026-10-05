@@ -1,6 +1,6 @@
 // Pure helpers for the Containers view: how things are shown, filtered and
 // split into log lines. Nothing here talks to the backend.
-import type { BadgeTone, ContainerImage, ContainerInfo, ContainerRuntime, ContainerState, PortMapping } from "./types";
+import type { BadgeTone, ContainerImage, ContainerInfo, ContainerNetwork, ContainerRuntime, ContainerState, ContainerVolume, PortMapping, PruneItem, PruneResult } from "./types";
 
 // -- state ------------------------------------------------------------------
 
@@ -206,4 +206,86 @@ export function splitMatches(line: string, query: string): { text: string; hit: 
   }
   if (at < line.length) out.push({ text: line.slice(at), hit: false });
   return out.length ? out : [{ text: line, hit: false }];
+}
+
+// -- Compose projects -------------------------------------------------------
+
+export interface ProjectGroup {
+  /** `null` for containers that belong to no project. */
+  project: string | null;
+  containers: ContainerInfo[];
+  running: number;
+  /** Where Compose was run, from its labels (on the host, not here). */
+  workingDir: string | null;
+  configFiles: string | null;
+}
+
+/**
+ * Containers gathered by Compose project: projects by name, then the rest.
+ * A project's order inside is by service name, then container name.
+ */
+export function groupByProject(list: ContainerInfo[]): ProjectGroup[] {
+  const by = new Map<string | null, ContainerInfo[]>();
+  for (const c of list) {
+    const key = composeProject(c);
+    by.set(key, [...(by.get(key) ?? []), c]);
+  }
+  const service = (c: ContainerInfo) => c.labels["com.docker.compose.service"] ?? c.name;
+  const groups: ProjectGroup[] = [...by.entries()].map(([project, containers]) => {
+    const sorted = project === null ? containers : [...containers].sort((a, b) => service(a).localeCompare(service(b)) || a.name.localeCompare(b.name));
+    return {
+      project,
+      containers: sorted,
+      running: sorted.filter((c) => c.state === "running").length,
+      workingDir: sorted.find((c) => c.labels["com.docker.compose.project.working_dir"])?.labels["com.docker.compose.project.working_dir"] ?? null,
+      configFiles: sorted.find((c) => c.labels["com.docker.compose.project.config_files"])?.labels["com.docker.compose.project.config_files"] ?? null,
+    };
+  });
+  return groups.sort((a, b) => (a.project === null ? 1 : 0) - (b.project === null ? 1 : 0) || (a.project ?? "").localeCompare(b.project ?? ""));
+}
+
+// -- volumes, networks, pruning -------------------------------------------------
+
+export function filterVolumes(list: ContainerVolume[], query: string): ContainerVolume[] {
+  const ts = terms(query);
+  if (ts.length === 0) return list;
+  return list.filter((v) => {
+    const hay = [v.name, v.driver, ...v.used_by, ...Object.entries(v.labels).map(([k, val]) => `${k}=${val}`)].join("\n").toLowerCase();
+    return ts.every((t) => hay.includes(t));
+  });
+}
+
+export function filterNetworks(list: ContainerNetwork[], query: string): ContainerNetwork[] {
+  const ts = terms(query);
+  if (ts.length === 0) return list;
+  return list.filter((n) => {
+    const hay = [n.name, n.driver, n.scope, n.id, ...n.used_by, ...Object.entries(n.labels).map(([k, val]) => `${k}=${val}`)].join("\n").toLowerCase();
+    return ts.every((t) => hay.includes(t));
+  });
+}
+
+/** "3 containers" / "none": who uses a volume or network, for a table cell. */
+export function usedByText(users: string[], max = 2): string {
+  if (users.length === 0) return "unused";
+  const shown = users.slice(0, max).join(", ");
+  return users.length > max ? `${shown} +${users.length - max}` : shown;
+}
+
+/** The Compose projects a set of items belongs to, so a prune can say what it breaks up. */
+export function pruneProjects(items: PruneItem[]): string[] {
+  return [...new Set(items.map((i) => i.project).filter((p): p is string => !!p))].sort();
+}
+
+/** What a prune actually did: how many went, and the ones that didn't with the reason. */
+export function summarizePrune(results: PruneResult[]): { removed: number; failed: PruneResult[] } {
+  return { removed: results.filter((r) => r.ok).length, failed: results.filter((r) => !r.ok) };
+}
+
+/** Whether `ref` can be pulled: a plain image reference, never anything that could be an option. */
+export const isPullable = (ref: string) => REF.test(ref.trim()) && ref.trim().length <= 200;
+
+/** How an image is named to remove it: its tag, or its ID when it has none. */
+export function imageRef(i: ContainerImage): string {
+  const untagged = !i.repository || !i.tag || i.repository === "<none>" || i.tag === "<none>";
+  return untagged ? i.id : `${i.repository}:${i.tag}`;
 }

@@ -4,6 +4,18 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## Unreleased
+
+- **Docker images, volumes, networks and Compose projects.** The Containers
+  view gains tabs for volumes and networks (each showing which containers use
+  it) and can pull, remove and clean up images, volumes and networks. "Remove
+  unused…" shows exactly what would go before anything does, then removes only
+  what you ticked, rechecking each item first; volumes start unticked because
+  their data can't be recovered. Containers started by Compose are grouped by
+  project, with start, stop, restart and take-down for the whole project (take
+  down keeps the volumes). On production hosts all of it asks you to type the
+  host's name.
+
 ## 0.13.1 — 2026-10-05
 
 - **The release that was meant to be 0.13.0.** A code-style check failed in the

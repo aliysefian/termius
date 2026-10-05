@@ -56,7 +56,43 @@ pub struct Container {
     pub command: String,
     /// Podman pod name, if the container is in one.
     pub pod: Option<String>,
+    /// Volume names and bind-mount source paths, as the runtime lists them.
+    pub mounts: Vec<String>,
+    /// Names of the networks it is attached to.
+    pub networks: Vec<String>,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Volume {
+    pub name: String,
+    pub driver: String,
+    pub mountpoint: String,
+    pub scope: String,
+    pub labels: BTreeMap<String, String>,
+    /// Only when sizes were asked for (it needs `system df`).
+    pub size: Option<String>,
+    /// Names of containers (running or not) that mount it. Filled in by the manager.
+    pub used_by: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Network {
+    pub id: String,
+    pub name: String,
+    pub driver: String,
+    pub scope: String,
+    pub internal: bool,
+    pub ipv6: bool,
+    pub created: Option<i64>,
+    pub labels: BTreeMap<String, String>,
+    /// bridge, host and none: the runtime refuses to remove them.
+    pub predefined: bool,
+    /// Names of containers (running or not) attached to it. Filled in by the manager.
+    pub used_by: Vec<String>,
+}
+
+/// The networks every Docker host has, which can't be removed.
+pub const PREDEFINED_NETWORKS: [&str; 3] = ["bridge", "host", "none"];
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Image {
@@ -166,7 +202,88 @@ fn container_from(v: &Value) -> Option<Container> {
         labels: labels_from(v.get("Labels")),
         command: command_from(v.get("Command")),
         pod: (!pod.is_empty()).then_some(pod),
+        mounts: list_field(v, "Mounts"),
+        networks: list_field(v, "Networks"),
     })
+}
+
+/// A field that is `"a,b"` in one runtime and `["a", "b"]` in another.
+fn list_field(v: &Value, key: &str) -> Vec<String> {
+    match v.get(key) {
+        Some(Value::String(s)) => s.split(',').map(str::trim).filter(|p| !p.is_empty()).map(str::to_string).collect(),
+        Some(Value::Array(a)) => a.iter().filter_map(Value::as_str).map(str::to_string).collect(),
+        _ => Vec::new(),
+    }
+}
+
+fn truthy(v: Option<&Value>) -> bool {
+    match v {
+        Some(Value::Bool(b)) => *b,
+        Some(Value::String(s)) => s.eq_ignore_ascii_case("true"),
+        _ => false,
+    }
+}
+
+pub fn parse_volumes(stdout: &str) -> Result<Vec<Volume>, String> {
+    Ok(objects(stdout)?
+        .iter()
+        .filter_map(|v| {
+            let name = text(v, &["Name"]);
+            if name.is_empty() {
+                return None;
+            }
+            let size = text(v, &["Size"]);
+            Some(Volume {
+                name,
+                driver: text(v, &["Driver"]),
+                mountpoint: text(v, &["Mountpoint"]),
+                scope: text(v, &["Scope"]),
+                labels: labels_from(v.get("Labels")),
+                size: (!size.is_empty() && size != "N/A").then_some(size),
+                used_by: Vec::new(),
+            })
+        })
+        .collect())
+}
+
+pub fn parse_networks(stdout: &str) -> Result<Vec<Network>, String> {
+    Ok(objects(stdout)?
+        .iter()
+        .filter_map(|v| {
+            let name = text(v, &["Name"]);
+            if name.is_empty() {
+                return None;
+            }
+            Some(Network {
+                id: text(v, &["ID", "Id"]),
+                predefined: PREDEFINED_NETWORKS.contains(&name.as_str()),
+                name,
+                driver: text(v, &["Driver"]),
+                scope: text(v, &["Scope"]),
+                internal: truthy(v.get("Internal")),
+                ipv6: truthy(v.get("IPv6")) || truthy(v.get("ipv6_enabled")),
+                created: v.get("CreatedAt").and_then(Value::as_str).and_then(parse_time),
+                labels: labels_from(v.get("Labels")),
+                used_by: Vec::new(),
+            })
+        })
+        .collect())
+}
+
+/// `docker system df -v --format json`: sizes of the volumes by name.
+pub fn parse_df_volume_sizes(stdout: &str) -> Result<BTreeMap<String, String>, String> {
+    let v: Value = serde_json::from_str(stdout.trim()).map_err(|e| format!("unreadable disk usage from the runtime: {e}"))?;
+    Ok(v.get("Volumes")
+        .and_then(Value::as_array)
+        .map(|a| {
+            a.iter()
+                .filter_map(|x| {
+                    let (n, sz) = (text(x, &["Name"]), text(x, &["Size"]));
+                    (!n.is_empty() && !sz.is_empty() && sz != "N/A").then_some((n, sz))
+                })
+                .collect()
+        })
+        .unwrap_or_default())
 }
 
 fn command_from(v: Option<&Value>) -> String {
@@ -502,6 +619,84 @@ mod tests {
         assert_eq!(by_name(&list, "web").state, State::Running);
         assert_eq!(by_name(&list, "web").ports[0].container_port, "80");
         assert_eq!(by_name(&list, "job").state, State::Exited);
+    }
+
+    const DOCKER_PS_C1: &str = include_str!("fixtures/docker_ps_c1.ndjson");
+    const DOCKER_VOLUMES: &str = include_str!("fixtures/docker_volumes.ndjson");
+    const DOCKER_NETWORKS: &str = include_str!("fixtures/docker_networks.ndjson");
+    const DOCKER_DF_VOLUMES: &str = include_str!("fixtures/docker_df_volumes.json");
+
+    #[test]
+    fn mounts_and_networks_of_containers() {
+        let list = parse_containers(DOCKER_PS_C1).unwrap();
+        let bx = by_name(&list, "sshvault-c1-box");
+        // A named volume and a bind-mount source path, side by side.
+        assert_eq!(bx.mounts, vec!["sshvault-c1-vol".to_string(), "/tmp".to_string()]);
+        assert_eq!(bx.networks, vec!["sshvault-c1-net".to_string()]);
+        let cache = by_name(&list, "sshvault-c1-proj-cache-1");
+        assert_eq!(cache.mounts, vec!["sshvault-c1-proj_data".to_string()]);
+        assert!(by_name(&list, "sshvault-c1-proj-web-1").mounts.is_empty());
+        // Podman gives lists, and an empty one is empty.
+        assert_eq!(list_field(&serde_json::json!({"Networks": ["a", "b"]}), "Networks"), vec!["a", "b"]);
+        assert!(list_field(&serde_json::json!({"Mounts": ""}), "Mounts").is_empty());
+        assert!(list_field(&serde_json::json!({}), "Mounts").is_empty());
+    }
+
+    #[test]
+    fn compose_labels_on_real_containers() {
+        let list = parse_containers(DOCKER_PS_C1).unwrap();
+        let web = by_name(&list, "sshvault-c1-proj-web-1");
+        assert_eq!(web.labels.get("com.docker.compose.project").map(String::as_str), Some("sshvault-c1-proj"));
+        assert_eq!(web.labels.get("com.docker.compose.service").map(String::as_str), Some("web"));
+        assert_eq!(web.labels.get("com.docker.compose.project.working_dir").map(String::as_str), Some("/tmp/sshvault-c1-proj"));
+        assert_eq!(web.labels.get("com.docker.compose.project.config_files").map(String::as_str), Some("/tmp/sshvault-c1-proj/compose.yaml"));
+    }
+
+    #[test]
+    fn volumes_from_recorded_output() {
+        let list = parse_volumes(DOCKER_VOLUMES).unwrap();
+        assert_eq!(list.len(), 2);
+        let v = list.iter().find(|v| v.name == "sshvault-c1-vol").unwrap();
+        assert_eq!(v.driver, "local");
+        assert!(v.mountpoint.ends_with("/sshvault-c1-vol/_data"));
+        assert_eq!(v.scope, "local");
+        assert!(v.size.is_none(), "\"N/A\" is no size");
+        assert!(v.labels.is_empty() && v.used_by.is_empty());
+        let proj = list.iter().find(|v| v.name == "sshvault-c1-proj_data").unwrap();
+        assert_eq!(proj.labels.get("com.docker.compose.project").map(String::as_str), Some("sshvault-c1-proj"));
+        assert!(parse_volumes("").unwrap().is_empty());
+        assert!(parse_volumes("{\"Driver\":\"local\"}").unwrap().is_empty(), "no name, no volume");
+    }
+
+    #[test]
+    fn networks_from_recorded_output() {
+        let list = parse_networks(DOCKER_NETWORKS).unwrap();
+        assert_eq!(list.len(), 5);
+        let n = list.iter().find(|n| n.name == "sshvault-c1-net").unwrap();
+        assert_eq!((n.driver.as_str(), n.scope.as_str()), ("bridge", "local"));
+        assert!(!n.internal && !n.ipv6 && !n.predefined);
+        assert_eq!(n.id.len(), 12);
+        assert!(n.created.is_some_and(|t| t > 1_700_000_000), "{:?}", n.created);
+        for name in ["bridge", "host", "none"] {
+            assert!(list.iter().find(|n| n.name == name).unwrap().predefined, "{name}");
+        }
+        let host = list.iter().find(|n| n.name == "host").unwrap();
+        assert_eq!(host.driver, "host");
+        // Booleans arrive as strings here and as real booleans elsewhere.
+        let b = parse_networks("{\"Name\":\"x\",\"Internal\":true,\"ipv6_enabled\":true}").unwrap();
+        assert!(b[0].internal && b[0].ipv6);
+    }
+
+    #[test]
+    fn volume_sizes_from_disk_usage() {
+        let sizes = parse_df_volume_sizes(DOCKER_DF_VOLUMES).unwrap();
+        assert_eq!(sizes.len(), 2);
+        assert!(sizes.contains_key("sshvault-c1-vol"));
+        assert!(parse_df_volume_sizes("{}").unwrap().is_empty());
+        assert!(parse_df_volume_sizes("nope").is_err());
+        let one = parse_df_volume_sizes("{\"Volumes\":[{\"Name\":\"a\",\"Size\":\"1.5MB\"},{\"Name\":\"b\",\"Size\":\"N/A\"}]}").unwrap();
+        assert_eq!(one.get("a").map(String::as_str), Some("1.5MB"));
+        assert!(!one.contains_key("b"));
     }
 
     #[test]

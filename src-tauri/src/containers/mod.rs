@@ -7,6 +7,7 @@
 //! host and no daemon socket is exposed.
 
 pub mod parse;
+pub mod prune;
 pub mod transport;
 
 #[cfg(test)]
@@ -21,7 +22,8 @@ use tokio::sync::oneshot;
 use uuid::Uuid;
 
 use crate::ssh::{SshError, Target};
-use parse::{Container, Image};
+use parse::{Container, Image, Network, Volume};
+use prune::{PruneItem, PruneKind, PruneResult};
 use transport::{SshShell, Transport, Utf8Chunker};
 
 /// A listing or an inspect should be quick; this only stops a hung host.
@@ -143,6 +145,75 @@ pub fn logs_args(id: &str, tail: u32, follow: bool, timestamps: bool) -> Contain
     Ok(a)
 }
 
+/// A Compose project name as Compose itself writes it into labels.
+pub fn check_project(p: &str) -> ContainerResult<&str> {
+    let ok = !p.is_empty() && p.len() <= 100 && p.chars().next().is_some_and(|c| c.is_ascii_alphanumeric()) && p.chars().all(|c| c.is_ascii_alphanumeric() || "_-".contains(c));
+    if ok {
+        Ok(p)
+    } else {
+        Err(ContainerError::Invalid(format!("\"{p}\" isn't a valid Compose project name")))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ResourceKind {
+    Image,
+    Volume,
+    Network,
+}
+
+pub fn remove_args(kind: ResourceKind, id: &str, force: bool) -> ContainerResult<Vec<String>> {
+    let id = check_ref(id)?.to_string();
+    let mut a: Vec<String> = match kind {
+        ResourceKind::Image => vec!["rmi".into()],
+        ResourceKind::Volume => vec!["volume".into(), "rm".into()],
+        ResourceKind::Network => vec!["network".into(), "rm".into()],
+    };
+    // Networks have no force.
+    if force && kind != ResourceKind::Network {
+        a.push("-f".into());
+    }
+    a.push(id);
+    Ok(a)
+}
+
+pub fn pull_args(reference: &str) -> ContainerResult<Vec<String>> {
+    Ok(vec!["pull".into(), check_ref(reference)?.to_string()])
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ComposeVerb {
+    Start,
+    Stop,
+    Restart,
+    /// Removes the project's containers and its networks. Volumes are kept.
+    Down,
+}
+
+pub fn compose_args(project: &str, verb: ComposeVerb) -> ContainerResult<Vec<String>> {
+    let v = match verb {
+        ComposeVerb::Start => "start",
+        ComposeVerb::Stop => "stop",
+        ComposeVerb::Restart => "restart",
+        ComposeVerb::Down => "down",
+    };
+    Ok(vec!["compose".into(), "-p".into(), check_project(project)?.to_string(), v.into()])
+}
+
+pub fn volumes_args() -> Vec<String> {
+    ["volume", "ls", "--format", "{{json .}}"].map(String::from).into()
+}
+
+pub fn networks_args() -> Vec<String> {
+    ["network", "ls", "--format", "{{json .}}"].map(String::from).into()
+}
+
+pub fn disk_usage_args() -> Vec<String> {
+    ["system", "df", "-v", "--format", "json"].map(String::from).into()
+}
+
 pub fn inspect_args(id: &str) -> ContainerResult<Vec<String>> {
     Ok(vec!["inspect".into(), check_ref(id)?.to_string()])
 }
@@ -153,6 +224,9 @@ fn failure(rt: Runtime, out: &transport::Output) -> ContainerError {
     let lower = text.to_ascii_lowercase();
     if out.code == Some(127) || lower.contains("command not found") || lower.contains("not found") && lower.contains(rt.binary()) {
         return ContainerError::NotInstalled(rt.binary().to_string());
+    }
+    if lower.contains("'compose' is not a docker command") || lower.contains("unknown shorthand flag: 'p' in -p") {
+        return ContainerError::Command("Docker Compose isn't installed on this host (the \"docker compose\" plugin).".into());
     }
     let hint = if lower.contains("permission denied") && (lower.contains("docker.sock") || lower.contains("daemon socket")) {
         "\nHint: this user isn't allowed to use Docker. Add it to the \"docker\" group (then sign in again), or use rootless Docker or Podman."
@@ -180,6 +254,15 @@ pub struct Listing {
     pub images: Vec<Image>,
     /// Containers listed but images didn't (rare); say why instead of hiding it.
     pub images_error: Option<String>,
+}
+
+/// Volumes and networks of a Docker host, each with the containers that use it.
+#[derive(Debug, Clone, Serialize)]
+pub struct Resources {
+    pub volumes: Vec<Volume>,
+    pub networks: Vec<Network>,
+    /// Sizes were asked for and couldn't be read; the rest is still here.
+    pub sizes_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -308,11 +391,141 @@ impl ContainerManager {
         Ok(out.stdout)
     }
 
+    /// Run a runtime command and return its output, or its failure.
+    async fn run(&self, session: Uuid, rt: Runtime, args: &[String], timeout: Duration) -> ContainerResult<transport::Output> {
+        let out = self.get(session)?.transport.exec(rt.binary(), args, timeout).await?;
+        if out.code == Some(0) {
+            Ok(out)
+        } else {
+            Err(failure(rt, &out))
+        }
+    }
+
+    async fn fetch_containers(&self, session: Uuid, rt: Runtime) -> ContainerResult<Vec<Container>> {
+        let out = self.run(session, rt, &list_containers_args(rt, false), LIST_TIMEOUT).await?;
+        parse::parse_containers(&out.stdout).map_err(ContainerError::Parse)
+    }
+
+    async fn fetch_images(&self, session: Uuid, rt: Runtime) -> ContainerResult<Vec<Image>> {
+        let out = self.run(session, rt, &list_images_args(rt), LIST_TIMEOUT).await?;
+        parse::parse_images(&out.stdout).map_err(ContainerError::Parse)
+    }
+
+    async fn fetch_volumes(&self, session: Uuid, rt: Runtime, containers: &[Container]) -> ContainerResult<Vec<Volume>> {
+        let out = self.run(session, rt, &volumes_args(), LIST_TIMEOUT).await?;
+        let mut vols = parse::parse_volumes(&out.stdout).map_err(ContainerError::Parse)?;
+        prune::attach_volume_usage(&mut vols, containers);
+        Ok(vols)
+    }
+
+    async fn fetch_networks(&self, session: Uuid, rt: Runtime, containers: &[Container]) -> ContainerResult<Vec<Network>> {
+        let out = self.run(session, rt, &networks_args(), LIST_TIMEOUT).await?;
+        let mut nets = parse::parse_networks(&out.stdout).map_err(ContainerError::Parse)?;
+        prune::attach_network_usage(&mut nets, containers);
+        Ok(nets)
+    }
+
+    fn docker_only(rt: Runtime, what: &str) -> ContainerResult<()> {
+        if rt == Runtime::Docker {
+            Ok(())
+        } else {
+            Err(ContainerError::Invalid(format!("{what} are shown for Docker only for now")))
+        }
+    }
+
+    /// Volumes and networks, with who uses each. `sizes` asks for volume sizes,
+    /// which needs `system df` and is slow on a busy host.
+    pub async fn resources(&self, session: Uuid, rt: Runtime, sizes: bool) -> ContainerResult<Resources> {
+        Self::docker_only(rt, "Volumes and networks")?;
+        let containers = self.fetch_containers(session, rt).await?;
+        let (vols, nets) = tokio::join!(self.fetch_volumes(session, rt, &containers), self.fetch_networks(session, rt, &containers));
+        let (mut volumes, mut networks) = (vols?, nets?);
+        let mut sizes_error = None;
+        if sizes {
+            match self.run(session, rt, &disk_usage_args(), Duration::from_secs(120)).await.and_then(|o| parse::parse_df_volume_sizes(&o.stdout).map_err(ContainerError::Parse)) {
+                Ok(map) => volumes.iter_mut().for_each(|v| v.size = map.get(&v.name).cloned()),
+                Err(e) => sizes_error = Some(e.to_string()),
+            }
+        }
+        volumes.sort_by_key(|v| v.name.to_lowercase());
+        networks.sort_by_key(|n| (n.predefined, n.name.to_lowercase()));
+        Ok(Resources { volumes, networks, sizes_error })
+    }
+
+    /// Remove one image, volume or network. A running container's image or
+    /// volume is the runtime's to refuse; its message is returned as is.
+    pub async fn remove(&self, session: Uuid, rt: Runtime, kind: ResourceKind, id: &str, force: bool) -> ContainerResult<()> {
+        if kind != ResourceKind::Image {
+            Self::docker_only(rt, "Volumes and networks")?;
+        }
+        self.run(session, rt, &remove_args(kind, id, force)?, ACTION_TIMEOUT).await.map(|_| ())
+    }
+
+    /// What a prune would remove right now. Nothing is removed.
+    pub async fn prune_preview(&self, session: Uuid, rt: Runtime, kind: PruneKind) -> ContainerResult<Vec<PruneItem>> {
+        Ok(match kind {
+            PruneKind::Images { all } => {
+                let (images, containers) = tokio::try_join!(self.fetch_images(session, rt), self.fetch_containers(session, rt))?;
+                prune::unused_images(&images, &containers, all)
+            }
+            PruneKind::Volumes => {
+                Self::docker_only(rt, "Volumes")?;
+                let containers = self.fetch_containers(session, rt).await?;
+                prune::unused_volumes(&self.fetch_volumes(session, rt, &containers).await?)
+            }
+            PruneKind::Networks => {
+                Self::docker_only(rt, "Networks")?;
+                let containers = self.fetch_containers(session, rt).await?;
+                prune::unused_networks(&self.fetch_networks(session, rt, &containers).await?)
+            }
+        })
+    }
+
+    /// Remove exactly `ids`, one at a time, never anything else. Each is
+    /// checked against a fresh preview first and skipped if it is no longer
+    /// unused (something started using it since the person looked).
+    pub async fn prune_run(&self, session: Uuid, rt: Runtime, kind: PruneKind, ids: Vec<String>) -> ContainerResult<Vec<PruneResult>> {
+        let still_unused: std::collections::HashSet<String> = self.prune_preview(session, rt, kind).await?.into_iter().map(|i| i.id).collect();
+        let resource = match kind {
+            PruneKind::Images { .. } => ResourceKind::Image,
+            PruneKind::Volumes => ResourceKind::Volume,
+            PruneKind::Networks => ResourceKind::Network,
+        };
+        let mut results = Vec::with_capacity(ids.len());
+        for id in ids {
+            let outcome = if !still_unused.contains(&id) {
+                Err("no longer unused, or no longer there: left alone".to_string())
+            } else {
+                // Never forced: if the runtime says it is in use, it is.
+                self.remove(session, rt, resource, &id, false).await.map_err(|e| e.to_string())
+            };
+            results.push(PruneResult { ok: outcome.is_ok(), error: outcome.err(), id });
+        }
+        Ok(results)
+    }
+
+    /// Start, stop, restart or take down a Compose project by name. Works
+    /// without the compose file, because Compose finds the containers by label.
+    pub async fn compose(&self, session: Uuid, project: &str, verb: ComposeVerb) -> ContainerResult<()> {
+        self.run(session, Runtime::Docker, &compose_args(project, verb)?, ACTION_TIMEOUT).await.map(|_| ())
+    }
+
     /// Start reading a container's log in the background. Returns an id for
     /// [`Self::stop_stream`]. The sink gets the text as it arrives and a final
     /// `End`.
     pub fn start_logs(self: &Arc<Self>, session: Uuid, rt: Runtime, id: &str, opts: LogOptions, sink: Arc<dyn LogSink>) -> ContainerResult<Uuid> {
         let args = logs_args(id, opts.tail, opts.follow, opts.timestamps)?;
+        self.start_stream(session, rt, args, sink)
+    }
+
+    /// Pull an image, reporting the runtime's progress as it comes. Stopped
+    /// with [`Self::stop_stream`] like a log.
+    pub fn start_pull(self: &Arc<Self>, session: Uuid, rt: Runtime, reference: &str, sink: Arc<dyn LogSink>) -> ContainerResult<Uuid> {
+        self.start_stream(session, rt, pull_args(reference)?, sink)
+    }
+
+    /// Run a command in the background and stream its output to `sink`.
+    fn start_stream(self: &Arc<Self>, session: Uuid, rt: Runtime, args: Vec<String>, sink: Arc<dyn LogSink>) -> ContainerResult<Uuid> {
         let s = self.get(session)?;
         let stream_id = Uuid::new_v4();
         let (stop_tx, stop_rx) = oneshot::channel();
@@ -390,6 +603,40 @@ mod tests {
         assert_eq!(logs_args("abc", 0, false, false).unwrap(), ["logs", "--tail", "1", "abc"]);
         assert_eq!(logs_args("abc", u32::MAX, false, false).unwrap()[2], MAX_TAIL.to_string());
         assert_eq!(inspect_args("abc").unwrap(), ["inspect", "abc"]);
+    }
+
+    #[test]
+    fn resource_commands() {
+        assert_eq!(remove_args(ResourceKind::Image, "nginx:1.27", false).unwrap(), ["rmi", "nginx:1.27"]);
+        assert_eq!(remove_args(ResourceKind::Image, "abc123", true).unwrap(), ["rmi", "-f", "abc123"]);
+        assert_eq!(remove_args(ResourceKind::Volume, "data", false).unwrap(), ["volume", "rm", "data"]);
+        assert_eq!(remove_args(ResourceKind::Volume, "data", true).unwrap(), ["volume", "rm", "-f", "data"]);
+        assert_eq!(remove_args(ResourceKind::Network, "net", true).unwrap(), ["network", "rm", "net"], "networks have no force");
+        assert_eq!(pull_args("ghcr.io/org/app@sha256:ab").unwrap(), ["pull", "ghcr.io/org/app@sha256:ab"]);
+        assert_eq!(compose_args("shop", ComposeVerb::Stop).unwrap(), ["compose", "-p", "shop", "stop"]);
+        assert_eq!(compose_args("my_proj-2", ComposeVerb::Down).unwrap(), ["compose", "-p", "my_proj-2", "down"]);
+        assert_eq!(volumes_args(), ["volume", "ls", "--format", "{{json .}}"]);
+        assert_eq!(networks_args()[0..2], ["network", "ls"]);
+        assert_eq!(disk_usage_args(), ["system", "df", "-v", "--format", "json"]);
+    }
+
+    #[test]
+    fn nothing_that_looks_like_a_flag_or_a_second_command_reaches_a_resource_command() {
+        for bad in ["--all", "-f", "a b", "a;b", "$(x)", "", "../x"] {
+            assert!(remove_args(ResourceKind::Image, bad, false).is_err(), "{bad:?}");
+            assert!(remove_args(ResourceKind::Volume, bad, true).is_err(), "{bad:?}");
+            assert!(remove_args(ResourceKind::Network, bad, false).is_err(), "{bad:?}");
+            assert!(pull_args(bad).is_err(), "{bad:?}");
+        }
+        for bad in ["", "-p", "a b", "a/b", "a;b", "a.b", "../x", "$(x)", "a:b", &"a".repeat(101)] {
+            assert!(compose_args(bad, ComposeVerb::Down).is_err(), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn a_missing_compose_plugin_is_explained() {
+        let e = failure(Runtime::Docker, &out(1, "docker: 'compose' is not a docker command.\nSee 'docker --help'")).to_string();
+        assert!(e.contains("Compose isn't installed"), "{e}");
     }
 
     #[test]

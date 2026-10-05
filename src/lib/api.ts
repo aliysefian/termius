@@ -9,10 +9,12 @@ import type {
   BackupInfo,
   CliPrompt,
   CliStatus,
+  ComposeVerb,
   ContainerAction,
   ContainerListing,
   ContainerLogEvent,
   ContainerLogOptions,
+  ContainerResources,
   ContainerRuntime,
   DbConnection,
   DbQueryResult,
@@ -48,6 +50,10 @@ import type {
   GeneratedKey,
   ImportedHost,
   ImportSummary,
+  PruneItem,
+  PruneKind,
+  PruneResult,
+  ResourceKind,
   PublicKeyInfo,
   SshConfigPreview,
   ForwardRule,
@@ -351,4 +357,21 @@ export const containers = {
     return invoke<Uuid>("containers_logs_start", { sessionId, runtime, id, options, onEvent: channel });
   },
   logsStop: (streamId: Uuid) => invoke<void>("containers_logs_stop", { streamId }),
+  /** Volumes and networks (Docker), each with the containers that use it. */
+  resources: (sessionId: Uuid, runtime: ContainerRuntime, sizes: boolean) =>
+    invoke<ContainerResources>("containers_resources", { sessionId, runtime, sizes }),
+  remove: (sessionId: Uuid, runtime: ContainerRuntime, kind: ResourceKind, id: string, force: boolean) =>
+    invoke<void>("containers_remove", { sessionId, runtime, kind, id, force }),
+  /** What a prune would remove. Removes nothing. */
+  pruneItems: (sessionId: Uuid, runtime: ContainerRuntime, kind: PruneKind) =>
+    invoke<PruneItem[]>("containers_prune_preview", { sessionId, runtime, kind }),
+  /** Removes exactly `ids`, each re-checked first. */
+  pruneRun: (sessionId: Uuid, runtime: ContainerRuntime, kind: PruneKind, ids: string[]) =>
+    invoke<PruneResult[]>("containers_prune_run", { sessionId, runtime, kind, ids }),
+  /** Resolves to a stream id for `logsStop`; progress arrives on `onEvent`. */
+  pull(sessionId: Uuid, runtime: ContainerRuntime, reference: string, onEvent: (e: ContainerLogEvent) => void) {
+    const channel = new Channel<ContainerLogEvent>(onEvent);
+    return invoke<Uuid>("containers_pull", { sessionId, runtime, reference, onEvent: channel });
+  },
+  compose: (sessionId: Uuid, project: string, verb: ComposeVerb) => invoke<void>("containers_compose", { sessionId, project, verb }),
 };

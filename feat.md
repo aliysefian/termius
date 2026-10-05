@@ -12,15 +12,18 @@ should be done once, in whichever file is picked first.
 
 ## Status (2026-10-05)
 
-4 of 36 tasks are done. Everything below is committed on `main` and not
-pushed or released (`CHANGELOG.md` has them under "Unreleased").
+5 of 36 tasks are done. D0 to C0 are committed on `main` and pushed. Release
+`v0.13.0` was never published: CI's newer clippy (1.99) rejected one line, so
+`v0.13.1` is the release that carries them (CI builds it; its result hasn't
+been seen). C1 is in the working tree, not yet committed (`CHANGELOG.md` has it
+under "Unreleased"). Lint with `cargo +1.99.0 clippy`, the CI's version.
 
 | Phase | Done | Next |
 |---|---|---|
 | 1. File transfer | 0 of 7 | F0 |
 | 2. Terminal and connection types | 0 of 5 | T2 |
 | 3. Databases | 3 of 9 (D0 and D1 `acfb247`, D2 `a72c4dd`) | D6, D7, D5, D8, D3, D4 |
-| 4. Containers | 1 of 6 (C0 `45a9743`) | C1 |
+| 4. Containers | 2 of 6 (C0 `45a9743`, C1 uncommitted) | C2 |
 | 5. Monitoring | 0 of 1 | M1 |
 | 6. AI assistant | 0 of 5 | A0 |
 | 7. Sync and languages | 0 of 3 | S1 |
@@ -457,9 +460,41 @@ so closing the channel ends the process). Keep references checked, not escaped.
   and `RepoTags` shapes in particular should be checked on a real host.
   Left for C1: image pull/remove/prune, volumes, networks, Compose actions.
 
-- [ ] **C1. Docker.** DoD: C0 plus images (pull, remove, prune with a
-  preview of what will be removed), volumes, networks, `docker compose`
-  projects grouped and actionable; context/remote-socket not needed. **M**
+- [x] **C1. Docker.** Done 2026-10-05. **M**
+  Engine: `containers/prune.rs` (what is unused), `mod.rs` (resources, remove,
+  prune preview and run, pull, Compose), `parse.rs` (volumes, networks, a
+  container's mounts and networks). UI: `ContainersView` (four tabs, Compose
+  groups), `ContainerPull`, `ContainerPrune`.
+  DoD:
+  - [x] Images: pull (progress streams, can be stopped), remove, and prune
+        **with a preview of what will be removed**.
+  - [x] Volumes and networks: listed with which containers use each (a stopped
+        container still counts), removed one at a time, and pruned with the
+        same preview. Built-in networks are never offered; volume sizes come
+        from `system df` only when asked.
+  - [x] Compose projects are grouped, with start, stop, restart and take-down
+        on the whole project by name (verified to work without the compose
+        file); take-down keeps volumes and says so.
+  - [x] Context and remote sockets: not needed, as before.
+  Safety design worth keeping for C2 and C3: the runtime's own `prune` is
+  **never run**. A preview is computed from the lists and "remove" deletes
+  exactly the ticked ids one at a time, each re-checked against a fresh
+  preview and never forced, so something that became used meanwhile is left
+  alone and reported. Volumes start unticked. Production hosts need their name
+  typed for every removal, take-down and prune.
+  Verified live on this machine's Docker (which holds other things, so tests
+  name only `sshvault-ct-*` resources and the user's 16 dangling volumes were
+  checked intact afterwards): pull streaming (also over SSH), tag removal,
+  preview excluding in-use images, the skip-if-no-longer-unused path, volume
+  and network usage and removal, a real two-service Compose project through
+  stop, start, restart and down. UI in headless Chromium with a mocked
+  runtime.
+  Not verified: Docker older than the versions that print a container count
+  in `docker images` (a conservative fallback exists and is unit-tested but
+  never ran against a real old Docker); Compose v1 (`docker-compose`); volume
+  and network commands on Podman and nerdctl (hidden for now, so C2 and C3
+  decide their shapes); the real Tauri window.
+
 - [ ] **C2. Podman.** DoD: C0 on rootless and rootful; pods shown as groups. **S–M**
 - [ ] **C3. nerdctl / containerd.** DoD: C0 with a namespace switcher that
   lists namespaces and remembers the last one per host. **S–M**
