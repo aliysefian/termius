@@ -4,6 +4,13 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## 0.13.1 — 2026-10-05
+
+- **The release that was meant to be 0.13.0.** A code-style check failed in the
+  build for 0.13.0, so that version was never published. 0.13.1 is the same
+  Databases view (MySQL, MariaDB, PostgreSQL) and Containers view (Docker,
+  Podman, nerdctl), with that one line fixed.
+
 ## 0.13.0 — 2026-10-05
 
 - **Databases.** A new view for MySQL, MariaDB and PostgreSQL: saved connections (the
