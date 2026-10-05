@@ -4,7 +4,7 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
-## Unreleased
+## 0.14.0 — 2026-10-05
 
 - **A detail view for monitored hosts.** Open it from a host's details card
   or its Fleet tile to see, over one SSH connection kept open while the window
