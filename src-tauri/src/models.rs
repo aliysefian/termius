@@ -80,6 +80,37 @@ impl Identity {
     }
 }
 
+/// How to open a Remote Desktop host.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RdpOptions {
+    /// Windows domain; empty when the account is local or the user name carries it.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub domain: String,
+    /// Desktop size in pixels; 0 means "fit the tab".
+    #[serde(default)]
+    pub width: u16,
+    #[serde(default)]
+    pub height: u16,
+    /// 16 or 32 bits per pixel.
+    #[serde(default = "default_color_depth")]
+    pub color_depth: u8,
+    #[serde(default)]
+    pub security: crate::rdp::Security,
+    /// SHA-256 of the server's certificate, trusted on first use. Empty until pinned.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub cert_sha256: String,
+}
+
+fn default_color_depth() -> u8 {
+    32
+}
+
+impl Default for RdpOptions {
+    fn default() -> Self {
+        Self { domain: String::new(), width: 0, height: 0, color_depth: 32, security: crate::rdp::Security::Auto, cert_sha256: String::new() }
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Host {
     pub label: String,
@@ -139,6 +170,9 @@ pub struct Host {
     /// host) instead of a plain SSH session.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub mosh: bool,
+    /// Settings for a Remote Desktop host (`protocol` = "rdp").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rdp: Option<RdpOptions>,
     /// "telnet" for Telnet hosts (network gear); empty means SSH.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub protocol: String,

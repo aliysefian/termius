@@ -28,6 +28,7 @@ pub mod monitor;
 pub mod mobaxterm;
 pub mod putty;
 pub mod rawterm;
+pub mod rdp;
 pub mod release;
 pub mod remoteedit;
 pub mod reveal;
@@ -132,6 +133,9 @@ pub fn run() {
             commands::local_shells,
             commands::mosh_available,
             commands::mosh_connect,
+            commands::rdp_connect,
+            commands::rdp_input,
+            commands::rdp_close,
             commands::local_write,
             commands::local_resize,
             commands::local_close,

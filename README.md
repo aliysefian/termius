@@ -66,6 +66,9 @@ Linux and Windows · Built with Rust, Tauri, Svelte and xterm.js
 - Favorites, tags, custom fields, Markdown notes, search, filters and bulk edit
 - Jump-host chains, SOCKS5/HTTP proxies and ProxyCommand, agent and X11
   forwarding, keep-alive, auto-reconnect
+- Remote Desktop (RDP) hosts open in a tab beside your terminals, with
+  keyboard, mouse, wheel and shared clipboard text, and the server's
+  certificate pinned like an SSH host key
 - Quick connect (`user@host:port`), command palette, "copy as `ssh`
   command", reachability check
 - A Fleet view: a tile per host with reachability colour-coding and

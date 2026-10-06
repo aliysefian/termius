@@ -1,5 +1,6 @@
 <script lang="ts">
   import * as api from "$lib/api";
+  import { RDP_SIZES, formatFingerprint } from "$lib/rdp";
   import Combobox from "./Combobox.svelte";
   import { groupOptions, hostOptions } from "$lib/pickeroptions";
   import { Bot, Check, Copy, Eye, EyeOff, FileKey, HelpCircle, KeyRound, Loader2, Lock, Sparkles, Users, Wifi, X } from "lucide-svelte";
@@ -9,7 +10,7 @@
   import { revealIdentity } from "$lib/secrets.svelte";
   import { ui } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
-  import { ENVIRONMENTS, emptyHost, errorMessage, type Host, type HostCredentials, type InlineAuth, type Uuid } from "$lib/types";
+  import { ENVIRONMENTS, emptyHost, emptyRdp, errorMessage, type Host, type HostCredentials, type InlineAuth, type Uuid } from "$lib/types";
 
   let { id, group }: { id: Uuid | null; group?: string } = $props();
 
@@ -264,6 +265,12 @@
       form.jump_host_id = form.jump_host_id || undefined;
       form.environment = form.environment || undefined;
       form.startup_command = form.startup_command?.trim() || undefined;
+      if (form.protocol === "rdp") {
+        form.rdp = { ...(form.rdp ?? emptyRdp()), domain: form.rdp?.domain?.trim() || undefined };
+      } else {
+        form.rdp = undefined;
+      }
+      form.mosh = form.protocol === "rdp" ? undefined : form.mosh;
       form.environment = envChoice === "custom" ? customEnv.trim() || undefined : envChoice || undefined;
       form.proxy_id = form.proxy_id || undefined;
       form.no_group_jump = (!form.jump_host_id && form.no_group_jump) || undefined;
@@ -366,18 +373,21 @@
           <select
             id="h-proto"
             class="input"
-            value={form.protocol === "telnet" ? "telnet" : "ssh"}
+            value={form.protocol === "telnet" ? "telnet" : form.protocol === "rdp" ? "rdp" : "ssh"}
             onchange={(e) => {
-              const telnet = e.currentTarget.value === "telnet";
-              form.protocol = telnet ? "telnet" : undefined;
-              if (telnet && form.port === 22) form.port = 23;
-              else if (!telnet && form.port === 23) form.port = 22;
+              const v = e.currentTarget.value;
+              form.protocol = v === "ssh" ? undefined : v;
+              // Move the port only if it is still the old protocol's default.
+              const defaults: Record<string, number> = { ssh: 22, telnet: 23, rdp: 3389 };
+              if (Object.values(defaults).includes(form.port)) form.port = defaults[v];
+              if (v === "rdp") form.rdp ??= emptyRdp();
             }}
           >
             <option value="ssh">SSH</option>
+            <option value="rdp">Remote Desktop (RDP)</option>
             <option value="telnet">Telnet (unencrypted, for network gear)</option>
           </select>
-          {#if form.protocol !== "telnet"}
+          {#if form.protocol !== "telnet" && form.protocol !== "rdp"}
             <label class="mt-2 flex items-start gap-2 text-xs">
               <input type="checkbox" class="mt-0.5" checked={!!form.mosh} onchange={(e) => (form.mosh = e.currentTarget.checked || undefined)} />
               <span>
@@ -389,6 +399,52 @@
                 </span>
               </span>
             </label>
+          {/if}
+          {#if form.protocol === "rdp" && form.rdp}
+            <div class="mt-3 grid grid-cols-2 gap-3 rounded-lg border border-line bg-base/40 p-3">
+              <div>
+                <label class="label" for="h-rdp-domain">Domain <span class="font-normal text-fg-muted">(optional)</span></label>
+                <input id="h-rdp-domain" class="input font-mono text-xs" bind:value={form.rdp.domain} placeholder="CORP" spellcheck="false" />
+              </div>
+              <div>
+                <label class="label" for="h-rdp-size">Screen size</label>
+                <select
+                  id="h-rdp-size"
+                  class="input text-xs"
+                  value={`${form.rdp.width}x${form.rdp.height}`}
+                  onchange={(e) => {
+                    const [w, h] = e.currentTarget.value.split("x").map(Number);
+                    if (form.rdp) [form.rdp.width, form.rdp.height] = [w, h];
+                  }}
+                >
+                  {#each RDP_SIZES as s (s.label)}<option value={`${s.width}x${s.height}`}>{s.label}</option>{/each}
+                </select>
+              </div>
+              <div>
+                <label class="label" for="h-rdp-depth">Colours</label>
+                <select id="h-rdp-depth" class="input text-xs" value={String(form.rdp.color_depth)} onchange={(e) => form.rdp && (form.rdp.color_depth = e.currentTarget.value === "16" ? 16 : 32)}>
+                  <option value="32">True colour (32-bit)</option>
+                  <option value="16">High colour (16-bit, less data)</option>
+                </select>
+              </div>
+              <div>
+                <label class="label" for="h-rdp-sec">Sign-in security</label>
+                <select id="h-rdp-sec" class="input text-xs" bind:value={form.rdp.security}>
+                  <option value="auto">Automatic (recommended)</option>
+                  <option value="nla">Require NLA</option>
+                  <option value="tls">TLS only</option>
+                </select>
+              </div>
+              <div class="col-span-2 text-xs text-fg-muted">
+                {#if form.rdp.cert_sha256}
+                  <div>Server certificate trusted: <span class="font-mono break-all">{formatFingerprint(form.rdp.cert_sha256)}</span></div>
+                  <button type="button" class="mt-1 text-accent hover:underline" onclick={() => form.rdp && (form.rdp.cert_sha256 = undefined)}>Forget it (you'll be asked again next time)</button>
+                {:else}
+                  The server's certificate is shown the first time you connect, and trusted from then on. A different one later is refused until you say otherwise.
+                {/if}
+                <div class="mt-1">Credentials below must be a user name and password. Jump hosts and proxies aren't used for Remote Desktop.</div>
+              </div>
+            </div>
           {/if}
           {#if form.protocol === "telnet"}
             <p class="mt-1 text-xs text-warning">

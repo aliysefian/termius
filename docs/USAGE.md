@@ -135,6 +135,32 @@ been copied since.
   plain button uses. Local tabs work with splits, recording, snippets
   and synchronized typing like SSH tabs.
 
+- **Remote Desktop (RDP).** In a host's form choose **Remote Desktop (RDP)**
+  as the protocol (the port becomes 3389). Set a domain if the account needs
+  one (or write `DOMAIN\user` as the user name), a screen size (or **Fit the
+  tab**), the colour depth and the sign-in security, and attach a credential
+  with a user name and password. Double-click the host to open it in a tab.
+  - The first time, the server's certificate is shown (subject, issuer, dates
+    and SHA-256 fingerprint). Trust it and it is remembered for that host;
+    nothing, including your password, is sent before you do. If a different
+    certificate shows up later the connection stops and shows both fingerprints:
+    that is normal after a server is reinstalled or its certificate renewed, and
+    also what someone intercepting the connection looks like. **Forget it** in
+    the host's form to be asked again.
+  - Keys you type go to the remote computer while its screen has the focus;
+    the app's own shortcuts (Ctrl+Shift combinations and the fixed tab keys)
+    still work first. **Ctrl+Alt+Del** is a button in the tab's toolbar. The
+    clipboard button shares text both ways (text only; turn it off to keep the
+    two clipboards apart). The last button shows the screen at its real size,
+    with scrolling, instead of shrinking it to the tab.
+  - **Sign-in security:** *Automatic* uses Network Level Authentication when
+    the server offers it and TLS otherwise; *Require NLA* refuses a server that
+    doesn't offer it instead of falling back; *TLS only* leaves signing in to
+    the server's own screen.
+  - Limits: no sound, drive or printer redirection; the host is reached
+    directly, so jump hosts and proxies aren't used; the screen size is fixed
+    when you connect (close and reopen the tab to change it); Kerberos isn't
+    supported (NTLM only); a key-based credential can't be used.
 - **Mosh.** In a host's form, tick **Use Mosh**. Connecting then logs in with
   SSH as usual (vault keys, jump hosts, proxies and trusted-server rules all
   apply), starts `mosh-server` on the host, and runs your computer's

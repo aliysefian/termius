@@ -265,6 +265,17 @@ fn load_host(vault: &Vault, id: Uuid) -> std::result::Result<Host, ResolveError>
         .ok_or_else(|| ResolveError::NotFound("that host no longer exists".into()))
 }
 
+/// Remember the certificate a Remote Desktop host presented, so a different one
+/// is refused later. Nothing else about the host changes.
+pub fn pin_rdp_certificate(vault: &Vault, host_id: Uuid, fingerprint: &str) -> std::result::Result<(), crate::vault::VaultError> {
+    let record = vault.get::<Host>(Collection::Hosts, host_id)?;
+    if let Some(mut host) = record.data {
+        host.rdp.get_or_insert_with(Default::default).cert_sha256 = fingerprint.to_string();
+        vault.put(Collection::Hosts, host_id, &host, crate::vault::Base::Rev(record.rev))?;
+    }
+    Ok(())
+}
+
 fn load_proxy(vault: &Vault, id: Option<Uuid>) -> std::result::Result<Option<crate::models::ProxySpec>, ResolveError> {
     let Some(id) = id else { return Ok(None) };
     vault
@@ -375,6 +386,48 @@ mod tests {
             notes: String::new(),
             for_host: None,
         }
+    }
+
+    #[test]
+    fn pinning_a_certificate_changes_only_the_pin() {
+        let (_d, v) = new_vault();
+        let host = Host {
+            label: "winbox".into(),
+            hostname: "10.0.0.9".into(),
+            port: 3389,
+            protocol: "rdp".into(),
+            rdp: Some(crate::models::RdpOptions { domain: "CORP".into(), width: 1280, height: 720, color_depth: 16, ..Default::default() }),
+            ..Default::default()
+        };
+        let id = v.insert(Collection::Hosts, &host).unwrap().id;
+        pin_rdp_certificate(&v, id, &"ab".repeat(32)).unwrap();
+        let got = v.get::<Host>(Collection::Hosts, id).unwrap().data.unwrap();
+        let rdp = got.rdp.unwrap();
+        assert_eq!(rdp.cert_sha256, "ab".repeat(32));
+        assert_eq!((rdp.domain.as_str(), rdp.width, rdp.height, rdp.color_depth), ("CORP", 1280, 720, 16), "the other settings are untouched");
+        assert_eq!((got.label.as_str(), got.hostname.as_str(), got.port), ("winbox", "10.0.0.9", 3389));
+        // A changed certificate the person accepted replaces the pin.
+        pin_rdp_certificate(&v, id, &"cd".repeat(32)).unwrap();
+        assert_eq!(v.get::<Host>(Collection::Hosts, id).unwrap().data.unwrap().rdp.unwrap().cert_sha256, "cd".repeat(32));
+        // A host with no Remote Desktop settings yet gets them with defaults.
+        let plain = v.insert(Collection::Hosts, &Host { label: "x".into(), hostname: "h".into(), ..Default::default() }).unwrap().id;
+        pin_rdp_certificate(&v, plain, "ee").unwrap();
+        let r = v.get::<Host>(Collection::Hosts, plain).unwrap().data.unwrap().rdp.unwrap();
+        assert_eq!((r.color_depth, r.cert_sha256.as_str()), (32, "ee"));
+    }
+
+    #[test]
+    fn rdp_settings_survive_the_vault_and_old_hosts_load_without_them() {
+        let (_d, v) = new_vault();
+        let mut host = Host { label: "w".into(), hostname: "h".into(), protocol: "rdp".into(), rdp: Some(Default::default()), ..Default::default() };
+        host.rdp.as_mut().unwrap().security = crate::rdp::Security::Nla;
+        let id = v.insert(Collection::Hosts, &host).unwrap().id;
+        assert_eq!(v.get::<Host>(Collection::Hosts, id).unwrap().data.unwrap(), host);
+        // A host saved before Remote Desktop existed has no such field.
+        let old: Host = serde_json::from_str(r#"{"label":"a","hostname":"b","port":22,"group":"","tags":[],"notes":""}"#).unwrap();
+        assert_eq!(old.rdp, None);
+        let json = serde_json::to_string(&old).unwrap();
+        assert!(!json.contains("rdp"), "nothing is written for hosts without it: {json}");
     }
 
     #[test]

@@ -52,6 +52,8 @@ pub struct AppState {
     pub forwards: Arc<ForwardManager>,
     pub runs: Arc<crate::runner::RunManager>,
     pub local: Arc<crate::localpty::LocalManager>,
+    /// Remote desktop (RDP) sessions.
+    pub rdp: Arc<crate::rdp::RdpManager>,
     /// Telnet and serial-console sessions.
     pub raw: Arc<crate::rawterm::RawManager>,
     /// Open database connections (the Databases view).
@@ -214,6 +216,25 @@ impl From<SftpError> for ApiError {
 impl From<crate::forward::ForwardError> for ApiError {
     fn from(e: crate::forward::ForwardError) -> Self {
         Self::new("forward", e.to_string())
+    }
+}
+
+impl From<crate::rdp::RdpError> for ApiError {
+    fn from(e: crate::rdp::RdpError) -> Self {
+        use crate::rdp::RdpError as E;
+        let message = e.to_string();
+        match e {
+            E::CertificateUnknown(info) => Self { code: "rdp_certificate_unknown", message, details: serde_json::to_value(&*info).ok() },
+            E::CertificateChanged { expected, found } => Self {
+                code: "rdp_certificate_changed",
+                message,
+                details: Some(serde_json::json!({ "expected": expected, "found": found })),
+            },
+            E::Credentials => Self::new("rdp_credentials", message),
+            E::Unreachable(_) => Self::new("rdp_unreachable", message),
+            E::NoSession => Self::new("no_session", message),
+            E::Connect(_) => Self::new("rdp", message),
+        }
     }
 }
 
@@ -598,6 +619,7 @@ pub async fn lock_vault(state: State<'_, AppState>) -> ApiResult<VaultStatus> {
     state.forwards.stop_all();
     state.runs.cancel_all();
     state.local.close_all();
+    state.rdp.close_all();
     state.raw.close_all();
     state.dbs.close_all().await;
     state.containers.close_all().await;
@@ -2409,6 +2431,120 @@ pub fn local_spawn(
 }
 
 // ---------------------------------------------------------------------------
+// Remote desktop (RDP)
+// ---------------------------------------------------------------------------
+
+/// Pictures and notices for a remote desktop pane, as one byte stream: a tag
+/// byte, then 16-bit little-endian numbers and bytes, so a frame costs no JSON.
+struct RdpPaneSink(Channel<InvokeResponseBody>);
+
+impl RdpPaneSink {
+    fn send(&self, tag: u8, numbers: &[u16], bytes: &[u8]) {
+        let mut out = Vec::with_capacity(1 + numbers.len() * 2 + bytes.len());
+        out.push(tag);
+        for n in numbers {
+            out.extend_from_slice(&n.to_le_bytes());
+        }
+        out.extend_from_slice(bytes);
+        let _ = self.0.send(InvokeResponseBody::Raw(out));
+    }
+}
+
+impl crate::rdp::RdpSink for RdpPaneSink {
+    fn size(&self, width: u16, height: u16) {
+        self.send(1, &[width, height], &[]);
+    }
+    fn frame(&self, x: u16, y: u16, width: u16, height: u16, rgba: &[u8]) {
+        self.send(0, &[x, y, width, height], rgba);
+    }
+    fn cursor(&self, cursor: crate::rdp::Cursor) {
+        match cursor {
+            crate::rdp::Cursor::Default => self.send(2, &[], &[]),
+            crate::rdp::Cursor::Hidden => self.send(3, &[], &[]),
+            crate::rdp::Cursor::Bitmap { hot_x, hot_y, width, height, rgba } => self.send(4, &[hot_x, hot_y, width, height], &rgba),
+        }
+    }
+    fn clipboard(&self, text: String) {
+        self.send(5, &[], text.as_bytes());
+    }
+    fn ended(&self, error: Option<String>) {
+        self.send(6, &[], error.unwrap_or_default().as_bytes());
+    }
+}
+
+/// What the window learns when the desktop is up.
+#[derive(Debug, Clone, Serialize)]
+pub struct RdpConnected {
+    pub fingerprint: String,
+    /// The certificate was pinned by this connection (first use, or a change the person accepted).
+    pub pinned_now: bool,
+}
+
+/// Open a remote desktop in a pane. The server's certificate is checked before
+/// any credentials are sent: an unknown or changed one comes back as an error
+/// (`rdp_certificate_unknown`, `rdp_certificate_changed`, with the details) and
+/// the window asks; asking again with `accept` set to its fingerprint goes ahead
+/// and pins it to the host.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn rdp_connect(
+    state: State<'_, AppState>,
+    pane_id: String,
+    host_id: Uuid,
+    width: u16,
+    height: u16,
+    credentials: Option<Credentials>,
+    accept: Option<String>,
+    on_event: Channel<InvokeResponseBody>,
+) -> ApiResult<RdpConnected> {
+    let host: Host = state
+        .session
+        .with_vault(|v| Ok(v.get::<Host>(Collection::Hosts, host_id)?.data))?
+        .ok_or_else(|| ApiError::new("not_found", "no such host"))?;
+    let options = host.rdp.clone().unwrap_or_default();
+    // The sign-in is a user name and password; keys, jump hosts and proxies are SSH's.
+    let target = resolve_target(&state, host_id, credentials)?;
+    let AuthMethod::Password { password } = target.auth.clone() else {
+        return Err(ApiError::new("validation", "Remote Desktop signs in with a password; attach a credential that has one"));
+    };
+    if target.jump.is_some() || target.proxy.is_some() {
+        return Err(ApiError::new("validation", "Remote Desktop connects directly; it doesn't use jump hosts or proxies yet"));
+    }
+    let (username, domain) = crate::rdp::split_account(&target.username, &options.domain);
+    let settings = crate::rdp::Settings {
+        host: host.hostname.clone(),
+        port: host.port,
+        username,
+        password,
+        domain,
+        width: if options.width == 0 { width } else { options.width },
+        height: if options.height == 0 { height } else { options.height },
+        color_depth: options.color_depth,
+        security: options.security,
+    };
+    let pinned = Some(options.cert_sha256.clone()).filter(|p| !p.is_empty());
+    let check = crate::rdp::CertCheck { pinned: pinned.clone(), accept };
+    let info = state.rdp.connect(pane_id, settings, check, Arc::new(RdpPaneSink(on_event))).await?;
+    let pinned_now = pinned.as_deref() != Some(info.fingerprint.as_str());
+    if pinned_now {
+        // Only reached when the person accepted this very certificate.
+        let fingerprint = info.fingerprint.clone();
+        state.session.with_vault(|v| crate::keymanager::pin_rdp_certificate(v, host_id, &fingerprint))?;
+    }
+    Ok(RdpConnected { fingerprint: info.fingerprint, pinned_now })
+}
+
+#[tauri::command]
+pub fn rdp_input(state: State<'_, AppState>, pane_id: String, input: crate::rdp::Input) -> ApiResult<()> {
+    Ok(state.rdp.send(&pane_id, input)?)
+}
+
+#[tauri::command]
+pub fn rdp_close(state: State<'_, AppState>, pane_id: String) {
+    state.rdp.close(&pane_id);
+}
+
+// ---------------------------------------------------------------------------
 // Telnet and serial consoles
 // ---------------------------------------------------------------------------
 
@@ -4028,6 +4164,7 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         forwards: Arc::new(ForwardManager::new()),
         runs: Arc::new(crate::runner::RunManager::new()),
         local: Arc::new(crate::localpty::LocalManager::new()),
+        rdp: Arc::new(crate::rdp::RdpManager::new()),
         raw: Arc::new(crate::rawterm::RawManager::new()),
         dbs: Arc::new(crate::db::DbManager::new()),
         containers: Arc::new(crate::containers::ContainerManager::new()),

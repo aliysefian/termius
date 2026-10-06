@@ -268,6 +268,33 @@ export const mosh = {
   },
 };
 
+/** Remote desktop (RDP). Pictures arrive as byte messages; see `decodeMessage` in rdp.ts. */
+export const rdp = {
+  connect(
+    paneId: string,
+    hostId: string,
+    width: number,
+    height: number,
+    credentials: import("./ssh").Credentials | null,
+    accept: string | null,
+    onMessage: (bytes: Uint8Array) => void,
+  ) {
+    const channel = new Channel<ArrayBuffer | number[]>((msg) => onMessage(msg instanceof ArrayBuffer ? new Uint8Array(msg) : Uint8Array.from(msg)));
+    return invoke<{ fingerprint: string; pinned_now: boolean }>("rdp_connect", { paneId, hostId, width, height, credentials, accept, onEvent: channel });
+  },
+  input: (paneId: string, input: RdpInput) => invoke<void>("rdp_input", { paneId, input }),
+  close: (paneId: string) => invoke<void>("rdp_close", { paneId }),
+};
+
+export type RdpInput =
+  | { type: "key"; code: string; down: boolean }
+  | { type: "mouse_move"; x: number; y: number }
+  | { type: "button"; button: number; down: boolean }
+  | { type: "wheel"; vertical: boolean; units: number }
+  | { type: "ctrl_alt_del" }
+  | { type: "release_all" }
+  | { type: "clipboard_text"; text: string };
+
 export const localTerm = {
   spawn(paneId: string, cols: number, rows: number, onData: (bytes: Uint8Array) => void, shell: string | null = null, cwd: string | null = null, shellId: string | null = null) {
     const channel = new Channel<ArrayBuffer | number[]>((msg) =>

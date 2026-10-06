@@ -88,6 +88,34 @@ export interface Host {
   protocol?: string;
   /** Connect with Mosh (needs `mosh-client` here and `mosh-server` on the host). */
   mosh?: boolean;
+  /** Remote Desktop settings, for hosts whose protocol is "rdp". */
+  rdp?: RdpOptions;
+}
+
+export type RdpSecurity = "auto" | "nla" | "tls";
+
+export interface RdpOptions {
+  domain?: string;
+  /** 0 × 0 fits the tab. */
+  width: number;
+  height: number;
+  color_depth: 16 | 32;
+  security: RdpSecurity;
+  /** SHA-256 of the server's certificate once trusted. */
+  cert_sha256?: string;
+}
+
+export function emptyRdp(): RdpOptions {
+  return { width: 0, height: 0, color_depth: 32, security: "auto" };
+}
+
+/** What a server's certificate looks like, from the error that asks whether to trust it. */
+export interface RdpCertificate {
+  fingerprint: string;
+  subject: string;
+  issuer: string;
+  not_before: string;
+  not_after: string;
 }
 
 /** A serial line, e.g. 115200 8N1. */
@@ -166,8 +194,8 @@ export type VaultStatus =
 export interface ApiError {
   code: string;
   message: string;
-  /** For code "conflict": what clashed. */
-  details?: ConflictDetails;
+  /** For code "conflict": what clashed. For "rdp_certificate_unknown": the certificate. */
+  details?: ConflictDetails | RdpCertificate | { expected: string; found: RdpCertificate };
 }
 
 export interface ConflictDetails {

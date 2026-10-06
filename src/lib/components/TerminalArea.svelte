@@ -22,6 +22,7 @@
   import { errorMessage } from "$lib/types";
   import SnippetPicker from "./SnippetPicker.svelte";
   import TerminalPane from "./TerminalPane.svelte";
+  import RemotePane from "./RemotePane.svelte";
 
   const tab = $derived(ui.activeTab);
   let renaming = $state<string | null>(null);
@@ -671,11 +672,15 @@
                 <button class="icon-btn h-6 w-6" title="Close pane" onclick={() => void ui.requestClosePane(t.id, pane.id)}><X size={13} /></button>
               {/if}
             </div>
-            <TerminalPane
-              {pane}
-              active={pane.id === t.activePaneId && t.id === ui.activeTabId}
-              broadcast={t.syncInput && multi ? broadcastFor(t) : null}
-            />
+            {#if pane.target.kind === "host" && vaultStore.hostById.get(pane.target.hostId)?.data?.protocol === "rdp"}
+              <RemotePane {pane} active={pane.id === t.activePaneId && t.id === ui.activeTabId} />
+            {:else}
+              <TerminalPane
+                {pane}
+                active={pane.id === t.activePaneId && t.id === ui.activeTabId}
+                broadcast={t.syncInput && multi ? broadcastFor(t) : null}
+              />
+            {/if}
           </div>
         {/if}
       {/each}

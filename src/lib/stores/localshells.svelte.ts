@@ -17,7 +17,8 @@ class LocalShells {
 
   async refresh() {
     try {
-      this.list = await api.localTerm.shells();
+      const found = await api.localTerm.shells();
+      this.list = Array.isArray(found) ? found : [];
     } catch {
       this.list = [];
     }

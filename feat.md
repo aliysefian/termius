@@ -22,7 +22,7 @@ version.
 | Phase | Done | Next |
 |---|---|---|
 | 1. File transfer | 0 of 7 | F0 |
-| 2. Terminal and connection types | 0 of 5 (T1, T2 built; some lines unverified) | T3–T5 |
+| 2. Terminal and connection types | 0 of 5 (T1, T2, T3 built; some lines unverified) | T4, T5 |
 | 3. Databases | 3 of 9 (D0 and D1 `acfb247`, D2 `a72c4dd`) | D6, D7, D5, D8, D3, D4 |
 | 4. Containers | 2 of 6 (C0 `45a9743`, C1 `ebe4399`) | C2 (needs a real Podman) |
 | 5. Monitoring | 0 of 1: M1 (`971bf41`) is built, one DoD line open (a recording from a real macOS or BSD) | that one recording |
@@ -65,6 +65,30 @@ Decisions waiting on the person who owns the repo:
    ticking it. Do not tick blind. Test through a scratch crate or a local
    container/server where possible.
 6. One task is one commit. Do not mix tasks.
+
+## RDP test server (T3)
+
+`docker run -d --name sshvault-rdp --hostname rdptest -p 127.0.0.1:33389:3389 --shm-size 1g scottyhardy/docker-remote-desktop:latest`, then
+`docker exec sshvault-rdp sh -c 'echo ubuntu:ubuntu | chpasswd; apt-get update -qq; apt-get install -y -qq xclip'`.
+Run the live tests with `SSHVAULT_RDP_ADDR=127.0.0.1:33389 SSHVAULT_RDP_USER=ubuntu SSHVAULT_RDP_PASS=ubuntu SSHVAULT_RDP_CONTAINER=sshvault-rdp cargo test --lib rdp`.
+Traps: one user = one session, so the tests take turns (a second connection
+takes the first one over); the X display number grows with every container
+restart, so look it up (`ps` for `Xorg :N`) instead of assuming `:10`; a
+program started with `docker exec` that outlives it (a clipboard owner) needs
+`docker exec -d`, or the call never returns; xrdp reports a wrong password on
+its own screen, not at connect, so a bad-password test needs a Windows or NLA
+server.
+
+**Crates.** `ironrdp-connector` pins `picky` to a release candidate whose
+pinned RustCrypto release candidates clash with `russh`'s final releases, so
+`src-tauri/vendor/` holds relaxed copies of `picky` and `sspi`, plus
+`ironrdp-session` with a fix for row-padded bitmaps (xrdp's pictures came out
+sheared without it). See `src-tauri/vendor/README.md` before bumping any
+`ironrdp-*` crate, and keep `picky-krb` at 0.12.4 in `Cargo.lock`.
+
+**Windows.** A command line is cut off at about 8,000 characters in CI, so a
+long script goes to `sh` as a file, not `sh -c` (that broke the macOS-fixture
+monitor test).
 
 ## Tooling and traps (learned building D0 to C0)
 
@@ -294,15 +318,35 @@ All of these reuse the existing SFTP view (`SftpView.svelte`,
   - [x] Unit test for the shell-detection and the `wsl -l` parser (21 tests in
         `localshells.rs`, against a fake computer for Linux, macOS, Windows).
 
-- [ ] **T3. Remote desktop: RDP.** **L**
+- [ ] **T3. Remote desktop: RDP.** **L** Built on IronRDP, with the shared
+  screen component (`RemoteDisplay.svelte`) T4 and T5 should reuse.
   DoD:
   - [ ] Host type "RDP" with host, port, user, domain, password from the
-        vault, NLA on by default, resolution and colour depth options.
-  - [ ] Opens in a tab beside the terminals; keyboard (including Ctrl+Alt+Del
-        action and key mapping), mouse, wheel and clipboard text work.
-  - [ ] Certificate shown and pinned on first connect like SSH host keys.
-  - [ ] Tested against a real or containerised RDP server; if not possible
-        the task stays unticked.
+        vault, NLA on by default, resolution and colour depth options. All
+        built, and `Automatic` (NLA when the server offers it, else TLS) is
+        the default. **Not verified:** the NLA/CredSSP exchange itself. xrdp
+        offers no NLA, so only TLS sign-in ran against a real server; a
+        Windows host is needed to close this line.
+  - [x] Opens in a tab beside the terminals; keyboard (including Ctrl+Alt+Del
+        action and key mapping), mouse, wheel and clipboard text work. Against
+        real xrdp: a click opened the desktop's terminal and typed keys ran a
+        command there; clipboard text moved both ways. Not exercised on a
+        server: the wheel and what Ctrl+Alt+Del does (events are produced and
+        sent), and the pane has been driven in a headless browser with a
+        mocked backend, not a real Tauri window.
+  - [x] Certificate shown and pinned on first connect like SSH host keys. The
+        check runs before any credentials are sent; a changed certificate is
+        refused with both fingerprints and needs a fresh accept. Pin storage
+        is unit-tested against a real vault.
+  - [x] Tested against a real or containerised RDP server: xrdp + XFCE in
+        Docker (`scottyhardy/docker-remote-desktop`), 6 live tests (see
+        "RDP test server" below). Windows hosts, and anything but the TLS
+        sign-in, were not available.
+
+  Limits to know: no sound, drive or printer redirection; no jump hosts or
+  proxies (the host must be reachable directly); the screen size is fixed at
+  connect time (no live resize yet); Kerberos is not supported (NTLM only);
+  16/32-bit colour only.
 
 - [ ] **T4. Remote desktop: VNC.** **M–L**
   DoD:

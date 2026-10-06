@@ -6,6 +6,16 @@ View changelog**.
 
 ## Unreleased
 
+- **Remote Desktop (RDP).** A host can now be a Windows (or xrdp) desktop:
+  choose **Remote Desktop (RDP)** as its protocol, with a domain, screen size
+  (or fit the tab), colour depth and sign-in security. It opens in a tab beside
+  your terminals with keyboard, mouse, wheel and shared clipboard text, and a
+  Ctrl+Alt+Del button. The server's certificate is shown the first time and
+  trusted from then on, like an SSH host key; a different one later is refused
+  before any password is sent. Tested here against a real xrdp server; sign-in
+  with Network Level Authentication, and Windows servers, were not available to
+  test. No sound or file redirection, and no jump hosts yet.
+
 - **Mosh.** Tick "Use Mosh" on a host and it connects the way `mosh` does:
   SSH logs in (with your vault keys, jump hosts, proxies and trusted-server
   rules), starts `mosh-server`, and your system's `mosh-client` takes over
