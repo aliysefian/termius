@@ -130,6 +130,8 @@ export interface WorkspaceTab {
 export interface SnippetRunOpts {
   execute: boolean;
   scope: "pane" | "tab";
+  /** Characters to rub out before the text goes in, for a snippet that replaces what is typed. */
+  erase?: number;
 }
 
 let counter = 0;

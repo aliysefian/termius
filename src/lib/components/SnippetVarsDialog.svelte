@@ -13,8 +13,10 @@
   function submit(e: SubmitEvent) {
     e.preventDefault();
     for (const [k, v] of Object.entries(values)) lastValues.set(k, v);
+    // Read the props before closing: they come from `ui.modal`, which is gone once it is null.
+    const run = { command, opts, values: $state.snapshot(values) };
     ui.modal = null;
-    void runSnippet(command, opts, $state.snapshot(values));
+    void runSnippet(run.command, run.opts, run.values);
   }
 </script>
 

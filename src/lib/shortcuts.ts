@@ -79,6 +79,10 @@ export const ACTIONS: Action[] = [
   { id: "completion-accept", label: "Accept the suggestion", combo: "ArrowRight", run: () => inTerminal() && completionBridge.accept() },
   { id: "completion-accept-end", label: "Accept the suggestion (End)", combo: "End", run: () => inTerminal() && completionBridge.accept() },
   { id: "completion-accept-word", label: "Accept one word of the suggestion", combo: "Ctrl+ArrowRight", run: () => inTerminal() && completionBridge.acceptWord() },
+  // Ctrl+Space, not Tab: Tab is the shell's own completion. Bind "Open the suggestion list (Tab)" to
+  // Tab to have it here instead; Tab then still reaches the shell whenever the list can't open.
+  { id: "completion-menu", label: "Open the suggestion list", combo: "Ctrl+Space", run: () => inTerminal() && completionBridge.openMenu() },
+  { id: "completion-menu-tab", label: "Open the suggestion list (Tab)", combo: "", run: () => inTerminal() && completionBridge.openMenu() },
   { id: "completion-dismiss", label: "Dismiss the suggestion", combo: "Escape", run: () => inTerminal() && completionBridge.dismiss() },
 ];
 
@@ -115,6 +119,12 @@ export function handleShortcut(e: KeyboardEvent): boolean {
   const combo = comboOf(e);
   if (!combo) return false;
   const ctrl = e.ctrlKey || e.metaKey;
+
+  // While the popup is open it owns these keys; with it closed they go on to the shell untouched.
+  if (inTerminal() && !e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey) {
+    const key = combo === "ArrowUp" ? "up" : combo === "ArrowDown" ? "down" : combo === "Enter" || combo === "Tab" ? "choose" : null;
+    if (key && completionBridge.menuKey(key)) return true;
+  }
 
   for (const a of ACTIONS) {
     if (comboFor(a) === combo) {

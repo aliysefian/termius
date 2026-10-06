@@ -15,10 +15,33 @@
   const out = (text) => channel && window["_" + channel.id]({ index: index++, message: Array.from(enc.encode(text)) });
   const prompt = () => out("\x1b]133;A\x07$ \x1b]133;B\x07");
 
+  // "secret": a command is waiting for a password (nothing echoed). "alt": a full-screen program.
+  let mode = null;
+
   function shell(bytes) {
     for (const ch of new TextDecoder().decode(bytes)) {
+      if (mode) {
+        if (ch === "\r") {
+          if (mode === "alt") out("\x1b[?1049l");
+          out("\r\n\x1b]133;D;0\x07");
+          mode = null;
+          line = "";
+          prompt();
+        }
+        continue;
+      }
       if (ch === "\r") {
         out("\r\n\x1b]133;C\x07");
+        if (line.startsWith("sudo")) {
+          mode = "secret";
+          out("[sudo] password for me: ");
+          continue;
+        }
+        if (line.startsWith("vim")) {
+          mode = "alt";
+          out("\x1b[?1049h\x1b[2J\x1b[Hfull screen program");
+          continue;
+        }
         out(`ran: ${line}\r\n\x1b]133;D;0\x07`);
         line = "";
         prompt();
@@ -61,6 +84,11 @@
         return null;
       }
       case "local_shells": return [];
+      case "list_snippets": return [
+        { id: "sn1", rev: 1, updated_at: 1, deleted: false, data: { label: "Disk usage", command: "df -h", description: "Free space" } },
+        { id: "sn2", rev: 1, updated_at: 1, deleted: false, data: { label: "Tail log", command: "tail -f /var/log/{{file}}.log", description: "" } },
+        { id: "sn3", rev: 1, updated_at: 1, deleted: false, data: { label: "Two lines", command: "cd /srv\nls", description: "" } },
+      ];
       case "local_resize":
       case "local_close": return null;
       default:

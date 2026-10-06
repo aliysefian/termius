@@ -13,7 +13,7 @@
   import * as api from "$lib/api";
   import { ssh, type Credentials, type SessionStatus } from "$lib/ssh";
   import { closePane, markLocal, markRaw, resizePane, writeToPane } from "$lib/terminalio";
-  import { hostContextFor } from "$lib/runsnippet";
+  import { contextFor, hostContextFor, runSnippet } from "$lib/runsnippet";
   import { render } from "$lib/snippetvars";
   import { ask } from "$lib/dialogs.svelte";
   import { connectionLog } from "$lib/stores/connectionlog.svelte";
@@ -29,7 +29,9 @@
   import { CommandTracker, parseOsc133, parseOsc7 } from "$lib/shellintegration";
   import { InputWatch, completionLine, policyFor } from "$lib/completion";
   import { completionBridge, type InlineControls } from "$lib/completion/bridge";
-  import { ghostBox, nextWord, type Ghost } from "$lib/completion/ghost";
+  import { cursorCell, ghostBox, nextWord, type Ghost } from "$lib/completion/ghost";
+  import { MAX_HISTORY_ITEMS, MENU_WIDTH, flatten, groups, historyItems, menuHeight, placeMenu, snippetItems, type MenuGroup, type MenuItem, type Placement } from "$lib/completion/menu";
+  import CompletionMenu from "./CompletionMenu.svelte";
   import { completionHistory } from "$lib/completion/history";
   import CompletionOverlay from "./CompletionOverlay.svelte";
   import { decodeOsc52, redundantMouseEnable } from "$lib/termprotocol";
@@ -219,43 +221,59 @@
   function hideGhost() {
     suggestion = null;
     if (ghost) ghost = null;
-    completionBridge.clear(controls);
+  }
+
+  /** The line as typed, when a suggestion or the list may be offered for it right now; else null. */
+  function offerableLine() {
+    if (!term || status.kind !== "connected" || pending || !active) return null;
+    const buf = term.buffer.active;
+    // Scrolled back: the cursor row isn't on screen.
+    if (buf.viewportY !== buf.baseY) return null;
+    const line = completionLine(policy, term, watch, tracker.line);
+    return line && line.cursorAtEnd ? line : null;
   }
 
   function refreshNow() {
     refreshQueued = false;
-    if (!term || !policy.inline || status.kind !== "connected" || pending || !active) return hideGhost();
-    const buf = term.buffer.active;
-    // Scrolled back: the cursor row isn't on screen.
-    if (buf.viewportY !== buf.baseY) return hideGhost();
-    const line = completionLine(policy, term, watch, tracker.line);
-    if (!line || !line.cursorAtEnd || !line.text.trim()) return hideGhost();
+    const line = offerableLine();
+    if (popup) {
+      hideGhost();
+      if (!line || !policy.menu) return closeMenu();
+      return updateMenu(line.text);
+    }
+    // With a screen reader the terminal is read aloud as it changes; faint text would only be noise.
+    if (!policy.inline || settings.prefs.screenReaderMode || !line || !line.text.trim()) return hideGhost();
     if (line.text === dismissedAt) return hideGhost();
     dismissedAt = null;
     const add = completionHistory.suggest({ text: line.text, host: hostKey, cwd: ui.paneInfo[paneId]?.cwd, prev: lastCommand });
+    const m = measure();
+    if (!add || !m) return hideGhost();
+    const box = ghostBox({ ...m, suggestion: add });
+    if (!box) return hideGhost();
+    suggestion = add;
+    ghost = box;
+  }
+
+  /** The terminal's grid and the cursor on it, in the overlay's coordinates. */
+  function measure() {
     const screen = container.querySelector<HTMLElement>(".xterm-screen");
-    const root = ghostRoot;
-    if (!add || !screen || !root) return hideGhost();
-    const box = ghostBox({
+    if (!screen || !ghostRoot) return null;
+    const buf = term.buffer.active;
+    return {
       screen: screen.getBoundingClientRect(),
-      root: root.getBoundingClientRect(),
+      root: ghostRoot.getBoundingClientRect(),
       cols: term.cols,
       rows: term.rows,
       cursorX: buf.cursorX,
       cursorY: buf.cursorY,
-      suggestion: add,
-    });
-    if (!box) return hideGhost();
-    suggestion = add;
-    ghost = box;
-    completionBridge.set(controls);
+    };
   }
 
   /** Once per frame at most, however much output arrives. */
   function refreshSuggestion() {
     if (refreshQueued) return;
     // Off: nothing is read, nothing is drawn.
-    if (!policy.inline && !ghost) return;
+    if (!policy.inline && !ghost && !popup) return;
     refreshQueued = true;
     requestAnimationFrame(refreshNow);
   }
@@ -270,16 +288,111 @@
     return true;
   }
 
+  // -- the popup list --------------------------------------------------------
+  let popup = $state<{ groups: MenuGroup[]; items: MenuItem[]; selected: number; place: Placement; text: string } | null>(null);
+
+  function closeMenu() {
+    popup = null;
+  }
+
+  function menuGroups(text: string): MenuGroup[] {
+    const history = historyItems(text, completionHistory.search(text, hostKey, MAX_HISTORY_ITEMS + 1));
+    const snippets = policy.snippets ? snippetItems(text, vaultStore.snippets.map((r) => ({ id: r.id, label: r.data?.label ?? "", command: r.data?.command ?? "", description: r.data?.description }))) : [];
+    return groups(history, snippets);
+  }
+
+  /** Rebuild the list for the line as it is now; the choice stays on the same entry if that is still listed. */
+  function updateMenu(text: string, keep?: string) {
+    const gs = menuGroups(text);
+    const items = flatten(gs);
+    const m = measure();
+    const anchor = m && cursorCell(m);
+    if (items.length === 0 || !m || !anchor) return closeMenu();
+    const kept = keep ?? (popup && popup.text === text ? popup.items[popup.selected]?.id : undefined);
+    const at = kept ? items.findIndex((i) => i.id === kept) : -1;
+    const rootBox = m.root;
+    // Inside the pane and inside the window, whichever is smaller.
+    const left = Math.max(rootBox.left, 0);
+    const top = Math.max(rootBox.top, 0);
+    const right = Math.min(rootBox.left + rootBox.width, window.innerWidth);
+    const bottom = Math.min(rootBox.top + rootBox.height, window.innerHeight);
+    const place = placeMenu(
+      { left: anchor.left, top: anchor.top, width: anchor.cellWidth, height: anchor.cellHeight },
+      { width: MENU_WIDTH, height: menuHeight(gs) },
+      { left: left - rootBox.left, top: top - rootBox.top, width: right - left, height: bottom - top },
+    );
+    popup = { groups: gs, items, selected: at >= 0 ? at : 0, place, text };
+    menuAnnouncement = `${items.length} suggestion${items.length === 1 ? "" : "s"}. ${items[popup.selected].label}, 1 of ${items.length}.`;
+  }
+
+  function openMenu(): boolean {
+    if (!policy.menu) return false;
+    const line = offerableLine();
+    if (!line) return false;
+    hideGhost();
+    updateMenu(line.text);
+    return popup !== null;
+  }
+
+  function moveMenu(by: 1 | -1) {
+    if (!popup) return;
+    const n = popup.items.length;
+    popup.selected = (popup.selected + by + n) % n;
+    menuAnnouncement = `${popup.items[popup.selected].label}, ${popup.selected + 1} of ${n}.`;
+  }
+
+  /** Put the chosen entry on the line in place of what was typed. It is typed, not run: Enter stays the person's. */
+  function pickMenu(index: number) {
+    const m = popup;
+    const item = m?.items[index];
+    if (!m || !item) return;
+    closeMenu();
+    const erase = [...m.text].length;
+    if (item.variables) {
+      // The variable dialog asks for the values, then puts the text in place of what was typed.
+      tracker.reset();
+      void runSnippet(item.insert, { execute: false, scope: "pane", erase });
+    } else {
+      const text = item.kind === "snippet" ? render(item.insert, contextFor(target), {}) : item.insert;
+      typed("\x7f".repeat(erase) + text);
+    }
+    term.focus();
+  }
+
+  /** What a screen reader is told about the list: how many entries, and the one chosen. */
+  let menuAnnouncement = $state("");
+
   const controls: InlineControls = {
     accept: () => takeSuggestion((s) => s),
     acceptWord: () => takeSuggestion(nextWord),
     dismiss: () => {
+      if (popup) {
+        closeMenu();
+        return true;
+      }
       if (!suggestion) return false;
       dismissedAt = completionLine(policy, term, watch, tracker.line)?.text ?? null;
       hideGhost();
       return true;
     },
+    openMenu,
+    menuKey: (key) => {
+      if (!popup) return false;
+      if (key === "choose") pickMenu(popup.selected);
+      else moveMenu(key === "down" ? 1 : -1);
+      return true;
+    },
   };
+
+  // Registered while this pane has the keyboard and smart completion is on; off, no key reaches this code.
+  $effect(() => {
+    if (active && policy.enabled) completionBridge.set(controls);
+    else {
+      completionBridge.clear(controls);
+      hideGhost();
+      closeMenu();
+    }
+  });
 
   let ghostRoot: HTMLDivElement | undefined;
 
@@ -944,7 +1057,11 @@
       fontSize={settings.prefs.fontSize}
       color={paneTheme().foreground ?? "#cccccc"}
     />
+    {#if popup}
+      <CompletionMenu groups={popup.groups} selected={popup.selected} place={popup.place} fontFamily={settings.prefs.fontFamily} onpick={pickMenu} />
+    {/if}
   </div>
+  <div class="sr-only" aria-live="polite" role="status">{menuAnnouncement}</div>
 
   {#if newOutputWhileScrolled}
     <button

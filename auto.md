@@ -278,13 +278,47 @@ Found while doing this:
 - `CompletionMenu.svelte`, opened by Tab (configurable) or Ctrl+Space; items
   from history and snippets (label and body), grouped, with a short description.
 
+Decided while doing this: **Tab is not taken by default.** Tab is the shell's own
+completion, and taking it would break the first thing a person does at a prompt
+(the "don't break the terminal" rule). Ctrl+Space opens the list; "Open the
+suggestion list (Tab)" is an unbound action in Settings → Shortcuts that gives
+Tab to it, and Tab still reaches the shell whenever the list can't open.
+
 DoD:
-- [ ] Keyboard only: arrows, Enter or Tab to accept, Esc to close, typing refines.
-- [ ] Fuzzy matching with the match highlighted; a snippet with `{{variables}}`
+- [x] Keyboard only: arrows, Enter or Tab to accept, Esc to close, typing refines.
+      The list follows the line: a typed key goes to the shell as usual and the
+      list is rebuilt from the new line, so typing narrows it. Up, Down, Enter
+      and Tab belong to the list only while it is open. Choosing puts the entry
+      on the line in place of the typed text (backspaces, then the text, through
+      the normal input path); it never presses Enter. Browser test.
+- [x] Fuzzy matching with the match highlighted; a snippet with `{{variables}}`
       opens the existing variable dialog instead of inserting raw text.
-- [ ] Positioned inside the pane, flips above the line near the bottom, never
+      The typed text stays on the line until the dialog is answered, then the
+      answered snippet replaces it. Several-line snippets are not listed (typing
+      one would run it). Unit tests for matching and highlighting; browser test
+      for the dialog.
+- [x] Positioned inside the pane, flips above the line near the bottom, never
       leaves the window; items are announced to screen readers.
-- [ ] The menu never opens at a password prompt or in a full-screen program.
+      `placeMenu` unit tests; the browser test (700 x 500 window, cursor on the
+      last row) opens it above the line and inside the window. A live region
+      says how many entries there are and which is chosen; ghost text is off
+      with `screenReaderMode`. Not verified: a real screen reader.
+- [x] The menu never opens at a password prompt or in a full-screen program.
+      Browser test: a command waiting for a password, and a full-screen program.
+      The menu also follows the switches (popup off, snippets off, master off:
+      Ctrl+Space reaches the shell).
+
+Found while doing this:
+- **Snippets with `{{variables}}` never ran from the values dialog**: it set
+  `ui.modal = null` and then read its props, which come from `ui.modal`, and
+  threw. Fixed in `SnippetVarsDialog.svelte` (listed in the changelog).
+- The keys are registered with the pane that has the keyboard while smart
+  completion is on, so with it off no key reaches this code at all.
+- The list's search is one pass of the fuzzy matcher over the index, once per
+  key while the list is open. Timed over the index's full size of 10,000 entries:
+  mean 4.8 ms, worst 17.8 ms (one sample over the inline suggestion's 16 ms
+  budget; the real index holds at most 1,000 per host, 5,000 overall, so the
+  usual cost is a fraction of that). Not timed in the browser.
 
 ### AC3. Command specs: options and subcommands
 

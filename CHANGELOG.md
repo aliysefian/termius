@@ -6,6 +6,8 @@ View changelog**.
 
 ## Unreleased
 
+- **Fixed: snippets with `{{variables}}` did nothing after you filled them in.**
+  The values dialog closed, then failed before sending the snippet. It now runs.
 - **Shell integration for fish.** The snippet in Settings → Shell integration
   now adds the prompt marks to fish, which does not send them itself in version
   3 (the text used to say it did). With it, the current folder, prompt jumping,

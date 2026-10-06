@@ -199,8 +199,8 @@ describe("ghost layout", () => {
 describe("bridge", () => {
   it("answers false with no pane, and only the current pane may clear itself", () => {
     expect(completionBridge.accept()).toBe(false);
-    const a = { accept: () => true, acceptWord: () => true, dismiss: () => true };
-    const b = { accept: () => false, acceptWord: () => false, dismiss: () => false };
+    const a = { accept: () => true, acceptWord: () => true, dismiss: () => true, openMenu: () => true, menuKey: () => true };
+    const b = { accept: () => false, acceptWord: () => false, dismiss: () => false, openMenu: () => false, menuKey: () => false };
     completionBridge.set(a);
     completionBridge.set(b);
     completionBridge.clear(a);

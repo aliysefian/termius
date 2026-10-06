@@ -190,6 +190,157 @@ async def main():
         await pg.wait_for_timeout(200)
         check("master switch off: Right goes to the shell", await pg.evaluate("window.__sent.length") == before + 1)
 
+
+        # ---- the popup list ----
+        async def menu(pg):
+            return await pg.evaluate("""() => {
+              const m = document.querySelector('[data-testid=completion-menu]');
+              if (!m) return null;
+              const r = m.getBoundingClientRect();
+              const items = [...m.querySelectorAll('[role=option]')];
+              return { left: r.left, top: r.top, right: r.right, bottom: r.bottom,
+                       groups: [...m.querySelectorAll('[role=presentation]')].map(g => g.textContent.trim()),
+                       labels: items.map(i => i.querySelector('span').textContent.replace(/\\s+/g, ' ').trim()),
+                       kinds: items.map(i => i.dataset.kind),
+                       selected: items.findIndex(i => i.getAttribute('aria-selected') === 'true'),
+                       marks: m.querySelectorAll('mark').length,
+                       live: document.querySelector('[role=status][aria-live]').textContent };
+            }""")
+
+        async def sent_count(pg):
+            return await pg.evaluate("window.__sent.length")
+
+        await session(pg, {"smartCompletion": True, "acInline": True, "acMenu": True, "acSnippets": True})
+        await run_line(pg, "ls -la /srv")
+        await run_line(pg, "git status")
+        await run_line(pg, "git stash")
+        await pg.keyboard.type("gst")
+        await pg.wait_for_timeout(300)
+        await pg.keyboard.press("Control+Space")
+        await pg.wait_for_timeout(300)
+        m = await menu(pg)
+        check("Ctrl+Space opens the list", bool(m) and m["groups"][0] == "History" and "git status" in m["labels"] and "git stash" in m["labels"], m)
+        check("the matched letters are marked", bool(m) and m["marks"] >= 3, m)
+        check("the list is announced to a screen reader", bool(m) and "suggestion" in m["live"], m)
+        if os.environ.get("SHOT"):
+            await pg.screenshot(path=os.environ["SHOT"].replace(".png", "-menu.png"), clip={"x": 348, "y": 72, "width": 600, "height": 330})
+        before = await sent_count(pg)
+        await pg.keyboard.press("ArrowDown")
+        await pg.wait_for_timeout(150)
+        m2 = await menu(pg)
+        check("Down moves the choice and is not sent to the shell", bool(m2) and m2["selected"] == 1 and await sent_count(pg) == before, m2)
+        chosen = m2["labels"][1] if m2 else None
+        await pg.keyboard.press("Enter")
+        await pg.wait_for_timeout(300)
+        flat = [x for sent in await pg.evaluate("window.__sent.slice(%d)" % before) for x in sent]
+        check("Enter puts the choice on the line in place of what was typed", await pg.evaluate("window.__line") == chosen, (chosen, await pg.evaluate("window.__line")))
+        check("choosing never presses Enter", 13 not in flat, flat)
+        check("the list closes after a choice", await menu(pg) is None)
+
+        # Esc, typing refines, an empty line lists what is recent
+        await pg.keyboard.press("Control+u")
+        await pg.keyboard.press("Control+Space")
+        await pg.wait_for_timeout(300)
+        m = await menu(pg)
+        check("on an empty line it lists recent commands and snippets", bool(m) and m["groups"] == ["History", "Snippets"] and len(m["labels"]) >= 5, m)
+        check("snippets of several lines are not offered", bool(m) and "Two lines" not in m["labels"], m)
+        total = len(m["labels"]) if m else 0
+        await pg.keyboard.type("ls")
+        await pg.wait_for_timeout(300)
+        m = await menu(pg)
+        check("typing narrows the list", bool(m) and 0 < len(m["labels"]) < total, (total, m))
+        before = await sent_count(pg)
+        await pg.keyboard.press("Escape")
+        await pg.wait_for_timeout(200)
+        check("Esc closes the list and is not sent to the shell", await menu(pg) is None and await sent_count(pg) == before)
+
+        # a snippet
+        await pg.keyboard.press("Control+u")
+        await pg.keyboard.type("disk")
+        await pg.keyboard.press("Control+Space")
+        await pg.wait_for_timeout(300)
+        m = await menu(pg)
+        check("a snippet is found by its name", bool(m) and m["kinds"] == ["snippet"] and m["labels"][0] == "Disk usage", m)
+        await pg.keyboard.press("Enter")
+        await pg.wait_for_timeout(300)
+        check("a snippet goes onto the line, not run", await pg.evaluate("window.__line") == "df -h")
+
+        # a snippet with a variable: the existing dialog asks first
+        await pg.keyboard.press("Control+u")
+        await pg.keyboard.type("tail")
+        await pg.keyboard.press("Control+Space")
+        await pg.wait_for_timeout(300)
+        await pg.keyboard.press("Enter")
+        await pg.wait_for_timeout(500)
+        check("a snippet with {{variables}} opens the variable dialog", await pg.locator("#vars-form").count() == 1)
+        check("the typed text stays until the dialog is answered", await pg.evaluate("window.__line") == "tail")
+        await pg.locator("#vars-form input").first.fill("app")
+        await pg.click('button:has-text("Paste")')
+        await pg.wait_for_timeout(500)
+        check("the answered snippet replaces what was typed", await pg.evaluate("window.__line") == "tail -f /var/log/app.log", await pg.evaluate("window.__line"))
+
+        # Tab is the shell's unless it is bound
+        await pg.keyboard.press("Control+u")
+        await pg.click(".xterm")
+        before = await sent_count(pg)
+        await pg.keyboard.type("git")
+        await pg.keyboard.press("Tab")
+        await pg.wait_for_timeout(300)
+        sent = await pg.evaluate("window.__sent.slice(%d)" % before)
+        check("Tab goes to the shell by default", [9] in sent and await menu(pg) is None, sent)
+
+        # near the bottom it flips above the line, and stays inside the window
+        await pg.keyboard.press("Control+u")
+        for i in range(40):
+            await pg.keyboard.type("ls %d" % i)
+            await pg.keyboard.press("Enter")
+        await pg.wait_for_timeout(300)
+        await pg.keyboard.type("ls")
+        await pg.keyboard.press("Control+Space")
+        await pg.wait_for_timeout(400)
+        m = await menu(pg)
+        sc = await pg.evaluate("(() => { const r = document.querySelector('.xterm-screen').getBoundingClientRect(); return [r.top, r.bottom]; })()")
+        inside = bool(m) and m["top"] >= 0 and m["left"] >= 0 and m["right"] <= 700 and m["bottom"] <= 500
+        check("at the bottom it opens above the line, inside the window", inside and m["bottom"] <= sc[1] - 10, (m, sc))
+        await pg.keyboard.press("Escape")
+
+        # never at a password prompt or in a full-screen program
+        await pg.keyboard.press("Control+u")
+        await run_line(pg, "sudo ls")
+        before = await sent_count(pg)
+        await pg.keyboard.press("Control+Space")
+        await pg.wait_for_timeout(300)
+        check("no list at a password prompt", await menu(pg) is None)
+        await pg.keyboard.press("Enter")
+        await pg.wait_for_timeout(300)
+        await run_line(pg, "vim x")
+        await pg.keyboard.press("Control+Space")
+        await pg.wait_for_timeout(300)
+        check("no list in a full-screen program", await menu(pg) is None)
+        await pg.keyboard.press("Enter")
+        await pg.wait_for_timeout(300)
+
+        # switches
+        await session(pg, {"smartCompletion": True, "acMenu": False})
+        await run_line(pg, "ls -la /srv")
+        await pg.keyboard.type("ls")
+        before = await sent_count(pg)
+        await pg.keyboard.press("Control+Space")
+        await pg.wait_for_timeout(300)
+        check("with the popup switched off Ctrl+Space reaches the shell", await menu(pg) is None and await sent_count(pg) == before + 1)
+        await session(pg, {"smartCompletion": False})
+        await run_line(pg, "ls -la /srv")
+        await pg.keyboard.type("ls")
+        before = await sent_count(pg)
+        await pg.keyboard.press("Control+Space")
+        await pg.wait_for_timeout(300)
+        check("with smart completion off Ctrl+Space reaches the shell", await menu(pg) is None and await sent_count(pg) == before + 1)
+        await session(pg, {"smartCompletion": True, "acSnippets": False})
+        await pg.keyboard.type("disk")
+        await pg.keyboard.press("Control+Space")
+        await pg.wait_for_timeout(300)
+        check("with snippets switched off none are listed", await menu(pg) is None)
+
         check("no page errors", not errors, errors[:3])
         await b.close()
     print("\n%d failed" % len(failures) if failures else "\nall passed")

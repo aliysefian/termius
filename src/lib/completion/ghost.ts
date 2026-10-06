@@ -70,21 +70,33 @@ export interface Ghost {
   cellsWide: number;
 }
 
-/** Null when there's nothing to draw: no room left on the row, or measurements that make no sense. */
-export function ghostBox(m: GhostInput): Ghost | null {
+export interface Cell {
+  left: number;
+  top: number;
+  cellWidth: number;
+  cellHeight: number;
+}
+
+/** The cursor's cell in the overlay's coordinates, or null for measurements that make no sense. */
+export function cursorCell(m: Omit<GhostInput, "suggestion">): Cell | null {
   if (m.cols <= 0 || m.rows <= 0 || m.screen.width <= 0 || m.screen.height <= 0) return null;
   if (m.cursorX < 0 || m.cursorX >= m.cols || m.cursorY < 0 || m.cursorY >= m.rows) return null;
   const cellWidth = m.screen.width / m.cols;
   const cellHeight = m.screen.height / m.rows;
-  // The suggestion stays on the cursor's row, so it can't cover the line below it.
-  const text = fitToColumns(m.suggestion, m.cols - m.cursorX);
-  if (!text) return null;
   return {
     left: m.screen.left - m.root.left + m.cursorX * cellWidth,
     top: m.screen.top - m.root.top + m.cursorY * cellHeight,
     cellWidth,
     cellHeight,
-    text,
-    cellsWide: displayWidth(text),
   };
+}
+
+/** Null when there's nothing to draw: no room left on the row, or measurements that make no sense. */
+export function ghostBox(m: GhostInput): Ghost | null {
+  const cell = cursorCell(m);
+  if (!cell) return null;
+  // The suggestion stays on the cursor's row, so it can't cover the line below it.
+  const text = fitToColumns(m.suggestion, m.cols - m.cursorX);
+  if (!text) return null;
+  return { ...cell, text, cellsWide: displayWidth(text) };
 }

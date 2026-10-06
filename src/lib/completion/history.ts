@@ -4,6 +4,7 @@
 // sessions is the existing "Remember commands" history (settings), which seeds
 // this index when it is on. Without it, the index holds this session's
 // commands and they are gone when the app closes.
+import { fuzzyScore } from "$lib/fuzzy";
 import { looksLikeSecret } from "$lib/guard";
 
 export interface Entry {
@@ -79,7 +80,7 @@ export function rejectReason(c: Candidate): string | null {
   return sensitiveReason(text);
 }
 
-interface Held extends Entry {
+export interface Held extends Entry {
   host: string;
 }
 
@@ -149,6 +150,24 @@ export class HistoryIndex {
     }
     this.#total -= this.#hosts.get(host)?.size ?? 0;
     this.#hosts.delete(host);
+  }
+
+  /**
+   * Commands that fuzzy-match `text` (all of them for an empty line), best first. For the popup,
+   * which can afford to look at everything once per key.
+   */
+  search(text: string, host: string, limit: number): Held[] {
+    const found: { e: Held; s: number }[] = [];
+    for (const map of this.#hosts.values()) {
+      for (const e of map.values()) {
+        const m = fuzzyScore(text, e.command);
+        if (m === null) continue;
+        // This host beats others by more than any difference in match quality; success and recency break ties.
+        found.push({ e, s: m + (e.host === host ? 2000 : 0) + (e.exit === 0 ? 5 : 0) + e.at / 1e13 });
+      }
+    }
+    found.sort((a, b) => b.s - a.s);
+    return found.slice(0, limit).map((f) => f.e);
   }
 
   /** The text that would complete what has been typed, or null. */

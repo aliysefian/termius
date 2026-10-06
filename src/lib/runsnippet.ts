@@ -21,7 +21,7 @@ export function hostContextFor(hostId: Uuid): HostContext {
   };
 }
 
-function contextFor(target: PaneTarget): HostContext {
+export function contextFor(target: PaneTarget): HostContext {
   if (target.kind === "host") return hostContextFor(target.hostId);
   if (target.kind === "local") return { host: "local", hostname: "localhost", port: 0, user: "" };
   if (target.kind === "telnet") return { host: target.host, hostname: target.host, port: target.port, user: "" };
@@ -76,6 +76,7 @@ export async function runSnippet(command: string, opts: SnippetRunOpts, values?:
       let text = (rendered.get(p.id) ?? "").replace(/\r?\n/g, "\r");
       if (opts.execute && !text.endsWith("\r")) text += "\r";
       if (!opts.execute) text = text.replace(/\r$/, "");
+      if (opts.erase) text = "\x7f".repeat(opts.erase) + text;
       return writeToPane(p, text);
     }),
   );
