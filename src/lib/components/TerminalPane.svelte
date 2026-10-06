@@ -30,7 +30,9 @@
   import { InputWatch, completionLine, policyFor } from "$lib/completion";
   import { completionBridge, type InlineControls } from "$lib/completion/bridge";
   import { cursorCell, ghostBox, nextWord, type Ghost } from "$lib/completion/ghost";
-  import { MAX_HISTORY_ITEMS, MENU_WIDTH, flatten, groups, historyItems, menuHeight, placeMenu, snippetItems, type MenuGroup, type MenuItem, type Placement } from "$lib/completion/menu";
+  import { MAX_HISTORY_ITEMS, MENU_WIDTH, flatten, groups, historyItems, menuHeight, placeMenu, snippetItems, specItems, type MenuGroup, type MenuItem, type Placement } from "$lib/completion/menu";
+  import { completeLine, parseLine } from "$lib/completion/command";
+  import { loadSpec, specs } from "$lib/completion/specs";
   import CompletionMenu from "./CompletionMenu.svelte";
   import { completionHistory } from "$lib/completion/history";
   import CompletionOverlay from "./CompletionOverlay.svelte";
@@ -298,7 +300,24 @@
   function menuGroups(text: string): MenuGroup[] {
     const history = historyItems(text, completionHistory.search(text, hostKey, MAX_HISTORY_ITEMS + 1));
     const snippets = policy.snippets ? snippetItems(text, vaultStore.snippets.map((r) => ({ id: r.id, label: r.data?.label ?? "", command: r.data?.command ?? "", description: r.data?.description }))) : [];
-    return groups(history, snippets);
+    let commands: MenuItem[] = [];
+    if (policy.options) {
+      const c = completeLine(text, specs);
+      // The spec for this command is fetched the first time it is typed; the list fills in when it arrives.
+      if (c.missing) {
+        specLoading = true;
+        void loadSpec(c.missing).then(() => {
+          const waited = waitingFor;
+          waitingFor = null;
+          if (popup) refreshSuggestion();
+          // Asked for the list on a line only this spec could fill: open it now (which may need the next spec, for sudo git).
+          else if (waited !== null && waited === offerableLine()?.text) openMenu();
+        });
+      }
+      else commands = specItems(parseLine(text).raw, c.items);
+    }
+    // What the command's own spec says comes first: it is the most specific.
+    return groups([...commands, ...history, ...snippets]);
   }
 
   /** Rebuild the list for the line as it is now; the choice stays on the same entry if that is still listed. */
@@ -325,13 +344,20 @@
     menuAnnouncement = `${items.length} suggestion${items.length === 1 ? "" : "s"}. ${items[popup.selected].label}, 1 of ${items.length}.`;
   }
 
+  /** A spec was being fetched during the last build of the list; and the line the list was asked for while it was. */
+  let specLoading = false;
+  let waitingFor: string | null = null;
+
   function openMenu(): boolean {
     if (!policy.menu) return false;
     const line = offerableLine();
     if (!line) return false;
     hideGhost();
+    specLoading = false;
     updateMenu(line.text);
-    return popup !== null;
+    if (!popup && specLoading) waitingFor = line.text;
+    // Nothing to show yet counts as handled: the key was for us, and the list comes when the spec does.
+    return popup !== null || specLoading;
   }
 
   function moveMenu(by: 1 | -1) {
@@ -347,7 +373,7 @@
     const item = m?.items[index];
     if (!m || !item) return;
     closeMenu();
-    const erase = [...m.text].length;
+    const erase = item.erase ?? [...m.text].length;
     if (item.variables) {
       // The variable dialog asks for the values, then puts the text in place of what was typed.
       tracker.reset();

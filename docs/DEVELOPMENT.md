@@ -80,6 +80,24 @@ and remove it afterwards. They need OpenSSH server installed
 (`sudo apt install openssh-server`), though the service does not need to be
 running. Without `sshd`, those tests print `skipping` and pass.
 
+## Command specs
+
+The popup's subcommands and options come from `src/lib/completion/specs/*.json`
+(one file per command, loaded the first time the command is typed, plus a small
+`index.json` of names). They are committed; a normal build never needs Node or
+the network for them. To redo them, for a new version of the source package or a
+different list of commands:
+
+```bash
+# edit COMMANDS (and the pinned VERSION) in scripts/build-completion-specs.mjs, then
+node scripts/build-completion-specs.mjs            # downloads the pinned package with npm
+node scripts/build-completion-specs.mjs --from DIR # or use an unpacked one (DIR/build/*.js)
+pnpm test                                          # src/lib/__tests__/command.test.ts reads them
+```
+
+The script prints how many commands it wrote and their size. Licence and source
+are in `THIRD_PARTY.md`; `SOURCE.json` next to the specs records the version.
+
 ## Build installers
 
 ```sh

@@ -139,7 +139,7 @@ export const DEFAULT_PREFS: Prefs = {
   restoreSkipProduction: true,
   confirmCloseSessions: true,
   rememberCommands: false,
-  smartCompletion: true,
+  smartCompletion: false,
   acInline: true,
   acMenu: true,
   acSnippets: true,

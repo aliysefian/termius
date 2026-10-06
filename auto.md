@@ -136,8 +136,8 @@ them. The keys are `ACTIONS` entries, rebindable in Settings.
   docs, as Termius does).
 
 **Settings** (Settings → Terminal, searchable):
-- **Smart completion**: master switch. Default **on**, because every part is
-  display-only, local and in memory; the owner can flip the default (section 7).
+- **Smart completion**: master switch. Default **off** (the owner's decision,
+  section 7); the sub-switches are on, so turning the master on gives everything.
 - Sub-switches: inline suggestions; popup menu; include snippets; include
   command options; look up remote paths.
 - **Per-host override** in the host form: Use default / Always on / History only
@@ -330,12 +330,54 @@ Found while doing this:
   position, and offers what fits there, with descriptions.
 
 DoD:
-- [ ] About 60 commands included, under 400 KB gzipped, loaded lazily.
-- [ ] Parsing handles quotes, pipes, `&&`, `;`, `sudo` and `env` prefixes,
+- [x] About 60 commands included, under 400 KB gzipped, loaded lazily.
+      63 commands, 914 KB of JSON, **156 KB gzipped in all**. Each spec is its
+      own chunk in the production build, fetched the first time its command is
+      typed (browser test checks `git.json` is requested after typing `git ` and
+      `kubectl.json` never); only the index of names (about 3 KB) is in the main
+      bundle.
+- [x] Parsing handles quotes, pipes, `&&`, `;`, `sudo` and `env` prefixes,
       `--opt=value`, and combined short flags (`-xzf`).
-- [ ] Tests from real command lines for git, docker, kubectl and systemctl.
-- [ ] The licence text and attribution are present, and the build script is
-      documented.
+      Also `||`, `&`, `$(`, backticks, `VAR=value cmd`, redirections (`2>&1`,
+      `> file`), `--`, escapes, and a command given by path. `tar -xzf` is read
+      as extract + gzip + file, with the file name as the value of `-f`.
+- [x] Tests from real command lines for git, docker, kubectl and systemctl.
+      `command.test.ts` (28 tests) reads the committed JSON, not a fixture; the
+      browser test lists git subcommands, a git option, and systemctl behind sudo.
+- [x] The licence text and attribution are present, and the build script is
+      documented. `THIRD_PARTY.md`, the header of
+      `scripts/build-completion-specs.mjs`, and "Command specs" in
+      `docs/DEVELOPMENT.md`. Run without `--from` the script downloads the pinned
+      package and writes the same files (checked by hash).
+
+The popup's list now has a "Commands" / "Options" / "Values" group first when the
+typed line fits a spec, then history, then snippets. Choosing one replaces only
+the word being typed and adds the space (or `=`) that goes after it. They are
+shown only with "Include command options" on. The inline ghost text still comes
+from history only.
+
+Found while doing this:
+- **The owner's note "Default must be off" (section 7) had been missed**, so
+  AC0 to AC2 shipped smart completion switched on. The default is now off
+  (`DEFAULT_PREFS.smartCompletion = false`, test updated).
+- The package's `package.json` says ISC, its `LICENSE` file says MIT. The file
+  is what is kept in `THIRD_PARTY.md`, and both are noted.
+- `journalctl`, `apt-get`, `dnf`, `yum`, `ip`, `ss`, `awk` and a few others do
+  not exist in the package, so they have no spec. `apt` does.
+- The specs use code (generators) for things like branch names, container names
+  and archive names; those are dropped. An argument called FILE, PATH or
+  DIRECTORY is treated as a file or folder instead, which is what AC4 will list
+  over the connection (the engine already reports `expects: "file" | "dir"`).
+- Fig puts `docker compose` in its own spec (`loadSpec`); it is copied in. The
+  kubectl and helm root options (`-n`, `--context`, ...) are global in practice
+  but the spec doesn't say so; the script marks them. `git flow` is left out.
+- `tar` spells its operations like options (`-x`, `--extract`); the walker treats
+  those as subcommands. Old-style `tar xzf` (no dash) is not understood.
+- With an empty word the list shows only the first 10 entries of a spec
+  (`MAX_SPEC_ITEMS`); typing narrows it.
+- Not verified: macOS or Windows line endings in pasted lines; commands inside
+  here-documents; a spec chunk failing to load in a packaged app (the code
+  treats it as "no suggestions", untested).
 
 ### AC4. Remote paths and generators over an exec channel
 
@@ -400,8 +442,8 @@ DoD:
 
 ## 7. Decisions for the owner
 
-1. **Default on or off.** Recommended **on** (display-only, local, in memory). To
-   make it opt-in, change one default in AC0. Default must be off
+1. **Default on or off.** Decided by the owner: **off**. (It was shipped on in
+   AC0 to AC2 by mistake, because this note was missed; fixed when AC3 started.)
 2. **Persisted history.** Keep tying it to "Remember commands" (recommended), or
    add a vault-synced encrypted history later (Atuin style). Not part of this work.
 3. **Specs.** Seed from `withfig/autocomplete` (MIT, recommended) or write the

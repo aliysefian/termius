@@ -1,0 +1,7 @@
+{
+  "package": "@withfig/autocomplete",
+  "version": "2.692.3",
+  "packageLicense": "ISC",
+  "licenceFile": "MIT, see THIRD_PARTY.md",
+  "commands": 63
+}

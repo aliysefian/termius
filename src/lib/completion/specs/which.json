@@ -1,0 +1,1 @@
+{"d":"Locate a program in the user's PATH","o":[{"n":"-s","d":"No output, return 0 if all the executables are found, 1 if not"},{"n":"-a","d":"List all instances of executables found, instead of just the first"}],"a":[{"k":"text","t":"names","m":1}]}

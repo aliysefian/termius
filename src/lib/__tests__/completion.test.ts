@@ -49,10 +49,11 @@ describe("policy", () => {
     expect(policyFor(ON, { completion: "yes" })).toEqual(EVERYTHING);
   });
 
-  it("the shipped defaults match the design: all on, and nothing needs a restart", async () => {
+  it("ships switched off, as the owner decided; the parts are on once it is", async () => {
     const { DEFAULT_PREFS } = await import("../stores/settings.svelte");
-    expect(DEFAULT_PREFS).toMatchObject(ON);
-    expect(policyFor(DEFAULT_PREFS)).toEqual(EVERYTHING);
+    expect(DEFAULT_PREFS.smartCompletion).toBe(false);
+    expect(policyFor(DEFAULT_PREFS)).toEqual(OFF);
+    expect(policyFor({ ...DEFAULT_PREFS, smartCompletion: true })).toEqual(EVERYTHING);
   });
 });
 

@@ -1,0 +1,1 @@
+{"d":"Maintain crontab file for individual users","o":[{"n":"-e","d":"Edit the current crontab"},{"n":"-l","d":"Display the current crontab"},{"n":"-r","d":"Remove the current crontab"},{"n":"-u","d":"Specify the name of the user whose crontab is to be tweaked"}]}

@@ -2,6 +2,7 @@
 // it can be tested without a terminal.
 import { fuzzyScore } from "$lib/fuzzy";
 import { promptedVariables } from "$lib/snippetvars";
+import type { Suggestion } from "./command";
 import type { Held } from "./history";
 
 export interface SnippetLike {
@@ -14,7 +15,9 @@ export interface SnippetLike {
 export interface MenuItem {
   /** Stable across refreshes, so the selection can stay on it. */
   id: string;
-  kind: "history" | "snippet";
+  kind: "history" | "snippet" | "command" | "subcommand" | "option" | "value";
+  /** The heading it is listed under. */
+  group: string;
   label: string;
   /** Character positions in `label` the typed text matched. */
   labelHit: number[];
@@ -24,6 +27,8 @@ export interface MenuItem {
   insert: string;
   /** The snippet asks for values first. */
   variables: boolean;
+  /** Characters of the line it replaces; the whole line when absent. */
+  erase?: number;
 }
 
 export const MAX_HISTORY_ITEMS = 8;
@@ -69,6 +74,7 @@ export function historyItems(text: string, found: Held[]): MenuItem[] {
     .map((e) => ({
       id: `h:${e.command}`,
       kind: "history" as const,
+      group: "History",
       label: e.command,
       labelHit: matchPositions(text, e.command),
       detail: describe(e),
@@ -95,6 +101,7 @@ export function snippetItems(text: string, snippets: SnippetLike[]): MenuItem[] 
       item: {
         id: `s:${sn.id}`,
         kind: "snippet",
+        group: "Snippets",
         label: sn.label,
         labelHit: labelWins ? matchPositions(text, sn.label) : [],
         detail: names.length ? `${own} · asks for ${names.join(", ")}` : own,
@@ -113,14 +120,39 @@ export interface MenuGroup {
   items: MenuItem[];
 }
 
-/** History first (it is what the inline suggestion draws on), then snippets. A snippet whose body is already listed is dropped. */
-export function groups(history: MenuItem[], snippets: MenuItem[]): MenuGroup[] {
-  const seen = new Set(history.map((h) => h.insert));
-  const sn = snippets.filter((s) => !seen.has(s.insert));
-  return [
-    { title: "History", items: history },
-    { title: "Snippets", items: sn },
-  ].filter((g) => g.items.length > 0);
+const SPEC_GROUP: Record<Suggestion["kind"], string> = { command: "Commands", subcommand: "Commands", option: "Options", value: "Values" };
+
+/** What the command specs say can come next, replacing only the word being typed. */
+export function specItems(typedWord: string, found: Suggestion[]): MenuItem[] {
+  return found.map((f) => ({
+    id: `c:${f.kind}:${f.name}`,
+    kind: f.kind,
+    group: SPEC_GROUP[f.kind],
+    label: f.name,
+    // The part of the name already typed.
+    labelHit: f.name.startsWith(typedWord) ? Array.from({ length: typedWord.length }, (_, i) => i) : [],
+    detail: f.description,
+    detailHit: [],
+    insert: f.insert,
+    variables: false,
+    erase: f.replaces,
+  }));
+}
+
+/**
+ * Bucket items under their headings, in the order the headings first appear. A snippet whose body is
+ * already listed from history is dropped.
+ */
+export function groups(items: MenuItem[]): MenuGroup[] {
+  const seen = new Set(items.filter((i) => i.kind === "history").map((i) => i.insert));
+  const out: MenuGroup[] = [];
+  for (const item of items) {
+    if (item.kind === "snippet" && seen.has(item.insert)) continue;
+    let g = out.find((x) => x.title === item.group);
+    if (!g) out.push((g = { title: item.group, items: [] }));
+    g.items.push(item);
+  }
+  return out;
 }
 
 export const flatten = (gs: MenuGroup[]): MenuItem[] => gs.flatMap((g) => g.items);

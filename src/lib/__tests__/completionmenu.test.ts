@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { fuzzyScore } from "../fuzzy";
 import { HistoryIndex } from "../completion/history";
-import { groups, historyItems, matchPositions, menuHeight, placeMenu, snippetItems, flatten, MENU_WIDTH } from "../completion/menu";
+import { groups, historyItems, specItems, matchPositions, menuHeight, placeMenu, snippetItems, flatten, MENU_WIDTH } from "../completion/menu";
 
 const sn = (id: string, label: string, command: string, description = "") => ({ id, label, command, description });
 
@@ -87,7 +87,7 @@ describe("snippets in the list", () => {
   it("drops a snippet whose body is already listed from history", () => {
     const h = new HistoryIndex();
     h.add("a", { command: "df -h", at: 1, exit: 0 });
-    const gs = groups(historyItems("df", h.search("df", "a", 9)), snippetItems("df", all));
+    const gs = groups([...historyItems("df", h.search("df", "a", 9)), ...snippetItems("df", all)]);
     expect(gs.map((g) => g.title)).toEqual(["History"]);
     expect(flatten(gs).length).toBe(1);
   });
@@ -123,6 +123,28 @@ describe("placing the list", () => {
 
   it("estimates its own height from rows and headers", () => {
     const h = historyItems("e", [{ command: "echo", host: "a", at: 1, exit: 0 }]);
-    expect(menuHeight(groups(h, []))).toBe(8 + 22 + 24);
+    expect(menuHeight(groups(h))).toBe(8 + 22 + 24);
+  });
+});
+
+describe("command suggestions in the list", () => {
+  const found = [
+    { kind: "subcommand" as const, name: "checkout", description: "Switch branches", insert: "checkout ", replaces: 2 },
+    { kind: "option" as const, name: "--amend", description: "Amend the last commit", insert: "--amend ", replaces: 4 },
+    { kind: "value" as const, name: "plain", description: "", insert: "plain ", replaces: 0 },
+  ];
+
+  it("lists each kind under its own heading and replaces only the typed word", () => {
+    const items = specItems("ch", found);
+    expect(items.map((i) => i.group)).toEqual(["Commands", "Options", "Values"]);
+    expect(items[0]).toMatchObject({ label: "checkout", detail: "Switch branches", insert: "checkout ", erase: 2, labelHit: [0, 1] });
+    expect(items[1].labelHit).toEqual([]);
+  });
+
+  it("puts them first when given first, and keeps the other headings after", () => {
+    const h = new HistoryIndex();
+    h.add("a", { command: "git checkout main", at: 1, exit: 0 });
+    const gs = groups([...specItems("ch", found.slice(0, 1)), ...historyItems("git ch", h.search("git ch", "a", 9))]);
+    expect(gs.map((g) => g.title)).toEqual(["Commands", "History"]);
   });
 });

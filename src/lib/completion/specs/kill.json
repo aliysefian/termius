@@ -1,0 +1,1 @@
+{"d":"Terminate or signal a process","o":[{"n":"-s","d":"A symbolic signal name specifying the signal to be sent","a":[{"k":"text","t":"signal_name"}]},{"n":"-l","d":"If no operand is given, list the signal names; otherwise, write the signal name…","a":[{"k":"text","t":"exit_status","o":1}]}],"a":[{"k":"text","t":"pid","m":1}]}

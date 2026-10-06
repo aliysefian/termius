@@ -1,0 +1,1 @@
+{"d":"Execute a command as the superuser or another user","o":[{"n":["-g","--group"],"d":"Run command as the specified group name or ID","a":[{"k":"text","t":"group"}]},{"n":["-h","--help"],"d":"Display help message and exit"},{"n":["-u","--user"],"d":"Run command as specified user name or ID","a":[{"k":"text","t":"user"}]}],"a":[{"k":"cmd","t":"command"}]}

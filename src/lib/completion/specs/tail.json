@@ -1,0 +1,1 @@
+{"d":"Display the last part of a file","o":[{"n":"-f","d":"Wait for additional data to be appended"},{"n":"-r","d":"Display in reverse order"}],"a":[{"k":"file","m":1}]}
