@@ -4,7 +4,7 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
-## Unreleased
+## 0.17.0 — 2026-10-06
 
 - **Smart completion** (off by default; Settings → Terminal). A faint suggestion
   after the cursor from your own history (→ or End accepts, Ctrl+→ one word,
