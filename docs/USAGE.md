@@ -129,7 +129,10 @@ been copied since.
     summary supplies them). The window says which panels a host can't fill.
 - **Local terminals.** **Ctrl+Shift+`**, or the terminal icon next to the tabs,
   opens your own shell in a tab: your login shell on Linux and macOS, the
-  default shell on Windows. Local tabs work with splits, recording, snippets
+  default shell on Windows. The arrow beside the icon lists every shell
+  found on the computer (and, on Windows, each WSL distribution, which opens
+  in its own home folder); **Settings → Local terminal** sets which one the
+  plain button uses. Local tabs work with splits, recording, snippets
   and synchronized typing like SSH tabs.
 
 ## Importing from an Ansible inventory

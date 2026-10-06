@@ -21,6 +21,7 @@ pub mod keymanager;
 pub mod keys;
 pub mod knownhosts;
 pub mod localpty;
+pub mod localshells;
 pub mod models;
 pub mod monitor;
 pub mod mobaxterm;
@@ -127,6 +128,7 @@ pub fn run() {
             commands::ssh_resize,
             commands::ssh_disconnect,
             commands::local_spawn,
+            commands::local_shells,
             commands::local_write,
             commands::local_resize,
             commands::local_close,

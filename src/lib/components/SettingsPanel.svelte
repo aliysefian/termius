@@ -7,6 +7,7 @@
   import { ui } from "$lib/stores/ui.svelte";
   import { save } from "@tauri-apps/plugin-dialog";
   import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+  import { localShells } from "$lib/stores/localshells.svelte";
   import { settings } from "$lib/stores/settings.svelte";
   import { allThemes } from "$lib/themes";
   import { importTheme } from "$lib/themeimport";
@@ -171,6 +172,8 @@
       exportMsg = { ok: false, text: errorMessage(e) };
     }
   }
+
+  void localShells.ensure();
 </script>
 
 {#snippet msgBox(m: Msg)}
@@ -432,15 +435,22 @@
       <p class="mb-3 text-xs text-fg-muted">Which program local tabs run, and where they start. Empty uses your system's default shell in your home folder.</p>
       <div class="grid grid-cols-2 gap-3">
         <div>
-          <label class="label" for="s-shell">Shell</label>
-          <input id="s-shell" class="input font-mono text-xs" list="s-shells" bind:value={settings.prefs.localShell} placeholder="default" spellcheck="false" />
-          <datalist id="s-shells">
-            {#each ["bash", "zsh", "fish", "pwsh -NoLogo", "powershell -NoLogo", "cmd", "wsl"] as sh (sh)}<option value={sh}></option>{/each}
-          </datalist>
+          <label class="label" for="s-shell-id">Default shell</label>
+          <select id="s-shell-id" class="input text-xs" bind:value={settings.prefs.localShellId} onfocus={() => void localShells.ensure()}>
+            <option value="">{settings.prefs.localShell.trim() ? "Custom command" : "System default"}</option>
+            {#each localShells.list as sh (sh.id)}<option value={sh.id}>{sh.label}</option>{/each}
+            {#if settings.prefs.localShellId && !localShells.list.some((s) => s.id === settings.prefs.localShellId)}
+              <option value={settings.prefs.localShellId}>{settings.prefs.localShellId} (not installed)</option>
+            {/if}
+          </select>
         </div>
         <div>
           <label class="label" for="s-cwd">Start in</label>
           <input id="s-cwd" class="input font-mono text-xs" bind:value={settings.prefs.localCwd} placeholder="~" spellcheck="false" />
+        </div>
+        <div class="col-span-2">
+          <label class="label" for="s-shell">Custom command</label>
+          <input id="s-shell" class="input font-mono text-xs" bind:value={settings.prefs.localShell} placeholder="used when no default shell is chosen, e.g. pwsh -NoLogo" spellcheck="false" />
         </div>
       </div>
     </section>

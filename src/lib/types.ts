@@ -413,6 +413,15 @@ export function isApiError(e: unknown): e is ApiError {
   return typeof e === "object" && e !== null && "code" in e && "message" in e;
 }
 
+/** A shell the backend found for local terminals. */
+export interface LocalShell {
+  id: string;
+  label: string;
+  argv: string[];
+  kind: "native" | "wsl";
+  is_default: boolean;
+}
+
 export function errorMessage(e: unknown): string {
   if (isApiError(e)) return e.message;
   if (e instanceof Error) return e.message;

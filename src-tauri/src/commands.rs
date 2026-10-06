@@ -2305,6 +2305,14 @@ pub async fn ssh_disconnect(state: State<'_, AppState>, pane_id: String) -> ApiR
 // Local terminals
 // ---------------------------------------------------------------------------
 
+/// The shells this computer can start, and its WSL distributions on Windows.
+#[tauri::command]
+pub async fn local_shells() -> ApiResult<Vec<crate::localshells::ShellInfo>> {
+    tauri::async_runtime::spawn_blocking(|| crate::localshells::detect(&crate::localshells::RealEnv))
+        .await
+        .map_err(|e| ApiError::new("local", e.to_string()))
+}
+
 /// Start the user's shell in a local terminal pane.
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
@@ -2315,9 +2323,19 @@ pub fn local_spawn(
     cols: u32,
     rows: u32,
     shell: Option<String>,
+    shell_id: Option<String>,
     cwd: Option<String>,
     on_data: Channel<InvokeResponseBody>,
 ) -> ApiResult<()> {
+    // A detected shell is looked up here by id; the window never supplies its argv.
+    let by_id = match shell_id.filter(|i| !i.is_empty()) {
+        Some(id) => Some(
+            crate::localshells::resolve(&crate::localshells::RealEnv, &id)
+                .ok_or_else(|| ApiError::new("local", format!("The shell \"{id}\" isn't available on this computer.")))?
+                .argv,
+        ),
+        None => None,
+    };
     let sink = Arc::new(PaneSink {
         app,
         pane_id: pane_id.clone(),
@@ -2325,9 +2343,11 @@ pub fn local_spawn(
         log: state.log_slot(&pane_id),
     });
     // "pwsh -NoLogo" style: the first word is the program.
-    let argv: Option<Vec<String>> = shell
-        .map(|s| s.split_whitespace().map(str::to_string).collect::<Vec<_>>())
-        .filter(|v| !v.is_empty());
+    let argv: Option<Vec<String>> = by_id.or_else(|| {
+        shell
+            .map(|s| s.split_whitespace().map(str::to_string).collect::<Vec<_>>())
+            .filter(|v| !v.is_empty())
+    });
     let home = sftp::local::home();
     let cwd = cwd
         .filter(|c| !c.trim().is_empty())

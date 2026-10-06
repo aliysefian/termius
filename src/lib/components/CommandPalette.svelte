@@ -8,6 +8,7 @@
   import { describeForward, errorMessage } from "$lib/types";
   import { parseAdhoc } from "$lib/ssh";
   import { settings } from "$lib/stores/settings.svelte";
+  import { localShells } from "$lib/stores/localshells.svelte";
   import { runSnippet } from "$lib/runsnippet";
   import { adhocLabel, ui, type View, type WorkspaceTab } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
@@ -187,6 +188,16 @@
       ["Open Settings", Settings, go("settings")],
       ["Lock vault", Lock, () => void vaultStore.lock(), "Ctrl+Shift+L"],
     ];
+    for (const sh of localShells.list) {
+      out.push({
+        id: `shell-${sh.id}`,
+        label: `New local terminal: ${sh.label}`,
+        hint: sh.argv.join(" "),
+        group: "Actions",
+        icon: SquareTerminal,
+        run: () => ui.openLocal(undefined, sh.kind === "wsl" ? sh.label.replace("WSL: ", "") : sh.label, sh.id),
+      });
+    }
     for (const c of vaultStore.dbConnections) {
       if (!c.data) continue;
       out.push({
@@ -265,6 +276,8 @@
     }
     queueMicrotask(() => list?.querySelector(`[data-index="${selected}"]`)?.scrollIntoView({ block: "nearest" }));
   }
+
+  void localShells.ensure();
 </script>
 
 <div class="fixed inset-0 z-50 flex items-start justify-center bg-black/50 pt-[12vh]" role="presentation" onclick={(e) => e.target === e.currentTarget && close()}>

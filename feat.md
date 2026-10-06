@@ -22,7 +22,7 @@ version.
 | Phase | Done | Next |
 |---|---|---|
 | 1. File transfer | 0 of 7 | F0 |
-| 2. Terminal and connection types | 0 of 5 | T2 |
+| 2. Terminal and connection types | 0 of 5 (T2 built, two lines unverified) | T1, T3–T5 |
 | 3. Databases | 3 of 9 (D0 and D1 `acfb247`, D2 `a72c4dd`) | D6, D7, D5, D8, D3, D4 |
 | 4. Containers | 2 of 6 (C0 `45a9743`, C1 `ebe4399`) | C2 (needs a real Podman) |
 | 5. Monitoring | 0 of 1: M1 (`971bf41`) is built, one DoD line open (a recording from a real macOS or BSD) | that one recording |
@@ -278,10 +278,17 @@ All of these reuse the existing SFTP view (`SftpView.svelte`,
   listing WSL distributions (Windows). **S–M**
   DoD:
   - [ ] "New local terminal" shows detected shells; the default is a setting.
+        Built (menu beside the tab-bar button, palette entries, Settings
+        default); the shells are detected on this Linux machine, but the menu
+        has not been looked at in a real window.
   - [ ] On Windows, `wsl -l -q` output (UTF-16) is parsed correctly, and each
-        distro opens as its own terminal in its home directory.
-  - [ ] On Linux and macOS the WSL entries do not appear.
-  - [ ] Unit test for the shell-detection and the `wsl -l` parser.
+        distro opens as its own terminal in its home directory. The parser is
+        tested with UTF-16 (with and without a byte-order mark), UTF-8 and
+        noise; the Windows code compiles and lints, but `wsl.exe --cd ~` has
+        not been run on a real Windows machine.
+  - [x] On Linux and macOS the WSL entries do not appear.
+  - [x] Unit test for the shell-detection and the `wsl -l` parser (21 tests in
+        `localshells.rs`, against a fake computer for Linux, macOS, Windows).
 
 - [ ] **T3. Remote desktop: RDP.** **L**
   DoD:

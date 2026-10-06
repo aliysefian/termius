@@ -67,6 +67,8 @@ export interface Prefs {
   prodTint: boolean;
   /** Local terminal program (e.g. "zsh", "pwsh -NoLogo", "wsl"); empty = system default. */
   localShell: string;
+  /** A detected shell (see the local shells store) chosen as the default; empty = use `localShell`. */
+  localShellId: string;
   /** Local terminal start folder; empty = home. */
   localCwd: string;
   /** Look for a new version at start-up (at most twice a day). */
@@ -124,6 +126,7 @@ export const DEFAULT_PREFS: Prefs = {
   customThemes: [],
   prodTint: true,
   localShell: "",
+  localShellId: "",
   localCwd: "",
   autoUpdateCheck: true,
   lastSeenVersion: "",

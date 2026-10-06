@@ -4,13 +4,14 @@
   import { writeText } from "@tauri-apps/plugin-clipboard-manager";
   import { sshCommand } from "$lib/sshcmd";
   import { ACTIONS, comboFor } from "$lib/shortcuts";
-  import { ArrowLeftRight, BellRing, Check, Circle, Columns2, Command, Copy, Ellipsis, FolderSync, Keyboard, List, Loader2, Maximize2, Minimize2, Plus, RefreshCw, Rows2, Search, SquareTerminal, Terminal, TextSelect, X, Zap } from "lucide-svelte";
+  import { ArrowLeftRight, BellRing, Check, ChevronDown, Circle, Columns2, Command, Copy, Ellipsis, FolderSync, Keyboard, List, Loader2, Maximize2, Minimize2, Plus, RefreshCw, Rows2, Search, SquareTerminal, Terminal, TextSelect, X, Zap } from "lucide-svelte";
   import Badge from "./Badge.svelte";
   import Kbd from "./Kbd.svelte";
   import { save } from "@tauri-apps/plugin-dialog";
   import * as api from "$lib/api";
   import { MAX_PANES, MIN_RATIO, layoutRects, type Divider } from "$lib/layout";
   import { settings } from "$lib/stores/settings.svelte";
+  import { localShells } from "$lib/stores/localshells.svelte";
   import { ask } from "$lib/dialogs.svelte";
   import { paneLabel, STATUS_DOT, ui, type Pane, type Tab } from "$lib/stores/ui.svelte";
   import { writeToPane } from "$lib/terminalio";
@@ -50,6 +51,13 @@
   // the cursor so it's ready to use. Scoped to the active pane only: the
   // drop event carries a screen position, not which split pane it landed
   // on, and guessing from coordinates risked uploading to the wrong host.
+  let shellMenu = $state<{ x: number; y: number } | null>(null);
+  function openShellMenu(el: HTMLElement) {
+    const r = el.getBoundingClientRect();
+    shellMenu = { x: Math.max(4, Math.min(r.left, window.innerWidth - 330)), y: r.bottom + 4 };
+    void localShells.ensure();
+  }
+
   onMount(() => {
     let off: (() => void) | undefined;
     void import("@tauri-apps/api/webview").then(async ({ getCurrentWebview }) => {
@@ -303,6 +311,33 @@
   }
 </script>
 
+{#if shellMenu}
+  <div class="fixed inset-0 z-40" role="presentation" onclick={() => (shellMenu = null)} oncontextmenu={(e) => { e.preventDefault(); shellMenu = null; }}></div>
+  <div
+    class="fixed z-50 min-w-48 max-w-80 overflow-auto rounded-lg border border-line bg-panel py-1 text-xs shadow-xl"
+    style="left:{shellMenu.x}px;top:{shellMenu.y}px;max-height:60vh"
+    role="menu"
+    aria-label="Local shells"
+  >
+    {#each localShells.list as sh (sh.id)}
+      <button
+        class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-hover"
+        role="menuitem"
+        title={sh.argv.join(" ")}
+        onclick={() => { shellMenu = null; ui.openLocal(undefined, sh.kind === "wsl" ? sh.label.replace("WSL: ", "") : sh.label, sh.id); }}
+      >
+        <span class="truncate">{sh.label}</span>
+        {#if sh.id === (localShells.defaultId ?? localShells.list.find((s) => s.is_default)?.id)}<span class="ml-auto text-fg-muted">default</span>{/if}
+      </button>
+    {:else}
+      <p class="px-3 py-2 text-fg-muted">{localShells.loaded ? "No shells found." : "Looking…"}</p>
+    {/each}
+    <button class="flex w-full items-center gap-2 border-t border-line px-3 py-1.5 text-left text-fg-muted hover:bg-hover" role="menuitem" onclick={() => { shellMenu = null; void localShells.refresh(); }}>
+      Look again
+    </button>
+  </div>
+{/if}
+
 <svelte:window
   onkeydown={(e) => {
     if (e.key !== "Escape") return;
@@ -407,6 +442,16 @@
       </button>
       <button class="icon-btn mb-1 h-7 w-7 shrink-0" title="Local terminal (Ctrl+Shift+`)" onclick={() => ui.openLocal()}>
         <SquareTerminal size={15} />
+      </button>
+      <button
+        class="icon-btn mb-1 -ml-1 h-7 w-4 shrink-0"
+        title="Choose a shell"
+        aria-label="Choose a shell for a new local terminal"
+        aria-haspopup="menu"
+        aria-expanded={shellMenu !== null}
+        onclick={(e) => openShellMenu(e.currentTarget)}
+      >
+        <ChevronDown size={12} />
       </button>
     </div>
     {#if !atStart}

@@ -258,12 +258,13 @@ export const remoteEdit = {
 };
 
 export const localTerm = {
-  spawn(paneId: string, cols: number, rows: number, onData: (bytes: Uint8Array) => void, shell: string | null = null, cwd: string | null = null) {
+  spawn(paneId: string, cols: number, rows: number, onData: (bytes: Uint8Array) => void, shell: string | null = null, cwd: string | null = null, shellId: string | null = null) {
     const channel = new Channel<ArrayBuffer | number[]>((msg) =>
       onData(msg instanceof ArrayBuffer ? new Uint8Array(msg) : Uint8Array.from(msg)),
     );
-    return invoke<void>("local_spawn", { paneId, cols, rows, shell, cwd, onData: channel });
+    return invoke<void>("local_spawn", { paneId, cols, rows, shell, shellId, cwd, onData: channel });
   },
+  shells: () => invoke<import("./types").LocalShell[]>("local_shells"),
   write: (paneId: string, data: Uint8Array) => invoke<void>("local_write", { paneId, data: Array.from(data) }),
   resize: (paneId: string, cols: number, rows: number) => invoke<void>("local_resize", { paneId, cols, rows }),
   close: (paneId: string) => invoke<void>("local_close", { paneId }),

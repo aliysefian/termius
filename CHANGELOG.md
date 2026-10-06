@@ -4,6 +4,17 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## Unreleased
+
+- **Choose the shell for a local terminal.** The arrow beside the local
+  terminal button lists the shells found on this computer (your login shell
+  first; PowerShell, Command Prompt and Git Bash on Windows) and opens one in a
+  new tab. The command palette has the same entries, and Settings → Local
+  terminal has a default-shell menu. On Windows each WSL distribution is listed
+  too and opens in its own home folder; on Linux and macOS there are no WSL
+  entries. The Windows part is written and checked here but not yet run on
+  Windows.
+
 ## 0.14.0 — 2026-10-05
 
 - **A detail view for monitored hosts.** Open it from a host's details card

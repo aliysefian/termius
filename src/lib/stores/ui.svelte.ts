@@ -33,7 +33,7 @@ export type PaneTarget =
   | { kind: "adhoc"; adhoc: AdhocTarget }
   | { kind: "telnet"; host: string; port: number }
   | { kind: "serial"; config: SerialConfig }
-  | { kind: "local"; /** Typed into the shell once it starts. */ command?: string };
+  | { kind: "local"; /** Typed into the shell once it starts. */ command?: string; /** A detected shell to run instead of the default. */ shellId?: string };
 
 export interface Pane {
   id: string;
@@ -263,8 +263,11 @@ class UiStore {
     this.view = "sftp";
   }
 
-  openLocal(command?: string, title = "Local") {
-    this.#openTab(command ? { kind: "local", command } : { kind: "local" }, title);
+  openLocal(command?: string, title = "Local", shellId?: string) {
+    const target: PaneTarget = { kind: "local" };
+    if (command) target.command = command;
+    if (shellId) target.shellId = shellId;
+    this.#openTab(target, title);
   }
 
   /**

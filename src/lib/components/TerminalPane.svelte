@@ -19,6 +19,7 @@
   import { connectionLog } from "$lib/stores/connectionlog.svelte";
   import { findHostPortMatches, findPathMatches, resolveBrowsePath } from "$lib/termlinks";
   import { settings } from "$lib/stores/settings.svelte";
+  import { localShells } from "$lib/stores/localshells.svelte";
   import { adhocLabel, ui, type Pane } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
   import { themeById } from "$lib/themes";
@@ -389,7 +390,10 @@
       } else if (target.kind === "adhoc") {
         await ssh.connectAdhoc(paneId, target.adhoc, term.cols, term.rows, onData);
       } else {
-        await api.localTerm.spawn(paneId, term.cols, term.rows, onData, settings.prefs.localShell.trim() || null, settings.prefs.localCwd.trim() || null);
+        await localShells.ensure();
+        // This tab's own shell, else your default if it is still installed, else the free-text command.
+        const shellId = (target.kind === "local" ? target.shellId : undefined) ?? localShells.defaultId;
+        await api.localTerm.spawn(paneId, term.cols, term.rows, onData, settings.prefs.localShell.trim() || null, settings.prefs.localCwd.trim() || null, shellId);
         // A command to start with (for example a container shell): give the shell a moment to print its prompt.
         const startup = target.kind === "local" ? target.command?.trim() : "";
         if (startup) setTimeout(() => void writeToPane(pane, startup + "\r"), 400);
