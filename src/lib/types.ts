@@ -92,6 +92,21 @@ export interface Host {
   file_protocol?: "scp";
   /** Remote Desktop settings, for hosts whose protocol is "rdp". */
   rdp?: RdpOptions;
+  /** FTP settings, for hosts whose protocol is "ftp". */
+  ftp?: FtpOptions;
+}
+
+export type FtpTls = "none" | "explicit" | "implicit";
+
+export interface FtpOptions {
+  tls: FtpTls;
+  anonymous: boolean;
+  /** SHA-256 of the server's certificate once trusted. */
+  cert_sha256?: string;
+}
+
+export function emptyFtp(): FtpOptions {
+  return { tls: "explicit", anonymous: false };
 }
 
 export type RdpSecurity = "auto" | "nla" | "tls";

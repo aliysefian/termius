@@ -10,6 +10,7 @@
   import Badge from "./Badge.svelte";
   import { local, LOCAL_ID, remote, sftp, type Conflict, type Direction, type FileSource } from "$lib/sftp";
   import { choose } from "$lib/dialogs.svelte";
+  import { askAboutCertificate } from "$lib/certprompt";
   import { ui } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
   import { settings } from "$lib/stores/settings.svelte";
@@ -97,7 +98,8 @@
 
   const remoteSource = $derived<FileSource | null>(connectedHost ? remote(sessionId) : null);
   const host = $derived(hostId ? vaultStore.hostById.get(hostId)?.data : undefined);
-  const hostChoices = $derived(hostOptions(vaultStore.hosts));
+  // Hosts with files to browse: SSH ones, and FTP ones. Not Remote Desktop or Telnet.
+  const hostChoices = $derived(hostOptions(vaultStore.hosts, (h) => !h.data?.protocol || h.data.protocol === "ssh" || h.data.protocol === "ftp"));
   const connectedData = $derived(connectedHost ? vaultStore.hostById.get(connectedHost)?.data : undefined);
   const connectedLabel = $derived(connectedHost ? vaultStore.hostById.get(connectedHost)?.data?.label : "");
 
@@ -164,7 +166,7 @@
 
   async function connect(creds: { username: string; password: string } | null = null) {
     if (!hostId) return;
-    if (!creds && host && !vaultStore.effectiveIdentity(host)) {
+    if (!creds && host && !vaultStore.effectiveIdentity(host) && !host.ftp?.anonymous) {
       askCreds = true;
       return;
     }
@@ -173,7 +175,7 @@
     sftpOff = false;
     askCreds = false;
     try {
-      const res = host?.file_protocol === "scp" ? await sftp.openScp(sessionId, hostId, creds) : await sftp.open(sessionId, hostId, creds);
+      const res = await openFiles(creds);
       connectedHost = hostId;
       remotePath = res.home;
       remoteRefresh++;
@@ -190,6 +192,21 @@
   }
 
   let retryCreds: { username: string; password: string } | null = null;
+
+  /** Open the host's files by the protocol it uses; an FTP certificate that needs a decision is asked about and retried. */
+  async function openFiles(creds: { username: string; password: string } | null, accept: string | null = null): Promise<{ home: string; new_host_keys: { host: string; fingerprint: string }[] }> {
+    if (host?.protocol === "ftp") {
+      try {
+        const r = await sftp.openFtp(sessionId, hostId as Uuid, creds, accept);
+        return { home: r.home, new_host_keys: [] };
+      } catch (e) {
+        const fingerprint = await askAboutCertificate(host.label, e);
+        if (fingerprint) return openFiles(creds, fingerprint);
+        throw e;
+      }
+    }
+    return host?.file_protocol === "scp" ? sftp.openScp(sessionId, hostId as Uuid, creds) : sftp.open(sessionId, hostId as Uuid, creds);
+  }
 
   /** Remember on the host that its files go over SCP, and connect that way. */
   async function useScp() {
@@ -218,7 +235,7 @@
         hostId = r.hostId;
         await connect();
       }
-      if (connectedHost === r.hostId) {
+      if (connectedHost === r.hostId && r.path) {
         remotePath = r.path;
         remoteRefresh++;
       }
@@ -418,7 +435,13 @@
         <Server size={14} class="text-accent" />
         {#if connectedHost}
           <span class="truncate text-sm font-medium">{connectedLabel}</span>
-          {#if connectedData?.file_protocol === "scp"}
+          {#if connectedData?.protocol === "ftp"}
+            {#if (connectedData.ftp?.tls ?? "explicit") === "none"}
+              <Badge tone="warning" title="Plain FTP sends everything, including the password, readable by anyone on the network path">UNENCRYPTED</Badge>
+            {:else}
+              <Badge title="The connection is encrypted with TLS">FTPS</Badge>
+            {/if}
+          {:else if connectedData?.file_protocol === "scp"}
             <Badge title="This host's files go over SCP, not SFTP">SCP</Badge>
           {/if}
           <span class="flex-1"></span>

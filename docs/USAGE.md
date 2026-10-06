@@ -446,6 +446,17 @@ folder you keep both of is copied beside the old one, not into it.
   **Files** to SCP in its form). SCP browses, uploads, downloads, renames,
   deletes and changes permissions, but can't continue a partly copied file or
   open a file for editing, and a file name can't contain a line break.
+- **FTP and FTPS.** Choose **FTP / FTPS** as a host's protocol (port 21, or 990
+  for implicit TLS), pick the encryption, and tick **Anonymous** if the server
+  takes no login; otherwise attach a user name and password. Double-click the
+  host, or choose it in the SFTP view. Explicit TLS (the default) and implicit
+  TLS show the server's certificate the first time and trust it from then on,
+  like an SSH host key; a different one later is refused before your password
+  is sent. **None** works, but the tab says **UNENCRYPTED** and the password and
+  files cross the network readable. FTP downloads and uploads continue where
+  they stopped when you retry. If a server behind NAT announces a private
+  address for its data connections, the address you connected to is used
+  instead. Jump hosts and proxies aren't used for FTP.
 - Each kind only offers what it can do: a server that can't rename or delete
   doesn't show those buttons or menu items.
 

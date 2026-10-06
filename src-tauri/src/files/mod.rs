@@ -8,6 +8,7 @@
 //! A backend says what it can do ([`Caps`]); the window hides the rest.
 
 pub mod engine;
+pub mod ftp;
 pub mod local;
 pub mod pipe;
 pub mod scp;

@@ -4,6 +4,7 @@
 mod acceptance_tests;
 pub mod agent;
 pub mod ansible;
+pub mod certs;
 pub mod commands;
 pub mod config;
 pub mod containers;
@@ -183,6 +184,7 @@ pub fn run() {
             commands::sftp_edit_stop,
             commands::sftp_open,
             commands::scp_open,
+            commands::ftp_open,
             commands::local_home,
             commands::files_caps,
             commands::files_home,

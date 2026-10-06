@@ -240,6 +240,11 @@ class UiStore {
   }
 
   openTerminal(hostId: Uuid, title: string, command?: string) {
+    // An FTP host has no terminal: its files open in the Files view.
+    if (vaultStore.hostById.get(hostId)?.data?.protocol === "ftp") {
+      this.openSftpAt(hostId, "");
+      return;
+    }
     this.#openTab(command ? { kind: "host", hostId, command } : { kind: "host", hostId }, title);
   }
 

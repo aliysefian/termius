@@ -6,13 +6,17 @@ View changelog**.
 
 ## Unreleased
 
-- **SCP, and a choice when a name is already there.** When a server has SFTP
-  turned off, connecting now says so and offers **Use SCP for this host**
-  (remembered on the host, or set in its form). SCP browses, uploads,
-  downloads, renames, deletes and changes permissions. A transfer that would
-  overwrite something now asks: Replace, Skip or Keep both (the new one becomes
-  `name (1).ext`). Underneath, every file pane is one interface, so a pane only
-  offers what its server can do. Tested against OpenSSH with SFTP removed.
+- **SCP and FTP/FTPS in the file browser.** When a server has SFTP turned off,
+  connecting now says so and offers **Use SCP for this host** (remembered on
+  the host). New **FTP / FTPS** hosts browse, upload, download, rename, delete
+  and make folders over plain FTP, explicit TLS or implicit TLS, continue
+  interrupted transfers, and work with servers behind NAT. A server's TLS
+  certificate is shown and pinned like an SSH host key, and plain FTP is
+  marked UNENCRYPTED. A name that is already at the destination now asks:
+  Replace, Skip or Keep both. Underneath, every file pane is one interface, so
+  panes only offer what their server can do. Tested against real servers:
+  OpenSSH with SFTP removed, Pure-FTPd (plain, TLS, NAT) and ProFTPD (implicit
+  TLS).
 
 ## 0.15.0 — 2026-10-06
 

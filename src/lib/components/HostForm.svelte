@@ -10,7 +10,7 @@
   import { revealIdentity } from "$lib/secrets.svelte";
   import { ui } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
-  import { ENVIRONMENTS, emptyHost, emptyRdp, errorMessage, type Host, type HostCredentials, type InlineAuth, type Uuid } from "$lib/types";
+  import { ENVIRONMENTS, emptyFtp, emptyHost, emptyRdp, errorMessage, type FtpTls, type Host, type HostCredentials, type InlineAuth, type Uuid } from "$lib/types";
 
   let { id, group }: { id: Uuid | null; group?: string } = $props();
 
@@ -270,8 +270,9 @@
       } else {
         form.rdp = undefined;
       }
-      form.mosh = form.protocol === "rdp" ? undefined : form.mosh;
-      if (form.protocol === "rdp" || form.protocol === "telnet") form.file_protocol = undefined;
+      form.mosh = form.protocol === "rdp" || form.protocol === "ftp" ? undefined : form.mosh;
+      if (form.protocol === "rdp" || form.protocol === "telnet" || form.protocol === "ftp") form.file_protocol = undefined;
+      form.ftp = form.protocol === "ftp" ? (form.ftp ?? emptyFtp()) : undefined;
       form.environment = envChoice === "custom" ? customEnv.trim() || undefined : envChoice || undefined;
       form.proxy_id = form.proxy_id || undefined;
       form.no_group_jump = (!form.jump_host_id && form.no_group_jump) || undefined;
@@ -374,21 +375,23 @@
           <select
             id="h-proto"
             class="input"
-            value={form.protocol === "telnet" ? "telnet" : form.protocol === "rdp" ? "rdp" : "ssh"}
+            value={form.protocol === "telnet" ? "telnet" : form.protocol === "rdp" ? "rdp" : form.protocol === "ftp" ? "ftp" : "ssh"}
             onchange={(e) => {
               const v = e.currentTarget.value;
               form.protocol = v === "ssh" ? undefined : v;
               // Move the port only if it is still the old protocol's default.
-              const defaults: Record<string, number> = { ssh: 22, telnet: 23, rdp: 3389 };
+              const defaults: Record<string, number> = { ssh: 22, telnet: 23, rdp: 3389, ftp: 21 };
               if (Object.values(defaults).includes(form.port)) form.port = defaults[v];
               if (v === "rdp") form.rdp ??= emptyRdp();
+              if (v === "ftp") form.ftp ??= emptyFtp();
             }}
           >
             <option value="ssh">SSH</option>
             <option value="rdp">Remote Desktop (RDP)</option>
+            <option value="ftp">FTP / FTPS (files only)</option>
             <option value="telnet">Telnet (unencrypted, for network gear)</option>
           </select>
-          {#if form.protocol !== "telnet" && form.protocol !== "rdp"}
+          {#if form.protocol !== "telnet" && form.protocol !== "rdp" && form.protocol !== "ftp"}
             <div class="mt-2 flex items-center gap-2 text-xs">
               <label class="shrink-0 font-medium" for="h-files">Files</label>
               <select id="h-files" class="input w-auto py-1 text-xs" value={form.file_protocol ?? ""} onchange={(e) => (form.file_protocol = e.currentTarget.value === "scp" ? "scp" : undefined)}>
@@ -407,6 +410,51 @@
                 </span>
               </span>
             </label>
+          {/if}
+          {#if form.protocol === "ftp" && form.ftp}
+            <div class="mt-3 grid grid-cols-2 gap-3 rounded-lg border border-line bg-base/40 p-3">
+              <div>
+                <label class="label" for="h-ftp-tls">Encryption</label>
+                <select
+                  id="h-ftp-tls"
+                  class="input text-xs"
+                  value={form.ftp.tls}
+                  onchange={(e) => {
+                    const v = e.currentTarget.value as FtpTls;
+                    if (!form.ftp) return;
+                    // Implicit FTPS conventionally lives on 990; follow the port only while it is still a default.
+                    if (v === "implicit" && form.port === 21) form.port = 990;
+                    else if (v !== "implicit" && form.port === 990) form.port = 21;
+                    form.ftp.tls = v;
+                  }}
+                >
+                  <option value="explicit">Explicit TLS (FTPES, recommended)</option>
+                  <option value="implicit">Implicit TLS (FTPS, port 990)</option>
+                  <option value="none">None (UNENCRYPTED)</option>
+                </select>
+              </div>
+              <label class="flex items-center gap-2 self-end pb-2 text-xs">
+                <input type="checkbox" class="accent-input" checked={form.ftp.anonymous} onchange={(e) => form.ftp && (form.ftp.anonymous = e.currentTarget.checked)} />
+                <span>Anonymous (no user name or password)</span>
+              </label>
+              {#if form.ftp.tls === "none"}
+                <p class="col-span-2 text-xs text-warning">
+                  Plain FTP sends everything, including your password and the files, readable by anyone on the path between you and the server.
+                  Use it only on a network you trust.
+                </p>
+              {/if}
+              <div class="col-span-2 text-xs text-fg-muted">
+                {#if form.ftp.tls !== "none"}
+                  {#if form.ftp.cert_sha256}
+                    <div>Server certificate trusted: <span class="font-mono break-all">{formatFingerprint(form.ftp.cert_sha256)}</span></div>
+                    <button type="button" class="mt-1 text-accent hover:underline" onclick={() => form.ftp && (form.ftp.cert_sha256 = undefined)}>Forget it (you'll be asked again next time)</button>
+                  {:else}
+                    The server's certificate is shown the first time you connect, and trusted from then on. A different one later is refused until you say otherwise.
+                  {/if}
+                {/if}
+                <div class="mt-1">Credentials below must be a user name and password (unless anonymous). Jump hosts and proxies aren't used for FTP. Open it from the Files view or by double-clicking the host.</div>
+              </div>
+            </div>
           {/if}
           {#if form.protocol === "rdp" && form.rdp}
             <div class="mt-3 grid grid-cols-2 gap-3 rounded-lg border border-line bg-base/40 p-3">

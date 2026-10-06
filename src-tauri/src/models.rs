@@ -80,6 +80,19 @@ impl Identity {
     }
 }
 
+/// How to open an FTP host.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FtpOptions {
+    #[serde(default)]
+    pub tls: crate::files::ftp::FtpTls,
+    /// Sign in as `anonymous` instead of with a credential.
+    #[serde(default)]
+    pub anonymous: bool,
+    /// SHA-256 of the server's certificate, trusted on first use. Empty until pinned.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub cert_sha256: String,
+}
+
 /// How to open a Remote Desktop host.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RdpOptions {
@@ -170,6 +183,9 @@ pub struct Host {
     /// host) instead of a plain SSH session.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub mosh: bool,
+    /// Settings for an FTP host (`protocol` = "ftp").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ftp: Option<FtpOptions>,
     /// How to browse this host's files: empty for SFTP, "scp" when SFTP is off on the server.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub file_protocol: String,

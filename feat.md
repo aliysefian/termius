@@ -21,7 +21,7 @@ version.
 
 | Phase | Done | Next |
 |---|---|---|
-| 1. File transfer | 1 of 7 (F0 built with one DoD line open; F1 done) | F2, F3, F4, F5, F6 |
+| 1. File transfer | 2 of 7 (F0 built with one DoD line open; F1, F2 done) | F3, F4, F5, F6 |
 | 2. Terminal and connection types | 0 of 5 (T1, T2, T3 built; some lines unverified) | T4, T5 |
 | 3. Databases | 3 of 9 (D0 and D1 `acfb247`, D2 `a72c4dd`) | D6, D7, D5, D8, D3, D4 |
 | 4. Containers | 2 of 6 (C0 `45a9743`, C1 `ebe4399`) | C2 (needs a real Podman) |
@@ -90,9 +90,15 @@ sheared without it). See `src-tauri/vendor/README.md` before bumping any
 long script goes to `sh` as a file, not `sh -c` (that broke the macOS-fixture
 monitor test).
 
-## SCP test server (F1)
+## FTP and SCP test servers (F1, F2)
 
-The SCP tests need only a local `sshd` and `scp`; the live ones are skipped without them.
+Run the live tests with `SSHVAULT_FTP_ADDR=127.0.0.1:2121 SSHVAULT_FTP_NAT_ADDR=127.0.0.1:2122 SSHVAULT_FTPS_ADDR=127.0.0.1:2990 SSHVAULT_FTP_USER=tester SSHVAULT_FTP_PASS=secret cargo test --lib files::`.
+The SCP tests need only a local `sshd` and `scp`.
+- Plain and explicit TLS: `docker run -d --name sshvault-ftp -p 127.0.0.1:2121:21 -p 127.0.0.1:30000-30029:30000-30029 -e PUBLICHOST=127.0.0.1 -e FTP_USER_NAME=tester -e FTP_USER_PASS=secret -e FTP_USER_HOME=/home/tester -e FTP_PASSIVE_PORTS=30000:30029 -e FTP_MAX_CLIENTS=60 -e FTP_MAX_CONNECTIONS=60 -e ADDED_FLAGS=--tls=1 -e TLS_CN=localhost -e TLS_ORG=test -e TLS_C=US stilliard/pure-ftpd` (the TLS certificate takes a minute to generate).
+- NAT: the same image on port 2122 with passive ports 30030-30059 and `PUBLICHOST=10.255.255.1`, an address nothing answers.
+- Implicit TLS: ProFTPD built from `debian:bookworm-slim` with `proftpd-core proftpd-mod-crypto`, a self-signed certificate, and a `<VirtualHost>` on port 990 with `TLSOptions UseImplicitSSL NoSessionReuseRequired` and passive ports 30100-30139. It needs `ModulePath /usr/lib/proftpd` and `LoadModule mod_tls.c` when you write your own `proftpd.conf`, or `<IfModule mod_tls.c>` is silently skipped.
+- vsftpd was tried and dropped: Debian's 3.0.3 segfaults on a TLS data connection with OpenSSL 3, and Alpine's exits silently on unknown options.
+Traps: implicit TLS needs `PBSZ 0` and `PROT P` sent by hand (the library only does it for explicit), or the data connections stay plain and hang; a path with a line break would start a second FTP command, so every path is checked; `docker exec` of a program that outlives it must be `docker exec -d`.
 
 ## Tooling and traps (learned building D0 to C0)
 
@@ -212,7 +218,7 @@ All of these reuse the existing SFTP view (`SftpView.svelte`,
   trait, and let a pane be bound to any backend, local or remote. **M**
   Touches: `sftp.rs`, `commands.rs`, `SftpView.svelte`, `FilePane.svelte`,
   `sftp.ts`. Built as `src-tauri/src/files/`: `FileBackend` (mod.rs), the
-  generic transfer engine (engine.rs), `local.rs`, `scp.rs` and a
+  generic transfer engine (engine.rs), `local.rs`, `scp.rs`, `ftp.rs` and a
   test-only in-memory backend (memory.rs); the window talks to any pane by id
   through `files_*` commands.
   DoD:
@@ -231,10 +237,10 @@ All of these reuse the existing SFTP view (`SftpView.svelte`,
   - [ ] Transfers between any two panes work, even with different backends,
         with progress, cancel, and conflict choices (overwrite, skip, rename).
         The engine and `files_transfer_start` take any two panes by id
-        (tested memory to memory, disk to memory, disk to SFTP and SCP), and
+        (tested memory to memory, disk to memory, disk to SFTP, SCP, FTP), and
         the window asks Replace / Skip / Keep both. **Open:** the layout still
         pairs "this computer" with one host, so two remote panes at once
-        (for example SCP to SFTP) can't be set up from the window.
+        (for example FTP to SFTP) can't be set up from the window.
 
 - [x] **F1. SCP.** Use SCP as a fallback for servers with the SFTP subsystem
   disabled, and as a per-host choice. **S–M**
@@ -252,18 +258,27 @@ All of these reuse the existing SFTP view (`SftpView.svelte`,
         names through upload, list, download, rename, remove and mkdir, with a
         canary file that must not appear; breaking the quoting makes it fail.
 
-- [ ] **F2. FTP and FTPS.** Explicit and implicit TLS, passive mode, saved as
+- [x] **F2. FTP and FTPS.** Explicit and implicit TLS, passive mode, saved as
   a host type. **M**
   DoD:
-  - [ ] A new host type "FTP" with host, port, user, password or anonymous,
-        and a TLS mode: none (labelled UNENCRYPTED), explicit, implicit.
-  - [ ] Certificate problems show the fingerprint and need a deliberate
-        "Trust this certificate", pinned like known hosts.
-  - [ ] Browse, upload, download, rename, delete, mkdir, resume of an
-        interrupted download. Tested against a local FTP server in CI or a
-        scratch test.
-  - [ ] Passive mode works behind NAT (uses the control connection's IP when
-        the server returns a private one).
+  - [x] A new host type "FTP" with host, port, user, password or anonymous,
+        and a TLS mode: none (labelled UNENCRYPTED), explicit, implicit. The
+        form and the badges were checked in a headless browser. **Not
+        verified:** an anonymous sign-in against a server that offers one (the
+        test servers have one user).
+  - [x] Certificate problems show the fingerprint and need a deliberate
+        "Trust this certificate", pinned like known hosts. Live: an unknown
+        certificate stops the connection before the password is sent, accepting
+        it connects (data connections included), a pinned one connects, a
+        different one is refused with both fingerprints; pin storage is
+        unit-tested against a vault.
+  - [x] Browse, upload, download, rename, delete, mkdir, resume of an
+        interrupted download. Tested against Pure-FTPd (plain and explicit
+        TLS) and ProFTPD (implicit TLS, listings through `LIST`); uploads
+        resume too (`APPE`).
+  - [x] Passive mode works behind NAT (uses the control connection's IP when
+        the server returns a private one). A Pure-FTPd that announces
+        10.255.255.1 works; without the fix the same test hangs.
 
 - [ ] **F3. SMB shares.** Browse and transfer on Windows and Samba shares. **M**
   DoD:

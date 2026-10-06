@@ -24,10 +24,8 @@ use ironrdp_pdu::rdp::capability_sets::{client_codecs_capabilities, MajorPlatfor
 use ironrdp_session::image::DecodedImage;
 use ironrdp_session::{fast_path, ActiveStage, ActiveStageBuilder, ActiveStageOutput};
 use ironrdp_tokio::{single_sequence_step_read, split_tokio_framed, FramedWrite};
-use sha2::{Digest, Sha256};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
-use x509_cert::der::Encode;
 
 use self::clipboard::TextClipboard;
 
@@ -48,17 +46,6 @@ pub enum RdpError {
     CertificateChanged { expected: String, found: Box<CertInfo> },
     #[error("no such remote desktop session")]
     NoSession,
-}
-
-/// What the server's certificate looks like, for the person to decide on.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
-pub struct CertInfo {
-    /// SHA-256 of the certificate, as 64 lowercase hex digits.
-    pub fingerprint: String,
-    pub subject: String,
-    pub issuer: String,
-    pub not_before: String,
-    pub not_after: String,
 }
 
 #[derive(Debug, Clone)]
@@ -89,25 +76,15 @@ pub enum Security {
     Tls,
 }
 
-/// What is already known about the server's certificate.
-#[derive(Debug, Clone, Default)]
-pub struct CertCheck {
-    /// The fingerprint trusted before, if any.
-    pub pinned: Option<String>,
-    /// A fingerprint the person has just accepted, for a new or changed certificate.
-    pub accept: Option<String>,
-}
+pub use crate::certs::{CertCheck, CertInfo};
 
-impl CertCheck {
-    /// Whether to go ahead with a server presenting `found`.
-    fn check(&self, found: &CertInfo) -> Result<(), RdpError> {
-        let accepted = self.accept.as_deref() == Some(found.fingerprint.as_str());
-        match &self.pinned {
-            Some(p) if *p == found.fingerprint => Ok(()),
-            Some(p) if !accepted => Err(RdpError::CertificateChanged { expected: p.clone(), found: Box::new(found.clone()) }),
-            None if !accepted => Err(RdpError::CertificateUnknown(Box::new(found.clone()))),
-            _ => Ok(()),
-        }
+/// Whether to go ahead with a server presenting `found`.
+fn check_cert(check: &CertCheck, found: &CertInfo) -> Result<(), RdpError> {
+    use crate::certs::Verdict;
+    match check.verdict(&found.fingerprint) {
+        Verdict::Trusted => Ok(()),
+        Verdict::Unknown => Err(RdpError::CertificateUnknown(Box::new(found.clone()))),
+        Verdict::Changed { expected } => Err(RdpError::CertificateChanged { expected, found: Box::new(found.clone()) }),
     }
 }
 
@@ -238,16 +215,7 @@ impl ironrdp_tokio::NetworkClient for NoNetwork {
 }
 
 pub fn cert_info(cert: &x509_cert::Certificate) -> Result<CertInfo, RdpError> {
-    let der = cert.to_der().map_err(|e| RdpError::Connect(format!("unreadable server certificate: {e}")))?;
-    let fingerprint: String = Sha256::digest(&der).iter().map(|b| format!("{b:02x}")).collect();
-    let validity = &cert.tbs_certificate.validity;
-    Ok(CertInfo {
-        fingerprint,
-        subject: cert.tbs_certificate.subject.to_string(),
-        issuer: cert.tbs_certificate.issuer.to_string(),
-        not_before: validity.not_before.to_date_time().to_string(),
-        not_after: validity.not_after.to_date_time().to_string(),
-    })
+    crate::certs::cert_info(cert).map_err(RdpError::Connect)
 }
 
 /// `DOMAIN\user` carries the domain with the name; an explicit domain wins.
@@ -342,7 +310,7 @@ async fn establish(s: &Settings, cert: &CertCheck, clipboard: TextClipboard) -> 
 
     // The certificate is checked before anything secret is sent.
     let info = cert_info(&server_cert)?;
-    cert.check(&info)?;
+    check_cert(cert, &info)?;
 
     let upgraded = ironrdp_tokio::mark_as_upgraded(should_upgrade, &mut connector);
     let mut framed = ironrdp_tokio::TokioFramed::new_with_leftover(tls, leftover);
@@ -542,24 +510,24 @@ mod tests {
     #[test]
     fn an_unknown_certificate_stops_the_connection_until_accepted() {
         let none = CertCheck::default();
-        assert!(matches!(none.check(&info("aa")), Err(RdpError::CertificateUnknown(i)) if i.fingerprint == "aa"));
+        assert!(matches!(check_cert(&none, &info("aa")), Err(RdpError::CertificateUnknown(i)) if i.fingerprint == "aa"));
         // Accepting a different fingerprint doesn't let this one through.
         let other = CertCheck { pinned: None, accept: Some("bb".into()) };
-        assert!(matches!(other.check(&info("aa")), Err(RdpError::CertificateUnknown(_))));
+        assert!(matches!(check_cert(&other, &info("aa")), Err(RdpError::CertificateUnknown(_))));
         let ok = CertCheck { pinned: None, accept: Some("aa".into()) };
-        assert!(ok.check(&info("aa")).is_ok());
+        assert!(check_cert(&ok, &info("aa")).is_ok());
     }
 
     #[test]
     fn a_pinned_certificate_must_match_and_a_change_needs_a_fresh_accept() {
         let pinned = CertCheck { pinned: Some("aa".into()), accept: None };
-        assert!(pinned.check(&info("aa")).is_ok());
-        assert!(matches!(pinned.check(&info("bb")), Err(RdpError::CertificateChanged { expected, found }) if expected == "aa" && found.fingerprint == "bb"));
+        assert!(check_cert(&pinned, &info("aa")).is_ok());
+        assert!(matches!(check_cert(&pinned, &info("bb")), Err(RdpError::CertificateChanged { expected, found }) if expected == "aa" && found.fingerprint == "bb"));
         // Accepting the old one doesn't help a changed certificate; accepting the new one does.
         let wrong = CertCheck { pinned: Some("aa".into()), accept: Some("aa".into()) };
-        assert!(matches!(wrong.check(&info("bb")), Err(RdpError::CertificateChanged { .. })));
+        assert!(matches!(check_cert(&wrong, &info("bb")), Err(RdpError::CertificateChanged { .. })));
         let replaced = CertCheck { pinned: Some("aa".into()), accept: Some("bb".into()) };
-        assert!(replaced.check(&info("bb")).is_ok());
+        assert!(check_cert(&replaced, &info("bb")).is_ok());
     }
 
     #[test]

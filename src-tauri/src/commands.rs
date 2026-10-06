@@ -210,6 +210,12 @@ impl From<SftpError> for ApiError {
             SftpError::Ssh(s) => s.into(),
             SftpError::NoSession => Self::new("not_connected", "SFTP session is not open"),
             SftpError::NoSubsystem => Self::new("sftp_unavailable", e.to_string()),
+            SftpError::UntrustedCertificate(ref info) => Self { code: "ftp_certificate_unknown", message: e.to_string(), details: serde_json::to_value(&**info).ok() },
+            SftpError::CertificateChanged { ref expected, ref found } => Self {
+                code: "ftp_certificate_changed",
+                message: e.to_string(),
+                details: Some(serde_json::json!({ "expected": expected, "found": found })),
+            },
             SftpError::Unsupported(_) => Self::new("unsupported", e.to_string()),
             SftpError::InvalidPath(_) => Self::new("invalid_path", e.to_string()),
             other => Self::new("sftp", other.to_string()),
@@ -3734,6 +3740,63 @@ pub struct SftpOpened {
     pub home: String,
     /// Host keys (target and jumps) seen for the first time.
     pub new_host_keys: Vec<LearnedKey>,
+}
+
+/// What the window learns when an FTP pane is open.
+#[derive(Debug, Clone, Serialize)]
+pub struct FtpOpened {
+    pub home: String,
+    /// The certificate was pinned by this connection (first use, or a change the person accepted).
+    pub pinned_now: bool,
+}
+
+/// Open a file pane over FTP or FTPS. An unknown or changed certificate comes back as an error
+/// (`ftp_certificate_unknown`, `ftp_certificate_changed`, with the details) before any password
+/// is sent; asking again with `accept` set to its fingerprint goes ahead and pins it to the host.
+#[tauri::command]
+pub async fn ftp_open(
+    state: State<'_, AppState>,
+    session_id: String,
+    host_id: Uuid,
+    credentials: Option<Credentials>,
+    accept: Option<String>,
+) -> ApiResult<FtpOpened> {
+    let host: Host = state
+        .session
+        .with_vault(|v| Ok(v.get::<Host>(Collection::Hosts, host_id)?.data))?
+        .ok_or_else(|| ApiError::new("not_found", "no such host"))?;
+    let options = host.ftp.clone().unwrap_or_default();
+    let (user, password) = if options.anonymous {
+        ("anonymous".to_string(), "anonymous@".to_string())
+    } else {
+        // The sign-in is a user name and password; keys, jump hosts and proxies are SSH's.
+        let target = resolve_target(&state, host_id, credentials)?;
+        let AuthMethod::Password { password } = target.auth.clone() else {
+            return Err(ApiError::new("validation", "FTP signs in with a password; attach a credential that has one, or tick anonymous"));
+        };
+        if target.jump.is_some() || target.proxy.is_some() {
+            return Err(ApiError::new("validation", "FTP connects directly; it doesn't use jump hosts or proxies"));
+        }
+        (target.username, password)
+    };
+    let pinned = Some(options.cert_sha256.clone()).filter(|p| !p.is_empty());
+    let settings = crate::files::ftp::FtpSettings {
+        host: host.hostname.clone(),
+        port: host.port,
+        user,
+        password,
+        tls: options.tls,
+        cert: crate::certs::CertCheck { pinned: pinned.clone(), accept },
+    };
+    let (conn, seen) = crate::files::ftp::FtpConn::open(settings).await?;
+    let home = crate::files::FileBackend::home(&conn).await?;
+    state.files.insert(session_id, Arc::new(conn)).await;
+    // Only reached when the certificate was trusted: pinned already, or just accepted.
+    let pinned_now = seen.as_ref().is_some_and(|c| pinned.as_deref() != Some(c.fingerprint.as_str()));
+    if let (true, Some(c)) = (pinned_now, seen) {
+        state.session.with_vault(|v| crate::keymanager::pin_ftp_certificate(v, host_id, &c.fingerprint))?;
+    }
+    Ok(FtpOpened { home, pinned_now })
 }
 
 /// Open a file pane over SCP, for a server with no SFTP. Same answer as [`sftp_open`].

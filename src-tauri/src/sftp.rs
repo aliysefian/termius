@@ -46,6 +46,12 @@ pub enum SftpError {
     Backend(String),
     #[error("this place doesn't support {0}")]
     Unsupported(&'static str),
+    /// The server's certificate hasn't been trusted yet: ask, then connect again accepting it.
+    #[error("the server's certificate isn't trusted yet")]
+    UntrustedCertificate(Box<crate::certs::CertInfo>),
+    /// The server's certificate is not the one trusted before.
+    #[error("the server's certificate has changed")]
+    CertificateChanged { expected: String, found: Box<crate::certs::CertInfo> },
     /// The server refused the SFTP subsystem (it is turned off there).
     #[error("this server doesn't allow SFTP (the subsystem request failed)")]
     NoSubsystem,

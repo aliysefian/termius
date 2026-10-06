@@ -276,6 +276,16 @@ pub fn pin_rdp_certificate(vault: &Vault, host_id: Uuid, fingerprint: &str) -> s
     Ok(())
 }
 
+/// Remember the certificate an FTP host presented, like [`pin_rdp_certificate`].
+pub fn pin_ftp_certificate(vault: &Vault, host_id: Uuid, fingerprint: &str) -> std::result::Result<(), crate::vault::VaultError> {
+    let record = vault.get::<Host>(Collection::Hosts, host_id)?;
+    if let Some(mut host) = record.data {
+        host.ftp.get_or_insert_with(Default::default).cert_sha256 = fingerprint.to_string();
+        vault.put(Collection::Hosts, host_id, &host, crate::vault::Base::Rev(record.rev))?;
+    }
+    Ok(())
+}
+
 fn load_proxy(vault: &Vault, id: Option<Uuid>) -> std::result::Result<Option<crate::models::ProxySpec>, ResolveError> {
     let Some(id) = id else { return Ok(None) };
     vault
@@ -414,6 +424,30 @@ mod tests {
         pin_rdp_certificate(&v, plain, "ee").unwrap();
         let r = v.get::<Host>(Collection::Hosts, plain).unwrap().data.unwrap().rdp.unwrap();
         assert_eq!((r.color_depth, r.cert_sha256.as_str()), (32, "ee"));
+    }
+
+    #[test]
+    fn ftp_settings_and_pins_survive_the_vault() {
+        let (_d, v) = new_vault();
+        let host = Host {
+            label: "files".into(),
+            hostname: "ftp.example".into(),
+            port: 990,
+            protocol: "ftp".into(),
+            ftp: Some(crate::models::FtpOptions { tls: crate::files::ftp::FtpTls::Implicit, anonymous: true, cert_sha256: String::new() }),
+            ..Default::default()
+        };
+        let id = v.insert(Collection::Hosts, &host).unwrap().id;
+        assert_eq!(v.get::<Host>(Collection::Hosts, id).unwrap().data.unwrap(), host);
+        pin_ftp_certificate(&v, id, &"ab".repeat(32)).unwrap();
+        let got = v.get::<Host>(Collection::Hosts, id).unwrap().data.unwrap().ftp.unwrap();
+        assert_eq!((got.tls, got.anonymous, got.cert_sha256.as_str()), (crate::files::ftp::FtpTls::Implicit, true, "abababababababababababababababababababababababababababababababab"), "only the pin changed");
+        // A host saved before FTP existed has no such field and writes none.
+        let old: Host = serde_json::from_str(r#"{"label":"a","hostname":"b","port":22,"group":"","tags":[],"notes":""}"#).unwrap();
+        assert_eq!(old.ftp, None);
+        assert!(!serde_json::to_string(&old).unwrap().contains("ftp"));
+        // Explicit TLS is what a new FTP host gets.
+        assert_eq!(crate::models::FtpOptions::default().tls, crate::files::ftp::FtpTls::Explicit);
     }
 
     #[test]

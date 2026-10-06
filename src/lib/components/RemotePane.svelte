@@ -6,12 +6,12 @@
   import { ClipboardCopy, KeyRound, Loader2, Maximize, Minimize, MonitorOff, RefreshCw, ShieldAlert } from "lucide-svelte";
   import * as api from "$lib/api";
   import type { Credentials } from "$lib/ssh";
-  import { ask } from "$lib/dialogs.svelte";
-  import { decodeMessage, fingerprintLines, usableSize } from "$lib/rdp";
+    import { askAboutCertificate } from "$lib/certprompt";
+  import { decodeMessage, usableSize } from "$lib/rdp";
   import { settings } from "$lib/stores/settings.svelte";
   import { ui, type Pane } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
-  import { errorMessage, isApiError, type RdpCertificate } from "$lib/types";
+  import { errorMessage } from "$lib/types";
   import RemoteDisplay from "./RemoteDisplay.svelte";
 
   let { pane, active = true }: { pane: Pane; active?: boolean } = $props();
@@ -40,31 +40,6 @@
 
   function setInfo(kind: "connecting" | "connected" | "error" | "disconnected") {
     ui.paneInfo[paneId] = { ...(ui.paneInfo[paneId] ?? {}), status: kind };
-  }
-
-  const certificateText = (c: RdpCertificate) =>
-    `Subject: ${c.subject}\nIssued by: ${c.issuer}\nValid: ${c.not_before} to ${c.not_after}\nSHA-256:\n${fingerprintLines(c.fingerprint)}`;
-
-  /** Ask about a certificate the server presented. True to go ahead, with the fingerprint to accept. */
-  async function askAboutCertificate(e: unknown): Promise<string | null> {
-    if (!isApiError(e)) return null;
-    if (e.code === "rdp_certificate_unknown") {
-      const c = e.details as RdpCertificate;
-      const ok = await ask(
-        `${label} has not been seen before. Check that this is the certificate you expect before trusting it; it is remembered for this host, and a different one later is refused until you say otherwise.\n\n${certificateText(c)}`,
-        { title: "Trust this server's certificate?", confirm: "Trust and connect" },
-      );
-      return ok ? c.fingerprint : null;
-    }
-    if (e.code === "rdp_certificate_changed") {
-      const d = e.details as { expected: string; found: RdpCertificate };
-      const ok = await ask(
-        `The certificate ${label} presents is not the one trusted before. This happens when the server's certificate is renewed or the server is reinstalled, but it is also what someone intercepting the connection looks like. Nothing was sent to it.\n\nTrusted before:\n${fingerprintLines(d.expected)}\n\nNow presented:\n${certificateText(d.found)}`,
-        { title: "The server's certificate changed", confirm: "Trust the new certificate", danger: true },
-      );
-      return ok ? d.found.fingerprint : null;
-    }
-    return null;
   }
 
   function onMessage(bytes: Uint8Array) {
@@ -118,7 +93,7 @@
       display?.focus();
       void sendLocalClipboard();
     } catch (e) {
-      const fingerprint = await askAboutCertificate(e);
+      const fingerprint = await askAboutCertificate(label, e);
       if (fingerprint) return connect(credentials, fingerprint);
       status = { kind: "error", message: errorMessage(e) };
       setInfo("error");

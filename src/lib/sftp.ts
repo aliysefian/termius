@@ -79,6 +79,9 @@ export const sftp = {
       hostId,
       credentials,
     }),
+  /** FTP or FTPS. An unknown certificate fails with `ftp_certificate_unknown`; connect again with `accept` set to its fingerprint. */
+  openFtp: (sessionId: string, hostId: Uuid, credentials: Credentials | null, accept: string | null) =>
+    invoke<{ home: string; pinned_now: boolean }>("ftp_open", { sessionId, hostId, credentials, accept }),
   /** The same for a server with no SFTP, over SCP. */
   openScp: (sessionId: string, hostId: Uuid, credentials: Credentials | null) =>
     invoke<{ home: string; new_host_keys: { host: string; fingerprint: string }[] }>("scp_open", {
