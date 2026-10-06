@@ -119,7 +119,12 @@ mod tests {
         let sec = sections(fixture);
         let nth = |name: &str, n: usize| -> String { sec.iter().filter(|(k, _)| k == name).nth(n).map(|(_, v)| v.clone()).unwrap_or_default() };
         // A stub that prints a fixture body. The delimiter can't appear in a fixture.
-        let say = |s: String| format!("cat <<'__FIXTURE__'\n{s}__FIXTURE__\n");
+        // Whatever the checkout did to line endings, the body ends in a newline so the delimiter starts a line.
+        let say = |s: String| {
+            let s = s.replace("\r\n", "\n");
+            let nl = if s.is_empty() || s.ends_with('\n') { "" } else { "\n" };
+            format!("cat <<'__FIXTURE__'\n{s}{nl}__FIXTURE__\n")
+        };
         // A stub that prints one body the first time it is called and another after.
         let twice = |name: &str, first: String, second: String| {
             format!("calls_{name}=0\n{name}() {{\n  calls_{name}=$((calls_{name}+1))\n  if [ \"$calls_{name}\" = 1 ]; then\n{}  else\n{}  fi\n}}\n", say(first), say(second))
@@ -156,7 +161,11 @@ mod tests {
         let patched = SCRIPT.replace("\r\n", "\n").replacen(original, "have() { case \" $HIDE \" in *\" $1 \"*) return 1;; esac; command -v \"$1\" >/dev/null 2>&1; }", 1);
         assert!(patched.contains("$HIDE"), "the script's `have` function changed; update this test's patch");
         let script = format!("HIDE='{}'\n{}\n{}", hide.join(" "), stubs(os, fixture), patched);
-        let out = Command::new("sh").arg("-c").arg(script).output().expect("sh");
+        // Through a file, not `sh -c`: on Windows the whole command line is cut off at about 8,000
+        // characters, and this script with its stubs is longer, so the shell saw half a script.
+        let file = tempfile::Builder::new().suffix(".sh").tempfile().expect("temp file");
+        std::fs::write(file.path(), &script).expect("write the script");
+        let out = Command::new("sh").arg(file.path()).output().expect("sh");
         assert!(out.status.success(), "script failed: {}", String::from_utf8_lossy(&out.stderr));
         String::from_utf8_lossy(&out.stdout).into_owned()
     }
