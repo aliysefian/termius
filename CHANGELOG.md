@@ -4,7 +4,7 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
-## Unreleased
+## 0.15.0 — 2026-10-06
 
 - **Remote Desktop (RDP).** A host can now be a Windows (or xrdp) desktop:
   choose **Remote Desktop (RDP)** as its protocol, with a domain, screen size
