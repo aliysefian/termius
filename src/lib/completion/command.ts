@@ -181,6 +181,8 @@ const takesValue = (o: Opt) => !!o.a?.length && !o.a[0].o;
 export interface Walk {
   /** The command and the subcommands walked into, deepest last. */
   chain: Node[];
+  /** Their names: ["git", "checkout"]. */
+  path: string[];
   /** Options already given, so they are not offered twice. */
   used: Set<Opt>;
   /** Positional words consumed in the deepest node. */
@@ -198,7 +200,7 @@ export interface Walk {
 
 /** Walk `words` (command name first) through the specs. */
 export function walk(words: string[], specs: Specs): Walk {
-  const w: Walk = { chain: [], used: new Set(), positional: 0, pending: null, afterDashes: false, commandWord: words.length === 0 };
+  const w: Walk = { chain: [], path: [], used: new Set(), positional: 0, pending: null, afterDashes: false, commandWord: words.length === 0 };
   if (words.length === 0) return w;
   const name = basename(words[0]);
   if (!specs.known(name)) {
@@ -211,6 +213,7 @@ export function walk(words: string[], specs: Specs): Walk {
     return w;
   }
   w.chain = [root];
+  w.path = [name];
   const wrapper = WRAPPERS.has(name);
 
   for (let i = 1; i < words.length; i++) {
@@ -232,6 +235,7 @@ export function walk(words: string[], specs: Specs): Walk {
       const dashed = w.positional === 0 ? node.s?.find((s) => asList(s.n).includes(flag)) : undefined;
       if (!opt && dashed) {
         w.chain.push(dashed);
+        w.path.push(asList(dashed.n)[0]);
         continue;
       }
       if (opt) {
@@ -249,6 +253,7 @@ export function walk(words: string[], specs: Specs): Walk {
             const sub = k === 1 && w.positional === 0 ? here.s?.find((s) => asList(s.n).includes(`-${word[k]}`)) : undefined;
             if (!sub) break;
             w.chain.push(sub);
+            w.path.push(asList(sub.n)[0]);
             continue;
           }
           w.used.add(o);
@@ -270,6 +275,7 @@ export function walk(words: string[], specs: Specs): Walk {
       const sub = node.s.find((s) => asList(s.n).includes(word));
       if (sub) {
         w.chain.push(sub);
+        w.path.push(asList(sub.n)[0]);
         continue;
       }
     }
@@ -298,25 +304,73 @@ export interface Completion {
   missing?: string;
   /** What the argument here is, when it is for the host to list (a file or folder). */
   expects?: "file" | "dir";
+  /** A read-only lookup (git branches, containers, units) whose names fit here; see `GENERATORS`. */
+  generator?: string;
+  /** The word being typed, as typed and unquoted, for completing it as a path. */
+  word: { raw: string; value: string };
+  /** The word is a path to complete over the connection, and whether only folders fit. */
+  path?: "file" | "dir";
 }
 
-const NONE: Completion = { items: [] };
 const SAFE = /^[\w@%+=:,./-]+$/;
 const quoteIfNeeded = (s: string) => (SAFE.test(s) ? s : `'${s.replace(/'/g, "'\\''")}'`);
 
 export const MAX_SPEC_ITEMS = 10;
 
+// Which names fit where. The ids are the host-side lookups in `completion.rs`; a spec's own generators
+// (code) are never run, so this is the whole list. [command, subcommands that take it, position].
+const GIT_REF = ["checkout", "switch", "branch", "merge", "rebase", "log", "show", "diff", "cherry-pick", "reset"];
+const UNIT = ["start", "stop", "restart", "reload", "status", "enable", "disable", "is-active", "is-enabled", "is-failed", "show", "cat", "mask", "unmask"];
+const CONTAINER = ["exec", "logs", "start", "stop", "restart", "rm", "kill", "inspect", "attach", "top", "port", "pause", "unpause", "stats"];
+const IMAGE = ["rmi", "run", "history", "tag", "push"];
+const KUBE_POD = ["logs", "exec", "describe"];
+
+/** The lookup whose names fit the next word, or nothing. `option` is set when the word is an option's value. */
+export function generatorFor(path: string[], positional: number, option?: string): string | undefined {
+  const [cmd, sub] = path;
+  if (cmd === "kubectl" && option) {
+    if (option === "--context") return "kubectl-contexts";
+    if (option === "-n" || option === "--namespace") return "kubectl-namespaces";
+  }
+  if (option) return undefined;
+  if (cmd === "git" && GIT_REF.includes(sub)) return "git-branches";
+  if (cmd === "systemctl" && UNIT.includes(sub)) return "systemd-units";
+  if (cmd === "docker" && positional === 0) {
+    if (CONTAINER.includes(sub)) return "docker-containers";
+    if (IMAGE.includes(sub)) return "docker-images";
+  }
+  if (cmd === "kubectl" && positional === 0 && KUBE_POD.includes(sub)) return "kubectl-pods";
+  return undefined;
+}
+
+const LOOKS_LIKE_PATH = /^(?:\/|~|\.{1,2}\/)|\//;
+
 function values(arg: Arg | undefined): [string, string][] {
   return (arg?.k === "enum" ? arg.v ?? [] : []).map((v) => (typeof v === "string" ? [v, ""] : [v[0], v[1] ?? ""]));
 }
 
+type Inner = Omit<Completion, "word" | "path">;
+
 /** What fits after `line`, which is the text up to the cursor. */
 export function completeLine(line: string, specs: Specs): Completion {
   const p = parseLine(line);
-  if (p.quoted || p.redirect) return NONE;
+  // After --opt= the word to complete is what follows the equals sign.
+  const eq = !p.quoted && p.current.startsWith("--") ? p.current.indexOf("=") : -1;
+  const word = eq > 0 ? { raw: p.raw.slice(p.raw.indexOf("=") + 1), value: p.current.slice(eq + 1) } : { raw: p.raw, value: p.current };
+  if (p.quoted) return { items: [], word };
+  const inner: Inner = p.redirect ? { items: [] } : suggest(p, specs);
+  let path: Completion["path"];
+  if (p.redirect) path = "file";
+  else if (inner.expects) path = inner.expects;
+  else if (!p.current.startsWith("-") && LOOKS_LIKE_PATH.test(word.value)) path = "file";
+  return { ...inner, word, path };
+}
+
+function suggest(p: Parsed, specs: Specs): Inner {
+  if (p.quoted || p.redirect) return { items: [] };
   const w = walk(p.words, specs);
   if (w.missing) return { items: [], missing: w.missing };
-  if (w.unknown) return NONE;
+  if (w.unknown) return { items: [] };
   const cur = p.current;
   const replaces = [...p.raw].length;
   const out: Suggestion[] = [];
@@ -326,7 +380,7 @@ export function completeLine(line: string, specs: Specs): Completion {
 
   // The first word: a command's name.
   if (w.commandWord) {
-    if (!cur) return NONE;
+    if (!cur) return { items: [] };
     for (const [n, d] of specs.names()) if (n.startsWith(cur) && n !== cur) add("command", n, d);
     return { items: out.slice(0, MAX_SPEC_ITEMS) };
   }
@@ -337,13 +391,14 @@ export function completeLine(line: string, specs: Specs): Completion {
   const valueFor = (opt: Opt, prefix: string, head: string) => {
     for (const [v, d] of values(opt.a?.[0])) if (v.startsWith(prefix)) add("value", v, d, " ", head + quoteIfNeeded(v));
     const k = opt.a?.[0]?.k;
-    return { items: out.slice(0, MAX_SPEC_ITEMS), expects: k === "file" || k === "dir" ? k : undefined } satisfies Completion;
+    const generator = asList(opt.n).map((n) => generatorFor(w.path, 0, n)).find(Boolean);
+    return { items: out.slice(0, MAX_SPEC_ITEMS), expects: k === "file" || k === "dir" ? k : undefined, generator } satisfies Inner;
   };
   if (w.pending) return valueFor(w.pending, cur, "");
   if (!w.afterDashes && cur.startsWith("--") && cur.includes("=")) {
     const eq = cur.indexOf("=");
     const opt = findOption(w.chain, cur.slice(0, eq));
-    return opt && opt.a?.length ? valueFor(opt, cur.slice(eq + 1), cur.slice(0, eq + 1)) : NONE;
+    return opt && opt.a?.length ? valueFor(opt, cur.slice(eq + 1), cur.slice(0, eq + 1)) : { items: [] };
   }
 
   if (!w.afterDashes && cur.startsWith("-")) {
@@ -382,5 +437,6 @@ export function completeLine(line: string, specs: Specs): Completion {
   for (const [v, d] of values(arg)) if (v.startsWith(cur) && v !== cur) add("value", v, d);
   if (arg?.k === "cmd" && cur) for (const [n, d] of specs.names()) if (n.startsWith(cur) && n !== cur) add("command", n, d);
   const expects = arg?.k === "file" || arg?.k === "dir" ? arg.k : undefined;
-  return { items: out.slice(0, MAX_SPEC_ITEMS), expects };
+  const generator = expects || w.afterDashes ? undefined : generatorFor(w.path, w.positional);
+  return { items: out.slice(0, MAX_SPEC_ITEMS), expects, generator };
 }

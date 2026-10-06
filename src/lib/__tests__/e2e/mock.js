@@ -6,14 +6,20 @@
   let cbId = 1;
   const sent = [];
   window.__sent = sent;
+  const lookups = [];
+  window.__lookups = lookups;
   const enc = new TextEncoder();
   const listeners = {};
   let channel = null;
   let index = 0;
   let line = "";
   Object.defineProperty(window, "__line", { get: () => line });
+  // With real shells (shells.py) the page is given a pty: bytes go to it, and what it prints comes back here.
+  const real = () => typeof window.__ptySpawn === "function";
+  window.__deliver = (bytes) => channel && window["_" + channel.id]({ index: index++, message: bytes });
   const out = (text) => channel && window["_" + channel.id]({ index: index++, message: Array.from(enc.encode(text)) });
-  const prompt = () => out("\x1b]133;A\x07$ \x1b]133;B\x07");
+  // The prompt reports the folder (OSC 7), like a shell with integration, so relative paths can be resolved.
+  const prompt = () => out("\x1b]7;file://mockhost/work/app\x07\x1b]133;A\x07$ \x1b]133;B\x07");
 
   // "secret": a command is waiting for a password (nothing echoed). "alt": a full-screen program.
   let mode = null;
@@ -68,17 +74,48 @@
       case "plugin:event|listen":
         (listeners[args.event] ??= []).push(args.handler);
         return args.handler;
+      case "completion_lookup": {
+        lookups.push(JSON.parse(JSON.stringify(args)));
+        const r = args.request;
+        if (window.__lookupMode === "refuse") return Promise.reject({ code: "completion_refused", message: "the host does not allow lookups on this connection" });
+        if (r.kind === "generator") {
+          const names = { "git-branches": ["main", "feature/x", "origin/main"], "systemd-units": ["nginx.service", "ssh.service"] }[r.id] ?? [];
+          return { entries: names.map((name) => ({ name, dir: false })), truncated: false };
+        }
+        const dirs = {
+          "/work/app": [["README.md", 0], ["src", 1], [".env", 0], ["my notes.txt", 0], ["it's.txt", 0]],
+          "/work/app/src": [["main.rs", 0], ["lib", 1]],
+          "~": [["docs", 1], ["notes.md", 0]],
+          "/etc": [["hosts", 0], ["hostname", 0], ["ssh", 1]],
+        };
+        const list = (dirs[r.dir] ?? []).filter(([n]) => n.startsWith(r.prefix));
+        return { entries: list.map(([name, dir]) => ({ name, dir: !!dir })), truncated: r.dir === "/etc" && !r.prefix };
+      }
+      case "ssh_connect":
+      case "ssh_connect_adhoc":
       case "local_spawn":
         channel = args.onData;
+        if (real()) {
+          await window.__ptySpawn(args.cols, args.rows);
+          setTimeout(() => {
+            for (const h of listeners["ssh:status"] ?? []) window["_" + h]({ event: "ssh:status", id: 0, payload: { pane_id: args.paneId, status: { kind: "connected" } } });
+          }, 50);
+          return null;
+        }
         // The backend reports the pane as connected, then the shell prints its prompt.
         setTimeout(() => {
           for (const h of listeners["ssh:status"] ?? []) window["_" + h]({ event: "ssh:status", id: 0, payload: { pane_id: args.paneId, status: { kind: "connected" } } });
           prompt();
         }, 50);
         return null;
+      case "ssh_write":
       case "local_write": {
         const bytes = Uint8Array.from(args.data);
         sent.push(Array.from(bytes));
+        if (real()) {
+          window.__ptyWrite(Array.from(bytes));
+          return null;
+        }
         // A cursor-key sequence is not text; the fake shell has no cursor to move.
         if (bytes[0] !== 0x1b) shell(bytes);
         return null;
@@ -90,6 +127,8 @@
         { id: "sn3", rev: 1, updated_at: 1, deleted: false, data: { label: "Two lines", command: "cd /srv\nls", description: "" } },
       ];
       case "local_resize":
+        if (real()) window.__ptyResize(args.cols, args.rows);
+        return null;
       case "local_close": return null;
       default:
         if (cmd.startsWith("list_")) return [];

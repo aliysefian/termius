@@ -172,8 +172,8 @@ describe("command names and the rest", () => {
 
   it("says when a spec still has to be loaded, and is quiet about commands it has none for", () => {
     const lazy: Specs = { known: () => true, get: () => undefined, names: () => [] };
-    expect(completeLine("git ch", lazy)).toEqual({ items: [], missing: "git" });
-    expect(completeLine("mytool ch", specs)).toEqual({ items: [] });
+    expect(completeLine("git ch", lazy)).toMatchObject({ items: [], missing: "git" });
+    expect(completeLine("mytool ch", specs)).toMatchObject({ items: [] });
   });
 
   it("stops treating words as options after --", () => {
@@ -187,5 +187,50 @@ describe("command names and the rest", () => {
 
   it("finds commands by their path", () => {
     expect(names("/usr/bin/git ch")).toContain("checkout");
+  });
+});
+
+describe("what the host is asked about", () => {
+  const at = (line: string) => completeLine(line, specs);
+
+  it("sees a path in the word, for any command, and what the spec says a file is", () => {
+    expect(at("cat /etc/ho").path).toBe("file");
+    expect(at("cat ~/").path).toBe("file");
+    expect(at("cat ./a").path).toBe("file");
+    expect(at("mytool src/ma").path).toBe("file");
+    expect(at("cat ").path).toBe("file");
+    expect(at("tar -xzf a.tgz -C ").path).toBe("dir");
+    expect(at("ls > ").path).toBe("file");
+    expect(at("git checkout ").path).toBeUndefined();
+    expect(at("mytool ab").path).toBeUndefined();
+  });
+
+  it("hands over the word as typed and unquoted, and after --opt= only the part after the sign", () => {
+    expect(at("cat my\\ do").word).toEqual({ raw: "my\\ do", value: "my do" });
+    expect(at("curl --output=/tmp/o").word).toEqual({ raw: "/tmp/o", value: "/tmp/o" });
+    expect(at("curl --output=/tmp/o").path).toBe("file");
+  });
+
+  it("is not a path inside an option or a quote", () => {
+    expect(at("tar -").path).toBeUndefined();
+    expect(at("cat '/etc/ho").path).toBeUndefined();
+  });
+
+  it("names the read-only lookup that fits", () => {
+    expect(at("git checkout ").generator).toBe("git-branches");
+    expect(at("git switch fea").generator).toBe("git-branches");
+    expect(at("systemctl restart ").generator).toBe("systemd-units");
+    expect(at("sudo systemctl status ng").generator).toBe("systemd-units");
+    expect(at("docker logs ").generator).toBe("docker-containers");
+    expect(at("docker rmi ").generator).toBe("docker-images");
+    expect(at("kubectl get pods -n ").generator).toBe("kubectl-namespaces");
+    expect(at("kubectl logs ").generator).toBe("kubectl-pods");
+  });
+
+  it("has no lookup where a name is not what goes", () => {
+    expect(at("git commit ").generator).toBeUndefined();
+    expect(at("docker logs web ").generator).toBeUndefined();
+    expect(at("git checkout -- ").generator).toBeUndefined();
+    expect(at("ls ").generator).toBeUndefined();
   });
 });

@@ -33,6 +33,7 @@
   import { MAX_HISTORY_ITEMS, MENU_WIDTH, flatten, groups, historyItems, menuHeight, placeMenu, snippetItems, specItems, type MenuGroup, type MenuItem, type Placement } from "$lib/completion/menu";
   import { completeLine, parseLine } from "$lib/completion/command";
   import { loadSpec, specs } from "$lib/completion/specs";
+  import { arrange, escapeName, pathQuestion, RemoteLookup } from "$lib/completion/remote";
   import CompletionMenu from "./CompletionMenu.svelte";
   import { completionHistory } from "$lib/completion/history";
   import CompletionOverlay from "./CompletionOverlay.svelte";
@@ -293,15 +294,114 @@
   // -- the popup list --------------------------------------------------------
   let popup = $state<{ groups: MenuGroup[]; items: MenuItem[]; selected: number; place: Placement; text: string } | null>(null);
 
-  function closeMenu() {
+  /** `keepWaiting`: the list is empty only until the host answers, and should open then. */
+  function closeMenu(keepWaiting = false) {
     popup = null;
+    remoteFor = null;
+    if (!keepWaiting) waitingFor = null;
+  }
+
+  // -- file names and lists from the host --------------------------------------
+  /** Only a pane that is an SSH session has a connection to ask over; Mosh, Telnet, serial and local tabs don't. */
+  const askable = () => (target.kind === "host" && !useMosh && !telnetHost) || target.kind === "adhoc";
+  const remote = new RemoteLookup({
+    fetch: (req) => api.completion.lookup(paneId, req),
+    // The setting is read at the moment of asking, so turning it off stops a question already waiting.
+    enabled: () => policy.remotePaths && askable() && status.kind === "connected",
+  });
+  /** The host's names for the line `text`, once they have arrived. */
+  let remoteFor: { text: string; items: MenuItem[] } | null = null;
+  /** The line a question to the host is out for, if any. Asking again for the same line waits for that answer. */
+  let inFlight: string | null = null;
+
+  const GENERATOR_TITLES: Record<string, string> = {
+    "git-branches": "Branches",
+    "git-tags": "Tags",
+    "docker-containers": "Containers",
+    "docker-images": "Images",
+    "systemd-units": "Units",
+    "kubectl-contexts": "Contexts",
+    "kubectl-namespaces": "Namespaces",
+    "kubectl-pods": "Pods",
+  };
+
+  /** Up to the last slash that is not escaped. */
+  function rawDirectory(raw: string): string {
+    for (let i = raw.length - 1; i >= 0; i--) {
+      if (raw[i] !== "/") continue;
+      let slashes = 0;
+      for (let j = i - 1; j >= 0 && raw[j] === "\\"; j--) slashes++;
+      if (slashes % 2 === 0) return raw.slice(0, i + 1);
+    }
+    return "";
+  }
+
+  /** Ask the host about the word being typed, and list what it says once it does. */
+  function askHost(text: string, c: ReturnType<typeof completeLine>) {
+    if (!policy.remotePaths || !askable() || (!c.path && !c.generator)) return;
+    const cwd = ui.paneInfo[paneId]?.cwd ?? null;
+    const word = c.word;
+    const erase = [...word.raw].length;
+    if (inFlight === text) return;
+    inFlight = text;
+    const finish = () => {
+      if (inFlight === text) inFlight = null;
+    };
+    const done = (title: string, items: MenuItem[], truncated: boolean) => {
+      finish();
+      if (!popup && waitingFor !== text) return;
+      if (offerableLine()?.text !== text) return;
+      remoteFor = { text, items: items.map((i) => ({ ...i, group: truncated ? `${title} · cut, keep typing` : title })) };
+      if (popup) updateMenu(text);
+      else if (waitingFor === text) {
+        waitingFor = null;
+        openMenu();
+      }
+    };
+    if (c.generator) {
+      const generator = c.generator;
+      void remote.generator(generator, cwd ?? undefined).then((r) => {
+        if (!r) return finish();
+        const names = r.entries.map((e) => e.name).filter((n) => n.startsWith(word.value) && n !== word.value).slice(0, 12);
+        done(
+          GENERATOR_TITLES[generator] ?? "Names",
+          names.map((n) => ({ id: `g:${generator}:${n}`, kind: "value", group: "", label: n, labelHit: Array.from({ length: [...word.value].length }, (_, i) => i), detail: "", detailHit: [], insert: escapeName(n) + " ", variables: false, erase })),
+          r.truncated,
+        );
+      });
+      return;
+    }
+    const q = pathQuestion(word.value, cwd);
+    if (!q) return finish();
+    const dirRaw = rawDirectory(word.raw);
+    void remote.dir(q.dir, q.prefix).then((r) => {
+      if (!r) return finish();
+      const shown = arrange(r.entries, q.prefix, c.path === "dir").slice(0, 12);
+      done(
+        c.path === "dir" ? "Folders" : "Files",
+        shown.map((e) => ({
+          id: `p:${q.dir}/${e.name}`,
+          kind: "value" as const,
+          group: "",
+          label: e.dir ? `${e.name}/` : e.name,
+          labelHit: Array.from({ length: [...q.prefix].length }, (_, i) => i),
+          detail: e.dir ? "folder" : "",
+          detailHit: [],
+          // Folders keep the path going; a file ends the word.
+          insert: dirRaw + escapeName(e.name, dirRaw === "") + (e.dir ? "/" : " "),
+          variables: false,
+          erase,
+        })),
+        r.truncated,
+      );
+    });
   }
 
   function menuGroups(text: string): MenuGroup[] {
     const history = historyItems(text, completionHistory.search(text, hostKey, MAX_HISTORY_ITEMS + 1));
     const snippets = policy.snippets ? snippetItems(text, vaultStore.snippets.map((r) => ({ id: r.id, label: r.data?.label ?? "", command: r.data?.command ?? "", description: r.data?.description }))) : [];
     let commands: MenuItem[] = [];
-    if (policy.options) {
+    if (policy.options || policy.remotePaths) {
       const c = completeLine(text, specs);
       // The spec for this command is fetched the first time it is typed; the list fills in when it arrives.
       if (c.missing) {
@@ -314,10 +414,14 @@
           else if (waited !== null && waited === offerableLine()?.text) openMenu();
         });
       }
-      else commands = specItems(parseLine(text).raw, c.items);
+      else {
+        if (policy.options) commands = specItems(c.word.raw, c.items);
+        if (remoteFor?.text !== text) askHost(text, c);
+      }
     }
-    // What the command's own spec says comes first: it is the most specific.
-    return groups([...commands, ...history, ...snippets]);
+    const fromHost = remoteFor?.text === text ? remoteFor.items : [];
+    // What the command's own spec says comes first, then the host's own names; both are more specific than history.
+    return groups([...commands, ...fromHost, ...history, ...snippets]);
   }
 
   /** Rebuild the list for the line as it is now; the choice stays on the same entry if that is still listed. */
@@ -326,6 +430,10 @@
     const items = flatten(gs);
     const m = measure();
     const anchor = m && cursorCell(m);
+    if (items.length === 0 && inFlight === text && m && anchor) {
+      waitingFor = text;
+      return closeMenu(true);
+    }
     if (items.length === 0 || !m || !anchor) return closeMenu();
     const kept = keep ?? (popup && popup.text === text ? popup.items[popup.selected]?.id : undefined);
     const at = kept ? items.findIndex((i) => i.id === kept) : -1;
@@ -355,9 +463,10 @@
     hideGhost();
     specLoading = false;
     updateMenu(line.text);
-    if (!popup && specLoading) waitingFor = line.text;
-    // Nothing to show yet counts as handled: the key was for us, and the list comes when the spec does.
-    return popup !== null || specLoading;
+    const waiting = specLoading || inFlight === line.text;
+    if (!popup && waiting) waitingFor = line.text;
+    // Nothing to show yet counts as handled: the key was for us, and the list comes when the spec or the host does.
+    return popup !== null || waiting;
   }
 
   function moveMenu(by: 1 | -1) {

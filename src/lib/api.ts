@@ -295,6 +295,12 @@ export type RdpInput =
   | { type: "release_all" }
   | { type: "clipboard_text"; text: string };
 
+/** Smart completion's questions to a host, over an extra channel of the pane's SSH connection. */
+export const completion = {
+  lookup: (paneId: string, request: import("./completion/remote").Request) =>
+    invoke<import("./completion/remote").Reply>("completion_lookup", { paneId, request }),
+};
+
 export const localTerm = {
   spawn(paneId: string, cols: number, rows: number, onData: (bytes: Uint8Array) => void, shell: string | null = null, cwd: string | null = null, shellId: string | null = null) {
     const channel = new Channel<ArrayBuffer | number[]>((msg) =>

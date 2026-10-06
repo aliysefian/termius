@@ -6,6 +6,7 @@ pub mod agent;
 pub mod ansible;
 pub mod certs;
 pub mod commands;
+pub mod completion;
 pub mod config;
 pub mod containers;
 pub mod control;
@@ -126,6 +127,7 @@ pub fn run() {
             commands::delete_snippet,
             commands::ssh_connect,
             commands::ssh_write,
+            commands::completion_lookup,
             commands::ssh_resize,
             commands::ssh_disconnect,
             commands::local_spawn,

@@ -2325,6 +2325,25 @@ pub async fn ssh_write(
     Ok(state.ssh.write(&pane_id, data).await?)
 }
 
+/// Smart completion: a folder listing or a fixed, read-only lookup over an extra channel of this pane's
+/// connection. The frontend calls it only while "look up remote paths" is on for the pane.
+#[tauri::command]
+pub async fn completion_lookup(
+    state: State<'_, AppState>,
+    pane_id: String,
+    request: crate::completion::Request,
+) -> ApiResult<crate::completion::Reply> {
+    use crate::completion::LookupError;
+    state.ssh.lookup(&pane_id, &request).await.map_err(|e| {
+        let code = match &e {
+            LookupError::Refused => "completion_refused",
+            LookupError::Timeout => "completion_timeout",
+            LookupError::Invalid(_) => "invalid",
+        };
+        ApiError::new(code, e.to_string())
+    })
+}
+
 #[tauri::command]
 pub async fn ssh_resize(
     state: State<'_, AppState>,

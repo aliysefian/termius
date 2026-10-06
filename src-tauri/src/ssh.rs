@@ -261,6 +261,9 @@ pub enum Cmd {
 
 struct SessionHandle {
     tx: mpsc::Sender<Cmd>,
+    /// The live connection, once there is one, for questions that need a channel of their own.
+    client: Arc<std::sync::OnceLock<Arc<Client>>>,
+    lookups: Arc<crate::completion::Lookups>,
 }
 
 /// Registry of live sessions keyed by pane id.
@@ -284,18 +287,19 @@ impl SshManager {
         sink: Arc<dyn TermSink>,
     ) -> Result<(), SshError> {
         let (tx, rx) = mpsc::channel::<Cmd>(256);
+        let client_cell: Arc<std::sync::OnceLock<Arc<Client>>> = Arc::default();
         {
             let mut sessions = self.sessions.lock().unwrap_or_else(|p| p.into_inner());
             if sessions.contains_key(&pane_id) {
                 return Err(SshError::AlreadyConnected);
             }
-            sessions.insert(pane_id.clone(), SessionHandle { tx });
+            sessions.insert(pane_id.clone(), SessionHandle { tx, client: Arc::clone(&client_cell), lookups: Arc::new(crate::completion::Lookups::new()) });
         }
 
         let manager = Arc::clone(self);
         tokio::spawn(async move {
             sink.status(SessionStatus::Connecting);
-            let outcome = run_session(params, rx, sink.as_ref()).await;
+            let outcome = run_session(params, rx, sink.as_ref(), client_cell).await;
             match outcome {
                 Ok(code) => sink.status(SessionStatus::Disconnected { code }),
                 Err(e) => match e.host_key_changed() {
@@ -325,6 +329,22 @@ impl SshManager {
             .get(pane_id)
             .map(|s| s.tx.clone())
             .ok_or(SshError::NotConnected)
+    }
+
+    /// Ask the pane's host a question over an extra channel of the pane's connection (see `completion`).
+    /// A pane that isn't an SSH session, or isn't connected yet, answers `Refused`, quietly.
+    pub async fn lookup(
+        &self,
+        pane_id: &str,
+        request: &crate::completion::Request,
+    ) -> Result<crate::completion::Reply, crate::completion::LookupError> {
+        let (client, lookups) = {
+            let sessions = self.sessions.lock().unwrap_or_else(|p| p.into_inner());
+            let s = sessions.get(pane_id).ok_or(crate::completion::LookupError::Refused)?;
+            (s.client.get().cloned(), Arc::clone(&s.lookups))
+        };
+        let client = client.ok_or(crate::completion::LookupError::Refused)?;
+        lookups.lookup(&client, request).await
     }
 
     pub async fn write(&self, pane_id: &str, bytes: Vec<u8>) -> Result<(), SshError> {
@@ -881,8 +901,11 @@ async fn run_session(
     params: ConnectParams,
     mut rx: mpsc::Receiver<Cmd>,
     sink: &dyn TermSink,
+    client_cell: Arc<std::sync::OnceLock<Arc<Client>>>,
 ) -> Result<Option<u32>, SshError> {
     let (handle, learned) = open_client(&params.target, None).await?;
+    let handle = Arc::new(handle);
+    let _ = client_cell.set(Arc::clone(&handle));
 
     // Host key notices are only worth showing once we know the login worked.
     for k in learned {
@@ -1155,16 +1178,21 @@ pub(crate) mod testutil {
     /// or when `SSHVAULT_SKIP_SSHD_TESTS` is set (used on macOS CI, whose
     /// sshd needs a different setup).
     pub fn spawn_sshd(dir: &std::path::Path) -> Option<Sshd> {
-        spawn_sshd_with(dir, true)
+        spawn_sshd_with(dir, true, "")
+    }
+
+    /// A server with extra lines in its `sshd_config` (for example `MaxSessions 1`).
+    pub fn spawn_sshd_config(dir: &std::path::Path, extra: &str) -> Option<Sshd> {
+        spawn_sshd_with(dir, true, extra)
     }
 
     /// A server with the SFTP subsystem removed, as some hosts are set up.
     #[cfg_attr(not(unix), allow(dead_code))]
     pub fn spawn_sshd_without_sftp(dir: &std::path::Path) -> Option<Sshd> {
-        spawn_sshd_with(dir, false)
+        spawn_sshd_with(dir, false, "")
     }
 
-    fn spawn_sshd_with(dir: &std::path::Path, with_sftp: bool) -> Option<Sshd> {
+    fn spawn_sshd_with(dir: &std::path::Path, with_sftp: bool, extra: &str) -> Option<Sshd> {
         // CI sets the variable on every OS, empty where tests should run.
         if std::env::var_os("SSHVAULT_SKIP_SSHD_TESTS").is_some_and(|v| !v.is_empty()) {
             return None;
@@ -1222,7 +1250,7 @@ pub(crate) mod testutil {
             "Port {port}\nListenAddress 127.0.0.1\nHostKey {d}/host_key\nAuthorizedKeysFile {d}/authorized_keys\n\
              TrustedUserCAKeys {d}/user_ca.pub\n\
              PasswordAuthentication no\nKbdInteractiveAuthentication no\nUsePAM no\nStrictModes no\nPidFile none\n\
-             AllowTcpForwarding yes\nX11Forwarding yes\nX11UseLocalhost yes\n{sftp_server}",
+             AllowTcpForwarding yes\nX11Forwarding yes\nX11UseLocalhost yes\n{sftp_server}{extra}\n",
             d = dir.display()
         );
         std::fs::write(dir.join("sshd_config"), config).ok()?;
