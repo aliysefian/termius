@@ -1,0 +1,5 @@
+# Files that are run on a remote host, or compared byte for byte with what one
+# prints, must keep Unix line endings even when checked out on Windows.
+*.sh text eol=lf
+src/lib/__tests__/hostdetail/*.txt text eol=lf
+src-tauri/src/containers/fixtures/** text eol=lf

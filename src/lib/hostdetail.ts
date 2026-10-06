@@ -4,7 +4,8 @@
 // one small function per format so each can be tested on recorded output.
 import SCRIPT from "./hostdetail.sh?raw";
 
-export const DETAIL_SCRIPT: string = SCRIPT;
+// A checkout with Windows line endings would make the remote shell fail to parse it.
+export const DETAIL_SCRIPT: string = SCRIPT.replace(/\r\n/g, "\n");
 
 export interface InterfaceRate {
   name: string;

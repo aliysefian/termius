@@ -153,8 +153,8 @@ mod tests {
     /// script's own `have` is made to answer "no" for them.
     fn run_with_stubs(os: &str, fixture: &str, hide: &[&str]) -> String {
         let original = "have() { command -v \"$1\" >/dev/null 2>&1; }";
-        let patched = SCRIPT.replacen(original, "have() { case \" $HIDE \" in *\" $1 \"*) return 1;; esac; command -v \"$1\" >/dev/null 2>&1; }", 1);
-        assert_ne!(patched, SCRIPT, "the script's `have` function changed; update this test's patch");
+        let patched = SCRIPT.replace("\r\n", "\n").replacen(original, "have() { case \" $HIDE \" in *\" $1 \"*) return 1;; esac; command -v \"$1\" >/dev/null 2>&1; }", 1);
+        assert!(patched.contains("$HIDE"), "the script's `have` function changed; update this test's patch");
         let script = format!("HIDE='{}'\n{}\n{}", hide.join(" "), stubs(os, fixture), patched);
         let out = Command::new("sh").arg("-c").arg(script).output().expect("sh");
         assert!(out.status.success(), "script failed: {}", String::from_utf8_lossy(&out.stderr));
@@ -225,7 +225,7 @@ mod tests {
         if cfg!(target_os = "linux") {
             for _ in 0..2 {
                 let started = std::time::Instant::now();
-                let r = m.exec(id, SCRIPT, Duration::from_secs(30)).await.unwrap();
+                let r = m.exec(id, &SCRIPT.replace("\r\n", "\n"), Duration::from_secs(30)).await.unwrap();
                 assert_eq!(r.code, Some(0), "{}", r.stderr);
                 assert!(r.stderr.is_empty(), "{}", r.stderr);
                 assert!(started.elapsed() >= Duration::from_millis(950), "it samples a second apart");
