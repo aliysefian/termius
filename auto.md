@@ -214,8 +214,7 @@ Found while doing this, for the next tasks:
   line. That is the safe side, and it is recorded as the expectation.
 - A right-hand prompt (zsh `RPROMPT`) or the shell's own grey suggestion to the
   right of the cursor makes `cursorAtEnd` false, so no suggestion is shown there.
-- Settings and the host control exist but do nothing until AC1: don't release
-  between AC0 and AC1.
+- Settings and the host control did nothing until AC1 (now done).
 
 ### AC1. History index and the inline suggestion
 
@@ -226,17 +225,53 @@ Found while doing this, for the next tasks:
   key actions in `ACTIONS`.
 
 DoD:
-- [ ] Ghost text matches the terminal's font, size, line height, padding, zoom
+- [x] Ghost text matches the terminal's font, size, line height, padding, zoom
       and theme; follows resize and scrolling; never overlaps the next line.
-- [ ] → / End accepts, Ctrl+→ takes one word, Esc dismisses; accepted text goes
+      The box is placed from the terminal's own screen element and cell grid
+      (so padding, line height and zoom come with it), is one cell high, and is
+      cut off at the last column. Scrolled back, it is hidden. Browser test:
+      starts on the cursor's cell, stays inside the terminal, larger after
+      zoom. **Resize hides it until the next prompt** (the terminal reflows the
+      line, and AC0's reader refuses to guess); it comes back on the new grid.
+      Not verified: a light theme, a changed line height or padding (the code
+      reads them from the grid, no test changes them), the DOM renderer (the
+      headless browser used WebGL).
+- [x] → / End accepts, Ctrl+→ takes one word, Esc dismisses; accepted text goes
       through the normal input path (history and `LineTracker` see it).
-- [ ] With 10,000 history entries, key to ghost text is under 16 ms (measured
-      and written down).
-- [ ] Ranking tests: recency, same host, same folder, exit 0, previous command;
+      Browser test covers all four, that accepting never sends Enter, and that
+      Right and Esc go to the shell when nothing is showing. The accepted text
+      goes through `typed()`, the same function as typed keys; no test reads
+      `LineTracker` or the saved history after an accept.
+- [x] With 10,000 history entries, key to ghost text is under 16 ms (measured
+      and written down). `HistoryIndex.suggest` over 10,000 entries, 350 calls
+      per run, three runs: worst 2.3, 4.9 and 3.3 ms, mean 0.34 to 0.39 ms
+      (also a vitest test with a 16 ms limit). That is the search; reading the
+      line and placing the box are a few buffer reads and one layout read, not
+      timed on their own.
+- [x] Ranking tests: recency, same host, same folder, exit 0, previous command;
       a secret-looking entry and a leading-space entry are never offered.
-- [ ] Without "Remember commands", suggestions come from this session only and
-      nothing is written to storage (a test checks `localStorage`).
-- [ ] Headless-browser test with mocked IPC: type, see, accept, dismiss, resize.
+- [x] Without "Remember commands", suggestions come from this session only and
+      nothing is written to storage (a test checks `localStorage`). The index
+      test makes `localStorage` throw; the browser test reads all of it after
+      typing commands. With it on, `recordCommand` refuses secret-looking and
+      leading-space commands (unit test).
+- [x] Headless-browser test with mocked IPC: type, see, accept, dismiss, resize.
+      `src/lib/__tests__/e2e/completion.py` with `mock.js` (a fake shell that
+      sends OSC 133): 26 checks, all passing. It needs `pnpm dev` running and is
+      not part of `pnpm test`.
+
+Found while doing this:
+- The first secret filter missed `API_TOKEN=...` (`\b` doesn't fire after `_`);
+  the unit test caught it. Rules are best-effort by nature; the list is in
+  `history.ts`.
+- **The terminal rounds its cell width down to whole pixels** (7 px for a font
+  whose letters are 7.8 px wide), so text drawn as one run drifts off the grid
+  within a few letters. The ghost draws each character in its own cell.
+- Local terminals have no host, so "Remember commands" never saved anything for
+  them; the session index still works there.
+- Only the `completion/*` files, the pane and `shortcuts.ts` changed outside
+  settings; `CommandRecord` gained `leadingSpace`, `HistoryEntry` gained
+  optional `cwd` and `prev`.
 
 ### AC2. The popup, snippets and fuzzy matching
 

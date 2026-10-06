@@ -32,6 +32,18 @@ describe("CommandTracker", () => {
     expect(tr.active).toBe(true);
   });
 
+  it("says whether the line started with a space (the shell's way of saying don't record it)", () => {
+    const run = (text: string) => {
+      const tr = new CommandTracker(() => text);
+      tr.feed({ kind: "prompt" }, { line: 1, col: 0 });
+      tr.feed({ kind: "command" }, { line: 1, col: 2 });
+      tr.feed({ kind: "output" }, { line: 2, col: 0 });
+      return tr.feed({ kind: "end", exit: 0 }, { line: 3, col: 0 });
+    };
+    expect(run("$  echo hi")?.leadingSpace).toBe(true);
+    expect(run("$ echo hi")?.leadingSpace).toBe(false);
+  });
+
   it("ignores empty commands (just pressing Enter) and finds prompts", () => {
     const tr = new CommandTracker(() => "$ ");
     tr.feed({ kind: "prompt" }, { line: 1, col: 0 });

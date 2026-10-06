@@ -45,6 +45,8 @@ export interface CommandRecord {
   startedAt: number;
   endedAt: number;
   exit: number | null;
+  /** The line started with a space, the shell convention for "don't record this". */
+  leadingSpace: boolean;
   /** First and last buffer line of the output, when known. */
   outputStart: number | null;
   outputEnd: number | null;
@@ -69,6 +71,7 @@ export class CommandTracker {
   #outputStart: number | null = null;
   #startedAt = 0;
   #command = "";
+  #leadingSpace = false;
 
   constructor(
     private readonly readLine: (line: number) => string,
@@ -106,7 +109,9 @@ export class CommandTracker {
             const text = this.readLine(l);
             lines.push(l === this.#commandStart.line ? text.slice(this.#commandStart.col) : text);
           }
-          this.#command = lines.join("\n").trim();
+          const raw = lines.join("\n");
+          this.#leadingSpace = /^[ \t]/.test(raw);
+          this.#command = raw.trim();
         }
         this.#outputStart = cursor.line;
         this.#startedAt = this.now();
@@ -119,6 +124,7 @@ export class CommandTracker {
               startedAt: this.#startedAt,
               endedAt: this.now(),
               exit: mark.exit,
+              leadingSpace: this.#leadingSpace,
               outputStart: this.#outputStart,
               // The end mark is printed at the start of the next prompt line.
               outputEnd: this.#outputStart === null ? null : Math.max(this.#outputStart, cursor.line - 1),
@@ -129,6 +135,7 @@ export class CommandTracker {
         this.#commandStart = null;
         this.#outputStart = null;
         this.#command = "";
+        this.#leadingSpace = false;
         return rec;
       }
     }

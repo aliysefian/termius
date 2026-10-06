@@ -27,6 +27,11 @@
   import { errorMessage, isApiError } from "$lib/types";
   import { LineTracker, looksLikeSecret, matchDestructive, pastedLines, pasteNeedsConfirm } from "$lib/guard";
   import { CommandTracker, parseOsc133, parseOsc7 } from "$lib/shellintegration";
+  import { InputWatch, completionLine, policyFor } from "$lib/completion";
+  import { completionBridge, type InlineControls } from "$lib/completion/bridge";
+  import { ghostBox, nextWord, type Ghost } from "$lib/completion/ghost";
+  import { completionHistory } from "$lib/completion/history";
+  import CompletionOverlay from "./CompletionOverlay.svelte";
   import { decodeOsc52, redundantMouseEnable } from "$lib/termprotocol";
   import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
 
@@ -85,7 +90,7 @@
   /** Typed input: hold Enter on production when the line looks destructive. */
   function typed(d: string) {
     // Without shell integration, history comes from what was typed.
-    if ((d === "\r" || d === "\n") && hostId && !commands.active && tracker.line) settings.recordCommand(hostId, tracker.line, null);
+    if ((d === "\r" || d === "\n") && !commands.active && tracker.line) recordTyped(tracker.line);
     if (production && shared && (d === "\r" || d === "\n")) {
       const line = tracker.line;
       const pattern = line === null ? null : matchDestructive(line, shared.destructive_patterns);
@@ -96,6 +101,7 @@
     }
     tracker.feed(d);
     send(d);
+    refreshSuggestion();
   }
 
   /** Every paste path (menu, shortcut, native Ctrl+V) goes through here. */
@@ -131,6 +137,7 @@
   }
 
   let container: HTMLDivElement;
+  let screenWatch: ResizeObserver | undefined;
   // Created once in onMount; the appearance effect re-reads it on each run.
   // svelte-ignore non_reactive_update
   let term: Terminal;
@@ -160,7 +167,9 @@
     const mark = parseOsc133(data);
     if (!mark) return false;
     const rec = commands.feed(mark, cursor());
-    if (rec && hostId) settings.recordCommand(hostId, rec.command, rec.exit);
+    watch.feed(mark, cursor(), term.cols);
+    if (rec) recordFinished(rec);
+    if (mark.kind === "prompt" || mark.kind === "end") refreshSuggestion();
     if (rec && rec.endedAt - rec.startedAt >= NOTIFY_AFTER_MS) {
       void notifyDone(`${rec.command.split("\n")[0].slice(0, 80)} finished${rec.exit ? ` (exit ${rec.exit})` : ""} on ${label}`);
     }
@@ -170,6 +179,109 @@
     }
     return true;
   }
+
+
+  // -- smart completion: the faint suggestion after the cursor ------------------
+  const watch = new InputWatch();
+  const hostKey = hostId ?? target.kind;
+  const policy = $derived(policyFor(settings.prefs, host, vaultStore.effectiveEnv(host)));
+  let ghost = $state<Ghost | null>(null);
+  /** What the suggestion would add to the line, or null. */
+  let suggestion: string | null = null;
+  /** The line text Esc was pressed on; no suggestion for exactly that until the line changes. */
+  let dismissedAt: string | null = null;
+  /** The command that finished last, which suggestions are ranked against. */
+  let lastCommand: string | null = null;
+  let refreshQueued = false;
+
+  function indexCommand(command: string, exit: number | null, leadingSpace: boolean) {
+    const cwd = ui.paneInfo[paneId]?.cwd;
+    if (policy.history) {
+      completionHistory.add(hostKey, { command, at: Date.now(), exit, cwd, prev: lastCommand ?? undefined, leadingSpace });
+    }
+    if (hostId) settings.recordCommand(hostId, command, exit, { cwd, prev: lastCommand ?? undefined, leadingSpace });
+    lastCommand = command;
+  }
+
+  function recordFinished(rec: { command: string; exit: number | null; leadingSpace: boolean }) {
+    indexCommand(rec.command, rec.exit, rec.leadingSpace);
+  }
+
+  /** Without shell integration, the line that was typed, if the screen agrees it is a command and not a password. */
+  function recordTyped(line: string) {
+    if (policy.enabled) {
+      const seen = completionLine(policy, term, watch, line);
+      if (!seen || seen.text !== line) return;
+    }
+    indexCommand(line, null, false);
+  }
+
+  function hideGhost() {
+    suggestion = null;
+    if (ghost) ghost = null;
+    completionBridge.clear(controls);
+  }
+
+  function refreshNow() {
+    refreshQueued = false;
+    if (!term || !policy.inline || status.kind !== "connected" || pending || !active) return hideGhost();
+    const buf = term.buffer.active;
+    // Scrolled back: the cursor row isn't on screen.
+    if (buf.viewportY !== buf.baseY) return hideGhost();
+    const line = completionLine(policy, term, watch, tracker.line);
+    if (!line || !line.cursorAtEnd || !line.text.trim()) return hideGhost();
+    if (line.text === dismissedAt) return hideGhost();
+    dismissedAt = null;
+    const add = completionHistory.suggest({ text: line.text, host: hostKey, cwd: ui.paneInfo[paneId]?.cwd, prev: lastCommand });
+    const screen = container.querySelector<HTMLElement>(".xterm-screen");
+    const root = ghostRoot;
+    if (!add || !screen || !root) return hideGhost();
+    const box = ghostBox({
+      screen: screen.getBoundingClientRect(),
+      root: root.getBoundingClientRect(),
+      cols: term.cols,
+      rows: term.rows,
+      cursorX: buf.cursorX,
+      cursorY: buf.cursorY,
+      suggestion: add,
+    });
+    if (!box) return hideGhost();
+    suggestion = add;
+    ghost = box;
+    completionBridge.set(controls);
+  }
+
+  /** Once per frame at most, however much output arrives. */
+  function refreshSuggestion() {
+    if (refreshQueued) return;
+    // Off: nothing is read, nothing is drawn.
+    if (!policy.inline && !ghost) return;
+    refreshQueued = true;
+    requestAnimationFrame(refreshNow);
+  }
+
+  function takeSuggestion(part: (s: string) => string): boolean {
+    if (!suggestion || !ghost) return false;
+    const text = part(suggestion);
+    hideGhost();
+    if (!text) return false;
+    // The normal input path: guards, the line tracker and broadcast all see it like typed keys.
+    typed(text);
+    return true;
+  }
+
+  const controls: InlineControls = {
+    accept: () => takeSuggestion((s) => s),
+    acceptWord: () => takeSuggestion(nextWord),
+    dismiss: () => {
+      if (!suggestion) return false;
+      dismissedAt = completionLine(policy, term, watch, tracker.line)?.text ?? null;
+      hideGhost();
+      return true;
+    },
+  };
+
+  let ghostRoot: HTMLDivElement | undefined;
 
   /** The whole connection error, with a Copy button; the bar only has room for a line or two. */
   async function showError() {
@@ -646,6 +758,14 @@
     }
     term.attachCustomWheelEventHandler(wheelToKeys);
     term.onWriteParsed(refreshModes);
+    term.onWriteParsed(refreshSuggestion);
+    // Font, zoom, padding and fitting all change the screen's size; the suggestion follows.
+    const screenEl = container.querySelector(".xterm-screen");
+    if (screenEl) {
+      screenWatch = new ResizeObserver(refreshSuggestion);
+      screenWatch.observe(screenEl);
+    }
+    if (hostId && settings.prefs.rememberCommands) completionHistory.seed(hostKey, settings.history[hostId] ?? []);
 
     term.onData((d) => {
       if (status.kind !== "connected" || pending) return;
@@ -662,6 +782,7 @@
       if (status.kind === "connected") void resizePane(pane, cols, rows);
     });
     term.onScroll((y) => {
+      refreshSuggestion();
       scrolledUp = y < term.buffer.active.baseY;
       if (!scrolledUp) newOutputWhileScrolled = false;
     });
@@ -715,6 +836,8 @@
   });
 
   onDestroy(() => {
+    completionBridge.clear(controls);
+    screenWatch?.disconnect();
     clearTimeout(reconnectTimer);
     clearTimeout(zoomHintTimer);
     unlisten?.();
@@ -813,6 +936,15 @@
       guardedPaste(text);
     }}
   ></div>
+
+  <div bind:this={ghostRoot} class="pointer-events-none absolute inset-0 z-[5]">
+    <CompletionOverlay
+      {ghost}
+      fontFamily={settings.prefs.fontFamily}
+      fontSize={settings.prefs.fontSize}
+      color={paneTheme().foreground ?? "#cccccc"}
+    />
+  </div>
 
   {#if newOutputWhileScrolled}
     <button

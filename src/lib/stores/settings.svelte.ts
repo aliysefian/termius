@@ -1,5 +1,7 @@
 // Per-computer preferences. Stored in localStorage because they are
 // deliberately *not* synced: font size or auto-lock suit one machine, not all.
+import { completionHistory, rejectReason } from "$lib/completion/history";
+
 export interface Prefs {
   themeId: string;
   fontFamily: string;
@@ -97,6 +99,8 @@ export interface HistoryEntry {
   command: string;
   at: number;
   exit: number | null;
+  cwd?: string;
+  prev?: string;
 }
 
 /** When and how often a host was connected to, per computer. */
@@ -251,13 +255,19 @@ class SettingsStore {
     this.recentVaults = this.recentVaults.filter((p) => p !== path);
   }
 
-  recordCommand(hostId: string, command: string, exit: number | null) {
+  recordCommand(hostId: string, command: string, exit: number | null, extra: { cwd?: string; prev?: string; leadingSpace?: boolean } = {}) {
     if (!this.prefs.rememberCommands || !command.trim()) return;
+    // Secret-looking and leading-space commands are never written to storage.
+    if (rejectReason({ command, exit, leadingSpace: extra.leadingSpace })) return;
     const prev = (this.history[hostId] ?? []).filter((h) => h.command !== command);
-    this.history[hostId] = [{ command, at: Date.now(), exit }, ...prev].slice(0, HISTORY_PER_HOST);
+    const entry: HistoryEntry = { command, at: Date.now(), exit };
+    if (extra.cwd) entry.cwd = extra.cwd;
+    if (extra.prev) entry.prev = extra.prev;
+    this.history[hostId] = [entry, ...prev].slice(0, HISTORY_PER_HOST);
   }
 
   clearHistory(hostId?: string) {
+    completionHistory.clear(hostId);
     if (hostId) delete this.history[hostId];
     else this.history = {};
   }

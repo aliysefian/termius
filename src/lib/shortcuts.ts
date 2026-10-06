@@ -5,6 +5,7 @@
 //
 // Every action has a default combo the user can change in Settings; the
 // overrides live in `settings.prefs.keybindings`.
+import { completionBridge } from "$lib/completion/bridge";
 import { settings } from "$lib/stores/settings.svelte";
 import { ui } from "$lib/stores/ui.svelte";
 import { vaultStore } from "$lib/stores/vault.svelte";
@@ -73,6 +74,12 @@ export const ACTIONS: Action[] = [
       return true;
     },
   },
+  // The suggestion after the cursor. Each returns false when there is none showing, so the key is
+  // left alone and goes to the shell as usual (Right and End move the cursor, Esc reaches vim).
+  { id: "completion-accept", label: "Accept the suggestion", combo: "ArrowRight", run: () => inTerminal() && completionBridge.accept() },
+  { id: "completion-accept-end", label: "Accept the suggestion (End)", combo: "End", run: () => inTerminal() && completionBridge.accept() },
+  { id: "completion-accept-word", label: "Accept one word of the suggestion", combo: "Ctrl+ArrowRight", run: () => inTerminal() && completionBridge.acceptWord() },
+  { id: "completion-dismiss", label: "Dismiss the suggestion", combo: "Escape", run: () => inTerminal() && completionBridge.dismiss() },
 ];
 
 const KEY_NAMES: Record<string, string> = {
