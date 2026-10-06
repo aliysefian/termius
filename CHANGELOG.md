@@ -4,7 +4,7 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
-## Unreleased
+## 0.16.0 — 2026-10-06
 
 - **SCP and FTP/FTPS in the file browser.** When a server has SFTP turned off,
   connecting now says so and offers **Use SCP for this host** (remembered on
