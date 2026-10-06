@@ -14,9 +14,17 @@ export function markRaw(paneId: string, raw: boolean) {
   else rawPanes.delete(paneId);
 }
 
+/** Mosh panes run the system's mosh-client in a local terminal. */
+const localPanes = new Set<string>();
+
+export function markLocal(paneId: string, local: boolean) {
+  if (local) localPanes.add(paneId);
+  else localPanes.delete(paneId);
+}
+
 function backend(pane: Pane): "local" | "raw" | "ssh" {
   const k = pane.target.kind;
-  if (k === "local") return "local";
+  if (k === "local" || localPanes.has(pane.id)) return "local";
   if (k === "telnet" || k === "serial" || rawPanes.has(pane.id)) return "raw";
   return "ssh";
 }
@@ -48,6 +56,7 @@ export function resizePane(pane: Pane, cols: number, rows: number): Promise<void
 export function closePane(pane: Pane): Promise<void> {
   const b = backend(pane);
   rawPanes.delete(pane.id);
+  localPanes.delete(pane.id);
   switch (b) {
     case "local":
       return api.localTerm.close(pane.id);

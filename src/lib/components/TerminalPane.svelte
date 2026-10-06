@@ -12,7 +12,7 @@
   import type { UnlistenFn } from "@tauri-apps/api/event";
   import * as api from "$lib/api";
   import { ssh, type Credentials, type SessionStatus } from "$lib/ssh";
-  import { closePane, markRaw, resizePane, writeToPane } from "$lib/terminalio";
+  import { closePane, markLocal, markRaw, resizePane, writeToPane } from "$lib/terminalio";
   import { hostContextFor } from "$lib/runsnippet";
   import { render } from "$lib/snippetvars";
   import { ask } from "$lib/dialogs.svelte";
@@ -24,7 +24,7 @@
   import { vaultStore } from "$lib/stores/vault.svelte";
   import { themeById } from "$lib/themes";
   import { mix } from "$lib/themeimport";
-  import { errorMessage } from "$lib/types";
+  import { errorMessage, isApiError } from "$lib/types";
   import { LineTracker, looksLikeSecret, matchDestructive, pastedLines, pasteNeedsConfirm } from "$lib/guard";
   import { CommandTracker, parseOsc133, parseOsc7 } from "$lib/shellintegration";
   import { decodeOsc52, redundantMouseEnable } from "$lib/termprotocol";
@@ -61,6 +61,11 @@
   const telnetHost = $derived(target.kind === "host" && host?.protocol === "telnet");
   /** Telnet or serial: plain byte streams without SSH authentication. */
   const isRaw = $derived(target.kind === "telnet" || target.kind === "serial" || telnetHost);
+  /** Set after "Use plain SSH": this pane skips Mosh from then on. */
+  let plainSsh = $state(false);
+  /** The last Mosh attempt failed because the host has no mosh-server. */
+  let moshServerMissing = $state(false);
+  const useMosh = $derived(target.kind === "host" && !!host?.mosh && !telnetHost && !plainSsh);
   const needsCredentials = $derived(target.kind === "host" && !!host && !telnetHost && !vaultStore.effectiveIdentity(host));
   const production = $derived(vaultStore.effectiveEnv(host) === "production");
   const shared = $derived(vaultStore.settings?.settings);
@@ -379,12 +384,16 @@
     };
     try {
       markRaw(paneId, isRaw);
+      markLocal(paneId, useMosh);
+      moshServerMissing = false;
       if (target.kind === "telnet") {
         await api.raw.telnet(paneId, target.host, target.port, term.cols, term.rows, onData);
       } else if (target.kind === "serial") {
         await api.raw.serial(paneId, $state.snapshot(target.config) as typeof target.config, onData);
       } else if (target.kind === "host" && telnetHost && host) {
         await api.raw.telnet(paneId, host.hostname, host.port, term.cols, term.rows, onData);
+      } else if (target.kind === "host" && useMosh) {
+        await api.mosh.connect(paneId, target.hostId, term.cols, term.rows, credentials, onData);
       } else if (target.kind === "host") {
         await ssh.connect(paneId, target.hostId, term.cols, term.rows, credentials, onData);
       } else if (target.kind === "adhoc") {
@@ -400,8 +409,14 @@
       }
     } catch (e) {
       status = { kind: "error", message: errorMessage(e) };
+      moshServerMissing = useMosh && isApiError(e) && (e.code === "mosh_server_missing" || e.code === "mosh_client_missing");
       setInfo("error");
     }
+  }
+
+  function usePlainSsh() {
+    plainSsh = true;
+    void connect(null);
   }
 
   async function submitCredentials(e: SubmitEvent) {
@@ -985,6 +1000,9 @@
         <ShieldAlert size={14} class="shrink-0 text-danger" />
         <span class="line-clamp-2 min-w-0 flex-1 break-words text-danger">{status.message}</span>
         <button class="btn-ghost py-1" onclick={showError}>Details</button>
+        {#if moshServerMissing}
+          <button class="btn-secondary py-1" onclick={usePlainSsh}>Use plain SSH</button>
+        {/if}
       {:else}
         <Unplug size={14} class="shrink-0 text-fg-muted" />
         <span class="flex-1 text-fg-muted">Disconnected</span>

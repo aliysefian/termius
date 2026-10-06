@@ -86,6 +86,8 @@ export interface Host {
   custom?: Record<string, string>;
   /** "telnet" for Telnet hosts; absent or empty means SSH. */
   protocol?: string;
+  /** Connect with Mosh (needs `mosh-client` here and `mosh-server` on the host). */
+  mosh?: boolean;
 }
 
 /** A serial line, e.g. 115200 8N1. */

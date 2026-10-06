@@ -217,6 +217,18 @@ impl From<crate::forward::ForwardError> for ApiError {
     }
 }
 
+impl From<crate::mosh::MoshError> for ApiError {
+    fn from(e: crate::mosh::MoshError) -> Self {
+        use crate::mosh::MoshError as E;
+        match e {
+            E::ServerMissing(_) => Self::new("mosh_server_missing", e.to_string()),
+            E::ClientMissing => Self::new("mosh_client_missing", e.to_string()),
+            E::Ssh(s) => s.into(),
+            other => Self::new("mosh", other.to_string()),
+        }
+    }
+}
+
 impl From<crate::containers::ContainerError> for ApiError {
     fn from(e: crate::containers::ContainerError) -> Self {
         use crate::containers::ContainerError as E;
@@ -2304,6 +2316,44 @@ pub async fn ssh_disconnect(state: State<'_, AppState>, pane_id: String) -> ApiR
 // ---------------------------------------------------------------------------
 // Local terminals
 // ---------------------------------------------------------------------------
+
+/// Whether the system has `mosh-client`, so the host form can say so.
+#[tauri::command]
+pub fn mosh_available() -> bool {
+    crate::mosh::find_client().is_some()
+}
+
+/// Connect a pane with Mosh: log in over SSH (vault keys, jump hosts and
+/// known-hosts rules apply), start `mosh-server`, then run the system's
+/// `mosh-client` in a local terminal. The pane then behaves like a local one.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn mosh_connect(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    pane_id: String,
+    host_id: Uuid,
+    cols: u32,
+    rows: u32,
+    credentials: Option<Credentials>,
+    on_data: Channel<InvokeResponseBody>,
+) -> ApiResult<()> {
+    let client = crate::mosh::find_client().ok_or(crate::mosh::MoshError::ClientMissing)?;
+    let target = resolve_target(&state, host_id, credentials)?;
+    let lang = std::env::var("LANG").ok();
+    let launch = crate::mosh::start_server(target, lang.as_deref()).await?;
+    let (argv, env) = crate::mosh::client_command(&client, &launch, lang.as_deref());
+    let sink = Arc::new(PaneSink {
+        app,
+        pane_id: pane_id.clone(),
+        data: on_data,
+        log: state.log_slot(&pane_id),
+    });
+    state
+        .local
+        .spawn_env(pane_id, cols, rows, Some(argv), None, env, sink)
+        .map_err(|e| ApiError::new("mosh", e.to_string()))
+}
 
 /// The shells this computer can start, and its WSL distributions on Windows.
 #[tauri::command]

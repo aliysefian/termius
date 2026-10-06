@@ -135,6 +135,19 @@ been copied since.
   plain button uses. Local tabs work with splits, recording, snippets
   and synchronized typing like SSH tabs.
 
+- **Mosh.** In a host's form, tick **Use Mosh**. Connecting then logs in with
+  SSH as usual (vault keys, jump hosts, proxies and trusted-server rules all
+  apply), starts `mosh-server` on the host, and runs your computer's
+  `mosh-client` in the tab. The session keeps going across Wi-Fi changes and
+  sleep; `mosh-client` shows its own "last contact" bar while the link is down.
+  If the host has no `mosh-server`, the error offers **Use plain SSH**.
+  Limits: Mosh must be installed on this computer (`apt install mosh`,
+  `brew install mosh`; on Windows only if a `mosh-client.exe` is on the PATH),
+  the host must be reachable directly over UDP ports 60000–61000 (a jump host
+  carries only the login, not the session), there is no scrollback from the
+  server (use `tmux` or `screen` there), and port, agent and X11 forwarding
+  don't work over Mosh.
+
 ## Importing from an Ansible inventory
 
 In the import dialog, choose **Ansible inventory…** and pick an INI

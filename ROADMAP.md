@@ -235,7 +235,7 @@ matter in a working day.
   recovered from git history (commit d391c53) if macOS is wanted again.
 - **Certificates for signing.** The Windows signing pipeline is ready. It
   needs a code-signing certificate, a recurring cost.
-- **Mosh.** There is no maintained Rust Mosh client. The options are
-  implementing the SSP protocol (UDP, AES-OCB, state sync and local echo),
-  which is a project of its own, or adding a local terminal that runs the
-  system's `mosh` command, which Windows doesn't have.
+- **Mosh.** Decided: use the system's `mosh-client` (there is no maintained
+  Rust one, and the protocol is a project of its own). Done for hosts that set
+  "Use Mosh"; see the guide for limits. Implementing the protocol ourselves
+  would only be worth it for Windows without a Mosh install.

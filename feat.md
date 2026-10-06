@@ -22,7 +22,7 @@ version.
 | Phase | Done | Next |
 |---|---|---|
 | 1. File transfer | 0 of 7 | F0 |
-| 2. Terminal and connection types | 0 of 5 (T2 built, two lines unverified) | T1, T3–T5 |
+| 2. Terminal and connection types | 0 of 5 (T1, T2 built; some lines unverified) | T3–T5 |
 | 3. Databases | 3 of 9 (D0 and D1 `acfb247`, D2 `a72c4dd`) | D6, D7, D5, D8, D3, D4 |
 | 4. Containers | 2 of 6 (C0 `45a9743`, C1 `ebe4399`) | C2 (needs a real Podman) |
 | 5. Monitoring | 0 of 1: M1 (`971bf41`) is built, one DoD line open (a recording from a real macOS or BSD) | that one recording |
@@ -259,19 +259,23 @@ All of these reuse the existing SFTP view (`SftpView.svelte`,
 
 ## Phase 2: terminal and connection types
 
-- [ ] **T1. Mosh.** Start with the decision in `ROADMAP.md` ("Needs a
-  decision"). Do the lower-risk option first. **L**
+- [ ] **T1. Mosh.** Decided: use the system's `mosh-client`; SSH is ours.
+  **L**
   DoD:
-  - [ ] A host option "Use Mosh" that starts `mosh-server` over the existing
+  - [x] A host option "Use Mosh" that starts `mosh-server` over the existing
         SSH connection (vault keys, jump hosts, and known-hosts rules
-        apply), then connects by UDP.
-  - [ ] If `mosh-server` is missing on the remote, the error says so and
-        offers a plain SSH connection.
+        apply), then connects by UDP. Run end to end against a real sshd with
+        real mosh-server and mosh-client 1.4.0 (a typed command came back).
+  - [x] If `mosh-server` is missing on the remote, the error says so and
+        offers a plain SSH connection (error tested against a real sshd; the
+        button is built but not clicked in a real window).
   - [ ] Roaming (changing network) keeps the session; the pane shows
-        "Reconnecting..." instead of dropping.
-  - [ ] Documented limits: no scrollback from the server, no port forwarding
-        over Mosh, Windows support status.
-  - [ ] Not verified items are listed if no real `mosh-server` was available.
+        "Reconnecting..." instead of dropping. This is `mosh-client`'s own
+        behaviour and bar; not exercised here (no network change possible).
+  - [x] Documented limits: no scrollback from the server, no port forwarding
+        over Mosh, Windows support status (in `docs/USAGE.md`).
+  - [x] Not verified: Windows and macOS (no `mosh-client` there), the host
+        form checkbox and pane in a real window, a jump host with a UDP route.
 
 - [ ] **T2. Local shell picker and WSL.** `localpty.rs` exists; add choosing
   between installed shells (PowerShell, CMD, Git Bash, bash, zsh, fish) and

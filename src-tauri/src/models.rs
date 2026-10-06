@@ -135,6 +135,10 @@ pub struct Host {
     /// Send a keep-alive every N seconds (OpenSSH `ServerAliveInterval`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub keepalive_secs: Option<u32>,
+    /// Connect with Mosh (`mosh-client` on this computer, `mosh-server` on the
+    /// host) instead of a plain SSH session.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub mosh: bool,
     /// "telnet" for Telnet hosts (network gear); empty means SSH.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub protocol: String,

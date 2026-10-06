@@ -56,7 +56,10 @@ Linux and Windows · Built with Rust, Tauri, Svelte and xterm.js
   copy to the clipboard (OSC 52)
 - Shell integration: current directory in the header, jump between prompts,
   copy the last command's output, notifications when long commands finish
-- Session recording, local shell tabs, Telnet and serial consoles
+- Session recording, local shell tabs (pick the shell, including WSL
+  distributions on Windows), Telnet and serial consoles
+- Mosh for hosts that need it: roaming and sleep-proof sessions, using the
+  system's `mosh-client` after logging in with your vault keys
 
 ### Hosts and connections
 - Nested groups with default credentials, bastions, proxies and environments
@@ -197,7 +200,7 @@ server, but the app hasn't had wide real-world use yet. Keep backups of
 anything important, and please
 [report problems](https://github.com/aliysefian/termius/issues).
 
-**Not available yet:** macOS builds, code-signed installers, Mosh, hardware
+**Not available yet:** macOS builds, code-signed installers, hardware
 security keys and team sharing. See the [roadmap](ROADMAP.md).
 
 ## Contributing

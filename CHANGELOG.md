@@ -6,6 +6,14 @@ View changelog**.
 
 ## Unreleased
 
+- **Mosh.** Tick "Use Mosh" on a host and it connects the way `mosh` does:
+  SSH logs in (with your vault keys, jump hosts, proxies and trusted-server
+  rules), starts `mosh-server`, and your system's `mosh-client` takes over
+  over UDP, so the session survives network changes and sleep. If the host has
+  no `mosh-server`, the tab says so and offers plain SSH. Needs Mosh installed
+  on this computer; tested here against a real `mosh-server` and `mosh-client`
+  but not on Windows or macOS.
+
 - **Choose the shell for a local terminal.** The arrow beside the local
   terminal button lists the shells found on this computer (your login shell
   first; PowerShell, Command Prompt and Git Bash on Windows) and opens one in a

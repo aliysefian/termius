@@ -1,4 +1,5 @@
 <script lang="ts">
+  import * as api from "$lib/api";
   import Combobox from "./Combobox.svelte";
   import { groupOptions, hostOptions } from "$lib/pickeroptions";
   import { Bot, Check, Copy, Eye, EyeOff, FileKey, HelpCircle, KeyRound, Loader2, Lock, Sparkles, Users, Wifi, X } from "lucide-svelte";
@@ -232,6 +233,8 @@
   // unsaved address/port changes would need a new backend command this
   // environment has no way to compile (no webkit/gtk dev libs here).
   let testing = $state(false);
+  let moshInstalled = $state<boolean | null>(null);
+  api.mosh.available().then((ok) => (moshInstalled = ok), () => (moshInstalled = null));
 
   async function testConnection() {
     if (!id) return;
@@ -374,6 +377,19 @@
             <option value="ssh">SSH</option>
             <option value="telnet">Telnet (unencrypted, for network gear)</option>
           </select>
+          {#if form.protocol !== "telnet"}
+            <label class="mt-2 flex items-start gap-2 text-xs">
+              <input type="checkbox" class="mt-0.5" checked={!!form.mosh} onchange={(e) => (form.mosh = e.currentTarget.checked || undefined)} />
+              <span>
+                <span class="font-medium">Use Mosh</span>
+                <span class="block text-fg-muted">
+                  Keeps the session alive across network changes and sleep. Needs <code>mosh-server</code> on the host and
+                  <code>mosh-client</code> on this computer, and UDP ports 60000–61000 open to the host.
+                  {#if moshInstalled === false}<span class="text-warning">mosh-client wasn't found on this computer.</span>{/if}
+                </span>
+              </span>
+            </label>
+          {/if}
           {#if form.protocol === "telnet"}
             <p class="mt-1 text-xs text-warning">
               Telnet sends everything, including passwords, in clear text. You log in inside the terminal; nothing is saved

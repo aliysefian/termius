@@ -57,6 +57,21 @@ impl LocalManager {
         cwd: Option<std::path::PathBuf>,
         sink: Arc<dyn TermSink>,
     ) -> Result<(), LocalError> {
+        self.spawn_env(pane_id, cols, rows, command, cwd, Vec::new(), sink)
+    }
+
+    /// [`spawn`](Self::spawn) with extra environment variables for the program.
+    #[allow(clippy::too_many_arguments)]
+    pub fn spawn_env(
+        self: &Arc<Self>,
+        pane_id: String,
+        cols: u32,
+        rows: u32,
+        command: Option<Vec<String>>,
+        cwd: Option<std::path::PathBuf>,
+        env: Vec<(String, String)>,
+        sink: Arc<dyn TermSink>,
+    ) -> Result<(), LocalError> {
         let pair = native_pty_system()
             .openpty(size(cols, rows))
             .map_err(|e| LocalError::Spawn(e.to_string()))?;
@@ -70,6 +85,9 @@ impl LocalManager {
         };
         cmd.env("TERM", "xterm-256color");
         cmd.env("COLORTERM", "truecolor");
+        for (k, v) in env {
+            cmd.env(k, v);
+        }
         let start = cwd
             .filter(|d| d.is_dir())
             .or_else(|| std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(Into::into));

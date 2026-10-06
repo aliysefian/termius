@@ -257,6 +257,17 @@ export const remoteEdit = {
     listen<EditEvent>("sftp:edit", (e) => handler(e.payload)),
 };
 
+/** Mosh: SSH logs in and starts mosh-server; the system's mosh-client does the rest in a local terminal. */
+export const mosh = {
+  available: () => invoke<boolean>("mosh_available"),
+  connect(paneId: string, hostId: string, cols: number, rows: number, credentials: import("./ssh").Credentials | null, onData: (bytes: Uint8Array) => void) {
+    const channel = new Channel<ArrayBuffer | number[]>((msg) =>
+      onData(msg instanceof ArrayBuffer ? new Uint8Array(msg) : Uint8Array.from(msg)),
+    );
+    return invoke<void>("mosh_connect", { paneId, hostId, cols, rows, credentials, onData: channel });
+  },
+};
+
 export const localTerm = {
   spawn(paneId: string, cols: number, rows: number, onData: (bytes: Uint8Array) => void, shell: string | null = null, cwd: string | null = null, shellId: string | null = null) {
     const channel = new Channel<ArrayBuffer | number[]>((msg) =>
