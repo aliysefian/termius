@@ -4,6 +4,13 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## Unreleased
+
+- **Shell integration for fish.** The snippet in Settings → Shell integration
+  now adds the prompt marks to fish, which does not send them itself in version
+  3 (the text used to say it did). With it, the current folder, prompt jumping,
+  copy last output and long-command notifications work in fish.
+
 ## 0.16.0 — 2026-10-06
 
 - **SCP and FTP/FTPS in the file browser.** When a server has SFTP turned off,

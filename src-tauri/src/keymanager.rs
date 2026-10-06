@@ -465,6 +465,21 @@ mod tests {
     }
 
     #[test]
+    fn a_hosts_completion_choice_survives_the_vault_and_old_hosts_load_without_one() {
+        let (_d, v) = new_vault();
+        for choice in ["on", "off", "history"] {
+            let host = Host { label: "h".into(), hostname: "h.example".into(), completion: choice.into(), ..Default::default() };
+            let id = v.insert(Collection::Hosts, &host).unwrap().id;
+            assert_eq!(v.get::<Host>(Collection::Hosts, id).unwrap().data.unwrap().completion, choice);
+        }
+        // No choice writes nothing, and a host saved before this existed loads with none.
+        let plain = Host { label: "p".into(), hostname: "p.example".into(), ..Default::default() };
+        assert!(!serde_json::to_string(&plain).unwrap().contains("completion"));
+        let old: Host = serde_json::from_str(r#"{"label":"a","hostname":"b","port":22,"group":"","tags":[],"notes":""}"#).unwrap();
+        assert_eq!(old.completion, "");
+    }
+
+    #[test]
     fn key_references_resolve_and_track_usage() {
         let (_d, v) = new_vault();
         let m = keys::generate(KeyAlgorithm::Ed25519, "me@pc", Some("pp")).unwrap();

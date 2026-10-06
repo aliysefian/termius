@@ -1,0 +1,237 @@
+{
+ "shell": "fish",
+ "version": "fish, version 3.7.0",
+ "mode": "integrated",
+ "cols": 40,
+ "rows": 12,
+ "frames": [
+  {
+   "label": "start",
+   "typed": "",
+   "output": "G103O2ZpbGU6Ly9ob3N0L3RtcC9yZWMtMWhsYzVqZWIHG10xMzM7QQcbXTA7ZmlzaCAgIC90bXAvcmVjLTFobGM1amViBxtbMzBtGyhCG1ttDSQgG10xMzM7QgcbW0sNG1tDG1tD",
+   "expect": {
+    "text": "",
+    "atEnd": true
+   }
+  },
+  {
+   "label": "ls",
+   "typed": "bHM=",
+   "output": "bHMNG1s0QwgIbHMNG1s0QyANG1s0Qw==",
+   "expect": {
+    "text": "ls",
+    "atEnd": true
+   }
+  },
+  {
+   "label": "ls-la",
+   "typed": "IC1sYQ==",
+   "output": "IC1sYQ0bWzhDCAgICCAtbGENG1s4Qw==",
+   "expect": {
+    "text": "ls -la",
+    "atEnd": true
+   }
+  },
+  {
+   "label": "clear",
+   "typed": "FQ==",
+   "output": "CAgICAgIG1tLDRtbQxtbQw==",
+   "expect": {
+    "text": "",
+    "atEnd": true
+   }
+  },
+  {
+   "label": "wrap-1",
+   "typed": "ZWNobyBhbHBoYSBicmF2byBjaGFybGllIGRlbHRh",
+   "output": "ZWNobyBhbHBoYSBicmF2byBjaGFybGllIGRlbHRhDRtbMzJDG1szMERlY2hvIGFscGhhIGJyYXZvIGNoYXJsaWUgZGVsdGENG1szMkM=",
+   "expect": {
+    "text": "echo alpha bravo charlie delta",
+    "atEnd": true
+   }
+  },
+  {
+   "label": "wrap-2",
+   "typed": "IGVjaG8gZm94dHJvdCBnb2xmIGhvdGVsIGluZGlhIGp1bGlldCBraWxvIGxpbWEgbWlrZQ==",
+   "output": "IGVjaG8gZm94dHJvdCBnb2xmIGhvdGVsIGluZGlhIGp1bGlldCBraWxvIGxpbWEgbWlrZRtbQRtbQQ0NCg0KG1s0QxtbQRtbQRtbMjhDIGVjaG8gZm8NChtbNUMgZ29sZiBob3RlbCBpbmRpYSBqdWxpZXQga2lsbyBsaW1hIA0bW0ENCg0KG1s0Qw==",
+   "expect": {
+    "text": "echo alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima mike",
+    "atEnd": true
+   }
+  },
+  {
+   "label": "clear-2",
+   "typed": "FQ==",
+   "output": "G1tBG1tBCAgbW0oNG1tDG1tD",
+   "expect": {
+    "text": "",
+    "atEnd": true
+   }
+  },
+  {
+   "label": "multibyte",
+   "typed": "ZWNobyBow6lsbG8g5p2x5Lqs",
+   "output": "ZWNobyBow6lsbG8g5p2x5LqsDRtbMTdDG1sxNURlY2hvIGjDqWxsbyDmnbHkuqwNG1sxN0M=",
+   "expect": {
+    "text": "echo h\u00e9llo \u6771\u4eac",
+    "atEnd": true
+   }
+  },
+  {
+   "label": "clear-3",
+   "typed": "FQ==",
+   "output": "G1sxNUQbW0sNG1tDG1tD",
+   "expect": {
+    "text": "",
+    "atEnd": true
+   }
+  },
+  {
+   "label": "left-typed",
+   "typed": "YWJj",
+   "output": "YWJjDRtbNUMICAhhYmMNG1s1Qw==",
+   "expect": {
+    "text": "abc",
+    "atEnd": true
+   }
+  },
+  {
+   "label": "left",
+   "typed": "G1tE",
+   "output": "DRtbNEM=",
+   "expect": {
+    "text": "ab",
+    "atEnd": false
+   }
+  },
+  {
+   "label": "left-back",
+   "typed": "G1tD",
+   "output": "DRtbNUM=",
+   "expect": {
+    "text": "abc",
+    "atEnd": true
+   }
+  },
+  {
+   "label": "clear-4",
+   "typed": "FQ==",
+   "output": "CAgIG1tLDRtbQxtbQw==",
+   "expect": {
+    "text": "",
+    "atEnd": true
+   }
+  },
+  {
+   "label": "ran",
+   "typed": "ZWNobyBvbmUN",
+   "output": "ZWNobyBvbmUNG1sxMEMNChtbMzBtGyhCG1ttG10xMzM7QwcbXTA7ZWNobyAgIC90bXAvcmVjLTFobGM1amViBxtbMzBtGyhCG1ttDW9uZQ0KG10xMzM7RDswBxtbMm3ij44bKEIbW20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAN4o+OIA0bW0sbXTc7ZmlsZTovL2hvc3QvdG1wL3JlYy0xaGxjNWplYgcbXTEzMztBBxtdMDtmaXNoICAgL3RtcC9yZWMtMWhsYzVqZWIHG1szMG0bKEIbW20kIBtdMTMzO0IHG1tLDRtbQxtbQw==",
+   "expect": {
+    "text": "",
+    "atEnd": true
+   }
+  },
+  {
+   "label": "clear-5",
+   "typed": "FQ==",
+   "output": "",
+   "expect": {
+    "text": "",
+    "atEnd": true
+   }
+  },
+  {
+   "label": "own-suggestion",
+   "typed": "ZWM=",
+   "output": "ZWMNG1s0Q2hvIG9uZQ0bWzRDCAhlY2hvIG9uZQ0bWzRD",
+   "expect": {
+    "text": "ec",
+    "atEnd": false
+   }
+  },
+  {
+   "label": "clear-6",
+   "typed": "FQ==",
+   "output": "CAgbW0sNG1tDG1tD",
+   "expect": {
+    "text": "",
+    "atEnd": true
+   }
+  },
+  {
+   "label": "running",
+   "typed": "c2xlZXAgMQ0=",
+   "output": "c2xlZXAgMQ0bWzlDDQobWzMwbRsoQhtbbRtdMTMzO0MHG10wO3NsZWVwICAgL3RtcC9yZWMtMWhsYzVqZWIHG1szMG0bKEIbW20N",
+   "expect": null
+  },
+  {
+   "label": "done",
+   "typed": "",
+   "output": "G10xMzM7RDswBxtbMm3ij44bKEIbW20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAN4o+OIA0bW0sbXTc7ZmlsZTovL2hvc3QvdG1wL3JlYy0xaGxjNWplYgcbXTEzMztBBxtdMDtmaXNoICAgL3RtcC9yZWMtMWhsYzVqZWIHG1szMG0bKEIbW20kIBtdMTMzO0IHG1tLDRtbQxtbQw==",
+   "expect": {
+    "text": "",
+    "atEnd": true
+   }
+  },
+  {
+   "label": "secret-start",
+   "typed": "cmVhZCAtcyAtUCAiUGFzc3dvcmQ6ICIgeA0=",
+   "output": "cmVhZCAtcyAtUCAiUGFzc3dvcmQ6ICIgeA0bWzI3Qw0KG1szMG0bKEIbW20bXTEzMztDBxtdMDtyZWFkICAgL3RtcC9yZWMtMWhsYzVqZWIHG1szMG0bKEIbW20NG10wO3JlYWQgICAvdG1wL3JlYy0xaGxjNWplYgcbWzMwbRsoQhtbbQ1QYXNzd29yZDogG1tLDRtbMTBD",
+   "expect": null
+  },
+  {
+   "label": "secret-typed",
+   "typed": "aHVudGVyMg==",
+   "output": "4peP4peP4peP4peP4peP4peP4pePDRtbMTdD",
+   "expect": null
+  },
+  {
+   "label": "secret-done",
+   "typed": "DQ==",
+   "output": "DQobWzMwbRsoQhtbbRtbMm3ij44bKEIbW20gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAN4o+OIA0bW0sbXTEzMztEOzAHG1sybeKPjhsoQhtbbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIA3ij44gDRtbSxtdNztmaWxlOi8vaG9zdC90bXAvcmVjLTFobGM1amViBxtdMTMzO0EHG10wO2Zpc2ggICAvdG1wL3JlYy0xaGxjNWplYgcbWzMwbRsoQhtbbSQgG10xMzM7QgcbW0sNG1tDG1tD",
+   "expect": {
+    "text": "",
+    "atEnd": true
+   }
+  },
+  {
+   "label": "mouse-on",
+   "typed": "cHJpbnRmICdcMDMzWz8xMDAwaCcN",
+   "output": "cHJpbnRmICdcMDMzWz8xMDAwaCcNG1syMkMNChtbMzBtGyhCG1ttG10xMzM7QwcbXTA7cHJpbnRmICAgL3RtcC9yZWMtMWhsYzVqZWIHG1szMG0bKEIbW20NG1s/MTAwMGgbXTEzMztEOzAHG1sybeKPjhsoQhtbbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIA3ij44gDRtbSxtdNztmaWxlOi8vaG9zdC90bXAvcmVjLTFobGM1amViBxtdMTMzO0EHG10wO2Zpc2ggICAvdG1wL3JlYy0xaGxjNWplYgcbWzMwbRsoQhtbbSQgG10xMzM7QgcbW0sNG1tDG1tD",
+   "expect": null
+  },
+  {
+   "label": "mouse-typed",
+   "typed": "YWJj",
+   "output": "YWJjDRtbNUMICAhhYmMNG1s1Qw==",
+   "expect": null
+  },
+  {
+   "label": "mouse-clear",
+   "typed": "FQ==",
+   "output": "CAgIG1tLDRtbQxtbQw==",
+   "expect": null
+  },
+  {
+   "label": "mouse-off",
+   "typed": "cHJpbnRmICdcMDMzWz8xMDAwbCcN",
+   "output": "cHJpbnRmICdcMDMzWz8xMDAwbCcNG1syMkMNChtbMzBtGyhCG1ttG10xMzM7QwcbXTA7cHJpbnRmICAgL3RtcC9yZWMtMWhsYzVqZWIHG1szMG0bKEIbW20NG1s/MTAwMGwbXTEzMztEOzAHG1sybeKPjhsoQhtbbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIA3ij44gDRtbSxtdNztmaWxlOi8vaG9zdC90bXAvcmVjLTFobGM1amViBxtdMTMzO0EHG10wO2Zpc2ggICAvdG1wL3JlYy0xaGxjNWplYgcbWzMwbRsoQhtbbSQgG10xMzM7QgcbW0sNG1tDG1tD",
+   "expect": {
+    "text": "",
+    "atEnd": true
+   }
+  },
+  {
+   "label": "alt-on",
+   "typed": "cHJpbnRmICdcMDMzWz8xMDQ5aCcN",
+   "output": "cHJpbnRmICdcMDMzWz8xMDQ5aCcNG1syMkMNChtbMzBtGyhCG1ttG10xMzM7QwcbXTA7cHJpbnRmICAgL3RtcC9yZWMtMWhsYzVqZWIHG1szMG0bKEIbW20NG1s/MTA0OWgbXTEzMztEOzAHG1sybeKPjhsoQhtbbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIA3ij44gDRtbSxtdNztmaWxlOi8vaG9zdC90bXAvcmVjLTFobGM1amViBxtdMTMzO0EHG10wO2Zpc2ggICAvdG1wL3JlYy0xaGxjNWplYgcbWzMwbRsoQhtbbSQgG10xMzM7QgcbW0sNG1tDG1tD",
+   "expect": null
+  },
+  {
+   "label": "alt-typed",
+   "typed": "YWJj",
+   "output": "YWJjDRtbNUMICAhhYmMNG1s1Qw==",
+   "expect": null
+  }
+ ]
+}

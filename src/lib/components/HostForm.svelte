@@ -10,6 +10,7 @@
   import { revealIdentity } from "$lib/secrets.svelte";
   import { ui } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
+  import { hostMode } from "$lib/completion/policy";
   import { ENVIRONMENTS, emptyFtp, emptyHost, emptyRdp, errorMessage, type FtpTls, type Host, type HostCredentials, type InlineAuth, type Uuid } from "$lib/types";
 
   let { id, group }: { id: Uuid | null; group?: string } = $props();
@@ -265,6 +266,7 @@
       form.jump_host_id = form.jump_host_id || undefined;
       form.environment = form.environment || undefined;
       form.startup_command = form.startup_command?.trim() || undefined;
+      form.completion = hostMode(form.completion);
       if (form.protocol === "rdp") {
         form.rdp = { ...(form.rdp ?? emptyRdp()), domain: form.rdp?.domain?.trim() || undefined };
       } else {
@@ -820,6 +822,19 @@
 
       {#if activeTab === "automation"}
       <div class="space-y-4">
+        <div>
+          <label class="label" for="h-completion">Smart completion on this host</label>
+          <select id="h-completion" class="input" value={form.completion ?? ""} onchange={(e) => (form.completion = hostMode(e.currentTarget.value))}>
+            <option value="">Follow the settings{envChoice === "production" ? " (production: history only)" : ""}</option>
+            <option value="on">Always on</option>
+            <option value="history">History only</option>
+            <option value="off">Off</option>
+          </select>
+          <p class="mt-1 text-xs text-fg-muted">
+            Suggestions while you type at a prompt. "History only" skips snippets, command options and file names from the host. Nothing happens
+            here while Smart completion is off in Settings.
+          </p>
+        </div>
         <div>
           <label class="label" for="h-startup">Run after connecting</label>
           <input

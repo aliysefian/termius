@@ -53,6 +53,22 @@ export interface Prefs {
    * (Renamed from `commandHistory`, which defaulted on, so old installs start off.)
    */
   rememberCommands: boolean;
+  /**
+   * Smart completion: suggestions while typing at a shell prompt. The master switch turns every
+   * part off; the others choose which parts run. Suggestions from history are kept only for the
+   * session unless `rememberCommands` is on. See src/lib/completion/.
+   */
+  smartCompletion: boolean;
+  /** A faint suggestion after the cursor, from history. */
+  acInline: boolean;
+  /** A popup of matches (Tab or Ctrl+Space). */
+  acMenu: boolean;
+  /** Include snippets in the popup. */
+  acSnippets: boolean;
+  /** Include command options and subcommands in the popup. */
+  acOptions: boolean;
+  /** Look up remote file names over an extra SSH channel. */
+  acRemotePaths: boolean;
   /** System notification when a long command finishes in a background tab. */
   notifyBackground: boolean;
   /** Hide the activity bar, list panel, tab strip and pane headers. */
@@ -119,6 +135,12 @@ export const DEFAULT_PREFS: Prefs = {
   restoreSkipProduction: true,
   confirmCloseSessions: true,
   rememberCommands: false,
+  smartCompletion: true,
+  acInline: true,
+  acMenu: true,
+  acSnippets: true,
+  acOptions: true,
+  acRemotePaths: true,
   notifyBackground: true,
   focusMode: false,
   density: "comfortable",

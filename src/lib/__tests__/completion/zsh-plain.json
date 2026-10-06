@@ -1,0 +1,240 @@
+{
+ "shell": "zsh",
+ "version": "zsh 5.9 (x86_64-ubuntu-linux-gnu)",
+ "mode": "plain",
+ "cols": 40,
+ "rows": 12,
+ "frames": [
+  {
+   "label": "start",
+   "typed": "",
+   "output": "DRtbMG0bWzI3bRtbMjRtG1tKJCAbW0sbWz8yMDA0aA==",
+   "expect": {
+    "text": "",
+    "atEnd": true
+   }
+  },
+  {
+   "label": "ls",
+   "typed": "bHM=",
+   "output": "bAhscw==",
+   "expect": {
+    "text": "ls",
+    "atEnd": true
+   }
+  },
+  {
+   "label": "ls-la",
+   "typed": "IC1sYQ==",
+   "output": "IC1sYQ==",
+   "expect": {
+    "text": "ls -la",
+    "atEnd": true
+   }
+  },
+  {
+   "label": "clear",
+   "typed": "FQ==",
+   "output": "CAgICAgIICAgICAgCAgICAgI",
+   "expect": {
+    "text": "",
+    "atEnd": true
+   }
+  },
+  {
+   "label": "wrap-1",
+   "typed": "ZWNobyBhbHBoYSBicmF2byBjaGFybGllIGRlbHRh",
+   "output": "ZQhlY2hvIGFscGhhIGJyYXZvIGNoYXJsaWUgZGVsdGE=",
+   "expect": {
+    "text": "echo alpha bravo charlie delta",
+    "atEnd": true
+   }
+  },
+  {
+   "label": "wrap-2",
+   "typed": "IGVjaG8gZm94dHJvdCBnb2xmIGhvdGVsIGluZGlhIGp1bGlldCBraWxvIGxpbWEgbWlrZQ==",
+   "output": "IGVjaG8gZm8gDRtbS3gNeHRyb3QgZ29sZiBob3RlbCBpbmRpYSBqdWxpZXQga2lsbyBsaW1hICANG1tLbQ1taWtl",
+   "expect": {
+    "text": "echo alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima mike",
+    "atEnd": true
+   }
+  },
+  {
+   "label": "clear-2",
+   "typed": "FQ==",
+   "output": "G1tBG1tBCAgbW0sbWzFCDRtbSxtbMUIbW0sbW0EbW0EbWzJD",
+   "expect": {
+    "text": "",
+    "atEnd": true
+   }
+  },
+  {
+   "label": "multibyte",
+   "typed": "ZWNobyBow6lsbG8g5p2x5Lqs",
+   "output": "ZQhlY2hvIGjDqWxsbyDmnbHkuqw=",
+   "expect": {
+    "text": "echo h\u00e9llo \u6771\u4eac",
+    "atEnd": true
+   }
+  },
+  {
+   "label": "clear-3",
+   "typed": "FQ==",
+   "output": "G1sxNUQgICAgICAgICAgICAgICAbWzE1RA==",
+   "expect": {
+    "text": "",
+    "atEnd": true
+   }
+  },
+  {
+   "label": "left-typed",
+   "typed": "YWJj",
+   "output": "YQhhYmM=",
+   "expect": {
+    "text": "abc",
+    "atEnd": true
+   }
+  },
+  {
+   "label": "left",
+   "typed": "G1tE",
+   "output": "CA==",
+   "expect": null
+  },
+  {
+   "label": "left-back",
+   "typed": "G1tD",
+   "output": "G1sxQw==",
+   "expect": null
+  },
+  {
+   "label": "clear-4",
+   "typed": "FQ==",
+   "output": "CAgIICAgCAgI",
+   "expect": {
+    "text": "",
+    "atEnd": true
+   }
+  },
+  {
+   "label": "ran",
+   "typed": "ZWNobyBvbmUN",
+   "output": "ZQhlY2hvIG9uZRtbPzIwMDRsG1sxQg1vbmUNCg0bWzBtG1syN20bWzI0bRtbSiQgG1tLG1s/MjAwNGg=",
+   "expect": {
+    "text": "",
+    "atEnd": true
+   }
+  },
+  {
+   "label": "up",
+   "typed": "G1tB",
+   "output": "ZWNobyBvbmU=",
+   "expect": null
+  },
+  {
+   "label": "clear-5",
+   "typed": "FQ==",
+   "output": "G1s4RCAgICAgICAgG1s4RA==",
+   "expect": {
+    "text": "",
+    "atEnd": true
+   }
+  },
+  {
+   "label": "own-suggestion",
+   "typed": "ZWM=",
+   "output": "ZQhlYw==",
+   "expect": {
+    "text": "ec",
+    "atEnd": true
+   }
+  },
+  {
+   "label": "clear-6",
+   "typed": "FQ==",
+   "output": "CAggIAgI",
+   "expect": {
+    "text": "",
+    "atEnd": true
+   }
+  },
+  {
+   "label": "running",
+   "typed": "c2xlZXAgMQ0=",
+   "output": "cwhzbGVlcCAxG1s/MjAwNGwNDQo=",
+   "expect": {
+    "text": "",
+    "atEnd": true
+   }
+  },
+  {
+   "label": "done",
+   "typed": "",
+   "output": "DRtbMG0bWzI3bRtbMjRtG1tKJCAbW0sbWz8yMDA0aA==",
+   "expect": {
+    "text": "",
+    "atEnd": true
+   }
+  },
+  {
+   "label": "secret-start",
+   "typed": "cmVhZCAtcyAieD9QYXNzd29yZDogIg0=",
+   "output": "cghyZWFkIC1zICJ4P1Bhc3N3b3JkOiAiG1s/MjAwNGwNDQpQYXNzd29yZDog",
+   "expect": null
+  },
+  {
+   "label": "secret-typed",
+   "typed": "aHVudGVyMg==",
+   "output": "",
+   "expect": null
+  },
+  {
+   "label": "secret-done",
+   "typed": "DQ==",
+   "output": "DRtbMG0bWzI3bRtbMjRtG1tKJCAbW0sbWz8yMDA0aA==",
+   "expect": {
+    "text": "",
+    "atEnd": true
+   }
+  },
+  {
+   "label": "mouse-on",
+   "typed": "cHJpbnRmICdcMDMzWz8xMDAwaCcN",
+   "output": "cAhwcmludGYgJ1wwMzNbPzEwMDBoJxtbPzIwMDRsDQ0KG1s/MTAwMGgNG1swbRtbMjdtG1syNG0bW0okIBtbSxtbPzIwMDRo",
+   "expect": null
+  },
+  {
+   "label": "mouse-typed",
+   "typed": "YWJj",
+   "output": "YQhhYmM=",
+   "expect": null
+  },
+  {
+   "label": "mouse-clear",
+   "typed": "FQ==",
+   "output": "CAgIICAgCAgI",
+   "expect": null
+  },
+  {
+   "label": "mouse-off",
+   "typed": "cHJpbnRmICdcMDMzWz8xMDAwbCcN",
+   "output": "cAhwcmludGYgJ1wwMzNbPzEwMDBsJxtbPzIwMDRsDQ0KG1s/MTAwMGwNG1swbRtbMjdtG1syNG0bW0okIBtbSxtbPzIwMDRo",
+   "expect": {
+    "text": "",
+    "atEnd": true
+   }
+  },
+  {
+   "label": "alt-on",
+   "typed": "cHJpbnRmICdcMDMzWz8xMDQ5aCcN",
+   "output": "cAhwcmludGYgJ1wwMzNbPzEwNDloJxtbPzIwMDRsDQ0KG1s/MTA0OWgNG1swbRtbMjdtG1syNG0bW0okIBtbSxtbPzIwMDRo",
+   "expect": null
+  },
+  {
+   "label": "alt-typed",
+   "typed": "YWJj",
+   "output": "YQhhYmM=",
+   "expect": null
+  }
+ ]
+}

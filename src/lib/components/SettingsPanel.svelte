@@ -49,6 +49,8 @@
 
   const searching = $derived(!!searchQuery.trim());
 
+  const SMART_COMPLETION_KEYWORDS = "smart completion autocomplete auto complete suggestions suggest ghost inline tab history snippets options paths";
+
   // Mirrors the keyword strings each section's `visible()` guard uses, just
   // to say "no matches" when a search comes up empty.
   const ALL_KEYWORDS = [
@@ -57,6 +59,7 @@
     "update check version release install download changelog whats new",
     "layout density compact comfortable focus mode shortcuts",
     "local terminal shell bash zsh fish powershell wsl start folder cwd",
+    SMART_COMPLETION_KEYWORDS,
     "connections auto-reconnect notify background command history remember restore session reopen tabs last time production paste trailing newline",
     "command line cli scripting sshvault run list connect",
     "shell integration osc 133 7 prompt directory",
@@ -535,6 +538,59 @@ sshvault run web-01 db-01 --json -- df -h /</pre>
           </div>
         {/if}
       {/if}
+    </section>
+    {/if}
+
+    {#if visible("terminal", SMART_COMPLETION_KEYWORDS)}
+    <section class="rounded-xl border border-line bg-panel p-5">
+      <h2 class="mb-1 text-sm font-semibold">Smart completion</h2>
+      <p class="mb-3 text-xs text-fg-muted">
+        Suggests the rest of a command while you type at a shell prompt. Nothing is typed for you: a suggestion is only shown, and you accept it
+        with a key. It stays out of full-screen programs like vim and tmux, and out of password prompts.
+      </p>
+      <label class="flex items-start gap-2 text-sm">
+        <input type="checkbox" class="mt-0.5 accent-input" bind:checked={settings.prefs.smartCompletion} />
+        <span>
+          Smart completion
+          <span class="block text-xs text-fg-muted">The master switch: off turns every part below off, in every tab, at once. Each host can override it in its own settings.</span>
+        </span>
+      </label>
+      <div class="ml-6 mt-3 space-y-2 {settings.prefs.smartCompletion ? '' : 'opacity-50'}">
+        <label class="flex items-start gap-2 text-sm">
+          <input type="checkbox" class="mt-0.5 accent-input" disabled={!settings.prefs.smartCompletion} bind:checked={settings.prefs.acInline} />
+          <span>
+            Suggest as I type
+            <span class="block text-xs text-fg-muted">A faint suggestion after the cursor, from commands typed before. → or End accepts it.</span>
+          </span>
+        </label>
+        <label class="flex items-start gap-2 text-sm">
+          <input type="checkbox" class="mt-0.5 accent-input" disabled={!settings.prefs.smartCompletion} bind:checked={settings.prefs.acMenu} />
+          <span>
+            Show a list of matches
+            <span class="block text-xs text-fg-muted">Tab or Ctrl+Space opens it.</span>
+          </span>
+        </label>
+        <label class="ml-6 flex items-start gap-2 text-sm">
+          <input type="checkbox" class="mt-0.5 accent-input" disabled={!settings.prefs.smartCompletion || !settings.prefs.acMenu} bind:checked={settings.prefs.acSnippets} />
+          <span>Include my snippets</span>
+        </label>
+        <label class="ml-6 flex items-start gap-2 text-sm">
+          <input type="checkbox" class="mt-0.5 accent-input" disabled={!settings.prefs.smartCompletion || !settings.prefs.acMenu} bind:checked={settings.prefs.acOptions} />
+          <span>Include command options and subcommands (git, docker, systemctl, …)</span>
+        </label>
+        <label class="ml-6 flex items-start gap-2 text-sm">
+          <input type="checkbox" class="mt-0.5 accent-input" disabled={!settings.prefs.smartCompletion || !settings.prefs.acMenu} bind:checked={settings.prefs.acRemotePaths} />
+          <span>
+            Look up file and folder names on the host
+            <span class="block text-xs text-fg-muted">Opens an extra SSH channel to the host you are already connected to. Nothing else leaves this computer.</span>
+          </span>
+        </label>
+      </div>
+      <p class="mt-3 text-xs text-fg-muted">
+        Suggestions come from the commands you have typed in this session. They are kept for next time only if
+        <strong>Remember the commands I run on each host</strong> (above) is on. Commands that look like they contain a password or token, and
+        commands you start with a space, are never suggested. Production hosts use history only unless the host says otherwise.
+      </p>
     </section>
     {/if}
 

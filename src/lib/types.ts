@@ -86,6 +86,8 @@ export interface Host {
   custom?: Record<string, string>;
   /** "telnet" for Telnet hosts; absent or empty means SSH. */
   protocol?: string;
+  /** Smart completion on this host: absent follows the settings (production hosts: history only). */
+  completion?: HostCompletion;
   /** Connect with Mosh (needs `mosh-client` here and `mosh-server` on the host). */
   mosh?: boolean;
   /** How to browse this host's files: absent for SFTP, "scp" when the server has SFTP off. */
@@ -95,6 +97,8 @@ export interface Host {
   /** FTP settings, for hosts whose protocol is "ftp". */
   ftp?: FtpOptions;
 }
+
+export type HostCompletion = "on" | "off" | "history";
 
 export type FtpTls = "none" | "explicit" | "implicit";
 

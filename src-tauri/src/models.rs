@@ -186,6 +186,10 @@ pub struct Host {
     /// Settings for an FTP host (`protocol` = "ftp").
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ftp: Option<FtpOptions>,
+    /// Smart completion on this host: empty follows the settings (production hosts: history
+    /// only); "on", "off" or "history" overrides them.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub completion: String,
     /// How to browse this host's files: empty for SFTP, "scp" when SFTP is off on the server.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub file_protocol: String,

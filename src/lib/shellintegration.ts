@@ -170,7 +170,14 @@ PS1="$PS1"$'%{\\e]133;B\\a%}'`,
   },
   {
     shell: "fish",
-    file: "(nothing to add)",
-    text: "# fish 3.6 and later emit these sequences by itself.",
+    file: "~/.config/fish/config.fish",
+    // Fish 3 sends none of these marks, and fish 4 sends some (the prompt end only from 4.3), so this
+    // adds all of them; a mark sent twice does no harm.
+    text: `# SSHVault shell integration
+function __sshvault_postexec --on-event fish_postexec; printf '\\e]133;D;%s\\a' $status; end
+function __sshvault_prompt --on-event fish_prompt; printf '\\e]7;file://%s%s\\a\\e]133;A\\a' $hostname $PWD; end
+function __sshvault_preexec --on-event fish_preexec; printf '\\e]133;C\\a'; end
+functions -c fish_prompt __sshvault_orig_prompt
+function fish_prompt; __sshvault_orig_prompt; printf '\\e]133;B\\a'; end`,
   },
 ];
