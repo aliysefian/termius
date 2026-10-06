@@ -317,6 +317,73 @@ For a one-off connection, type an `ssh -J` command in Quick connect instead
   Settings has a category list on the left and a search box that finds a
   setting by name across every category.
 
+## Smart completion
+
+Suggests the rest of a command while you type at a shell prompt. **It is off by
+default**: turn it on under **Settings → Terminal → Smart completion**. Nothing is
+typed for you and nothing is sent anywhere except, if you allow it, a question
+to the host you are already connected to. The switch applies to open tabs
+immediately; off means no suggestion, no key handled, no lookup and nothing
+recorded.
+
+**What it does**
+
+- **As you type**, a faint suggestion appears after the cursor, taken from
+  commands you ran before (this host first, then the same folder, then what
+  followed the last command). **→** or **End** accepts it, **Ctrl+→** takes one
+  word, **Esc** hides it. Accepting only types the missing characters; **Enter
+  is always yours**, and on a production host it still goes through the
+  destructive-command check.
+- **Ctrl+Space** opens a list for the line as typed, and typing narrows it.
+  Up and Down move, **Enter** (or Tab) puts the choice on the line in place of
+  what you typed, **Esc** closes it. It lists, under their own headings:
+  subcommands, options and values for about 60 common commands (git, docker,
+  kubectl, systemctl, tar, ssh and more, with descriptions, also behind `sudo`
+  and `env`); file and folder names from the host (`cat /etc/ho`, `~/`, relative
+  paths); names such as git branches, containers and systemd units where a
+  command takes one; matching history, fuzzy; and your snippets (single-line
+  ones; a snippet with `{{variables}}` asks for them first). Tab is left to the
+  shell's own completion; you can bind it to the list under **Keyboard
+  shortcuts** (Open the suggestion list (Tab)).
+- Each part has its own switch in Settings, and each host can override them:
+  **Use default / Always on / History only / Off** (host form → Automation).
+  **Production hosts default to History only**: the faint suggestion and the
+  list work from your own history, but no snippets, command specs or lookups on
+  the host.
+
+**Where history comes from.** From the commands typed in this session. They are
+kept for next time only if **Remember the commands I run on each host** is on.
+Commands that look like they contain a password, token or key
+(`--password …`, `TOKEN=…`, `user:pass@host`, long key-like strings), commands you
+start with a space, and commands that failed to start are never suggested or
+stored. This is a best-effort filter, not a guarantee.
+
+**Looking things up on the host.** File names and the lists above come from a
+second channel on the same SSH connection, never from the shell you are typing
+in. The folder and what you typed reach the host as arguments, never as part of
+a command, so a file named `$(rm -rf ~)` is just a name. A lookup is capped at
+500 names and three seconds, and a listing that was cut says so. If the host
+won't open another channel (`MaxSessions 1`, exec turned off) the app stops
+asking for that session and nothing else is affected. Relative paths need the
+shell to report its folder (see shell integration below). Local tabs, Mosh,
+Telnet and serial consoles have no connection to ask over, so they get history,
+snippets and command options but not file names.
+
+**When nothing appears.** In full-screen programs (vim, tmux, top, less), while
+a command runs, at password prompts (including `sudo`'s), while the mouse is
+tracked, in a command you are editing over several lines (a multi-line paste),
+when text already follows the cursor (a right-hand prompt, or the grey
+suggestion of fish or zsh-autosuggestions, so you never get two), after the
+window was resized until the next prompt, when scrolled back, and with a screen
+reader on (the list is announced instead of faint text).
+
+**Shell integration** makes the line exact: it lets the app read what you typed
+from the screen. Settings → Shell integration has the lines to add for bash,
+zsh and fish (the fish one is needed even for fish 3.7, which sends no marks).
+Without it the app follows your keystrokes and checks them against the screen,
+and shows nothing when they disagree. PowerShell and cmd have no integration
+yet, so they get no suggestions.
+
 ## Quick connect and the command palette
 
 Press **Ctrl+Shift+T**, or the **+** next to the tabs, and type
@@ -367,6 +434,8 @@ connection too. Outside a terminal, **Ctrl+K** also opens it.
 | Ctrl+Shift+` | New local terminal |
 | Alt+Shift+arrows | Focus the pane to the left/right/up/down in a split |
 | Shift+End | Jump a terminal to the bottom |
+| →, End, Ctrl+→, Esc | Accept, accept one word, dismiss a suggestion (smart completion, when one is showing) |
+| Ctrl+Space | Open the suggestion list (smart completion) |
 
 Plain Ctrl shortcuts such as Ctrl+W, Ctrl+T and Ctrl+K go to the remote
 shell, where editors and readline use them. Pane navigation uses Alt+Shift,

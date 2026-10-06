@@ -567,7 +567,7 @@ sshvault run web-01 db-01 --json -- df -h /</pre>
           <input type="checkbox" class="mt-0.5 accent-input" disabled={!settings.prefs.smartCompletion} bind:checked={settings.prefs.acMenu} />
           <span>
             Show a list of matches
-            <span class="block text-xs text-fg-muted">Tab or Ctrl+Space opens it.</span>
+            <span class="block text-xs text-fg-muted">Ctrl+Space opens it. Tab stays the shell's own; you can give it to the list under Keyboard shortcuts.</span>
           </span>
         </label>
         <label class="ml-6 flex items-start gap-2 text-sm">

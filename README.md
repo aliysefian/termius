@@ -56,6 +56,9 @@ Linux and Windows · Built with Rust, Tauri, Svelte and xterm.js
   copy to the clipboard (OSC 52)
 - Shell integration: current directory in the header, jump between prompts,
   copy the last command's output, notifications when long commands finish
+- Smart completion (off until you turn it on): a faint suggestion from your own
+  history, and a list of subcommands, options, file names on the host and
+  snippets; stays out of vim, tmux and password prompts
 - Session recording, local shell tabs (pick the shell, including WSL
   distributions on Windows), Telnet and serial consoles
 - Mosh for hosts that need it: roaming and sleep-proof sessions, using the

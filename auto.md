@@ -233,9 +233,8 @@ DoD:
       starts on the cursor's cell, stays inside the terminal, larger after
       zoom. **Resize hides it until the next prompt** (the terminal reflows the
       line, and AC0's reader refuses to guess); it comes back on the new grid.
-      Not verified: a light theme, a changed line height or padding (the code
-      reads them from the grid, no test changes them), the DOM renderer (the
-      headless browser used WebGL).
+      A light theme, 16 px of padding and a 1.6 line height are checked in the browser
+      test (AC4). Not verified: the DOM renderer (the headless browser used WebGL).
 - [x] → / End accepts, Ctrl+→ takes one word, Esc dismisses; accepted text goes
       through the normal input path (history and `LineTracker` see it).
       Browser test covers all four, that accepting never sends Enter, and that
@@ -257,7 +256,7 @@ DoD:
       leading-space commands (unit test).
 - [x] Headless-browser test with mocked IPC: type, see, accept, dismiss, resize.
       `src/lib/__tests__/e2e/completion.py` with `mock.js` (a fake shell that
-      sends OSC 133): 26 checks, all passing. It needs `pnpm dev` running and is
+      sends OSC 133): 26 checks, all passing (the same file has 77 by AC4). It needs `pnpm dev` running and is
       not part of `pnpm test`.
 
 Found while doing this:
@@ -388,16 +387,70 @@ Found while doing this:
 - Frontend: debounce, cache, cancel; the "look up remote paths" switch; `~` and
   relative paths using the pane's current folder (OSC 7).
 
+Built as: `src-tauri/src/completion.rs` (the lookups and the per-session
+"refused" state), `SshManager::lookup` (the pane's own `Client` is kept in the
+session registry so a lookup opens a channel on the same connection, jump hosts
+included), the `completion_lookup` command, `src/lib/completion/remote.ts`
+(debounce 150 ms, 5 s cache, stale answers dropped, failure back-off, refusal
+stops everything) and the list integration in `TerminalPane.svelte`.
+
+How it is safe: the commands are fixed text (a one-line POSIX `sh` script per
+lookup, so csh and fish login shells carry it too). The folder, the prefix and the
+limit arrive as positional parameters `"$1" "$2" "$3"`, each single-quoted for the
+login shell; the prefix is compared as text, never as a pattern. Lookups other
+than a folder listing are an allowlist of eight read-only commands by id (git
+branches and tags, docker containers and images, systemd units, kubectl contexts,
+namespaces and pods); an id outside it is refused before any channel is opened.
+Names come back NUL-separated; a name with a newline or a slash is dropped.
+
 DoD:
-- [ ] Against a real `sshd`: lists a folder, completes `~/` and relative paths,
+- [x] Against a real `sshd`: lists a folder, completes `~/` and relative paths,
       and handles names with spaces, quotes and `$(x)` (a canary proves nothing
-      runs).
-- [ ] Against `MaxSessions 1`: the lookup fails quietly, the session stays
-      connected, and no further attempts are made in that session.
-- [ ] A folder with 50,000 entries returns the first N within the time cap and
-      says it was cut.
-- [ ] Works through a jump host; with the switch off no channel is opened
-      (checked in a test).
+      runs). Rust tests over a throw-away `sshd`: spaces, quotes, hidden names,
+      `*` and `?` in a prefix, a missing folder, `~` and `~/dir/` (a folder made
+      in HOME). Names and prefixes shaped like `$(touch X)`, backticks,
+      `'; touch X; '`, `; touch X #`, `${IFS}` and `$HOME` are listed as names,
+      used as the folder and as the prefix, and none of the canary files
+      appears, in the folder or in HOME. Relative paths are resolved in the app
+      from the folder the shell reports (OSC 7), since the extra channel
+      starts in the home folder: a relative word with no known folder gets no
+      lookup. Browser test (mocked lookup) covers absolute, `~/`, relative,
+      escaping (`my\ notes.txt`, `it\'s.txt`), folders first, hidden names left
+      out, folders-only for `-C`.
+- [x] Against `MaxSessions 1`: the lookup fails quietly, the session stays
+      connected, and no further attempts are made in that session. The pane's
+      shell holds the only session; the lookup is refused, then 10 more calls
+      make **zero** further channel attempts (counter), the connection is open
+      and the shell still answers a command. Browser test: a host that refuses is
+      asked once however much is typed, and typing is unaffected.
+- [x] A folder with 50,000 entries returns the first N within the time cap and
+      says it was cut. 500 entries back in **116 ms** (cap 3 s), `truncated` set;
+      a narrow prefix is filtered on the host before the cut, so it is complete
+      (10 of 10); a limit of 10 is kept. The list's heading says "cut, keep
+      typing" (browser test).
+- [x] Works through a jump host; with the switch off no channel is opened
+      (checked in a test). Jump: a lookup on a `Client` made with a jump chain
+      (the test server bastions for itself). Switch: `remote.test.ts` makes
+      the fetch function count calls (0 with the switch off, also when it is
+      turned off while a question waits for typing to settle); the browser test
+      counts `completion_lookup` calls (0 with the switch off, 0 in a local tab).
+
+Found while doing this:
+- The pane's session task owned its connection privately; it now publishes it
+  (an `Arc<Client>`) in the registry. Only SSH panes have one: Mosh, Telnet,
+  serial and local tabs get no file-name lookups (they still get history,
+  snippets and command options). Local-folder completion for local tabs, which the
+  design mentions, is **not built**.
+- A race of my own: asking the host twice for the same line (each key refresh
+  asked again) made the first answer "stale" and lost the list; asking for a line
+  that is already out now waits for that answer.
+- Fig's `--context` for kubectl isn't in its spec, so the contexts lookup only
+  fires where the spec names an option; branches, units, containers, images, pods
+  and namespaces (`-n`) work.
+- Not verified: macOS or Windows hosts (the lookups need `sh`, so a Windows host
+  with only cmd or PowerShell gets nothing, quietly), a host with exec turned off
+  or a forced command (refused the same way, but not run against one), a real
+  separate bastion, BusyBox `sh` (dash and bash were the `sh` here).
 
 ### AC5. Polish, per-host rules and documentation
 
@@ -407,37 +460,78 @@ DoD:
   line, `CHANGELOG.md` under Unreleased.
 
 DoD:
-- [ ] Every line of section 6 is ticked, or each exception is written down.
-- [ ] A manual pass over bash, zsh, fish, tmux, vim, `top`, a password prompt,
-      `sudo`, a multi-line paste and a very long line.
+- [x] Every line of section 6 is ticked, or each exception is written down.
+      See section 6.
+- [x] A manual pass over bash, zsh, fish, tmux, vim, `top`, a password prompt,
+      `sudo`, a multi-line paste and a very long line. Done against the real
+      programs, not by hand: `src/lib/__tests__/e2e/shells.py` wires the page's
+      terminal to a real pseudo-terminal running bash 5.2, zsh 5.9 and fish 3.7
+      with the integration snippets (49 checks, run three times, all passing):
+      history suggestion shown and accepted and then run for real; the list;
+      nothing at `read -s` and `sudo -k true` password prompts; nothing in vim,
+      top or tmux, and suggestions again after each; a multi-line paste (the
+      shell keeps it as one command to edit, so nothing is offered until it is
+      run); a 300-character line stays inside the terminal and runs intact. fish
+      shows its own suggestion, so ours stays hidden there (no second one). Not
+      done: a person clicking through the packaged Tauri window; macOS; Windows
+      (PowerShell, cmd and WSL); zsh-autosuggestions and oh-my-zsh themes.
+- [x] Production hosts default to History only (documented in `docs/USAGE.md` and
+      in Settings); a shell that draws its own suggestion shows only its own.
+
+Not slower: `src/lib/__tests__/e2e/perf.py`, real bash, 10 MB of `cat` and 200
+characters typed and run, three rounds each. Off: 4.4 and 4.7 s for the cat (20 s
+on the cold first run), 5.5 and 5.8 s for the typing. On: 4.4, 4.6 and 4.0 s, and
+4.9, 5.1 and 4.6 s. No difference beyond noise.
+
+Documented in `docs/USAGE.md` (new "Smart completion" section and two rows in the
+shortcut table), `README.md` (feature line), `CHANGELOG.md` (Unreleased),
+`docs/DEVELOPMENT.md` (specs), `THIRD_PARTY.md`.
 
 ---
 
 ## 6. Definition of Done for the whole feature
 
-- [ ] **Setting:** Smart completion can be turned on and off in Settings; off
+- [x] **Setting:** Smart completion can be turned on and off in Settings; off
       means no overlay, no key handling, no remote lookups and no recording;
-      the change applies to open tabs immediately.
-- [ ] **Per host:** the host form overrides it; the override is respected and
-      saved in the vault.
-- [ ] **Inline:** history suggestions appear after the cursor, accept with → /
+      the change applies to open tabs immediately. Off by default. Browser test
+      switches it off in Settings with a tab open and the tab stops at once;
+      `completion.test.ts` proves nothing reads the terminal when it is off.
+      "No recording" means nothing goes into the completion index; the older
+      "Remember commands" history is its own setting and unchanged.
+- [x] **Per host:** the host form overrides it; the override is respected and
+      saved in the vault. `policyFor` unit tests and the Rust vault round trip
+      (AC0). Not exercised in the browser with a saved host (the browser tests use
+      quick-connect and local tabs).
+- [x] **Inline:** history suggestions appear after the cursor, accept with → /
       End, word by word with Ctrl+→, dismiss with Esc, and vanish when the typed
-      text no longer matches.
-- [ ] **Popup:** Tab or Ctrl+Space lists snippets, history, options and paths
+      text no longer matches. (AC1; real shells in `shells.py`.)
+- [x] **Popup:** Tab or Ctrl+Space lists snippets, history, options and paths
       with descriptions; arrows and Enter select; typing filters; Esc closes.
-- [ ] **Safe:** nothing appears in vim, tmux or less, at password prompts, while
+      **Ctrl+Space by default; Tab only if bound** (decision in AC2).
+- [x] **Safe:** nothing appears in vim, tmux or less, at password prompts, while
       a command runs, or when the line is unknown; accepting never submits;
-      secret-looking commands are never stored or suggested.
-- [ ] **Remote:** paths and generators come over an extra exec channel with safe
+      secret-looking commands are never stored or suggested. Real vim, tmux, top,
+      `read -s`, `sudo`; `less` was not run (it uses the same alternate screen).
+- [x] **Remote:** paths and generators come over an extra exec channel with safe
       quoting; a server that refuses the channel causes no disconnect and no
-      repeated attempts.
+      repeated attempts. AC4.
 - [ ] **No regressions:** typing, pasting, resize, zoom, themes, split panes and
-      synchronized input behave as before with the feature on.
-- [ ] **Tested:** unit tests for the engine; a recorded-session test set; a real
+      synchronized input behave as before with the feature on. **Exception:**
+      typing, pasting (including multi-line), resize, zoom, large output and
+      long lines were checked (real shells, `perf.py`, browser test); **split panes and
+      synchronized input were not** (a light theme, padding and line height were). Accepted text goes through
+      the same function as typed keys, so synchronized input sees it, but no test
+      does.
+- [x] **Tested:** unit tests for the engine; a recorded-session test set; a real
       `sshd` test for the remote lookup (including `MaxSessions 1` and a hostile
       directory name); headless-browser checks of the overlay; and a list of what
-      was not verified (for example macOS, a real Tauri window).
-- [ ] **Documented:** `docs/USAGE.md`, `README.md`, `CHANGELOG.md`, and the
+      was not verified (for example macOS, a real Tauri window). 401 unit tests,
+      13 completion tests in Rust (6 over a real `sshd`), 77 + 49 browser checks.
+      Not verified, collected: macOS and Windows; a real Tauri window; a real
+      screen reader; the DOM
+      renderer (WebGL was used); `less`; zsh-autosuggestions; hosts without `sh`;
+      a host with exec disabled; BusyBox; old-style `tar xzf`.
+- [x] **Documented:** `docs/USAGE.md`, `README.md`, `CHANGELOG.md`, and the
       status of each task ticked in this file.
 
 ## 7. Decisions for the owner

@@ -6,6 +6,17 @@ View changelog**.
 
 ## Unreleased
 
+- **Smart completion** (off by default; Settings → Terminal). A faint suggestion
+  after the cursor from your own history (→ or End accepts, Ctrl+→ one word,
+  Esc dismisses), and Ctrl+Space for a list: subcommands, options and values
+  for about 60 commands, file and folder names from the host, git branches,
+  containers and systemd units, matching history and your snippets. Each host
+  can override it, and production hosts use history only. It never types for you,
+  stays out of full-screen programs and password prompts, and never stores
+  commands that look like they hold a password or token. Host lookups use an
+  extra channel of the same SSH connection and stop quietly if the host refuses.
+  Command data is converted from `withfig/autocomplete` (MIT); see
+  `THIRD_PARTY.md`.
 - **Fixed: snippets with `{{variables}}` did nothing after you filled them in.**
   The values dialog closed, then failed before sending the snippet. It now runs.
 - **Shell integration for fish.** The snippet in Settings → Shell integration
