@@ -21,7 +21,7 @@ version.
 
 | Phase | Done | Next |
 |---|---|---|
-| 1. File transfer | 0 of 7 | F0 |
+| 1. File transfer | 0 of 7 (F0 built with one DoD line open) | F1, F2, F3, F4, F5, F6 |
 | 2. Terminal and connection types | 0 of 5 (T1, T2, T3 built; some lines unverified) | T4, T5 |
 | 3. Databases | 3 of 9 (D0 and D1 `acfb247`, D2 `a72c4dd`) | D6, D7, D5, D8, D3, D4 |
 | 4. Containers | 2 of 6 (C0 `45a9743`, C1 `ebe4399`) | C2 (needs a real Podman) |
@@ -207,15 +207,30 @@ All of these reuse the existing SFTP view (`SftpView.svelte`,
   read, write, mkdir, rename, delete, chmod where supported) behind a Rust
   trait, and let a pane be bound to any backend, local or remote. **M**
   Touches: `sftp.rs`, `commands.rs`, `SftpView.svelte`, `FilePane.svelte`,
-  `sftp.ts`.
+  `sftp.ts`. Built as `src-tauri/src/files/`: `FileBackend` (mod.rs), the
+  generic transfer engine (engine.rs), `local.rs` and a
+  test-only in-memory backend (memory.rs); the window talks to any pane by id
+  through `files_*` commands.
   DoD:
-  - [ ] SFTP behaves exactly as before; the existing SFTP tests pass unchanged.
-  - [ ] A backend can declare which actions it supports (for example no chmod
-        on S3) and the right-click menu hides the rest.
-  - [ ] A fake in-memory backend exists and is used in tests for copy, move,
-        recursive delete, and cancel.
+  - [x] SFTP behaves exactly as before; the existing SFTP tests pass
+        unchanged. The 4 original `sftp.rs` tests (real sshd, recursive
+        transfers, pause/resume, partial files) pass without edits. The panes
+        were driven in a headless browser with a mocked backend, not a real
+        Tauri window.
+  - [x] A backend can declare which actions it supports and the right-click
+        menu hides the rest. `Caps`; a read-only place shows only Download and
+        Copy path in the browser test.
+  - [x] A fake in-memory backend exists and is used in tests for copy, move,
+        recursive delete, and cancel (16 tests, also pause, resume, conflicts,
+        a backend that can't resume). Move is a backend operation
+        (`move_items`, the `remove_source` flag); the window has no Move button.
   - [ ] Transfers between any two panes work, even with different backends,
         with progress, cancel, and conflict choices (overwrite, skip, rename).
+        The engine and `files_transfer_start` take any two panes by id
+        (tested memory to memory, disk to memory, disk to SFTP), and
+        the window asks Replace / Skip / Keep both. **Open:** the layout still
+        pairs "this computer" with one host, so two remote panes at once
+        (for example two SFTP hosts) can't be set up from the window.
 
 - [ ] **F1. SCP.** Use SCP as a fallback for servers with the SFTP subsystem
   disabled, and as a per-host choice. **S–M**

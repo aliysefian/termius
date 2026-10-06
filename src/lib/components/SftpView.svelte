@@ -7,7 +7,8 @@
   import type { UnlistenFn } from "@tauri-apps/api/event";
   import * as api from "$lib/api";
   import FilePane from "./FilePane.svelte";
-  import { local, remote, sftp, type Direction, type FileSource } from "$lib/sftp";
+  import { local, LOCAL_ID, remote, sftp, type Conflict, type Direction, type FileSource } from "$lib/sftp";
+  import { choose } from "$lib/dialogs.svelte";
   import { ui } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
   import { settings } from "$lib/stores/settings.svelte";
@@ -22,6 +23,8 @@
     destDir: string;
     /** Continue partial files instead of starting over (retries). */
     resume: boolean;
+    /** What to do with names already at the destination. */
+    conflict: Conflict;
   }
 
   /** Transfers running at once; the rest wait their turn. */
@@ -229,12 +232,37 @@
   }
 
   /** Add a transfer to the queue; it starts when a slot is free. */
-  function start(direction: Direction, sources: string[]) {
+  async function start(direction: Direction, sources: string[]) {
     if (!connectedHost || sources.length === 0) return;
     const destDir = direction === "upload" ? remotePath : localPath;
+    const conflict = await resolveConflicts(direction === "upload" ? remote(sessionId) : local, destDir, sources);
+    if (!conflict) return;
     const label = sources.length === 1 ? baseName(sources[0]) : `${sources.length} items`;
-    transfers.push({ id: crypto.randomUUID(), direction, label, progress: { state: "queued" }, sources, destDir, resume: false });
+    transfers.push({ id: crypto.randomUUID(), direction, label, progress: { state: "queued" }, sources, destDir, resume: false, conflict });
     pump();
+  }
+
+  /** Ask what to do about names that are already in the destination folder; null if the person backs out. */
+  async function resolveConflicts(dest: FileSource, destDir: string, sources: string[]): Promise<Conflict | null> {
+    let there: Set<string>;
+    try {
+      there = new Set((await dest.list(destDir)).map((e) => e.name));
+    } catch {
+      return "overwrite"; // can't tell; the transfer itself reports a problem with the folder
+    }
+    const clashes = sources.map(baseName).filter((n) => there.has(n));
+    if (clashes.length === 0) return "overwrite";
+    const shown = clashes.slice(0, 5).join(", ") + (clashes.length > 5 ? `, and ${clashes.length - 5} more` : "");
+    const answer = await choose(
+      `${clashes.length === 1 ? "This name is" : "These names are"} already in the destination folder: ${shown}.`,
+      [
+        { value: "overwrite", label: "Replace" },
+        { value: "skip", label: "Skip" },
+        { value: "rename", label: "Keep both" },
+      ],
+      { title: "Already there" },
+    );
+    return (answer as Conflict | null) ?? null;
   }
 
   /** Start queued transfers, oldest first, up to the limit. */
@@ -254,10 +282,11 @@
     t.progress = { state: "started", total_bytes: 0, total_files: 0 };
     const find = () => transfers.find((x) => x.id === id);
     try {
+      const [from, to] = t.direction === "upload" ? [LOCAL_ID, sessionId] : [sessionId, LOCAL_ID];
       await sftp.transfer(
-        sessionId,
+        from,
+        to,
         id,
-        t.direction,
         t.sources,
         t.destDir,
         (p) => {
@@ -270,7 +299,7 @@
           }
           if (p.state === "done" || p.state === "failed" || p.state === "cancelled") pump();
         },
-        t.resume,
+        { resume: t.resume, conflict: t.conflict },
       );
     } catch (e) {
       const cur = find();

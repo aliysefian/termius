@@ -436,6 +436,10 @@ narrows the current folder by name. The eye icon in each pane's toolbar shows
 or hides dotfiles, and folders are copied recursively. Drag the divider
 between the two panes to resize them.
 
+**When a name is already there**, a transfer asks what to do: **Replace**,
+**Skip** that file, or **Keep both** (the new one becomes `name (1).ext`). A
+folder you keep both of is copied beside the old one, not into it.
+
 To edit a remote file, double-click it, or select it and press the edit
 button. It opens in this computer's default app for that file type. Each time
 you save, it's uploaded back, and the list at the bottom of the SFTP view

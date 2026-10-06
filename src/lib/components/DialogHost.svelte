@@ -22,6 +22,7 @@
     checked = false;
     queueMicrotask(() => {
       if (p.kind === "text") input?.select();
+      else if (p.kind === "choice") box?.querySelector<HTMLButtonElement>("[data-choice]")?.focus();
       else if (p.requireText) typedInput?.focus();
       else if (p.danger) cancelBtn?.focus();
       else okBtn?.focus();
@@ -35,7 +36,7 @@
   }
 
   function cancel() {
-    dialogs.close(p?.kind === "text" ? null : false, false);
+    dialogs.close(p?.kind === "text" || p?.kind === "choice" ? null : false, false);
   }
 
   // Escape reaches this dialog only, never the form under it; focus comes
@@ -76,8 +77,12 @@
       {/if}
       <div class="mt-5 flex justify-end gap-2">
         <button bind:this={cancelBtn} type="button" class="btn-secondary" onclick={cancel}>Cancel</button>
+        {#each p.choices as c (c.value)}
+          <button type="button" class="btn-primary" data-choice={c.value} onclick={() => dialogs.close(c.value)}>{c.label}</button>
+        {/each}
         <button
           bind:this={okBtn}
+          hidden={p.kind === "choice"}
           type="submit"
           class={p.danger ? "btn-danger border border-danger/40" : "btn-primary"}
           disabled={(p.kind === "text" && !value.trim()) || (!!p.requireText && typed.trim() !== p.requireText)}

@@ -6,7 +6,7 @@
   import type { Preview } from "$lib/sftp";
   import { settings } from "$lib/stores/settings.svelte";
   import type { Snippet as SvelteSnippet } from "svelte";
-  import { parentPath, type FileSource } from "$lib/sftp";
+  import { ALL_CAPS, parentPath, type Caps, type FileSource } from "$lib/sftp";
   import { errorMessage, formatBytes, type FileEntry } from "$lib/types";
   import { keepInView } from "$lib/actions";
   import { writeText } from "@tauri-apps/plugin-clipboard-manager";
@@ -38,6 +38,14 @@
     /** Open a file for editing (remote pane only). */
     onEdit?: (entry: FileEntry) => void;
   } = $props();
+
+  /** What this place supports; the actions it can't do are not offered. */
+  let caps = $state<Caps>(ALL_CAPS);
+  $effect(() => {
+    const src = source;
+    caps = ALL_CAPS;
+    if (src) void src.caps().then((c) => src === source && (caps = c), () => {});
+  });
 
   let entries = $state<FileEntry[]>([]);
   let selected = $state<Set<string>>(new Set());
@@ -82,6 +90,7 @@
   });
 
   async function quickLook(e: FileEntry | null = one) {
+    if (!caps.preview) return;
     if (!e || e.is_dir || !source) return;
     previewing = { entry: e, data: null };
     try {
@@ -213,6 +222,7 @@
   }
 
   async function mkdir() {
+    if (!caps.mkdir) return;
     const name = await askText("New folder name", "", { placeholder: "folder name" });
     if (!name || !source) return;
     try {
@@ -224,6 +234,7 @@
   }
 
   async function rename() {
+    if (!caps.rename) return;
     const [p] = [...selected];
     const entry = entries.find((e) => e.path === p);
     if (!entry || !source) return;
@@ -238,6 +249,7 @@
   }
 
   async function remove() {
+    if (!caps.delete) return;
     if (!source || selected.size === 0) return;
     const n = selected.size;
     if (!await ask(`Delete ${n} item${n > 1 ? "s" : ""}? Folders are deleted recursively.`)) return;
@@ -357,19 +369,27 @@
       >
         {#if settings.prefs.showHiddenFiles}<Eye size={14} />{:else}<EyeOff size={14} />{/if}
       </button>
-      <button class="icon-btn h-7 w-7" title="New folder" onclick={mkdir}><FolderPlus size={14} /></button>
-      {#if onEdit}
+      {#if caps.mkdir}
+        <button class="icon-btn h-7 w-7" title="New folder" onclick={mkdir}><FolderPlus size={14} /></button>
+      {/if}
+      {#if onEdit && caps.edit}
         <button class="icon-btn h-7 w-7" title="Edit in local editor (or double-click a file)" disabled={!editable} onclick={() => editable && onEdit?.(editable)}><FilePen size={14} /></button>
       {/if}
-      <button class="icon-btn h-7 w-7" title="Quick look (Space)" disabled={!one || one.is_dir} onclick={() => quickLook()}><FileSearch size={14} /></button>
-      {#if source.chmod}
+      {#if caps.preview}
+        <button class="icon-btn h-7 w-7" title="Quick look (Space)" disabled={!one || one.is_dir} onclick={() => quickLook()}><FileSearch size={14} /></button>
+      {/if}
+      {#if caps.chmod}
         <button class="icon-btn h-7 w-7" title="Permissions (chmod)" disabled={!one} onclick={chmod}><KeyRound size={14} /></button>
       {/if}
       {#if side === "local"}
         <button class="icon-btn h-7 w-7" title="Show in file manager" onclick={reveal}><FolderOpen size={14} /></button>
       {/if}
-      <button class="icon-btn h-7 w-7" title="Rename" disabled={selected.size !== 1} onclick={rename}><TextCursorInput size={14} /></button>
-      <button class="icon-btn h-7 w-7 hover:text-danger" title="Delete" disabled={selected.size === 0} onclick={remove}><Trash2 size={14} /></button>
+      {#if caps.rename}
+        <button class="icon-btn h-7 w-7" title="Rename" disabled={selected.size !== 1} onclick={rename}><TextCursorInput size={14} /></button>
+      {/if}
+      {#if caps.delete}
+        <button class="icon-btn h-7 w-7 hover:text-danger" title="Delete" disabled={selected.size === 0} onclick={remove}><Trash2 size={14} /></button>
+      {/if}
     </div>
 
     {#if entries.length > 0 || filterQuery}
@@ -443,24 +463,30 @@
     {#if e.is_dir}
       <button class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-panel-hover" role="menuitem" onclick={() => { open(e); menu = null; }}><FolderOpen size={13} /> Open</button>
     {:else}
-      {#if onEdit}
+      {#if onEdit && caps.edit}
         <button class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-panel-hover" role="menuitem" onclick={() => { onEdit?.(e); menu = null; }}><FilePen size={13} /> Edit</button>
       {/if}
-      <button class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-panel-hover" role="menuitem" onclick={() => { void quickLook(e); menu = null; }}><FileSearch size={13} /> Quick look</button>
+      {#if caps.preview}
+        <button class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-panel-hover" role="menuitem" onclick={() => { void quickLook(e); menu = null; }}><FileSearch size={13} /> Quick look</button>
+      {/if}
     {/if}
     <button class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-panel-hover" role="menuitem" onclick={() => { onTransfer([...selected]); menu = null; }}>
       {#if side === "local"}<Copy size={13} /> Upload{:else}<Clipboard size={13} /> Download{/if}
     </button>
     <div class="my-1 border-t border-line"></div>
     <button class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-panel-hover" role="menuitem" onclick={() => { void copyPath(e); menu = null; }}><Copy size={13} /> Copy path</button>
-    <button class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-panel-hover" role="menuitem" onclick={() => { void rename(); menu = null; }}><TextCursorInput size={13} /> Rename</button>
-    {#if source?.chmod}
+    {#if caps.rename}
+      <button class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-panel-hover" role="menuitem" onclick={() => { void rename(); menu = null; }}><TextCursorInput size={13} /> Rename</button>
+    {/if}
+    {#if caps.chmod}
       <button class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-panel-hover" role="menuitem" onclick={() => { void chmod(); menu = null; }}><KeyRound size={13} /> Permissions…</button>
     {/if}
     {#if side === "local"}
       <button class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-panel-hover" role="menuitem" onclick={() => { void reveal(); menu = null; }}><FolderOpen size={13} /> Show in file manager</button>
     {/if}
-    <div class="my-1 border-t border-line"></div>
-    <button class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-danger hover:bg-danger/10" role="menuitem" onclick={() => { void remove(); menu = null; }}><Trash2 size={13} /> Delete</button>
+    {#if caps.delete}
+      <div class="my-1 border-t border-line"></div>
+      <button class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-danger hover:bg-danger/10" role="menuitem" onclick={() => { void remove(); menu = null; }}><Trash2 size={13} /> Delete</button>
+    {/if}
   </div>
 {/if}

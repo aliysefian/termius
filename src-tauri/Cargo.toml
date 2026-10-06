@@ -60,6 +60,7 @@ mysql_async = { version = "0.37", default-features = false, features = ["default
 tokio-postgres = "0.7"
 futures-util = { version = "0.3", default-features = false }
 bytes = "1"
+async-trait = "0.1"
 tokio-postgres-rustls = { version = "0.14", default-features = false, features = ["ring"] }
 rustls-platform-verifier = "0.7"
 

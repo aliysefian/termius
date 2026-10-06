@@ -6,9 +6,13 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant, UNIX_EPOCH};
+use std::time::UNIX_EPOCH;
+// The tests below reach these through `use super::*`.
+#[cfg(test)]
+use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(test)]
+use std::time::Duration;
 
 use russh_sftp::client::SftpSession;
 use serde::{Deserialize, Serialize};
@@ -16,8 +20,6 @@ use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 
 use crate::ssh::{open_client, Client, LearnedKey, SshError, Target};
 
-const CHUNK: usize = 256 * 1024;
-const PROGRESS_INTERVAL: Duration = Duration::from_millis(150);
 
 #[derive(Debug, thiserror::Error)]
 pub enum SftpError {
@@ -39,6 +41,11 @@ pub enum SftpError {
     Cancelled,
     #[error("invalid path: {0}")]
     InvalidPath(String),
+    /// A place that isn't SFTP said no, in its own words.
+    #[error("{0}")]
+    Backend(String),
+    #[error("this place doesn't support {0}")]
+    Unsupported(&'static str),
 }
 
 fn local_err(path: &Path) -> impl FnOnce(std::io::Error) -> SftpError + '_ {
@@ -79,6 +86,7 @@ pub fn remote_join(dir: &str, name: &str) -> String {
     }
 }
 
+#[cfg(test)]
 fn remote_basename(path: &str) -> Result<&str, SftpError> {
     path.trim_end_matches('/')
         .rsplit('/')
@@ -329,6 +337,74 @@ impl SftpConn {
 }
 
 // ---------------------------------------------------------------------------
+// The file-backend view of an SFTP session
+// ---------------------------------------------------------------------------
+
+use crate::files::{self, Caps, FileBackend, Reader, Stat, Writer};
+
+#[async_trait::async_trait]
+impl FileBackend for SftpConn {
+    fn caps(&self) -> Caps {
+        Caps { chmod: true, ..Caps::files() }
+    }
+
+    async fn home(&self) -> Result<String, SftpError> {
+        SftpConn::home(self).await
+    }
+
+    async fn list(&self, dir: &str) -> Result<Vec<FileEntry>, SftpError> {
+        SftpConn::list(self, dir).await
+    }
+
+    async fn stat(&self, path: &str) -> Result<Option<Stat>, SftpError> {
+        use russh_sftp::client::error::Error as E;
+        use russh_sftp::protocol::StatusCode;
+        match self.sftp.metadata(path.to_string()).await {
+            Ok(m) => Ok(Some(Stat { is_dir: m.is_dir(), size: if m.is_dir() { 0 } else { m.size.unwrap_or(0) } })),
+            Err(E::Status(s)) if s.status_code == StatusCode::NoSuchFile => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    async fn mkdir(&self, dir: &str, name: &str) -> Result<(), SftpError> {
+        SftpConn::mkdir(self, dir, name).await
+    }
+
+    async fn rename(&self, from: &str, new_name: &str) -> Result<(), SftpError> {
+        SftpConn::rename(self, from, new_name).await
+    }
+
+    async fn remove(&self, path: &str) -> Result<(), SftpError> {
+        SftpConn::remove(self, path).await
+    }
+
+    async fn chmod(&self, path: &str, mode: u32) -> Result<(), SftpError> {
+        SftpConn::chmod(self, path, mode).await
+    }
+
+    async fn read(&self, path: &str, offset: u64) -> Result<Reader, SftpError> {
+        let mut f = self.sftp.open(path.to_string()).await?;
+        if offset > 0 {
+            f.seek(std::io::SeekFrom::Start(offset)).await.map_err(|e| SftpError::Local { path: PathBuf::from(path), source: e })?;
+        }
+        Ok(Box::new(f))
+    }
+
+    async fn write(&self, path: &str, offset: u64) -> Result<Writer, SftpError> {
+        if offset == 0 {
+            return Ok(Box::new(self.sftp.create(path.to_string()).await?));
+        }
+        let mut w = self.sftp.open_with_flags(path.to_string(), russh_sftp::protocol::OpenFlags::WRITE).await?;
+        w.seek(std::io::SeekFrom::Start(offset)).await.map_err(|e| SftpError::Local { path: PathBuf::from(path), source: e })?;
+        Ok(Box::new(w))
+    }
+
+    async fn close(&self) {
+        // The connection is closed when the session is dropped by its manager.
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Transfers
 // ---------------------------------------------------------------------------
 
@@ -339,128 +415,25 @@ pub enum Direction {
     Download,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq)]
-#[serde(tag = "state", rename_all = "snake_case")]
-pub enum TransferProgress {
-    /// Totals are known once the source tree has been scanned.
-    Started {
-        total_bytes: u64,
-        total_files: u64,
-    },
-    Progress {
-        bytes: u64,
-        total_bytes: u64,
-        files_done: u64,
-        total_files: u64,
-        current: String,
-    },
-    /// Waiting for `resume`. Nothing is transferred meanwhile.
-    Paused {
-        bytes: u64,
-        total_bytes: u64,
-    },
-    Done {
-        bytes: u64,
-        files: u64,
-    },
-    Failed {
-        message: String,
-    },
-    Cancelled,
-}
+pub use crate::files::engine::{ProgressSink, TransferCtl, TransferProgress};
 
-pub trait ProgressSink: Send + Sync + 'static {
-    fn report(&self, p: TransferProgress);
-}
-
-struct Plan {
-    /// Directories to create at the destination, parents first.
-    dirs: Vec<String>,
-    /// (source, destination, size) for every file.
-    files: Vec<(String, String, u64)>,
-    total: u64,
-}
-
-/// Cancel and pause switches for one transfer.
-#[derive(Default)]
-pub struct TransferCtl {
-    cancel: AtomicBool,
-    paused: AtomicBool,
-    wake: tokio::sync::Notify,
-}
-
-impl TransferCtl {
-    fn set_paused(&self, paused: bool) {
-        self.paused.store(paused, Ordering::SeqCst);
-        self.wake.notify_waiters();
-    }
-    fn cancel(&self) {
-        self.cancel.store(true, Ordering::SeqCst);
-        self.wake.notify_waiters();
-    }
-}
-
-struct Progress<'a> {
-    sink: &'a dyn ProgressSink,
-    ctl: &'a TransferCtl,
-    bytes: u64,
-    total: u64,
-    files_done: u64,
-    total_files: u64,
-    last: Instant,
-}
-
-impl Progress<'_> {
-    /// Stop if cancelled; wait here while paused.
-    async fn check(&mut self, current: &str) -> Result<(), SftpError> {
-        if self.ctl.paused.load(Ordering::SeqCst) && !self.ctl.cancel.load(Ordering::SeqCst) {
-            self.sink.report(TransferProgress::Paused {
-                bytes: self.bytes,
-                total_bytes: self.total,
-            });
-            loop {
-                // Register before re-checking, so a resume can't slip by.
-                let woken = self.ctl.wake.notified();
-                if !self.ctl.paused.load(Ordering::SeqCst) || self.ctl.cancel.load(Ordering::SeqCst) {
-                    break;
-                }
-                woken.await;
-            }
-            self.emit(current);
-        }
-        if self.ctl.cancel.load(Ordering::SeqCst) {
-            Err(SftpError::Cancelled)
-        } else {
-            Ok(())
-        }
-    }
-    fn add(&mut self, n: u64, current: &str) {
-        self.bytes += n;
-        if self.last.elapsed() >= PROGRESS_INTERVAL {
-            self.last = Instant::now();
-            self.emit(current);
-        }
-    }
-    fn emit(&self, current: &str) {
-        self.sink.report(TransferProgress::Progress {
-            bytes: self.bytes,
-            total_bytes: self.total,
-            files_done: self.files_done,
-            total_files: self.total_files,
-            current: current.to_string(),
-        });
-    }
-}
+#[cfg(test)]
+const CHUNK: usize = crate::files::engine::CHUNK;
 
 #[derive(Default)]
 pub struct SftpManager {
     sessions: Mutex<HashMap<String, Arc<SftpConn>>>,
-    transfers: Mutex<HashMap<String, Arc<TransferCtl>>>,
+    registry: Arc<files::TransferRegistry>,
 }
 
 impl SftpManager {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// The transfers running now, shared with the other file backends.
+    pub fn registry(&self) -> Arc<files::TransferRegistry> {
+        Arc::clone(&self.registry)
     }
 
     /// Open (or replace) the session `id`. Returns the remote home directory
@@ -511,53 +484,28 @@ impl SftpManager {
             .keys()
             .cloned()
             .collect();
-        for t in self
-            .transfers
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .values()
-        {
-            t.cancel();
-        }
+        self.registry.cancel_all();
         for id in ids {
             self.close(&id).await;
         }
     }
 
-    fn ctl(&self, transfer_id: &str) -> Option<Arc<TransferCtl>> {
-        self.transfers
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .get(transfer_id)
-            .cloned()
-    }
-
     pub fn cancel(&self, transfer_id: &str) {
-        if let Some(c) = self.ctl(transfer_id) {
-            c.cancel();
-        }
+        self.registry.cancel(transfer_id);
     }
 
     /// Pause between chunks. The connection stays open; `resume` continues.
     pub fn pause(&self, transfer_id: &str) {
-        if let Some(c) = self.ctl(transfer_id) {
-            c.set_paused(true);
-        }
+        self.registry.pause(transfer_id);
     }
 
     pub fn resume(&self, transfer_id: &str) {
-        if let Some(c) = self.ctl(transfer_id) {
-            c.set_paused(false);
-        }
+        self.registry.resume(transfer_id);
     }
 
-    /// Copy `sources` (files or directories) into `dest_dir` on the other
-    /// side. Runs to completion; progress and the final outcome go to `sink`.
-    ///
-    /// With `resume`, files already at the destination continue from where
-    /// they stop (a partial file is appended to, a complete one skipped)
-    /// instead of being copied again. That's how "Retry" picks up a
-    /// transfer that failed or was cancelled.
+    /// Copy `sources` (files or directories) between this computer and the
+    /// session, into `dest_dir` on the other side. A convenience over the
+    /// general transfer in [`crate::files`], which can join any two places.
     #[allow(clippy::too_many_arguments)]
     pub async fn transfer(
         &self,
@@ -569,269 +517,18 @@ impl SftpManager {
         resume: bool,
         sink: &dyn ProgressSink,
     ) {
-        let ctl = Arc::new(TransferCtl::default());
-        self.transfers
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .insert(transfer_id.clone(), Arc::clone(&ctl));
-
-        let result = match self.get(session_id) {
-            Ok(conn) => run_transfer(&conn, direction, &sources, &dest_dir, resume, sink, &ctl).await,
-            Err(e) => Err(e),
-        };
-        match result {
-            Ok((bytes, files)) => sink.report(TransferProgress::Done { bytes, files }),
-            Err(SftpError::Cancelled) => sink.report(TransferProgress::Cancelled),
-            Err(e) => sink.report(TransferProgress::Failed {
-                message: e.to_string(),
-            }),
-        }
-        self.transfers
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .remove(&transfer_id);
-    }
-}
-
-async fn run_transfer(
-    conn: &SftpConn,
-    direction: Direction,
-    sources: &[String],
-    dest_dir: &str,
-    resume: bool,
-    sink: &dyn ProgressSink,
-    ctl: &TransferCtl,
-) -> Result<(u64, u64), SftpError> {
-    let plan = match direction {
-        Direction::Download => plan_download(conn, sources, dest_dir).await?,
-        Direction::Upload => plan_upload(sources, dest_dir)?,
-    };
-    sink.report(TransferProgress::Started {
-        total_bytes: plan.total,
-        total_files: plan.files.len() as u64,
-    });
-    let mut p = Progress {
-        sink,
-        ctl,
-        bytes: 0,
-        total: plan.total,
-        files_done: 0,
-        total_files: plan.files.len() as u64,
-        last: Instant::now(),
-    };
-
-    for dir in &plan.dirs {
-        p.check(dir).await?;
-        match direction {
-            Direction::Download => {
-                let d = Path::new(dir);
-                std::fs::create_dir_all(d).map_err(local_err(d))?;
-            }
-            Direction::Upload => {
-                if !conn.sftp.try_exists(dir.clone()).await.unwrap_or(false) {
-                    conn.sftp.create_dir(dir.clone()).await?;
-                }
-            }
-        }
-    }
-
-    let mut buf = vec![0u8; CHUNK];
-    for (src, dst, size) in &plan.files {
-        p.check(src).await?;
-        // How much of this file is already at the destination.
-        let have = if resume {
-            match direction {
-                Direction::Download => std::fs::metadata(dst).map(|m| m.len()).unwrap_or(0),
-                Direction::Upload => conn
-                    .sftp
-                    .metadata(dst.clone())
-                    .await
-                    .ok()
-                    .and_then(|m| m.size)
-                    .unwrap_or(0),
-            }
-        } else {
-            0
-        };
-        // Larger than the source means it's a different file: start over.
-        let offset = if have <= *size { have } else { 0 };
-        if resume && offset == *size && have == *size {
-            p.add(*size, src);
-            p.files_done += 1;
-            p.emit(src);
-            continue;
-        }
-        p.add(offset, src);
-        match direction {
-            Direction::Download => {
-                let mut r = conn.sftp.open(src.clone()).await?;
-                let dst_path = Path::new(dst);
-                let mut w = if offset > 0 {
-                    r.seek(std::io::SeekFrom::Start(offset)).await.map_err(|e| SftpError::Local {
-                        path: PathBuf::from(src),
-                        source: e,
-                    })?;
-                    tokio::fs::OpenOptions::new()
-                        .append(true)
-                        .open(dst_path)
-                        .await
-                        .map_err(local_err(dst_path))?
-                } else {
-                    tokio::fs::File::create(dst_path)
-                        .await
-                        .map_err(local_err(dst_path))?
+        match self.get(session_id) {
+            Ok(conn) => {
+                let local = files::local::LocalBackend;
+                let (src, dst): (&dyn FileBackend, &dyn FileBackend) = match direction {
+                    Direction::Download => (&*conn, &local),
+                    Direction::Upload => (&local, &*conn),
                 };
-                loop {
-                    p.check(src).await?;
-                    let n = r.read(&mut buf).await.map_err(|e| SftpError::Local {
-                        path: PathBuf::from(src),
-                        source: e,
-                    })?;
-                    if n == 0 {
-                        break;
-                    }
-                    w.write_all(&buf[..n]).await.map_err(local_err(dst_path))?;
-                    p.add(n as u64, src);
-                }
-                w.flush().await.map_err(local_err(dst_path))?;
+                files::engine::transfer(&self.registry, transfer_id, src, dst, &sources, &dest_dir, resume, files::Conflict::Overwrite, sink).await
             }
-            Direction::Upload => {
-                let src_path = Path::new(src);
-                let mut r = tokio::fs::File::open(src_path)
-                    .await
-                    .map_err(local_err(src_path))?;
-                let mut w = if offset > 0 {
-                    r.seek(std::io::SeekFrom::Start(offset))
-                        .await
-                        .map_err(local_err(src_path))?;
-                    let mut w = conn
-                        .sftp
-                        .open_with_flags(dst.clone(), russh_sftp::protocol::OpenFlags::WRITE)
-                        .await?;
-                    w.seek(std::io::SeekFrom::Start(offset)).await.map_err(|e| SftpError::Local {
-                        path: PathBuf::from(dst),
-                        source: e,
-                    })?;
-                    w
-                } else {
-                    conn.sftp.create(dst.clone()).await?
-                };
-                loop {
-                    p.check(src).await?;
-                    let n = r.read(&mut buf).await.map_err(local_err(src_path))?;
-                    if n == 0 {
-                        break;
-                    }
-                    w.write_all(&buf[..n]).await.map_err(|e| SftpError::Local {
-                        path: PathBuf::from(dst),
-                        source: e,
-                    })?;
-                    p.add(n as u64, src);
-                }
-                w.shutdown().await.map_err(|e| SftpError::Local {
-                    path: PathBuf::from(dst),
-                    source: e,
-                })?;
-            }
-        }
-        p.files_done += 1;
-        p.emit(src);
-    }
-    Ok((p.bytes, p.files_done))
-}
-
-async fn plan_download(
-    conn: &SftpConn,
-    sources: &[String],
-    dest_dir: &str,
-) -> Result<Plan, SftpError> {
-    let mut plan = Plan {
-        dirs: Vec::new(),
-        files: Vec::new(),
-        total: 0,
-    };
-    for src in sources {
-        let name = remote_basename(src)?;
-        let dst = Path::new(dest_dir).join(name);
-        let meta = conn.sftp.metadata(src.clone()).await?;
-        if !meta.is_dir() {
-            let size = meta.size.unwrap_or(0);
-            plan.total += size;
-            plan.files
-                .push((src.clone(), dst.to_string_lossy().into_owned(), size));
-            continue;
-        }
-        let mut queue = vec![(src.clone(), dst)];
-        while let Some((rdir, ldir)) = queue.pop() {
-            plan.dirs.push(ldir.to_string_lossy().into_owned());
-            for e in conn.sftp.read_dir(rdir.clone()).await? {
-                let n = e.file_name();
-                if n == "." || n == ".." {
-                    continue;
-                }
-                let m = e.metadata();
-                if m.is_symlink() {
-                    continue; // don't follow links during recursive copies
-                }
-                let rchild = remote_join(&rdir, &n);
-                let lchild = ldir.join(&n);
-                if m.is_dir() {
-                    queue.push((rchild, lchild));
-                } else {
-                    let size = m.size.unwrap_or(0);
-                    plan.total += size;
-                    plan.files
-                        .push((rchild, lchild.to_string_lossy().into_owned(), size));
-                }
-            }
+            Err(e) => sink.report(TransferProgress::Failed { message: e.to_string() }),
         }
     }
-    Ok(plan)
-}
-
-fn plan_upload(sources: &[String], dest_dir: &str) -> Result<Plan, SftpError> {
-    let mut plan = Plan {
-        dirs: Vec::new(),
-        files: Vec::new(),
-        total: 0,
-    };
-    for src in sources {
-        let src_path = PathBuf::from(src);
-        let name = src_path
-            .file_name()
-            .ok_or_else(|| SftpError::InvalidPath(src.clone()))?
-            .to_string_lossy()
-            .into_owned();
-        let dst = remote_join(dest_dir, &name);
-        let meta = std::fs::metadata(&src_path).map_err(local_err(&src_path))?;
-        if !meta.is_dir() {
-            plan.total += meta.len();
-            plan.files.push((src.clone(), dst, meta.len()));
-            continue;
-        }
-        let mut queue = vec![(src_path, dst)];
-        while let Some((ldir, rdir)) = queue.pop() {
-            plan.dirs.push(rdir.clone());
-            for e in std::fs::read_dir(&ldir).map_err(local_err(&ldir))? {
-                let Ok(e) = e else { continue };
-                let Ok(ft) = e.file_type() else { continue };
-                if ft.is_symlink() {
-                    continue;
-                }
-                let n = e.file_name().to_string_lossy().into_owned();
-                let rchild = remote_join(&rdir, &n);
-                if ft.is_dir() {
-                    queue.push((e.path(), rchild));
-                } else {
-                    let size = e.metadata().map(|m| m.len()).unwrap_or(0);
-                    plan.total += size;
-                    plan.files
-                        .push((e.path().to_string_lossy().into_owned(), rchild, size));
-                }
-            }
-        }
-    }
-    Ok(plan)
 }
 
 #[cfg(test)]

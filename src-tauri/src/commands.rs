@@ -20,7 +20,7 @@ use crate::forward::{ForwardManager, ForwardStatus, StatusSink};
 use crate::models::{jump_chain, AuthMethod, ForwardRule, Host, Identity, Snippet};
 use crate::session::{Session, SessionError, VaultStatus};
 use crate::sftp::{
-    self, Direction, FileEntry, ProgressSink, SftpError, SftpManager, TransferProgress,
+    self, FileEntry, ProgressSink, SftpError, SftpManager, TransferProgress,
 };
 use crate::ssh::{
     ConnectParams, LearnedKey, SessionStatus, SshError, SshManager, Target, TermSink, MAX_JUMPS,
@@ -49,6 +49,8 @@ pub struct AppState {
     pub config_dir: PathBuf,
     pub ssh: Arc<SshManager>,
     pub sftp: Arc<SftpManager>,
+    /// Every file pane (this computer, SFTP and the other file protocols) behind one interface.
+    pub files: Arc<crate::files::FileManager>,
     pub forwards: Arc<ForwardManager>,
     pub runs: Arc<crate::runner::RunManager>,
     pub local: Arc<crate::localpty::LocalManager>,
@@ -207,6 +209,7 @@ impl From<SftpError> for ApiError {
         match e {
             SftpError::Ssh(s) => s.into(),
             SftpError::NoSession => Self::new("not_connected", "SFTP session is not open"),
+            SftpError::Unsupported(_) => Self::new("unsupported", e.to_string()),
             SftpError::InvalidPath(_) => Self::new("invalid_path", e.to_string()),
             other => Self::new("sftp", other.to_string()),
         }
@@ -616,6 +619,7 @@ pub fn forget_device(state: State<'_, AppState>) -> ApiResult<VaultStatus> {
 pub async fn lock_vault(state: State<'_, AppState>) -> ApiResult<VaultStatus> {
     state.ssh.disconnect_all().await;
     state.sftp.close_all().await;
+    state.files.close_all().await;
     state.forwards.stop_all();
     state.runs.cancel_all();
     state.local.close_all();
@@ -3746,49 +3750,73 @@ pub async fn sftp_open(
     })
 }
 
-#[tauri::command]
-pub async fn sftp_list(
-    state: State<'_, AppState>,
-    session_id: String,
-    path: String,
-) -> ApiResult<Vec<FileEntry>> {
-    Ok(state.sftp.get(&session_id)?.list(&path).await?)
-}
+// -- any file pane, by the id its window gave it ("local" is this computer) ------------------
 
-#[tauri::command]
-pub async fn sftp_mkdir(
-    state: State<'_, AppState>,
-    session_id: String,
-    dir: String,
-    name: String,
-) -> ApiResult<()> {
-    Ok(state.sftp.get(&session_id)?.mkdir(&dir, &name).await?)
-}
-
-#[tauri::command]
-pub async fn sftp_rename(
-    state: State<'_, AppState>,
-    session_id: String,
-    path: String,
-    new_name: String,
-) -> ApiResult<()> {
-    Ok(state
-        .sftp
-        .get(&session_id)?
-        .rename(&path, &new_name)
-        .await?)
-}
-
-#[tauri::command]
-pub async fn sftp_remove(
-    state: State<'_, AppState>,
-    session_id: String,
-    paths: Vec<String>,
-) -> ApiResult<()> {
-    let conn = state.sftp.get(&session_id)?;
-    for p in paths {
-        conn.remove(&p).await?;
+fn supported(allowed: bool, what: &'static str) -> ApiResult<()> {
+    if allowed {
+        Ok(())
+    } else {
+        Err(ApiError::new("unsupported", format!("this place doesn't support {what}")))
     }
+}
+
+#[tauri::command]
+pub fn files_caps(state: State<'_, AppState>, session_id: String) -> ApiResult<crate::files::Caps> {
+    Ok(state.files.get(&session_id)?.caps())
+}
+
+#[tauri::command]
+pub async fn files_home(state: State<'_, AppState>, session_id: String) -> ApiResult<String> {
+    Ok(state.files.get(&session_id)?.home().await?)
+}
+
+#[tauri::command]
+pub async fn files_list(state: State<'_, AppState>, session_id: String, path: String) -> ApiResult<Vec<FileEntry>> {
+    Ok(state.files.get(&session_id)?.list(&path).await?)
+}
+
+#[tauri::command]
+pub async fn files_mkdir(state: State<'_, AppState>, session_id: String, dir: String, name: String) -> ApiResult<()> {
+    let b = state.files.get(&session_id)?;
+    supported(b.caps().mkdir, "making folders")?;
+    Ok(b.mkdir(&dir, &name).await?)
+}
+
+#[tauri::command]
+pub async fn files_rename(state: State<'_, AppState>, session_id: String, path: String, new_name: String) -> ApiResult<()> {
+    let b = state.files.get(&session_id)?;
+    supported(b.caps().rename, "renaming")?;
+    Ok(b.rename(&path, &new_name).await?)
+}
+
+#[tauri::command]
+pub async fn files_remove(state: State<'_, AppState>, session_id: String, paths: Vec<String>) -> ApiResult<()> {
+    let b = state.files.get(&session_id)?;
+    supported(b.caps().delete, "deleting")?;
+    for p in paths {
+        b.remove(&p).await?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn files_chmod(state: State<'_, AppState>, session_id: String, path: String, mode: u32) -> ApiResult<()> {
+    let b = state.files.get(&session_id)?;
+    supported(b.caps().chmod, "changing permissions")?;
+    Ok(b.chmod(&path, mode).await?)
+}
+
+#[tauri::command]
+pub async fn files_preview(state: State<'_, AppState>, session_id: String, path: String) -> ApiResult<Preview> {
+    let b = state.files.get(&session_id)?;
+    supported(b.caps().preview, "previews")?;
+    let (bytes, truncated) = b.read_head(&path, PREVIEW_MAX).await?;
+    Ok(preview_of(bytes, truncated))
+}
+
+#[tauri::command]
+pub async fn files_close(state: State<'_, AppState>, session_id: String) -> ApiResult<()> {
+    state.files.close(&session_id).await;
     Ok(())
 }
 
@@ -3850,10 +3878,6 @@ pub fn sftp_edit_stop(state: State<'_, AppState>, edit_id: String) {
     state.edits.stop(&edit_id);
 }
 
-#[tauri::command]
-pub async fn sftp_chmod(state: State<'_, AppState>, session_id: String, path: String, mode: u32) -> ApiResult<()> {
-    Ok(state.sftp.get(&session_id)?.chmod(&path, mode).await?)
-}
 
 /// A file's beginning, for a quick look: text when it decodes as UTF-8,
 /// otherwise base64 (images). Capped so huge files stay cheap.
@@ -3889,25 +3913,6 @@ fn preview_of(bytes: Vec<u8>, truncated: bool) -> Preview {
             truncated,
         },
     }
-}
-
-#[tauri::command]
-pub async fn sftp_preview(state: State<'_, AppState>, session_id: String, path: String) -> ApiResult<Preview> {
-    let (bytes, truncated) = state.sftp.get(&session_id)?.read_head(&path, PREVIEW_MAX).await?;
-    Ok(preview_of(bytes, truncated))
-}
-
-#[tauri::command]
-pub fn local_preview(path: String) -> ApiResult<Preview> {
-    use std::io::Read;
-    let f = std::fs::File::open(&path).map_err(|e| ApiError::new("io", format!("{path}: {e}")))?;
-    let mut buf = Vec::new();
-    f.take(PREVIEW_MAX as u64 + 1)
-        .read_to_end(&mut buf)
-        .map_err(|e| ApiError::new("io", format!("{path}: {e}")))?;
-    let truncated = buf.len() > PREVIEW_MAX;
-    buf.truncate(PREVIEW_MAX);
-    Ok(preview_of(buf, truncated))
 }
 
 /// A small local text file the user picked (a theme, a CSV), at most 1 MiB.
@@ -3966,46 +3971,10 @@ pub fn putty_sessions(state: State<'_, AppState>) -> ApiResult<SshConfigPreview>
     })
 }
 
-#[tauri::command]
-pub async fn sftp_close(state: State<'_, AppState>, session_id: String) -> ApiResult<()> {
-    state.sftp.close(&session_id).await;
-    Ok(())
-}
 
 #[tauri::command]
 pub fn local_home() -> String {
     sftp::local::home().to_string_lossy().into_owned()
-}
-
-#[tauri::command]
-pub async fn local_list(path: String) -> ApiResult<Vec<FileEntry>> {
-    tauri::async_runtime::spawn_blocking(move || sftp::local::list(std::path::Path::new(&path)))
-        .await
-        .map_err(|e| ApiError::new("local", e.to_string()))?
-        .map_err(Into::into)
-}
-
-#[tauri::command]
-pub fn local_mkdir(dir: String, name: String) -> ApiResult<()> {
-    Ok(sftp::local::mkdir(std::path::Path::new(&dir), &name)?)
-}
-
-#[tauri::command]
-pub fn local_rename(path: String, new_name: String) -> ApiResult<()> {
-    Ok(sftp::local::rename(std::path::Path::new(&path), &new_name)?)
-}
-
-#[tauri::command]
-pub async fn local_remove(paths: Vec<String>) -> ApiResult<()> {
-    tauri::async_runtime::spawn_blocking(move || {
-        for p in paths {
-            sftp::local::remove(std::path::Path::new(&p))?;
-        }
-        Ok::<_, SftpError>(())
-    })
-    .await
-    .map_err(|e| ApiError::new("local", e.to_string()))?
-    .map_err(Into::into)
 }
 
 struct ChannelProgress(Channel<TransferProgress>);
@@ -4015,50 +3984,50 @@ impl ProgressSink for ChannelProgress {
     }
 }
 
-/// Start a transfer in the background. Returns immediately; progress and the
-/// final state stream over `on_progress`.
+/// Start a transfer in the background between any two open panes (`local` is
+/// this computer's disk). Returns immediately; progress and the final state
+/// stream over `on_progress`. With `remove_source` the originals are deleted
+/// once everything has been copied (a move).
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
-pub fn transfer_start(
+pub fn files_transfer_start(
     state: State<'_, AppState>,
-    session_id: String,
+    source_id: String,
+    dest_id: String,
     transfer_id: String,
-    direction: Direction,
     sources: Vec<String>,
     dest_dir: String,
     resume: Option<bool>,
+    conflict: Option<crate::files::Conflict>,
+    remove_source: Option<bool>,
     on_progress: Channel<TransferProgress>,
 ) -> ApiResult<()> {
-    let sftp = Arc::clone(&state.sftp);
+    let files = Arc::clone(&state.files);
     tauri::async_runtime::spawn(async move {
         let sink = ChannelProgress(on_progress);
-        sftp.transfer(
-            &session_id,
-            transfer_id,
-            direction,
-            sources,
-            dest_dir,
-            resume.unwrap_or(false),
-            &sink,
-        )
-        .await;
+        let conflict = conflict.unwrap_or_default();
+        if remove_source.unwrap_or(false) {
+            files.move_items(&source_id, &dest_id, transfer_id, sources, dest_dir, conflict, &sink).await;
+        } else {
+            files.transfer(&source_id, &dest_id, transfer_id, sources, dest_dir, resume.unwrap_or(false), conflict, &sink).await;
+        }
     });
     Ok(())
 }
 
 #[tauri::command]
 pub fn transfer_cancel(state: State<'_, AppState>, transfer_id: String) {
-    state.sftp.cancel(&transfer_id);
+    state.files.registry().cancel(&transfer_id);
 }
 
 #[tauri::command]
 pub fn transfer_pause(state: State<'_, AppState>, transfer_id: String) {
-    state.sftp.pause(&transfer_id);
+    state.files.registry().pause(&transfer_id);
 }
 
 #[tauri::command]
 pub fn transfer_resume(state: State<'_, AppState>, transfer_id: String) {
-    state.sftp.resume(&transfer_id);
+    state.files.registry().resume(&transfer_id);
 }
 
 // ---------------------------------------------------------------------------
@@ -4156,11 +4125,13 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
     }
     let prompts: PromptMap = Default::default();
+    let sftp = Arc::new(SftpManager::new());
     app.manage(AppState {
         session: Session::new(),
         config_dir,
         ssh: Arc::new(SshManager::new()),
-        sftp: Arc::new(SftpManager::new()),
+        sftp: Arc::clone(&sftp),
+        files: Arc::new(crate::files::FileManager::new(sftp)),
         forwards: Arc::new(ForwardManager::new()),
         runs: Arc::new(crate::runner::RunManager::new()),
         local: Arc::new(crate::localpty::LocalManager::new()),

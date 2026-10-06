@@ -6518,6 +6518,7 @@ name = "sshvault"
 version = "0.15.0"
 dependencies = [
  "argon2 0.5.3",
+ "async-trait",
  "base64 0.22.1",
  "bytes",
  "chacha20poly1305",

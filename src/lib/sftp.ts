@@ -13,40 +13,64 @@ export interface Preview {
   truncated: boolean;
 }
 
-/** Operations common to both panes so the UI can treat them uniformly. */
+/** What a place can do; the pane offers only these. Mirrors `Caps` in files/mod.rs. */
+export interface Caps {
+  mkdir: boolean;
+  rename: boolean;
+  delete: boolean;
+  chmod: boolean;
+  resume: boolean;
+  preview: boolean;
+  edit: boolean;
+}
+
+/** The permissive default, until a place has said what it supports. */
+export const ALL_CAPS: Caps = { mkdir: true, rename: true, delete: true, chmod: false, resume: true, preview: true, edit: true };
+
+/** Operations common to every pane so the UI can treat them uniformly. */
 export interface FileSource {
+  /** The id of this place in the backend: `local`, or the pane's session id. */
+  id: string;
   list(path: string): Promise<FileEntry[]>;
   mkdir(dir: string, name: string): Promise<void>;
   rename(path: string, newName: string): Promise<void>;
   remove(paths: string[]): Promise<void>;
   preview(path: string): Promise<Preview>;
-  /** Change permission bits. Remote only. */
+  /** Change permission bits. Only where `caps.chmod`. */
   chmod?(path: string, mode: number): Promise<void>;
+  caps(): Promise<Caps>;
   /** Path separator for display and parent navigation. */
   sep: string;
 }
 
+/** Any open place by its id ("local" is this computer's disk). */
+export function place(id: string, sep: string): FileSource {
+  return {
+    id,
+    sep,
+    list: (path) => invoke<FileEntry[]>("files_list", { sessionId: id, path }),
+    mkdir: (dir, name) => invoke<void>("files_mkdir", { sessionId: id, dir, name }),
+    rename: (path, newName) => invoke<void>("files_rename", { sessionId: id, path, newName }),
+    remove: (paths) => invoke<void>("files_remove", { sessionId: id, paths }),
+    preview: (path) => invoke<Preview>("files_preview", { sessionId: id, path }),
+    chmod: (path, mode) => invoke<void>("files_chmod", { sessionId: id, path, mode }),
+    caps: () => invoke<Caps>("files_caps", { sessionId: id }),
+  };
+}
+
+export const LOCAL_ID = "local";
+
 export const local: FileSource & { home(): Promise<string> } = {
-  sep: navigator.userAgent.includes("Windows") ? "\\" : "/",
+  ...place(LOCAL_ID, navigator.userAgent.includes("Windows") ? "\\" : "/"),
   home: () => invoke<string>("local_home"),
-  list: (path) => invoke<FileEntry[]>("local_list", { path }),
-  mkdir: (dir, name) => invoke<void>("local_mkdir", { dir, name }),
-  rename: (path, newName) => invoke<void>("local_rename", { path, newName }),
-  remove: (paths) => invoke<void>("local_remove", { paths }),
-  preview: (path) => invoke<Preview>("local_preview", { path }),
 };
 
 export function remote(sessionId: string): FileSource {
-  return {
-    sep: "/",
-    list: (path) => invoke<FileEntry[]>("sftp_list", { sessionId, path }),
-    mkdir: (dir, name) => invoke<void>("sftp_mkdir", { sessionId, dir, name }),
-    rename: (path, newName) => invoke<void>("sftp_rename", { sessionId, path, newName }),
-    remove: (paths) => invoke<void>("sftp_remove", { sessionId, paths }),
-    preview: (path) => invoke<Preview>("sftp_preview", { sessionId, path }),
-    chmod: (path, mode) => invoke<void>("sftp_chmod", { sessionId, path, mode }),
-  };
+  return place(sessionId, "/");
 }
+
+/** What to do when something is already at the destination. */
+export type Conflict = "overwrite" | "skip" | "rename";
 
 export const sftp = {
   open: (sessionId: string, hostId: Uuid, credentials: Credentials | null) =>
@@ -55,24 +79,27 @@ export const sftp = {
       hostId,
       credentials,
     }),
-  close: (sessionId: string) => invoke<void>("sftp_close", { sessionId }),
+  close: (sessionId: string) => invoke<void>("files_close", { sessionId }),
+  /** Copy between any two open places; `removeSource` makes it a move. */
   transfer(
-    sessionId: string,
+    sourceId: string,
+    destId: string,
     transferId: string,
-    direction: Direction,
     sources: string[],
     destDir: string,
     onProgress: (p: TransferProgress) => void,
-    resume = false,
+    options: { resume?: boolean; conflict?: Conflict; removeSource?: boolean } = {},
   ) {
     const channel = new Channel<TransferProgress>(onProgress);
-    return invoke<void>("transfer_start", {
-      sessionId,
+    return invoke<void>("files_transfer_start", {
+      sourceId,
+      destId,
       transferId,
-      direction,
       sources,
       destDir,
-      resume,
+      resume: options.resume ?? false,
+      conflict: options.conflict ?? "overwrite",
+      removeSource: options.removeSource ?? false,
       onProgress: channel,
     });
   },

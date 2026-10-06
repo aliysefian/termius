@@ -12,6 +12,7 @@ pub mod crypto;
 pub mod csvimport;
 pub mod db;
 pub mod dial;
+pub mod files;
 pub mod forward;
 pub mod health;
 pub mod hostkeys;
@@ -97,9 +98,6 @@ pub fn run() {
             commands::ssh_connect_adhoc,
             commands::known_hosts_list,
             commands::known_hosts_import,
-            commands::sftp_chmod,
-            commands::sftp_preview,
-            commands::local_preview,
             commands::read_text_file,
             commands::csv_preview,
             commands::putty_sessions,
@@ -184,17 +182,17 @@ pub fn run() {
             commands::sftp_edit_start,
             commands::sftp_edit_stop,
             commands::sftp_open,
-            commands::sftp_list,
-            commands::sftp_mkdir,
-            commands::sftp_rename,
-            commands::sftp_remove,
-            commands::sftp_close,
             commands::local_home,
-            commands::local_list,
-            commands::local_mkdir,
-            commands::local_rename,
-            commands::local_remove,
-            commands::transfer_start,
+            commands::files_caps,
+            commands::files_home,
+            commands::files_list,
+            commands::files_mkdir,
+            commands::files_rename,
+            commands::files_remove,
+            commands::files_chmod,
+            commands::files_preview,
+            commands::files_close,
+            commands::files_transfer_start,
             commands::transfer_cancel,
             commands::transfer_pause,
             commands::agent_status,

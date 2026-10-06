@@ -4,6 +4,15 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## Unreleased
+
+- **One interface for every file pane, and a choice when a name is already
+  there.** A transfer that would overwrite something now asks: Replace, Skip
+  or Keep both (the new one becomes `name (1).ext`). Underneath, this
+  computer's disk and each SFTP session are one kind of "place" with the same
+  operations, and a place only offers what it can do, so buttons and menu items
+  it can't support are hidden. Nothing changes for SFTP itself.
+
 ## 0.15.0 — 2026-10-06
 
 - **Remote Desktop (RDP).** A host can now be a Windows (or xrdp) desktop:

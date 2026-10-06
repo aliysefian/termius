@@ -14,7 +14,7 @@ export interface AskOptions {
 }
 
 interface Pending {
-  kind: "confirm" | "text";
+  kind: "confirm" | "text" | "choice";
   title: string;
   message: string;
   confirm: string;
@@ -23,6 +23,8 @@ interface Pending {
   placeholder: string;
   checkbox: string;
   requireText: string;
+  /** For `choice`: one button each. */
+  choices: { value: string; label: string }[];
   resolve: (v: boolean | string | null, checked: boolean) => void;
 }
 
@@ -63,6 +65,7 @@ class DialogStore {
         placeholder: "",
         checkbox: opts.checkbox ?? "",
         requireText: opts.requireText ?? "",
+        choices: [],
         resolve: (v, checked) => resolve({ ok: v === true, checked }),
       }),
     );
@@ -80,6 +83,26 @@ class DialogStore {
         placeholder: opts.placeholder ?? "",
         checkbox: "",
         requireText: "",
+        choices: [],
+        resolve: (v) => resolve(typeof v === "string" ? v : null),
+      }),
+    );
+  }
+
+  /** A question with several answers, one button each. Resolves to the chosen `value`, or null if dismissed. */
+  choose(message: string, choices: { value: string; label: string }[], opts: { title?: string } = {}): Promise<string | null> {
+    return new Promise((resolve) =>
+      this.#open({
+        kind: "choice",
+        title: opts.title ?? "Choose",
+        message,
+        confirm: "",
+        danger: false,
+        value: "",
+        placeholder: "",
+        checkbox: "",
+        requireText: "",
+        choices,
         resolve: (v) => resolve(typeof v === "string" ? v : null),
       }),
     );
@@ -89,5 +112,6 @@ class DialogStore {
 export const dialogs = new DialogStore();
 export const ask = (message: string, opts?: AskOptions) => dialogs.ask(message, opts);
 export const askRemember = (message: string, opts?: AskOptions) => dialogs.askRemember(message, opts);
+export const choose = (message: string, choices: { value: string; label: string }[], opts?: { title?: string }) => dialogs.choose(message, choices, opts);
 export const askText = (message: string, initial?: string, opts?: AskOptions & { placeholder?: string }) =>
   dialogs.askText(message, initial, opts);
