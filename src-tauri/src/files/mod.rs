@@ -9,6 +9,8 @@
 
 pub mod engine;
 pub mod local;
+pub mod pipe;
+pub mod scp;
 #[cfg(test)]
 pub mod memory;
 
@@ -22,6 +24,17 @@ use tokio::io::{AsyncRead, AsyncWrite};
 pub use crate::sftp::FileEntry;
 use crate::sftp::{SftpError, SftpManager};
 pub use engine::{Conflict, ProgressSink, TransferCtl, TransferProgress, TransferRegistry};
+
+/// Days since 1970-01-01 for a civil date (proleptic Gregorian).
+pub(crate) fn days_from_civil(y: i64, m: u32, d: u32) -> i64 {
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = if y >= 0 { y } else { y - 399 } / 400;
+    let yoe = y - era * 400;
+    let mp = (m as i64 + 9) % 12;
+    let doy = (153 * mp + 2) / 5 + d as i64 - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146_097 + doe - 719_468
+}
 
 /// The id of this computer's own disk, which needs no session.
 pub const LOCAL: &str = "local";
@@ -89,9 +102,10 @@ pub trait FileBackend: Send + Sync + 'static {
     /// A file's bytes from `offset`.
     async fn read(&self, path: &str, offset: u64) -> Result<Reader, FileError>;
 
-    /// Write a file. At offset 0 it is created or emptied first; above 0 it
+    /// Write a file of `size` bytes in all (a protocol like SCP must announce
+    /// it first). At offset 0 it is created or emptied first; above 0 it
     /// continues a partial file from there.
-    async fn write(&self, path: &str, offset: u64) -> Result<Writer, FileError>;
+    async fn write(&self, path: &str, offset: u64, size: u64) -> Result<Writer, FileError>;
 
     async fn close(&self) {}
 

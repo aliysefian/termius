@@ -182,6 +182,7 @@ pub fn run() {
             commands::sftp_edit_start,
             commands::sftp_edit_stop,
             commands::sftp_open,
+            commands::scp_open,
             commands::local_home,
             commands::files_caps,
             commands::files_home,

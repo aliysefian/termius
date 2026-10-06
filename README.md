@@ -109,9 +109,10 @@ Linux and Windows · Built with Rust, Tauri, Svelte and xterm.js
   changes) and synced across devices
 
 ### Files, tunnels and automation
-- Dual-pane SFTP with drag and drop, a transfer queue with pause, resume
-  and replace/skip/keep-both choices, quick look, chmod, and editing remote
-  files in your local editor
+- Dual-pane file browser with drag and drop, a transfer queue with pause,
+  resume and replace/skip/keep-both choices, quick look, chmod, and editing
+  remote files in your local editor. It speaks SFTP, and SCP for servers with
+  SFTP turned off
 - Local, remote and SOCKS tunnels, searchable, with one-click start, stop and
   "open in browser"
 - Snippets with folders, tags and `{{variables}}`; run them on many hosts and

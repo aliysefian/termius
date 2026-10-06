@@ -440,6 +440,15 @@ between the two panes to resize them.
 **Skip** that file, or **Keep both** (the new one becomes `name (1).ext`). A
 folder you keep both of is copied beside the old one, not into it.
 
+**Other kinds of server.** The same two panes browse whatever a host speaks:
+- **SCP.** If a server has SFTP turned off, connecting says so and offers
+  **Use SCP for this host**; the choice is saved on the host (or set
+  **Files** to SCP in its form). SCP browses, uploads, downloads, renames,
+  deletes and changes permissions, but can't continue a partly copied file or
+  open a file for editing, and a file name can't contain a line break.
+- Each kind only offers what it can do: a server that can't rename or delete
+  doesn't show those buttons or menu items.
+
 To edit a remote file, double-click it, or select it and press the edit
 button. It opens in this computer's default app for that file type. Each time
 you save, it's uploaded back, and the list at the bottom of the SFTP view

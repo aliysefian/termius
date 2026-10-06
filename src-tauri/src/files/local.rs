@@ -60,7 +60,7 @@ impl FileBackend for LocalBackend {
         Ok(Box::new(f))
     }
 
-    async fn write(&self, path: &str, offset: u64) -> Result<Writer, FileError> {
+    async fn write(&self, path: &str, offset: u64, _size: u64) -> Result<Writer, FileError> {
         let p = Path::new(path);
         let f = if offset > 0 {
             tokio::fs::OpenOptions::new().append(true).open(p).await

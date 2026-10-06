@@ -209,6 +209,7 @@ impl From<SftpError> for ApiError {
         match e {
             SftpError::Ssh(s) => s.into(),
             SftpError::NoSession => Self::new("not_connected", "SFTP session is not open"),
+            SftpError::NoSubsystem => Self::new("sftp_unavailable", e.to_string()),
             SftpError::Unsupported(_) => Self::new("unsupported", e.to_string()),
             SftpError::InvalidPath(_) => Self::new("invalid_path", e.to_string()),
             other => Self::new("sftp", other.to_string()),
@@ -3733,6 +3734,21 @@ pub struct SftpOpened {
     pub home: String,
     /// Host keys (target and jumps) seen for the first time.
     pub new_host_keys: Vec<LearnedKey>,
+}
+
+/// Open a file pane over SCP, for a server with no SFTP. Same answer as [`sftp_open`].
+#[tauri::command]
+pub async fn scp_open(
+    state: State<'_, AppState>,
+    session_id: String,
+    host_id: Uuid,
+    credentials: Option<Credentials>,
+) -> ApiResult<SftpOpened> {
+    let target = resolve_target(&state, host_id, credentials)?;
+    let (conn, new_host_keys) = crate::files::scp::ScpConn::open(&target).await?;
+    let home = crate::files::FileBackend::home(&conn).await?;
+    state.files.insert(session_id, Arc::new(conn)).await;
+    Ok(SftpOpened { home, new_host_keys })
 }
 
 #[tauri::command]

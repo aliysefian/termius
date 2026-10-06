@@ -170,6 +170,9 @@ pub struct Host {
     /// host) instead of a plain SSH session.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub mosh: bool,
+    /// How to browse this host's files: empty for SFTP, "scp" when SFTP is off on the server.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub file_protocol: String,
     /// Settings for a Remote Desktop host (`protocol` = "rdp").
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rdp: Option<RdpOptions>,

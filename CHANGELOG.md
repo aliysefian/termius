@@ -6,12 +6,13 @@ View changelog**.
 
 ## Unreleased
 
-- **One interface for every file pane, and a choice when a name is already
-  there.** A transfer that would overwrite something now asks: Replace, Skip
-  or Keep both (the new one becomes `name (1).ext`). Underneath, this
-  computer's disk and each SFTP session are one kind of "place" with the same
-  operations, and a place only offers what it can do, so buttons and menu items
-  it can't support are hidden. Nothing changes for SFTP itself.
+- **SCP, and a choice when a name is already there.** When a server has SFTP
+  turned off, connecting now says so and offers **Use SCP for this host**
+  (remembered on the host, or set in its form). SCP browses, uploads,
+  downloads, renames, deletes and changes permissions. A transfer that would
+  overwrite something now asks: Replace, Skip or Keep both (the new one becomes
+  `name (1).ext`). Underneath, every file pane is one interface, so a pane only
+  offers what its server can do. Tested against OpenSSH with SFTP removed.
 
 ## 0.15.0 — 2026-10-06
 

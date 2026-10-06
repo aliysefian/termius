@@ -271,6 +271,7 @@
         form.rdp = undefined;
       }
       form.mosh = form.protocol === "rdp" ? undefined : form.mosh;
+      if (form.protocol === "rdp" || form.protocol === "telnet") form.file_protocol = undefined;
       form.environment = envChoice === "custom" ? customEnv.trim() || undefined : envChoice || undefined;
       form.proxy_id = form.proxy_id || undefined;
       form.no_group_jump = (!form.jump_host_id && form.no_group_jump) || undefined;
@@ -388,6 +389,13 @@
             <option value="telnet">Telnet (unencrypted, for network gear)</option>
           </select>
           {#if form.protocol !== "telnet" && form.protocol !== "rdp"}
+            <div class="mt-2 flex items-center gap-2 text-xs">
+              <label class="shrink-0 font-medium" for="h-files">Files</label>
+              <select id="h-files" class="input w-auto py-1 text-xs" value={form.file_protocol ?? ""} onchange={(e) => (form.file_protocol = e.currentTarget.value === "scp" ? "scp" : undefined)}>
+                <option value="">SFTP (default)</option>
+                <option value="scp">SCP (the server has no SFTP)</option>
+              </select>
+            </div>
             <label class="mt-2 flex items-start gap-2 text-xs">
               <input type="checkbox" class="mt-0.5" checked={!!form.mosh} onchange={(e) => (form.mosh = e.currentTarget.checked || undefined)} />
               <span>

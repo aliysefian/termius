@@ -21,7 +21,7 @@ version.
 
 | Phase | Done | Next |
 |---|---|---|
-| 1. File transfer | 0 of 7 (F0 built with one DoD line open) | F1, F2, F3, F4, F5, F6 |
+| 1. File transfer | 1 of 7 (F0 built with one DoD line open; F1 done) | F2, F3, F4, F5, F6 |
 | 2. Terminal and connection types | 0 of 5 (T1, T2, T3 built; some lines unverified) | T4, T5 |
 | 3. Databases | 3 of 9 (D0 and D1 `acfb247`, D2 `a72c4dd`) | D6, D7, D5, D8, D3, D4 |
 | 4. Containers | 2 of 6 (C0 `45a9743`, C1 `ebe4399`) | C2 (needs a real Podman) |
@@ -89,6 +89,10 @@ sheared without it). See `src-tauri/vendor/README.md` before bumping any
 **Windows.** A command line is cut off at about 8,000 characters in CI, so a
 long script goes to `sh` as a file, not `sh -c` (that broke the macOS-fixture
 monitor test).
+
+## SCP test server (F1)
+
+The SCP tests need only a local `sshd` and `scp`; the live ones are skipped without them.
 
 ## Tooling and traps (learned building D0 to C0)
 
@@ -208,7 +212,7 @@ All of these reuse the existing SFTP view (`SftpView.svelte`,
   trait, and let a pane be bound to any backend, local or remote. **M**
   Touches: `sftp.rs`, `commands.rs`, `SftpView.svelte`, `FilePane.svelte`,
   `sftp.ts`. Built as `src-tauri/src/files/`: `FileBackend` (mod.rs), the
-  generic transfer engine (engine.rs), `local.rs` and a
+  generic transfer engine (engine.rs), `local.rs`, `scp.rs` and a
   test-only in-memory backend (memory.rs); the window talks to any pane by id
   through `files_*` commands.
   DoD:
@@ -227,21 +231,26 @@ All of these reuse the existing SFTP view (`SftpView.svelte`,
   - [ ] Transfers between any two panes work, even with different backends,
         with progress, cancel, and conflict choices (overwrite, skip, rename).
         The engine and `files_transfer_start` take any two panes by id
-        (tested memory to memory, disk to memory, disk to SFTP), and
+        (tested memory to memory, disk to memory, disk to SFTP and SCP), and
         the window asks Replace / Skip / Keep both. **Open:** the layout still
         pairs "this computer" with one host, so two remote panes at once
-        (for example two SFTP hosts) can't be set up from the window.
+        (for example SCP to SFTP) can't be set up from the window.
 
-- [ ] **F1. SCP.** Use SCP as a fallback for servers with the SFTP subsystem
+- [x] **F1. SCP.** Use SCP as a fallback for servers with the SFTP subsystem
   disabled, and as a per-host choice. **S–M**
   DoD:
-  - [ ] Upload and download of a file and a folder work against a server that
-        has SFTP turned off (test with a local `sshd` with the subsystem
-        removed, or document why not).
-  - [ ] When SFTP fails with "subsystem request failed", the pane offers
-        "Use SCP for this host" and remembers the choice on the host.
-  - [ ] File names with spaces, quotes and unicode are quoted safely; a test
-        proves a name like `a b'$(x).txt` cannot run a command.
+  - [x] Upload and download of a file and a folder work against a server that
+        has SFTP turned off (a local `sshd` with the subsystem removed;
+        `spawn_sshd_without_sftp`, and a test that SFTP is refused there).
+  - [x] When SFTP fails with "subsystem request failed", the pane offers
+        "Use SCP for this host" and remembers the choice on the host (also a
+        **Files** setting in the host form). The detection runs against the
+        real server; the button and the save were exercised with a mocked
+        backend.
+  - [x] File names with spaces, quotes and unicode are quoted safely; a test
+        proves a name like `a b'$(x).txt` cannot run a command. Seven hostile
+        names through upload, list, download, rename, remove and mkdir, with a
+        canary file that must not appear; breaking the quoting makes it fail.
 
 - [ ] **F2. FTP and FTPS.** Explicit and implicit TLS, passive mode, saved as
   a host type. **M**

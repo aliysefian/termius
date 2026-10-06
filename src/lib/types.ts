@@ -88,6 +88,8 @@ export interface Host {
   protocol?: string;
   /** Connect with Mosh (needs `mosh-client` here and `mosh-server` on the host). */
   mosh?: boolean;
+  /** How to browse this host's files: absent for SFTP, "scp" when the server has SFTP off. */
+  file_protocol?: "scp";
   /** Remote Desktop settings, for hosts whose protocol is "rdp". */
   rdp?: RdpOptions;
 }

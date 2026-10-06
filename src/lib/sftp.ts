@@ -79,6 +79,13 @@ export const sftp = {
       hostId,
       credentials,
     }),
+  /** The same for a server with no SFTP, over SCP. */
+  openScp: (sessionId: string, hostId: Uuid, credentials: Credentials | null) =>
+    invoke<{ home: string; new_host_keys: { host: string; fingerprint: string }[] }>("scp_open", {
+      sessionId,
+      hostId,
+      credentials,
+    }),
   close: (sessionId: string) => invoke<void>("files_close", { sessionId }),
   /** Copy between any two open places; `removeSource` makes it a move. */
   transfer(

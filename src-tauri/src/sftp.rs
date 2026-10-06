@@ -46,6 +46,9 @@ pub enum SftpError {
     Backend(String),
     #[error("this place doesn't support {0}")]
     Unsupported(&'static str),
+    /// The server refused the SFTP subsystem (it is turned off there).
+    #[error("this server doesn't allow SFTP (the subsystem request failed)")]
+    NoSubsystem,
 }
 
 fn local_err(path: &Path) -> impl FnOnce(std::io::Error) -> SftpError + '_ {
@@ -194,8 +197,16 @@ pub struct SftpConn {
 impl SftpConn {
     pub async fn open(target: &Target) -> Result<(Self, Vec<LearnedKey>), SftpError> {
         let (client, learned) = open_client(target, None).await?;
-        let channel = client.channel_open_session().await?;
+        let mut channel = client.channel_open_session().await?;
         channel.request_subsystem(true, "sftp").await?;
+        // The server answers the request before anything else on the channel.
+        loop {
+            match channel.wait().await {
+                Some(russh::ChannelMsg::Success) => break,
+                Some(russh::ChannelMsg::Failure) | Some(russh::ChannelMsg::Close) | None => return Err(SftpError::NoSubsystem),
+                Some(_) => continue,
+            }
+        }
         let sftp = SftpSession::new(channel.into_stream()).await?;
         Ok((Self { client, sftp }, learned))
     }
@@ -390,7 +401,7 @@ impl FileBackend for SftpConn {
         Ok(Box::new(f))
     }
 
-    async fn write(&self, path: &str, offset: u64) -> Result<Writer, SftpError> {
+    async fn write(&self, path: &str, offset: u64, _size: u64) -> Result<Writer, SftpError> {
         if offset == 0 {
             return Ok(Box::new(self.sftp.create(path.to_string()).await?));
         }

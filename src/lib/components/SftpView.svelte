@@ -7,12 +7,13 @@
   import type { UnlistenFn } from "@tauri-apps/api/event";
   import * as api from "$lib/api";
   import FilePane from "./FilePane.svelte";
+  import Badge from "./Badge.svelte";
   import { local, LOCAL_ID, remote, sftp, type Conflict, type Direction, type FileSource } from "$lib/sftp";
   import { choose } from "$lib/dialogs.svelte";
   import { ui } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
   import { settings } from "$lib/stores/settings.svelte";
-  import { errorMessage, formatBytes, type FileEntry, type TransferProgress, type Uuid } from "$lib/types";
+  import { errorMessage, formatBytes, isApiError, type FileEntry, type TransferProgress, type Uuid } from "$lib/types";
 
   interface Transfer {
     id: string;
@@ -42,6 +43,8 @@
   let connectedHost = $state<Uuid | null>(null);
   let connecting = $state(false);
   let connectError = $state<string | null>(null);
+  /** The last connect failed because the server has SFTP turned off. */
+  let sftpOff = $state(false);
   let askCreds = $state(false);
   let username = $state("");
   let password = $state("");
@@ -95,6 +98,7 @@
   const remoteSource = $derived<FileSource | null>(connectedHost ? remote(sessionId) : null);
   const host = $derived(hostId ? vaultStore.hostById.get(hostId)?.data : undefined);
   const hostChoices = $derived(hostOptions(vaultStore.hosts));
+  const connectedData = $derived(connectedHost ? vaultStore.hostById.get(connectedHost)?.data : undefined);
   const connectedLabel = $derived(connectedHost ? vaultStore.hostById.get(connectedHost)?.data?.label : "");
 
   onMount(async () => {
@@ -166,19 +170,40 @@
     }
     connecting = true;
     connectError = null;
+    sftpOff = false;
     askCreds = false;
     try {
-      const res = await sftp.open(sessionId, hostId, creds);
+      const res = host?.file_protocol === "scp" ? await sftp.openScp(sessionId, hostId, creds) : await sftp.open(sessionId, hostId, creds);
       connectedHost = hostId;
       remotePath = res.home;
       remoteRefresh++;
       for (const k of res.new_host_keys) ui.notify("info", `New host key recorded for ${k.host}: ${k.fingerprint}`);
     } catch (e) {
       connectError = errorMessage(e);
+      sftpOff = isApiError(e) && e.code === "sftp_unavailable";
+      // Keep what was typed so "Use SCP" can go straight on without asking again.
+      if (sftpOff && creds) retryCreds = creds;
     } finally {
       connecting = false;
       password = "";
     }
+  }
+
+  let retryCreds: { username: string; password: string } | null = null;
+
+  /** Remember on the host that its files go over SCP, and connect that way. */
+  async function useScp() {
+    const rec = hostId ? vaultStore.hostById.get(hostId) : undefined;
+    if (!rec?.data) return;
+    try {
+      await vaultStore.saveHost(rec.id, { ...$state.snapshot(rec.data), file_protocol: "scp" }, rec.rev);
+    } catch (e) {
+      ui.notify("error", errorMessage(e));
+      return;
+    }
+    const creds = retryCreds;
+    retryCreds = null;
+    await connect(creds);
   }
 
   // "Browse here" from a terminal pane: connect to that host, then go there.
@@ -392,7 +417,11 @@
       {#snippet header()}
         <Server size={14} class="text-accent" />
         {#if connectedHost}
-          <span class="flex-1 truncate text-sm font-medium">{connectedLabel}</span>
+          <span class="truncate text-sm font-medium">{connectedLabel}</span>
+          {#if connectedData?.file_protocol === "scp"}
+            <Badge title="This host's files go over SCP, not SFTP">SCP</Badge>
+          {/if}
+          <span class="flex-1"></span>
           <button class="btn-ghost py-1 text-xs" onclick={disconnect}><Unplug size={12} /> Disconnect</button>
         {:else}
           <Combobox
@@ -450,9 +479,13 @@
             </form>
           {:else}
             <HardDrive size={28} class="mx-auto mb-3 text-fg-muted/50" />
-            <p class="text-sm text-fg-muted">Choose a host above to browse its files over SFTP.</p>
+            <p class="text-sm text-fg-muted">Choose a host above to browse its files over SFTP (or SCP, where SFTP is off).</p>
             {#if connectError}
               <p class="mt-3 rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">{connectError}</p>
+              {#if sftpOff}
+                <button class="btn-primary mt-3" onclick={useScp}>Use SCP for this host</button>
+                <p class="mt-2 text-xs text-fg-muted">SCP can browse, upload, download, rename and delete, but can't continue a partly copied file. The choice is saved on the host.</p>
+              {/if}
             {/if}
           {/if}
         </div>

@@ -1155,6 +1155,16 @@ pub(crate) mod testutil {
     /// or when `SSHVAULT_SKIP_SSHD_TESTS` is set (used on macOS CI, whose
     /// sshd needs a different setup).
     pub fn spawn_sshd(dir: &std::path::Path) -> Option<Sshd> {
+        spawn_sshd_with(dir, true)
+    }
+
+    /// A server with the SFTP subsystem removed, as some hosts are set up.
+    #[cfg_attr(not(unix), allow(dead_code))]
+    pub fn spawn_sshd_without_sftp(dir: &std::path::Path) -> Option<Sshd> {
+        spawn_sshd_with(dir, false)
+    }
+
+    fn spawn_sshd_with(dir: &std::path::Path, with_sftp: bool) -> Option<Sshd> {
         // CI sets the variable on every OS, empty where tests should run.
         if std::env::var_os("SSHVAULT_SKIP_SSHD_TESTS").is_some_and(|v| !v.is_empty()) {
             return None;
@@ -1207,6 +1217,7 @@ pub(crate) mod testutil {
         .find(|p| std::path::Path::new(p).exists())
         .map(|p| format!("Subsystem sftp {p}\n"))
         .unwrap_or_else(|| "Subsystem sftp internal-sftp\n".into());
+        let sftp_server = if with_sftp { sftp_server } else { String::new() };
         let config = format!(
             "Port {port}\nListenAddress 127.0.0.1\nHostKey {d}/host_key\nAuthorizedKeysFile {d}/authorized_keys\n\
              TrustedUserCAKeys {d}/user_ca.pub\n\

@@ -273,7 +273,7 @@ async fn run(
         }
         p.add(offset, from);
         let mut r = src.read(from, offset).await?;
-        let mut w = dst.write(to, offset).await?;
+        let mut w = dst.write(to, offset, *size).await?;
         loop {
             p.check(from).await?;
             let n = r.read(&mut buf).await.map_err(io_err(from))?;

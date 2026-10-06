@@ -215,7 +215,7 @@ impl FileBackend for MemoryBackend {
         }
     }
 
-    async fn write(&self, path: &str, offset: u64) -> Result<Writer, FileError> {
+    async fn write(&self, path: &str, offset: u64, _size: u64) -> Result<Writer, FileError> {
         if !self.open_delay.is_zero() {
             tokio::time::sleep(self.open_delay).await;
         }
