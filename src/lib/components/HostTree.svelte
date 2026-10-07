@@ -1,6 +1,6 @@
 <script lang="ts">
   import Illustration from "./Illustration.svelte";
-  import { Activity, Clock, FileInput, FoldVertical, Plus, Search, Server, UnfoldVertical } from "lucide-svelte";
+  import { Activity, Clock, Cloud, FileInput, FoldVertical, Plus, Search, Server, UnfoldVertical } from "lucide-svelte";
   import { settings } from "$lib/stores/settings.svelte";
   import HostRow from "./HostRow.svelte";
   import Spinner from "./Spinner.svelte";
@@ -225,6 +225,9 @@
       </button>
       <button class="icon-btn" title="Import from ~/.ssh/config or an Ansible inventory" onclick={() => (ui.modal = { kind: "import-ssh-config" })}>
         <FileInput size={16} />
+      </button>
+      <button class="icon-btn" title="Import from a cloud, Tailscale, Kubernetes or Terraform" onclick={() => (ui.modal = { kind: "import-inventory" })}>
+        <Cloud size={16} />
       </button>
       <button class="icon-btn" title="New host" onclick={() => (ui.modal = { kind: "host", id: null })}>
         <Plus size={16} />

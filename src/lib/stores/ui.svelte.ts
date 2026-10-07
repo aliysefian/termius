@@ -1,6 +1,7 @@
 // Ephemeral UI state: which sidebar view is active, open tabs, modals.
 import { MAX_PANES, grid, layoutRects, leaf, paneIds, remove, setRatio, split, type LayoutNode } from "$lib/layout";
 import { askRemember } from "$lib/dialogs.svelte";
+import { fingerprint, renderCommand } from "$lib/commandhost";
 import { settings } from "$lib/stores/settings.svelte";
 import type { AdhocTarget, SessionStatus } from "$lib/ssh";
 import type { SerialConfig, Uuid } from "$lib/types";
@@ -96,6 +97,7 @@ export type Modal =
   | { kind: "container-prune"; sourceKey: string; what: "images" | "volumes" | "networks" }
   | { kind: "quick-connect"; initial?: string }
   | { kind: "import-ssh-config" }
+  | { kind: "import-inventory"; source?: string }
   | { kind: "snippet-vars"; command: string; names: string[]; opts: SnippetRunOpts }
   | { kind: "run-on-hosts"; command?: string }
   | { kind: "save-workspace" }
@@ -262,7 +264,38 @@ class UiStore {
       this.openSftpAt(hostId, "");
       return;
     }
+    if (vaultStore.hostById.get(hostId)?.data?.protocol === "command") {
+      void this.#openCommandHost(hostId, title);
+      return;
+    }
     this.#openTab(command ? { kind: "host", hostId, command } : { kind: "host", hostId }, title);
+  }
+
+  /** A host that connects by running a command here: shown to the person and approved before it runs. */
+  async #openCommandHost(hostId: Uuid, title: string) {
+    const host = vaultStore.hostById.get(hostId)?.data;
+    if (!host) return;
+    const identity = vaultStore.effectiveIdentity(host);
+    const rendered = renderCommand(host.connect_command ?? "", {
+      host: host.hostname,
+      user: (identity && vaultStore.identityById.get(identity)?.data?.username) || "",
+      id: host.source?.id ?? "",
+    });
+    if (!rendered.ok) {
+      this.notify("error", `${host.label}: ${rendered.error}`);
+      return;
+    }
+    const print = fingerprint(rendered.command);
+    if (settings.prefs.approvedCommands[hostId] !== print) {
+      const r = await askRemember(`Run this on this computer to connect to ${host.label}?\n\n${rendered.command}`, {
+        title: "Run a command",
+        confirm: "Run it",
+        checkbox: "Don't ask again for this exact command",
+      });
+      if (!r.ok) return;
+      if (r.checked) settings.prefs.approvedCommands = { ...settings.prefs.approvedCommands, [hostId]: print };
+    }
+    this.openLocal(rendered.command, title);
   }
 
   /** Hosts ticked in the tree for bulk actions (Ctrl/Shift+click). */

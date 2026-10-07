@@ -107,10 +107,22 @@ export interface Host {
   ftp?: FtpOptions;
   /** VNC settings, for hosts whose protocol is "vnc". */
   vnc?: VncOptions;
+  /** Where an imported host came from, so a refresh doesn't overwrite what was edited. */
+  source?: HostSource;
+  /** For protocol "command": the command that connects, run in a local terminal ({host}, {user}, {label}, {id}). */
+  connect_command?: string;
   /** The machine's MAC address, to wake it with Wake-on-LAN. */
   wol_mac?: string;
   /** Where the wake-up goes: absent for the whole local network, or a subnet's broadcast address. */
   wol_broadcast?: string;
+}
+
+export interface HostSource {
+  provider: string;
+  id: string;
+  scope?: string;
+  hostname: string;
+  label: string;
 }
 
 export interface VncOptions {

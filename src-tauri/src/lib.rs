@@ -20,6 +20,7 @@ pub mod files;
 pub mod forward;
 pub mod health;
 pub mod hostkeys;
+pub mod inventory;
 pub mod hostcreds;
 pub mod keychain;
 pub mod keymanager;
@@ -147,6 +148,8 @@ pub fn run() {
             commands::vnc_input,
             commands::vnc_close,
             commands::wake_on_lan,
+            commands::inventory_run,
+            commands::inventory_scan,
             commands::local_write,
             commands::local_resize,
             commands::local_close,

@@ -98,6 +98,8 @@ export interface Prefs {
   highlightRules: HighlightRule[];
   /** A coloured bar in the margin for each command the shell reports (needs shell integration). */
   commandBlocks: boolean;
+  /** Hosts whose connect command was approved: host id → fingerprint of the exact command. */
+  approvedCommands: Record<string, string>;
   /** The language of the sidebar, menus and headings: a code like "de", or "auto" to follow the system. */
   language: string;
   /** Sidebar entries put away into the Manage menu (page names, e.g. "databases"). */
@@ -194,6 +196,7 @@ export const DEFAULT_PREFS: Prefs = {
   terminalImages: true,
   highlightRules: [],
   commandBlocks: true,
+  approvedCommands: {},
   language: "auto",
   railHidden: [],
   railOrder: [],

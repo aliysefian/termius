@@ -264,6 +264,16 @@ impl From<crate::vnc::VncError> for ApiError {
     }
 }
 
+impl From<crate::inventory::InventoryError> for ApiError {
+    fn from(e: crate::inventory::InventoryError) -> Self {
+        use crate::inventory::InventoryError as E;
+        match e {
+            E::NotInstalled(_) => Self::new("inventory_missing", e.to_string()),
+            _ => Self::new("inventory", e.to_string()),
+        }
+    }
+}
+
 impl From<crate::wol::WolError> for ApiError {
     fn from(e: crate::wol::WolError) -> Self {
         Self::new("wol", e.to_string())
@@ -2660,6 +2670,19 @@ pub fn vnc_input(state: State<'_, AppState>, pane_id: String, input: crate::disp
 #[tauri::command]
 pub fn vnc_close(state: State<'_, AppState>, pane_id: String) {
     state.vnc.close(&pane_id);
+}
+
+/// What a cloud or tool's own command-line program lists (JSON), for the window to turn into hosts. Only the
+/// programs in `inventory.rs` are run, with values it has checked.
+#[tauri::command]
+pub async fn inventory_run(source: crate::inventory::Source, option: Option<String>) -> ApiResult<String> {
+    Ok(crate::inventory::run(source, option.as_deref()).await?)
+}
+
+/// SSH servers on a private network: addresses that answer on `port` with an SSH banner.
+#[tauri::command]
+pub async fn inventory_scan(range: String, port: u16) -> ApiResult<Vec<crate::inventory::ScanHit>> {
+    crate::inventory::scan_ssh(&range, port, std::time::Duration::from_millis(800)).await.map_err(|e| ApiError::new("scan", e.to_string()))
 }
 
 /// Send a Wake-on-LAN packet for `mac` (to `broadcast`, or the whole local network when empty).

@@ -211,6 +211,9 @@
       ["Check which hosts are reachable", Activity, () => void vaultStore.checkHealth()],
       ["Type into all panes in this tab (toggle)", Keyboard, () => ui.syncRequest++, "Ctrl+Shift+B"],
       ["Export hosts as ~/.ssh/config…", FileOutput, () => void exportConfig()],
+      ["Import hosts from a cloud, Tailscale, Kubernetes or Terraform…", FileInput, () => (ui.modal = { kind: "import-inventory" })],
+      ["Scan the network for SSH servers…", Search, () => (ui.modal = { kind: "import-inventory", source: "scan" })],
+      ["Export hosts as an Ansible inventory…", FileOutput, () => void exportAnsible()],
       ["Import hosts from an Ansible inventory", FileInput, () => (ui.modal = { kind: "import-ssh-config" })],
       ["Save open tabs as a workspace…", SquareSplitHorizontal, () => (ui.modal = { kind: "save-workspace" })],
       ["Hide or show the list panel", SquareSplitHorizontal, () => ui.toggleSidebar(), "Ctrl+Shift+H"],
@@ -292,6 +295,23 @@
   $effect(() => {
     input?.focus();
   });
+
+  async function exportAnsible() {
+    const { save } = await import("@tauri-apps/plugin-dialog");
+    const path = await save({ title: "Export hosts as an Ansible inventory", defaultPath: "sshvault-inventory.json", filters: [{ name: "Ansible inventory (JSON)", extensions: ["json"] }] });
+    if (!path) return;
+    try {
+      const { ansibleInventory } = await import("$lib/inventory");
+      const hosts = vaultStore.hosts.filter((r) => !r.deleted && r.data).map((r) => {
+        const id = vaultStore.effectiveIdentity(r.data!);
+        return { label: r.data!.label, hostname: r.data!.hostname, port: r.data!.port, group: r.data!.group, protocol: r.data!.protocol, username: id ? vaultStore.identityById.get(id)?.data?.username : undefined };
+      });
+      await api.exportTextFile(path, ansibleInventory(hosts));
+      ui.notify("info", `Exported ${hosts.length} hosts. Use it with: ansible-inventory -i ${path} --list`);
+    } catch (e) {
+      ui.notify("error", errorMessage(e));
+    }
+  }
 
   async function exportConfig() {
     const { save } = await import("@tauri-apps/plugin-dialog");

@@ -2,6 +2,7 @@
   import * as api from "$lib/api";
   import { allThemes } from "$lib/themes";
   import { normalizeMac, validBroadcast } from "$lib/wol";
+  import { PRESETS as COMMAND_PRESETS, renderCommand } from "$lib/commandhost";
   import { settings } from "$lib/stores/settings.svelte";
   import { FONT_MAX, FONT_MIN, SCROLLBACK_MAX, SCROLLBACK_MIN, cleanProfile } from "$lib/terminalprofile";
   import { RDP_SIZES, formatFingerprint } from "$lib/rdp";
@@ -293,14 +294,20 @@
       } else {
         form.rdp = undefined;
       }
-      form.mosh = form.protocol === "rdp" || form.protocol === "ftp" || form.protocol === "vnc" ? undefined : form.mosh;
+      form.mosh = form.protocol === "rdp" || form.protocol === "ftp" || form.protocol === "vnc" || form.protocol === "command" ? undefined : form.mosh;
+      form.connect_command = form.protocol === "command" ? form.connect_command?.trim() || undefined : undefined;
+      if (form.protocol === "command") {
+        // The command is checked as it will be run, with placeholder values, so a typo shows now and not at connect time.
+        const probe = renderCommand(form.connect_command ?? "", { host: "host.example", user: "user", id: "id-1" });
+        if (!probe.ok) throw new Error(probe.error.replace("This host has no", "This command needs the"));
+      }
       form.vnc = form.protocol === "vnc" ? { ssh_tunnel: form.vnc?.ssh_tunnel ?? true, ssh_port: form.vnc?.ssh_port || 22 } : undefined;
       const mac = form.wol_mac?.trim() ? normalizeMac(form.wol_mac) : null;
       if (form.wol_mac?.trim() && !mac) throw new Error("The MAC address for Wake-on-LAN isn't valid. Use six pairs of hex digits, like 00:1A:2B:3C:4D:5E.");
       if (!validBroadcast(form.wol_broadcast ?? "")) throw new Error("The Wake-on-LAN broadcast address should be an IPv4 address such as 192.168.1.255, or empty.");
       form.wol_mac = mac ?? undefined;
       form.wol_broadcast = form.wol_broadcast?.trim() || undefined;
-      if (form.protocol === "rdp" || form.protocol === "telnet" || form.protocol === "ftp") form.file_protocol = undefined;
+      if (form.protocol === "rdp" || form.protocol === "telnet" || form.protocol === "ftp" || form.protocol === "command") form.file_protocol = undefined;
       form.ftp = form.protocol === "ftp" ? (form.ftp ?? emptyFtp()) : undefined;
       form.environment = envChoice === "custom" ? customEnv.trim() || undefined : envChoice || undefined;
       form.proxy_id = form.proxy_id || undefined;
@@ -404,7 +411,7 @@
           <select
             id="h-proto"
             class="input"
-            value={form.protocol === "telnet" ? "telnet" : form.protocol === "rdp" ? "rdp" : form.protocol === "vnc" ? "vnc" : form.protocol === "ftp" ? "ftp" : "ssh"}
+            value={["telnet", "rdp", "vnc", "ftp", "command"].includes(form.protocol ?? "") ? form.protocol : "ssh"}
             onchange={(e) => {
               const v = e.currentTarget.value;
               form.protocol = v === "ssh" ? undefined : v;
@@ -419,6 +426,7 @@
             <option value="ssh">SSH</option>
             <option value="rdp">Remote Desktop (RDP)</option>
             <option value="vnc">VNC (through SSH by default)</option>
+            <option value="command">A command (AWS SSM, gcloud, Teleport, kubectl…)</option>
             <option value="ftp">FTP / FTPS (files only)</option>
             <option value="telnet">Telnet (unencrypted, for network gear)</option>
           </select>
@@ -531,6 +539,20 @@
                 {/if}
                 <div class="mt-1">Credentials below must be a user name and password. Jump hosts and proxies aren't used for Remote Desktop.</div>
               </div>
+            </div>
+          {/if}
+          {#if form.protocol === "command"}
+            <div class="mt-3 space-y-2 rounded-lg border border-line bg-base/40 p-3" data-testid="command-options">
+              <label class="label" for="h-cmd">Command to run on this computer</label>
+              <input id="h-cmd" class="input font-mono text-xs" bind:value={form.connect_command} placeholder="aws ssm start-session --target {'{id}'}" spellcheck="false" autocomplete="off" />
+              <div class="flex items-center gap-2 text-xs text-fg-muted">
+                <label for="h-cmd-preset">Start from</label>
+                <select id="h-cmd-preset" class="input w-auto py-1 text-xs" onchange={(e) => { if (e.currentTarget.value) form.connect_command = e.currentTarget.value; e.currentTarget.value = ""; }}>
+                  <option value="">Choose…</option>
+                  {#each COMMAND_PRESETS as p (p.label)}<option value={p.command}>{p.label}</option>{/each}
+                </select>
+              </div>
+              <p class="text-xs text-fg-muted">Opening the host runs this in a local terminal, after asking you to approve the exact command. <code>{'{host}'}</code>, <code>{'{user}'}</code> and <code>{'{id}'}</code> (the id an import gave the machine) are replaced by this host's values, and only when they are safe to put on a command line. The terminal's shell does the rest, so its sign-in, tunnels and tools are used as they are.</p>
             </div>
           {/if}
           {#if form.protocol === "vnc" && form.vnc}

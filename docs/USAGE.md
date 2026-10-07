@@ -182,6 +182,36 @@ been copied since.
   machine on the same network as this computer, which must be set up to wake
   (BIOS and network card); nothing here can tell whether it did. There is no
   scheduled wake yet.
+- **Importing from a cloud or tool.** The cloud button above the host list (or
+  the command palette: *Import hosts from a cloud, Tailscale, Kubernetes or
+  Terraform…*) lists machines from AWS EC2, Google Cloud, Azure, DigitalOcean,
+  Hetzner, Tailscale, Kubernetes nodes, or Terraform (a folder, or a state
+  file). It runs that product's own command-line program on this computer, so
+  you sign in with the program as you already do and this app never sees the
+  credentials; the exact command is shown before it runs, and what it prints is
+  read as data. The optional field is the region, project, subscription or
+  context. You see what would be **added**, what **changed** since the last
+  import, and what is **no longer listed**, and tick what to apply. A refresh
+  updates an address or name only while you haven't edited it, keeps hosts that
+  disappeared unless you tick them, and never touches your notes, groups, tags or
+  ports. Imported hosts remember where they came from. Windows machines
+  become RDP hosts. Proxmox is not covered (it needs an API token, not a
+  program).
+- **Scanning a network.** *Scan the network for SSH servers…* (palette)
+  connects once to each address of a private network (up to 4,096 addresses;
+  only 10.x, 172.16–31.x, 192.168.x, 100.64–127.x, 169.254.x) and lists those
+  that answer with an SSH banner, to add as hosts.
+- **Hosts that connect with a command.** Choose **A command** as a host's
+  protocol, for AWS Session Manager (`aws ssm start-session --target {id}`),
+  `gcloud compute ssh`, Teleport, Boundary, `kubectl exec`, Tailscale SSH. Opening
+  the host shows the exact command and asks you to approve it, then runs it in a
+  local terminal. `{host}`, `{user}` and `{id}` are replaced by the host's
+  values, and only when they have nothing a shell could misread; anything else
+  in braces is refused. An imported host's `{id}` is the id the provider gave it.
+- **Ansible.** *Export hosts as an Ansible inventory…* (palette) writes a
+  `.json` inventory (Ansible reads JSON in its YAML inventory format): groups
+  follow your folders, each host has `ansible_host`, `ansible_port` and
+  `ansible_user`. Import from an inventory already exists.
 - **Mosh.** In a host's form, tick **Use Mosh**. Connecting then logs in with
   SSH as usual (vault keys, jump hosts, proxies and trusted-server rules all
   apply), starts `mosh-server` on the host, and runs your computer's

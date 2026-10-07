@@ -136,6 +136,24 @@ pub struct TerminalProfile {
     pub scrollback: Option<u32>,
 }
 
+/// What an import knew about a host when it made it. A refresh changes a field only while it still has this value.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HostSource {
+    /// "aws", "gcp", "azure", "digitalocean", "hetzner", "tailscale", "kubernetes", "terraform", "scan".
+    pub provider: String,
+    /// The provider's own name for the machine (an instance id, a node name).
+    pub id: String,
+    /// Which part of the provider it was listed from (a region, a project, a context), so a refresh of one
+    /// doesn't report the others as gone.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub scope: String,
+    /// The address and label as imported.
+    #[serde(default)]
+    pub hostname: String,
+    #[serde(default)]
+    pub label: String,
+}
+
 /// A VNC host's settings. `hostname` and `port` (5900 and up) say where the VNC server is.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VncOptions {
@@ -230,6 +248,14 @@ pub struct Host {
     /// Settings for a Remote Desktop host (`protocol` = "rdp").
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rdp: Option<RdpOptions>,
+    /// Where an imported host came from (a cloud, a tool), so a refresh can update it without touching what
+    /// the person changed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<HostSource>,
+    /// For a host whose `protocol` is "command": the command that connects to it, run in a local terminal.
+    /// `{host}`, `{user}`, `{label}` and `{id}` are replaced by the host's values, quoted.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub connect_command: String,
     /// Settings for a VNC host (`protocol` = "vnc").
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vnc: Option<VncOptions>,
@@ -654,6 +680,20 @@ mod tests {
         assert_eq!(v.vnc, Some(VncOptions { ssh_tunnel: true, ssh_port: 22 }));
         let direct: Host = serde_json::from_str(r#"{"label":"a","hostname":"h","vnc":{"ssh_tunnel":false,"ssh_port":2222}}"#).unwrap();
         assert_eq!(direct.vnc, Some(VncOptions { ssh_tunnel: false, ssh_port: 2222 }));
+    }
+
+    #[test]
+    fn an_imported_hosts_source_and_a_connect_command_are_optional() {
+        let old: Host = serde_json::from_str(r#"{"label":"a","hostname":"h"}"#).unwrap();
+        assert_eq!((old.source.clone(), old.connect_command.as_str()), (None, ""));
+        let plain = serde_json::to_string(&old).unwrap();
+        assert!(!plain.contains("source") && !plain.contains("connect_command"), "{plain}");
+        // A source written before scopes existed still reads.
+        let h: Host = serde_json::from_str(r#"{"label":"a","hostname":"h","protocol":"command","connect_command":"aws ssm start-session --target {id}","source":{"provider":"aws","id":"i-1","hostname":"1.2.3.4","label":"api"}}"#).unwrap();
+        assert_eq!(h.source, Some(HostSource { provider: "aws".into(), id: "i-1".into(), scope: String::new(), hostname: "1.2.3.4".into(), label: "api".into() }));
+        let back: Host = serde_json::from_str(&serde_json::to_string(&h).unwrap()).unwrap();
+        assert_eq!(back, h);
+        assert!(!serde_json::to_string(&h).unwrap().contains("scope"), "an empty scope isn't written");
     }
 
     #[test]

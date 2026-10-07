@@ -4,6 +4,14 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## Unreleased
+
+- **Inventory.** Import hosts from AWS EC2, Google Cloud, Azure, DigitalOcean, Hetzner, Tailscale, Kubernetes
+  nodes or Terraform by running that product's own CLI (shown first; nothing is stored of its sign-in). A refresh
+  lists what is new, changed and no longer listed, updates only what you haven't edited, and never deletes
+  unless you tick it. Scan a private network for SSH servers. **Command hosts** connect by running a command you
+  approve (AWS Session Manager, gcloud, Teleport, kubectl exec…). Export hosts as an Ansible inventory.
+
 ## 0.23.0 — 2026-10-07
 
 - **VNC and Wake-on-LAN.** A new **VNC** host type opens a desktop in a tab like RDP does: through SSH to the

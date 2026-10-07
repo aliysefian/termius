@@ -280,20 +280,24 @@ Already planned in `feat.md` (F3 SMB, F4 WebDAV, F5 S3, F6 ZMODEM). New needs:
 - ✅ **RD3 Wake-on-LAN** (P3, S). A button and a scheduled wake.
   *Built: MAC and broadcast per host, a test button, and "Wake it up" on a failed connection. A scheduled wake waits for A2.*
 
-### 4.8 Inventory and discovery
+### 4.8 Inventory and discovery (built in 0.24.0; Proxmox and a scheduled refresh not built)
 
-- **G1 Cloud and tool import** (P1, L). Pull hosts from AWS EC2 (and SSM
+- ◐ **G1 Cloud and tool import** (P1, L). Pull hosts from AWS EC2 (and SSM
   Session Manager as a transport), GCP, Azure, DigitalOcean, Hetzner, Proxmox,
   Tailscale, and Kubernetes nodes and pods. Group by tag or region, refresh on a
   schedule or on demand, mark which came from where, never overwrite what the
   person edited. Royal TS calls this dynamic folders; Termius imports some
   clouds. *Done:* an import wizard per source, credentials kept in the vault,
   and a "refresh" that shows what was added and removed.
-- **G2 Network scan** (P3, M). Find SSH hosts on a subnet and add them.
-- **G3 Ansible and Terraform round trip** (P2, M). Import exists for Ansible
+  *Built through each product's own CLI (AWS, GCP, Azure, DigitalOcean, Hetzner, Tailscale, kubectl nodes, Terraform); nothing stored. Parsers tested against output shapes from the docs, not against live accounts. Not built: Proxmox (an API token), SSM as a transport inside the SSH client (a Command host runs the CLI instead), refresh on a schedule.*
+- ✅ **G2 Network scan** (P3, M). Find SSH hosts on a subnet and add them.
+  *Built: private ranges only, up to 4,096 addresses, SSH banner required.*
+- ✅ **G3 Ansible and Terraform round trip** (P2, M). Import exists for Ansible
   inventories; add export, and read hosts from a Terraform state file.
-- **G4 Teleport, Boundary, SSM, `kubectl exec`, `gcloud compute ssh` as host
+  *Built: JSON inventory export (Ansible's YAML plugin reads it), Terraform state and `show -json` for the common machine types.*
+- ✅ **G4 Teleport, Boundary, SSM, `kubectl exec`, `gcloud compute ssh` as host
   types** (P2, M). A host whose "connect" is a command the app runs for you.
+  *Built as the "A command" host type: the exact command is shown and approved before it runs; only safe values are substituted.*
 
 ### 4.9 Automation
 
