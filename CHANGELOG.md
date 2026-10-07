@@ -4,7 +4,7 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
-## Unreleased
+## 0.22.0 — 2026-10-07
 
 - **Smart completion, next steps.** `ssh`, `scp`, `sftp` and `mosh` offer your saved hosts (with the port when it
   isn't 22). Snippets can have an abbreviation (`gco`) that puts the snippet first when typed in full. Local
