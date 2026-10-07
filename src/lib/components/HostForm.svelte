@@ -2,6 +2,7 @@
   import * as api from "$lib/api";
   import { allThemes } from "$lib/themes";
   import { normalizeMac, validBroadcast } from "$lib/wol";
+  import { MAX_TIMEOUT as EXPECT_MAX_TIMEOUT, problem as expectProblem } from "$lib/expect";
   import { PRESETS as COMMAND_PRESETS, renderCommand } from "$lib/commandhost";
   import { settings } from "$lib/stores/settings.svelte";
   import { FONT_MAX, FONT_MIN, SCROLLBACK_MAX, SCROLLBACK_MIN, cleanProfile } from "$lib/terminalprofile";
@@ -295,6 +296,16 @@
         form.rdp = undefined;
       }
       form.mosh = form.protocol === "rdp" || form.protocol === "ftp" || form.protocol === "vnc" || form.protocol === "command" ? undefined : form.mosh;
+      form.expect = (form.expect ?? []).map((s) => ({ wait: s.wait.trim(), send: s.send.trim(), ...(s.timeout_secs ? { timeout_secs: Number(s.timeout_secs) } : {}) })).filter((s) => s.wait || s.send);
+      const expectBad = expectProblem(form.expect);
+      if (expectBad) throw new Error(expectBad);
+      if (!form.expect.length) form.expect = undefined;
+      for (const [field, what] of [["hook_before", "before connecting"], ["hook_after", "after closing"]] as const) {
+        const text = form[field]?.trim();
+        const probe = text ? renderCommand(text, { host: "host.example", user: "user", id: "id-1" }) : null;
+        if (probe && !probe.ok) throw new Error(`The command ${what}: ${probe.error}`);
+        form[field] = text || undefined;
+      }
       form.connect_command = form.protocol === "command" ? form.connect_command?.trim() || undefined : undefined;
       if (form.protocol === "command") {
         // The command is checked as it will be run, with placeholder values, so a typo shows now and not at connect time.
@@ -917,6 +928,31 @@
             placeholder="sudo -i, cd /srv/app, tmux attach"
             spellcheck="false"
           />
+        </div>
+        <div data-testid="host-expect">
+          <span class="label">Then wait for this, and send that</span>
+          {#each form.expect ?? [] as step, i (i)}
+            <div class="mb-1 grid grid-cols-[1fr_1fr_4.5rem_auto] items-center gap-1.5">
+              <input class="input font-mono text-xs" bind:value={step.wait} placeholder="wait for… (Select a host:)" aria-label="Wait for, step {i + 1}" spellcheck="false" autocomplete="off" />
+              <input class="input font-mono text-xs" bind:value={step.send} placeholder="then send… (2)" aria-label="Send, step {i + 1}" spellcheck="false" autocomplete="off" />
+              <input class="input text-xs" type="number" min="1" max={EXPECT_MAX_TIMEOUT} bind:value={step.timeout_secs} placeholder="30 s" aria-label="Seconds to wait, step {i + 1}" />
+              <button type="button" class="icon-btn h-7 w-7" aria-label="Remove step {i + 1}" onclick={() => (form.expect = (form.expect ?? []).filter((_, j) => j !== i))}><X size={13} /></button>
+            </div>
+          {/each}
+          <button type="button" class="btn-ghost py-1 text-xs" onclick={() => (form.expect = [...(form.expect ?? []), { wait: "", send: "" }])}>Add a step</button>
+          <p class="mt-1 text-xs text-fg-muted">For a banner, a menu or a jump box. Each step waits for its text in the output, sends yours and Enter, and gives up after its time. This is stored as plain text, so it can't wait for or send a password or code: type those yourself, or use a key.</p>
+        </div>
+        <div data-testid="host-hooks" class="space-y-2">
+          <span class="label">Commands on this computer</span>
+          <div>
+            <label class="mb-0.5 block text-xs text-fg-muted" for="h-hook-before">Before connecting</label>
+            <input id="h-hook-before" class="input font-mono text-xs" bind:value={form.hook_before} placeholder="vpn up office" spellcheck="false" autocomplete="off" />
+          </div>
+          <div>
+            <label class="mb-0.5 block text-xs text-fg-muted" for="h-hook-after">After the tab closes</label>
+            <input id="h-hook-after" class="input font-mono text-xs" bind:value={form.hook_after} placeholder="vpn down office" spellcheck="false" autocomplete="off" />
+          </div>
+          <p class="text-xs text-fg-muted">Start a VPN, open a tunnel, update a status page. Opening the host shows the exact command and asks you to approve it. <code>{'{host}'}</code>, <code>{'{user}'}</code> and <code>{'{id}'}</code> are filled in when they are safe on a command line. A failing before-command asks whether to connect anyway.</p>
         </div>
         <div data-testid="host-wol">
           <span class="label">Wake-on-LAN</span>

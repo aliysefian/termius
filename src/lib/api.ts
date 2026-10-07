@@ -40,6 +40,7 @@ import type {
   VaultInfo,
   VaultKnownHost,
   VaultSettings,
+  SavedRunbook,
   Workspace,
   Health,
   HealthResult,
@@ -210,6 +211,39 @@ export const workspaces = {
   delete: (id: Uuid, baseRev: number | null) => invoke<void>("delete_workspace", { id, baseRev }),
 };
 
+export const runbooks = {
+  list: () => invoke<VaultRecord<SavedRunbook>[]>("list_runbooks"),
+  save: (id: Uuid | null, baseRev: number | null, runbook: SavedRunbook) =>
+    invoke<VaultRecord<SavedRunbook>>("save_runbook", { id, baseRev, runbook }),
+  delete: (id: Uuid, baseRev: number | null) => invoke<void>("delete_runbook", { id, baseRev }),
+};
+
+/** The editor's live check of a runbook's text. */
+export const runbookCheck = (body: string) => invoke<import("./runbook").RunbookCheck>("runbook_check", { body });
+/** The steps filled in for one host, without running anything. */
+export const runbookPlan = (body: string, params: Record<string, string>, host: string, label: string) =>
+  invoke<import("./runbook").PlannedStep[]>("runbook_plan", { body, params, host, label });
+/** Run on hosts in the background; events arrive on the channel. `files` maps a file parameter to the chosen path. */
+export function runbookStart(
+  runId: string,
+  body: string,
+  params: Record<string, string>,
+  files: Record<string, string>,
+  hostIds: Uuid[],
+  scheduled: boolean,
+  onEvent: (e: import("./runbook").RunbookEvent) => void,
+) {
+  const channel = new Channel<import("./runbook").RunbookEvent>(onEvent);
+  return invoke<void>("runbook_start", { runId, body, params, files, hostIds, scheduled, onEvent: channel });
+}
+export const runbookCancel = (runId: string) => invoke<boolean>("runbook_cancel", { runId });
+export const runbookHistory = {
+  list: () => invoke<import("./runbook").RunSummary[]>("runbook_history_list"),
+  get: (id: string) => invoke<import("./runbook").RunRecord | null>("runbook_history_get", { id }),
+  delete: (id: string) => invoke<boolean>("runbook_history_delete", { id }),
+  clear: () => invoke<number>("runbook_history_clear"),
+};
+
 export const sshConfig = {
   preview: (path: string | null) => invoke<SshConfigPreview>("ssh_config_preview", { path }),
   import: (hosts: ImportedHost[], group: string, keyImport: KeyImport) =>
@@ -301,6 +335,9 @@ export type InventoryProgram = "tailscale" | "aws" | "gcp" | "azure" | "digital_
 export const inventoryRun = (source: InventoryProgram, option: string | null) => invoke<string>("inventory_run", { source, option });
 /** SSH servers on a private network: the addresses that answer with an SSH banner. */
 export const inventoryScan = (range: string, port: number) => invoke<{ ip: string; banner: string }[]>("inventory_scan", { range, port });
+
+/** Run a hook command on this computer (already approved in the window). */
+export const runHook = (command: string, timeoutSecs: number) => invoke<{ exit_code: number | null; output: string; timed_out: boolean }>("run_hook", { command, timeoutSecs });
 
 /** Send a Wake-on-LAN packet to a machine on this computer's network. */
 export const wakeOnLan = (mac: string, broadcast: string) => invoke<void>("wake_on_lan", { mac, broadcast });

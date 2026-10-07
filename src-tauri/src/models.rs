@@ -136,6 +136,16 @@ pub struct TerminalProfile {
     pub scrollback: Option<u32>,
 }
 
+/// One step of a host's "wait for this, then send that".
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExpectStep {
+    pub wait: String,
+    pub send: String,
+    /// How long to wait for it before giving up on the rest (default 30).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout_secs: Option<u32>,
+}
+
 /// What an import knew about a host when it made it. A refresh changes a field only while it still has this value.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HostSource {
@@ -248,6 +258,16 @@ pub struct Host {
     /// Settings for a Remote Desktop host (`protocol` = "rdp").
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rdp: Option<RdpOptions>,
+    /// After connecting, wait for this text and send that, in order (for a banner, a menu, a jump box's prompt).
+    /// Never for passwords: the window refuses steps that wait for a secret.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub expect: Vec<ExpectStep>,
+    /// A command this computer runs before the connection opens, after the person approves it.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub hook_before: String,
+    /// A command this computer runs after the connection's tab closes, after the person approves it.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub hook_after: String,
     /// Where an imported host came from (a cloud, a tool), so a refresh can update it without touching what
     /// the person changed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -480,6 +500,15 @@ pub struct Workspace {
     pub tabs: Vec<serde_json::Value>,
 }
 
+/// A runbook as saved: its document is kept as the text the person wrote (JSON), so it can be read, diffed and
+/// exported as it is. `name` is repeated here for lists. See `runbook.rs`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SavedRunbook {
+    pub name: String,
+    #[serde(default)]
+    pub body: String,
+}
+
 /// Settings shared by every device using the vault.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VaultSettings {
@@ -694,6 +723,20 @@ mod tests {
         let back: Host = serde_json::from_str(&serde_json::to_string(&h).unwrap()).unwrap();
         assert_eq!(back, h);
         assert!(!serde_json::to_string(&h).unwrap().contains("scope"), "an empty scope isn't written");
+    }
+
+    #[test]
+    fn expect_steps_and_hooks_are_optional_and_old_hosts_still_load() {
+        let old: Host = serde_json::from_str(r#"{"label":"a","hostname":"h"}"#).unwrap();
+        assert!(old.expect.is_empty() && old.hook_before.is_empty() && old.hook_after.is_empty());
+        let plain = serde_json::to_string(&old).unwrap();
+        assert!(!plain.contains("expect") && !plain.contains("hook"), "{plain}");
+        let h: Host = serde_json::from_str(r#"{"label":"a","hostname":"h","expect":[{"wait":"Select:","send":"2"},{"wait":"$","send":"ls","timeout_secs":5}],"hook_before":"vpn up"}"#).unwrap();
+        assert_eq!(h.expect[0], ExpectStep { wait: "Select:".into(), send: "2".into(), timeout_secs: None });
+        assert_eq!(h.expect[1].timeout_secs, Some(5));
+        assert_eq!(h.hook_before, "vpn up");
+        let back: Host = serde_json::from_str(&serde_json::to_string(&h).unwrap()).unwrap();
+        assert_eq!(back, h);
     }
 
     #[test]

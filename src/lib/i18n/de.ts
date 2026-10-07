@@ -11,6 +11,7 @@ export const de: Partial<Record<Key, string>> = {
   "rail.databases": "Datenbanken",
   "rail.containers": "Container",
   "rail.ops": "Ops",
+  "rail.runbooks": "Runbooks",
   "rail.manage": "Verwalten",
   "rail.settings": "Einstellungen",
   "rail.lock": "Tresor sperren",

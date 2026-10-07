@@ -159,6 +159,8 @@ pub enum Collection {
     KnownHosts,
     Proxies,
     Workspaces,
+    /// Saved runbooks (the Runbooks view).
+    Runbooks,
     /// Saved database connections (the Databases view).
     Databases,
     Settings,
@@ -168,7 +170,7 @@ pub enum Collection {
 }
 
 impl Collection {
-    pub const ALL: [Collection; 13] = [
+    pub const ALL: [Collection; 14] = [
         Collection::Hosts,
         Collection::Identities,
         Collection::Snippets,
@@ -178,6 +180,7 @@ impl Collection {
         Collection::KnownHosts,
         Collection::Proxies,
         Collection::Workspaces,
+        Collection::Runbooks,
         Collection::Databases,
         Collection::Settings,
         Collection::Devices,
@@ -195,6 +198,7 @@ impl Collection {
             Collection::KnownHosts => "known_hosts",
             Collection::Proxies => "proxies",
             Collection::Workspaces => "workspaces",
+            Collection::Runbooks => "runbooks",
             Collection::Databases => "databases",
             Collection::Settings => "settings",
             Collection::Devices => "devices",

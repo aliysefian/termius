@@ -18,6 +18,7 @@ import {
   type SshKey,
   type UnlockReport,
   type VaultSettings,
+  type SavedRunbook,
   type Workspace,
   type ForwardRule,
   type Health,
@@ -59,6 +60,7 @@ class VaultStore {
   proxies = $state<VaultRecord<Proxy>[]>([]);
   dbConnections = $state<VaultRecord<DbConnection>[]>([]);
   workspaces = $state<VaultRecord<Workspace>[]>([]);
+  runbooks = $state<VaultRecord<SavedRunbook>[]>([]);
   /** Settings shared by every device using this vault. */
   settings = $state<{ rev: number; settings: VaultSettings } | null>(null);
   /** Sync conflicts waiting for a decision (see the Vault screen). */
@@ -176,6 +178,7 @@ class VaultStore {
         this.dbConnections,
         this.settings,
         this.workspaces,
+        this.runbooks,
         this.agentStatus,
         this.cliStatus,
       ] = await Promise.all([
@@ -190,6 +193,7 @@ class VaultStore {
         api.db.list(),
         api.vault.getSettings(),
         api.workspaces.list(),
+        api.runbooks.list(),
         api.agent.status(),
         api.cli.status(),
       ]);
@@ -211,6 +215,7 @@ class VaultStore {
     this.proxies = [];
     this.dbConnections = [];
     this.workspaces = [];
+    this.runbooks = [];
     this.settings = null;
     this.openConflicts = 0;
     this.forwardStatus = {};
@@ -253,6 +258,9 @@ class VaultStore {
         break;
       case "workspaces":
         upsert(this.workspaces, c.record, c.id);
+        break;
+      case "runbooks":
+        upsert(this.runbooks, c.record, c.id);
         break;
       case "settings":
         void api.vault.getSettings().then((s) => (this.settings = s));
@@ -499,6 +507,16 @@ class VaultStore {
   async deleteWorkspace(id: Uuid, baseRev?: number | null) {
     await api.workspaces.delete(id, this.#rev(this.workspaces, id, baseRev)).catch((e) => this.#onConflict(e));
     upsert(this.workspaces, null, id);
+  }
+
+  async saveRunbook(id: Uuid | null, rb: SavedRunbook, baseRev?: number | null) {
+    const rec = await api.runbooks.save(id, this.#rev(this.runbooks, id, baseRev), rb).catch((e) => this.#onConflict(e));
+    upsert(this.runbooks, rec!, rec!.id);
+    return rec!;
+  }
+  async deleteRunbook(id: Uuid, baseRev?: number | null) {
+    await api.runbooks.delete(id, this.#rev(this.runbooks, id, baseRev)).catch((e) => this.#onConflict(e));
+    upsert(this.runbooks, null, id);
   }
 
   /** Replace a key record returned by a Key Manager command. */

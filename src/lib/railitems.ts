@@ -1,6 +1,6 @@
 // The entries on the left rail, in their groups, and how a person's choices (hide this, put that first) are
 // applied to them. Pure apart from the icons, so the arranging is tested.
-import { ArrowLeftRight, Code, Container, Database, FolderSync, Server, Star, Wrench } from "lucide-svelte";
+import { ArrowLeftRight, Code, Container, Database, FolderSync, ListChecks, Server, Star, Wrench } from "lucide-svelte";
 import type { View } from "$lib/stores/ui.svelte";
 
 export interface RailItem {
@@ -26,6 +26,7 @@ export const RAIL_GROUPS: RailItem[][] = [
     { view: "databases", label: "Databases", icon: Database },
     { view: "containers", label: "Containers", icon: Container, also: ["kubernetes"] },
     { view: "ops", label: "Ops", icon: Wrench },
+    { view: "runbooks", label: "Runbooks", icon: ListChecks },
   ],
 ];
 

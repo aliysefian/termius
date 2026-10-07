@@ -1,10 +1,11 @@
 // Ephemeral UI state: which sidebar view is active, open tabs, modals.
 import { MAX_PANES, grid, layoutRects, leaf, paneIds, remove, setRatio, split, type LayoutNode } from "$lib/layout";
-import { askRemember } from "$lib/dialogs.svelte";
+import * as api from "$lib/api";
+import { ask, askRemember } from "$lib/dialogs.svelte";
 import { fingerprint, renderCommand } from "$lib/commandhost";
 import { settings } from "$lib/stores/settings.svelte";
 import type { AdhocTarget, SessionStatus } from "$lib/ssh";
-import type { SerialConfig, Uuid } from "$lib/types";
+import { errorMessage, type SerialConfig, type Uuid } from "$lib/types";
 import { vaultStore } from "$lib/stores/vault.svelte";
 
 export type View =
@@ -21,6 +22,7 @@ export type View =
   | "security-review"
   | "fleet"
   | "ops"
+  | "runbooks"
   | "kubernetes"
   | "databases"
   | "containers"
@@ -28,7 +30,7 @@ export type View =
   | "changelog";
 
 /** Views that fill the window instead of sitting beside the terminals. */
-export const PAGE_VIEWS: View[] = ["groups", "keys", "knownhosts", "vault", "security-review", "fleet", "ops", "databases", "containers", "kubernetes", "settings", "changelog"];
+export const PAGE_VIEWS: View[] = ["groups", "keys", "knownhosts", "vault", "security-review", "fleet", "ops", "runbooks", "databases", "containers", "kubernetes", "settings", "changelog"];
 
 /** What a pane connects to: a saved host, or an unsaved quick connection. */
 export type PaneTarget =
@@ -264,11 +266,99 @@ class UiStore {
       this.openSftpAt(hostId, "");
       return;
     }
+    const host = vaultStore.hostById.get(hostId)?.data;
+    if (host?.hook_before || host?.hook_after) {
+      void this.#openWithHooks(hostId, title, command);
+      return;
+    }
+    this.#openHost(hostId, title, command);
+  }
+
+  #openHost(hostId: Uuid, title: string, command?: string) {
     if (vaultStore.hostById.get(hostId)?.data?.protocol === "command") {
       void this.#openCommandHost(hostId, title);
       return;
     }
     this.#openTab(command ? { kind: "host", hostId, command } : { kind: "host", hostId }, title);
+  }
+
+  /** A hook's command with this host's values in it, or why it can't be. */
+  #hookCommand(hostId: Uuid, kind: "before" | "after") {
+    const host = vaultStore.hostById.get(hostId)?.data;
+    if (!host) return null;
+    const identity = vaultStore.effectiveIdentity(host);
+    const r = renderCommand((kind === "before" ? host.hook_before : host.hook_after) ?? "", {
+      host: host.hostname,
+      user: (identity && vaultStore.identityById.get(identity)?.data?.username) || "",
+      id: host.source?.id ?? "",
+    });
+    return { host, rendered: r };
+  }
+
+  /** Whether the person has approved this exact hook command for this host (asking if not). */
+  async #approvedHook(hostId: Uuid, kind: "before" | "after"): Promise<boolean> {
+    const h = this.#hookCommand(hostId, kind);
+    if (!h) return false;
+    if (!h.rendered.ok) {
+      this.notify("error", `${h.host.label}: the ${kind === "before" ? "before-connecting" : "after-closing"} command can't be used. ${h.rendered.error}`);
+      return false;
+    }
+    const key = `hook:${kind}:${hostId}`;
+    const print = fingerprint(h.rendered.command);
+    if (settings.prefs.approvedCommands[key] === print || this.#approvedNow.has(`${key}:${print}`)) return true;
+    const r = await askRemember(`Run this on this computer ${kind === "before" ? "before connecting to" : "after you close the tab of"} ${h.host.label}?\n\n${h.rendered.command}`, {
+      title: kind === "before" ? "Run a command before connecting" : "Run a command after closing",
+      confirm: "Run it",
+      checkbox: "Don't ask again for this exact command",
+    });
+    if (!r.ok) return false;
+    if (r.checked) settings.prefs.approvedCommands = { ...settings.prefs.approvedCommands, [key]: print };
+    // Said yes now: the same command may run when the tab closes later in this session, even if "don't ask again" wasn't ticked.
+    this.#approvedNow.add(`${key}:${print}`);
+    return true;
+  }
+
+  /** Hook commands approved during this run of the app (kept in memory only). */
+  #approvedNow = new Set<string>();
+
+  async #openWithHooks(hostId: Uuid, title: string, command?: string) {
+    const host = vaultStore.hostById.get(hostId)?.data;
+    if (!host) return;
+    if (host.hook_before) {
+      if (!(await this.#approvedHook(hostId, "before"))) return;
+      const h = this.#hookCommand(hostId, "before");
+      if (h?.rendered.ok) {
+        try {
+          const out = await api.runHook(h.rendered.command, 30);
+          if (out.timed_out || out.exit_code !== 0) {
+            const why = out.timed_out ? "didn't finish in 30 seconds" : `exited with ${out.exit_code}`;
+            if (!(await ask(`The command before connecting ${why}.\n\n${out.output.trim().slice(0, 600)}\n\nConnect anyway?`, { title: "Command failed", confirm: "Connect anyway", danger: true }))) return;
+          }
+        } catch (e) {
+          this.notify("error", `${host.label}: ${errorMessage(e)}`);
+          return;
+        }
+      }
+    }
+    // The command to run after closing is approved now, while the person is looking, not when the tab closes.
+    if (host.hook_after) await this.#approvedHook(hostId, "after");
+    this.#openHost(hostId, title, command);
+  }
+
+  /** The commands to run after a tab or pane closes: only ones already approved, never asking at that moment. */
+  #afterClose(panes: Pane[]) {
+    for (const p of panes) {
+      if (p.target.kind !== "host") continue;
+      const hostId = p.target.hostId;
+      const h = this.#hookCommand(hostId, "after");
+      if (!h?.host.hook_after || !h.rendered.ok) continue;
+      const key = `hook:after:${hostId}`;
+      const print = fingerprint(h.rendered.command);
+      if (settings.prefs.approvedCommands[key] !== print && !this.#approvedNow.has(`${key}:${print}`)) continue;
+      void api.runHook(h.rendered.command, 20).then((out) => {
+        if (out.timed_out || out.exit_code !== 0) this.notify("error", `${h.host.label}: the command after closing ${out.timed_out ? "didn't finish" : `exited with ${out.exit_code}`}.`);
+      }).catch((e) => this.notify("error", `${h.host.label}: ${errorMessage(e)}`));
+    }
   }
 
   /** A host that connects by running a command here: shown to the person and approved before it runs. */
@@ -458,6 +548,7 @@ class UiStore {
     const idx = this.tabs.findIndex((t) => t.id === id);
     if (idx < 0) return;
     for (const p of this.tabs[idx].panes) delete this.paneInfo[p.id];
+    this.#afterClose(this.tabs[idx].panes);
     this.tabs.splice(idx, 1);
     if (this.activeTabId === id) {
       this.activeTabId = this.tabs[Math.min(idx, this.tabs.length - 1)]?.id ?? null;
@@ -524,6 +615,7 @@ class UiStore {
     const tab = this.tabs.find((t) => t.id === tabId);
     if (!tab) return;
     delete this.paneInfo[paneId];
+    this.#afterClose(tab.panes.filter((p) => p.id === paneId));
     if (tab.zoomedPaneId === paneId) tab.zoomedPaneId = undefined;
     const layout = remove($state.snapshot(tab.layout) as LayoutNode, paneId);
     tab.panes = tab.panes.filter((p) => p.id !== paneId);

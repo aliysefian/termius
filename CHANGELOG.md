@@ -4,6 +4,15 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## Unreleased
+
+- **Runbooks and automation.** A new Runbooks page: saved JSON runbooks with parameters, steps that run a command,
+  wait for it to succeed, or upload a file you pick, and simple conditions on an earlier step's exit code. Checked
+  as you type, with a dry run, a live per-host view of each step's output, a typed approval on production hosts and
+  a history of the last 100 runs (kept on this computer only). Schedules run a runbook every so often, daily or on
+  chosen days while the app is open. Hosts can wait for text and send an answer after connecting (never a
+  password), and run approved commands on this computer before connecting and after the tab closes.
+
 ## 0.24.0 — 2026-10-07
 
 - **Inventory.** Import hosts from AWS EC2, Google Cloud, Azure, DigitalOcean, Hetzner, Tailscale, Kubernetes

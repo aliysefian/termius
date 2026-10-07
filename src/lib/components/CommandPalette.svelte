@@ -1,7 +1,7 @@
 <script lang="ts">
   import {
     Activity, Search, Container, Database, FileOutput, History, Keyboard, SquareTerminal, ArrowLeftRight, ServerCog, Code, FileInput, FolderSync, KeyRound, Lock, Play, Plus, Server, Settings, ShieldAlert, SquareSplitHorizontal, SquareSplitVertical, Zap,
-      Wrench,
+      Wrench, ListChecks,
     Ship,
 } from "lucide-svelte";
   import * as api from "$lib/api";
@@ -238,6 +238,7 @@
       ["Go to Security review", ShieldAlert, go("security-review")],
       ["Go to Fleet", Activity, go("fleet")],
       ["Go to Operations (logs, services, alerts)", Wrench, go("ops")],
+      ["Go to Runbooks (saved steps to run on hosts)", ListChecks, go("runbooks")],
       ["Go to Kubernetes", Ship, go("kubernetes")],
       ["Go to Databases", Database, go("databases")],
       ["Go to Containers", Container, go("containers")],

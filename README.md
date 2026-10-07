@@ -79,6 +79,10 @@ Linux and Windows · Built with Rust, Tauri, Svelte and xterm.js
 - Import hosts from AWS, Google Cloud, Azure, DigitalOcean, Hetzner, Tailscale,
   Kubernetes or Terraform (refreshable without overwriting your edits), scan a
   private network, hosts that connect by an approved command, Ansible export
+- Runbooks: saved, checked sequences of steps (commands, waits, uploads, simple
+  conditions) with parameters, run on many hosts with a dry run, live results,
+  a typed approval for production and a history; schedules while the app is
+  open; per-host "wait for this, send that" and approved before/after commands
 - Quick connect (`user@host:port`), command palette, "copy as `ssh`
   command", reachability check
 - A Fleet view: a tile per host with reachability colour-coding and

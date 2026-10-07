@@ -11,6 +11,7 @@ export const zh: Partial<Record<Key, string>> = {
   "rail.databases": "数据库",
   "rail.containers": "容器",
   "rail.ops": "运维",
+  "rail.runbooks": "运维手册",
   "rail.manage": "管理",
   "rail.settings": "设置",
   "rail.lock": "锁定保险库",

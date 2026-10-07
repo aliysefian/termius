@@ -76,10 +76,20 @@ async def main():
             # An untouched form may still ask "Discard your changes?".
             if await pg.locator('button:has-text("Discard")').count():
                 await pg.click('button:has-text("Discard")'); await pg.wait_for_timeout(200)
-            for label, name in [("Snippets", "snippets"), ("Tunnels", "tunnels"), ("Databases", "databases"), ("Containers", "containers"), ("Ops", "operations"), ("Settings", "settings")]:
+            for label, name in [("Snippets", "snippets"), ("Tunnels", "tunnels"), ("Databases", "databases"), ("Containers", "containers"), ("Ops", "operations"), ("Runbooks", "runbooks"), ("Settings", "settings")]:
                 await pg.click(f'button[aria-label="{label}"]'); await pg.wait_for_timeout(500)
                 await scan(pg, name, theme)
+                if name == "runbooks":
+                    for tab in ["History", "Schedules"]:
+                        await pg.click(f'[role=tab]:has-text("{tab}")'); await pg.wait_for_timeout(300)
+                        await scan(pg, f"runbooks: {tab.lower()}", theme)
+                    await pg.click('[data-testid=schedule-new]'); await pg.wait_for_timeout(300)
+                    await scan(pg, "runbooks: new schedule", theme)
             await pg.click('button[aria-label="Hosts"]')
+            await pg.keyboard.press("Control+Shift+P"); await pg.wait_for_timeout(200)
+            await pg.keyboard.type("Import hosts from a cloud"); await pg.keyboard.press("Enter"); await pg.wait_for_timeout(500)
+            await scan(pg, "import from a cloud", theme)
+            await pg.keyboard.press("Escape"); await pg.wait_for_timeout(200)
             await pg.keyboard.press("Control+Shift+Backquote"); await pg.wait_for_timeout(1500)
             await scan(pg, "a terminal tab", theme)
             await pg.close()

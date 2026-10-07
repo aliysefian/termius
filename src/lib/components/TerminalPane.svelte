@@ -3,6 +3,7 @@
   import { onDestroy, onMount } from "svelte";
   import { registerTerminal } from "$lib/terminalsearch";
   import { matchLine, sanitize, triggered } from "$lib/highlight";
+  import { Expect, problem as expectProblem } from "$lib/expect";
   import { MAX_BLOCKS, failed, nextMatching, summary, trim, visibleBlocks, type Block } from "$lib/commandblocks";
   import { Terminal } from "@xterm/xterm";
   import { FitAddon } from "@xterm/addon-fit";
@@ -772,8 +773,10 @@
     term.write(RESET_SESSION_MODES);
     term.clear();
     safeFit();
+    const decoder = new TextDecoder();
     const onData = (bytes: Uint8Array) => {
       term.write(bytes);
+      if (expectRun) for (const s of expectRun.feed(decoder.decode(bytes, { stream: true }))) void writeToPane(pane, s);
       if (!active && !ui.paneInfo[paneId]?.unread) {
         ui.paneInfo[paneId] = { ...(ui.paneInfo[paneId] ?? { status: status.kind }), unread: true };
       }
@@ -1154,6 +1157,17 @@
         logId = connectionLog.start(hostId, label, logKind);
         // After the shell has started, and its prompt is up.
         setTimeout(() => void seedFromHost(), 1500);
+        // "Wait for this, send that": started when the session is up, and watched for the time each step allows.
+        expectRun = null;
+        clearInterval(expectTimer);
+        if (host?.expect?.length && !expectProblem(host.expect)) {
+          expectRun = new Expect($state.snapshot(host.expect) as typeof host.expect);
+          expectTimer = setInterval(() => {
+            const gave = expectRun?.expired();
+            if (gave) ui.notify("info", `Gave up waiting for "${gave.wait}" on ${label}; the rest of this host's automatic steps were skipped.`);
+            if (!expectRun || expectRun.done) clearInterval(expectTimer);
+          }, 1000);
+        }
         if (target.kind === "host") {
           settings.markRecent(target.hostId);
           const startup = [host?.startup_command?.trim(), target.command?.trim()].filter(Boolean).join(" && ");
@@ -1180,6 +1194,8 @@
   });
 
   let unregisterSearch: (() => void) | undefined;
+  let expectRun: Expect | null = null;
+  let expectTimer: ReturnType<typeof setInterval> | undefined;
 
   // Highlight rules: only the rows on screen get decorations, redrawn when output or scrolling changes them.
   let highlightFrame = 0;
@@ -1314,6 +1330,7 @@
   });
   onDestroy(() => {
     unregisterSearch?.();
+    clearInterval(expectTimer);
     cancelAnimationFrame(highlightFrame);
     for (const d of blockDecorations) d.dispose();
     for (const d of decorations) d.dispose();

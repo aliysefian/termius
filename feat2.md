@@ -299,26 +299,31 @@ Already planned in `feat.md` (F3 SMB, F4 WebDAV, F5 S3, F6 ZMODEM). New needs:
   types** (P2, M). A host whose "connect" is a command the app runs for you.
   *Built as the "A command" host type: the exact command is shown and approved before it runs; only safe values are substituted.*
 
-### 4.9 Automation
+### 4.9 Automation (built in 0.25.0; plugins deliberately not)
 
-- **A1 Runbooks** (P1, L). A saved sequence of steps: run a command, wait for
+- ✅ **A1 Runbooks** (P1, L). A saved sequence of steps: run a command, wait for
   text, upload a file, ask for a value, branch on the exit code. Parameters,
   dry run, run on one host or a group with the existing concurrency limit, a
   history with per-host output, and approvals on production. Snippets are one
   step of this. SecureCRT, MobaXterm macros and Warp workflows are the
   comparison. Keep it declarative (a file you can read and diff), not a new
   programming language.
-- **A2 Scheduled runs** (P2, M). Run a runbook or snippet on a schedule while the
+  *Built: JSON runbooks with parameters, run/wait/upload steps, conditions on an exit code or a parameter, dry run, live results, a typed approval on production, history of the last 100 runs. Not built: branching beyond "run this step when", loops, a runbook calling another, approvals by a second person, uploading a literal local path (deliberately: the file is chosen when it runs).*
+- ✅ **A2 Scheduled runs** (P2, M). Run a runbook or snippet on a schedule while the
   app is open (and say clearly that it does not run when the app is closed, or
   add a small background service later).
-- **A3 Expect-style send and wait** (P2, S). Per host: "after connecting, wait
+  *Built: every N minutes, daily, weekly; only while the app is open; missed times are skipped; per computer; production only if allowed when made. Not built: a background service, catching up.*
+- ✅ **A3 Expect-style send and wait** (P2, S). Per host: "after connecting, wait
   for `password:` and send ...". Never for secrets typed into prompts unless
   K3 is decided.
-- **A4 Hooks** (P3, S). Run something before or after a connection (start a VPN,
+  *Built: up to 10 steps per host with a time each; steps that wait for or send something that looks like a secret are refused.*
+- ✅ **A4 Hooks** (P3, S). Run something before or after a connection (start a VPN,
   open a tunnel, update a status page).
-- **A5 Plugins** (P3, L). Tabby is the model: themes, extra host types, panels.
+  *Built: a command before connecting and one after the tab closes, approved first by exact text.*
+- ⏸ **A5 Plugins** (P3, L). Tabby is the model: themes, extra host types, panels.
   This needs a stable, sandboxed API first; do not start until the core
   features above settle.
+  *Not started, as written here.*
 
 ### 4.10 Monitoring and operations (built in 0.19.0)
 

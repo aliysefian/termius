@@ -9,6 +9,7 @@ export const en = {
   "rail.databases": "Databases",
   "rail.containers": "Containers",
   "rail.ops": "Ops",
+  "rail.runbooks": "Runbooks",
   "rail.manage": "Manage",
   "rail.settings": "Settings",
   "rail.lock": "Lock vault",

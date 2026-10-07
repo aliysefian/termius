@@ -19,6 +19,7 @@ pub mod dial;
 pub mod files;
 pub mod forward;
 pub mod health;
+pub mod hooks;
 pub mod hostkeys;
 pub mod inventory;
 pub mod hostcreds;
@@ -39,6 +40,9 @@ pub mod rdp;
 pub mod release;
 pub mod remoteedit;
 pub mod reveal;
+pub mod runbook;
+pub mod runbookhistory;
+pub mod runbookrun;
 pub mod runner;
 pub mod selfupdate;
 pub mod session;
@@ -148,6 +152,18 @@ pub fn run() {
             commands::vnc_input,
             commands::vnc_close,
             commands::wake_on_lan,
+            commands::run_hook,
+            commands::list_runbooks,
+            commands::save_runbook,
+            commands::delete_runbook,
+            commands::runbook_check,
+            commands::runbook_plan,
+            commands::runbook_start,
+            commands::runbook_cancel,
+            commands::runbook_history_list,
+            commands::runbook_history_get,
+            commands::runbook_history_delete,
+            commands::runbook_history_clear,
             commands::inventory_run,
             commands::inventory_scan,
             commands::local_write,

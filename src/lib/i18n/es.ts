@@ -11,6 +11,7 @@ export const es: Partial<Record<Key, string>> = {
   "rail.databases": "Bases de datos",
   "rail.containers": "Contenedores",
   "rail.ops": "Ops",
+  "rail.runbooks": "Runbooks",
   "rail.manage": "Gestionar",
   "rail.settings": "Ajustes",
   "rail.lock": "Bloquear la bóveda",

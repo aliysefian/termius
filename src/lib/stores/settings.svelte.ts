@@ -1,6 +1,7 @@
 // Per-computer preferences. Stored in localStorage because they are
 // deliberately *not* synced: font size or auto-lock suit one machine, not all.
 import type { HighlightRule } from "$lib/highlight";
+import type { Schedule } from "$lib/schedule";
 import { completionHistory, rejectReason } from "$lib/completion/history";
 
 export interface Prefs {
@@ -100,6 +101,8 @@ export interface Prefs {
   commandBlocks: boolean;
   /** Hosts whose connect command was approved: host id → fingerprint of the exact command. */
   approvedCommands: Record<string, string>;
+  /** Scheduled runbooks, per computer; they run only while the app is open. */
+  schedules: Schedule[];
   /** The language of the sidebar, menus and headings: a code like "de", or "auto" to follow the system. */
   language: string;
   /** Sidebar entries put away into the Manage menu (page names, e.g. "databases"). */
@@ -197,6 +200,7 @@ export const DEFAULT_PREFS: Prefs = {
   highlightRules: [],
   commandBlocks: true,
   approvedCommands: {},
+  schedules: [],
   language: "auto",
   railHidden: [],
   railOrder: [],

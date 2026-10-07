@@ -107,6 +107,12 @@ export interface Host {
   ftp?: FtpOptions;
   /** VNC settings, for hosts whose protocol is "vnc". */
   vnc?: VncOptions;
+  /** After connecting: wait for this text, send that, in order. Never for secrets. */
+  expect?: ExpectStep[];
+  /** A command this computer runs before the connection opens (approved first). */
+  hook_before?: string;
+  /** A command this computer runs after the tab closes (approved first). */
+  hook_after?: string;
   /** Where an imported host came from, so a refresh doesn't overwrite what was edited. */
   source?: HostSource;
   /** For protocol "command": the command that connects, run in a local terminal ({host}, {user}, {label}, {id}). */
@@ -115,6 +121,12 @@ export interface Host {
   wol_mac?: string;
   /** Where the wake-up goes: absent for the whole local network, or a subnet's broadcast address. */
   wol_broadcast?: string;
+}
+
+export interface ExpectStep {
+  wait: string;
+  send: string;
+  timeout_secs?: number;
 }
 
 export interface HostSource {
@@ -197,6 +209,12 @@ export interface Snippet {
   abbreviation?: string;
 }
 
+/** A saved runbook: its name and the document (JSON text) it is made of. See runbook.ts. */
+export interface SavedRunbook {
+  name: string;
+  body: string;
+}
+
 export type Collection =
   | "hosts"
   | "identities"
@@ -207,6 +225,7 @@ export type Collection =
   | "known_hosts"
   | "proxies"
   | "workspaces"
+  | "runbooks"
   | "databases"
   | "settings"
   | "devices";

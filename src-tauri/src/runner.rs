@@ -51,7 +51,7 @@ pub trait RunSink: Send + Sync + 'static {
     fn event(&self, e: RunEvent);
 }
 
-fn push_capped(buf: &mut Vec<u8>, data: &[u8], truncated: &mut bool) {
+pub(crate) fn push_capped(buf: &mut Vec<u8>, data: &[u8], truncated: &mut bool) {
     let room = MAX_OUTPUT.saturating_sub(buf.len());
     if data.len() > room {
         *truncated = true;

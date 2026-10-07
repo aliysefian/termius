@@ -514,6 +514,79 @@ Alerts and monitoring history** you can keep one-minute averages for a day or a 
 instead; the host's detail view then offers 24 h and 7 days. They are stored on this
 computer, not synced, and not encrypted; choosing 15 minutes again deletes them.
 
+## Runbooks and automation
+
+**Runbooks** (the checklist button on the left rail) are saved sequences of
+steps with parameters, run on one host or many, with a record of every run.
+A runbook is a JSON document you can read, diff and share (export and open
+files from the page), not a program:
+
+```json
+{
+  "name": "Restart a service",
+  "params": [{ "name": "service", "label": "Service", "default": "nginx" }],
+  "steps": [
+    { "name": "Is it running?", "id": "before", "run": "systemctl is-active {{service|q}}", "on_error": "continue" },
+    { "name": "Restart", "run": "sudo systemctl restart {{service|q}}", "when": { "step": "before", "exit_not": 0 } },
+    { "name": "Wait until it is up", "wait": { "run": "systemctl is-active {{service|q}}", "every_secs": 2, "timeout_secs": 60 } }
+  ]
+}
+```
+
+- **Steps** are `run` (a command), `wait` (repeat a command every few seconds
+  until it exits with `until_exit`, default 0, and prints `contains` if given,
+  or give up after `timeout_secs`), or `upload` (see below). A failed step
+  stops that host unless the step has `"on_error": "continue"`; other hosts go
+  on. Each step may have a `timeout_secs`.
+- **Parameters** are asked for when you run it. `{{name}}` puts the value in as
+  typed; `{{name|q}}` quotes it for the shell, which you should use for
+  anything a person types. `{{host}}` and `{{label}}` are the host's own
+  address and name. A parameter can have `choices`, `optional`, or `"kind":
+  "file"`.
+- **Conditions.** A step runs `when` an earlier step (by its `id`) exited with
+  `exit` or not (`exit_not`), or a text parameter `equals` / `not_equals`
+  something. Nothing else: there are no loops and no scripting.
+- **Upload** puts a file on the host. Its source must be exactly `{{name}}` of
+  a `"kind": "file"` parameter: you choose the file when you run it. A
+  runbook can't name a file on this computer by itself, so a runbook someone
+  shared can't send your private keys anywhere. It is written next to its
+  target and moved into place, and may set a `mode` such as `"0644"`.
+- The page checks the document as you type and shows the problem against its
+  step; nothing can run until it is clean. A **dry run** shows every step
+  filled in for the first chosen host and runs nothing.
+- **Running.** Choose hosts (or add a whole group) and press Run. Each host shows
+  its steps as they happen, with what they printed, and **Stop** ends the run
+  (what happened so far is kept). Several hosts go at once, eight at a time,
+  each over one SSH connection that needs saved credentials. If any chosen host
+  is a **production** host, you must type the runbook's name first.
+- **History** keeps the last 100 runs on this computer only (never synced or
+  backed up, because outputs can hold secrets), each with its values, per-host
+  steps and output. Each output is cut at 16 KB.
+- **Schedules** run a runbook by themselves (every N minutes, daily, or on
+  chosen days), **only while SSHVault is open** and the vault is unlocked. A
+  time that passes while the app is closed or the computer sleeps is skipped,
+  not caught up. Schedules are kept on this computer. A schedule that includes
+  a production host is skipped unless you allowed that, with a typed
+  confirmation, when you made it; runbooks that need a file chosen each time
+  can't be scheduled. Failures are reported and recorded.
+
+**Wait for this, send that.** Under a host's **Automation** tab, add steps that
+wait for some text in the output after connecting and send an answer (for a
+banner, a menu or a jump box). Each gives up after its time (30 s by default)
+and drops the rest. It can't wait for or send a password, code or token: those
+are refused, because the text is stored as plain text in the vault.
+
+**Commands before and after.** A host can run a command on this computer
+before it opens (start a VPN, open a tunnel) and after its tab closes. The exact
+command is shown and you approve it first (tick *Don't ask again* to remember
+that exact command); if the before-command fails, you are asked whether to
+connect anyway. `{host}`, `{user}` and `{id}` are filled in only when they are
+safe on a command line. The after-command runs only if it was approved when the
+host was opened.
+
+Plugins (an extension API) are not built: a stable, sandboxed API should come
+after the rest has settled.
+
 ## Finding your way: the tour, the sidebar, languages and themes
 
 - **The tour.** *Show me around* in the welcome dialog, or *Take the tour* in the command palette, walks

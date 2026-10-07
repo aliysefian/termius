@@ -20,6 +20,8 @@
   import SecurityReview from "$lib/components/SecurityReview.svelte";
   import FleetView from "$lib/components/FleetView.svelte";
   import OpsView from "$lib/components/OpsView.svelte";
+  import { startScheduler } from "$lib/stores/scheduler.svelte";
+  import RunbooksView from "$lib/components/RunbooksView.svelte";
   import KubernetesView from "$lib/components/KubernetesView.svelte";
   // Alerts run in the background whichever page is open.
   import "$lib/stores/alerts.svelte";
@@ -72,11 +74,13 @@
   /** The name of the page being shown, for screen readers (pages that draw their own heading say it twice, which is harmless). */
   const VIEW_TITLES: Record<string, string> = {
     hosts: "Hosts", favorites: "Favorite hosts", keychain: "Credentials", snippets: "Snippets", forwarding: "Tunnels", sftp: "Files", databases: "Databases",
-    containers: "Containers", kubernetes: "Kubernetes", ops: "Operations", fleet: "Fleet", settings: "Settings", keys: "Keys", groups: "Groups and proxies",
+    containers: "Containers", kubernetes: "Kubernetes", ops: "Operations", runbooks: "Runbooks", fleet: "Fleet", settings: "Settings", keys: "Keys", groups: "Groups and proxies",
     knownhosts: "Known hosts", vault: "Vault", "security-review": "Security review", changelog: "Changelog",
   };
 
   // -- keyboard shortcuts (capture phase: beat xterm to the key) ---------
+  onMount(() => startScheduler());
+
   onMount(() => {
     const onKey = (e: KeyboardEvent) => {
       if (handleShortcut(e)) {
@@ -235,6 +239,8 @@
       <SecurityReview />
     {:else if ui.view === "fleet"}
       <FleetView />
+    {:else if ui.view === "runbooks"}
+      <RunbooksView />
     {:else if ui.view === "ops"}
       <OpsView />
     {:else if ui.view === "kubernetes"}
