@@ -1,5 +1,8 @@
 <script lang="ts">
   import * as api from "$lib/api";
+  import { allThemes } from "$lib/themes";
+  import { settings } from "$lib/stores/settings.svelte";
+  import { FONT_MAX, FONT_MIN, SCROLLBACK_MAX, SCROLLBACK_MIN, cleanProfile } from "$lib/terminalprofile";
   import { RDP_SIZES, formatFingerprint } from "$lib/rdp";
   import Combobox from "./Combobox.svelte";
   import { groupOptions, hostOptions } from "$lib/pickeroptions";
@@ -257,6 +260,11 @@
     await vaultStore.saveForward(f.id, { ...f.data, auto_start: !f.data.auto_start }, f.rev);
   }
 
+  // This host's terminal look; empty fields follow the settings.
+  let profTheme = $state(existing?.profile?.theme ?? "");
+  let profSize = $state<number | null>(existing?.profile?.font_size ?? null);
+  let profScroll = $state<number | null>(existing?.profile?.scrollback ?? null);
+
   async function save(e: SubmitEvent) {
     e.preventDefault();
     error = null;
@@ -266,6 +274,7 @@
       form.jump_host_id = form.jump_host_id || undefined;
       form.environment = form.environment || undefined;
       form.startup_command = form.startup_command?.trim() || undefined;
+      form.profile = cleanProfile({ theme: profTheme || undefined, font_size: profSize ?? undefined, scrollback: profScroll ?? undefined });
       form.completion = hostMode(form.completion);
       if (form.protocol === "rdp") {
         form.rdp = { ...(form.rdp ?? emptyRdp()), domain: form.rdp?.domain?.trim() || undefined };
@@ -848,6 +857,27 @@
             placeholder="sudo -i, cd /srv/app, tmux attach"
             spellcheck="false"
           />
+        </div>
+        <div data-testid="host-profile">
+          <span class="label">Terminal look on this host</span>
+          <div class="grid grid-cols-3 gap-2">
+            <div>
+              <label class="mb-0.5 block text-xs text-fg-muted" for="h-prof-theme">Theme</label>
+              <select id="h-prof-theme" class="input" bind:value={profTheme}>
+                <option value="">Same as settings</option>
+                {#each allThemes(settings.prefs.customThemes) as t (t.id)}<option value={t.id}>{t.name}</option>{/each}
+              </select>
+            </div>
+            <div>
+              <label class="mb-0.5 block text-xs text-fg-muted" for="h-prof-size">Text size</label>
+              <input id="h-prof-size" class="input" type="number" min={FONT_MIN} max={FONT_MAX} placeholder="Same" bind:value={profSize} />
+            </div>
+            <div>
+              <label class="mb-0.5 block text-xs text-fg-muted" for="h-prof-scroll">Scrollback lines</label>
+              <input id="h-prof-scroll" class="input" type="number" min={SCROLLBACK_MIN} max={SCROLLBACK_MAX} step="500" placeholder="Same" bind:value={profScroll} />
+            </div>
+          </div>
+          <p class="mt-1 text-xs text-fg-muted">Handy for telling hosts apart at a glance, such as a different colour for production. Empty fields follow Settings.</p>
         </div>
         <div>
           <span class="label">Tunnels that start when the vault unlocks</span>

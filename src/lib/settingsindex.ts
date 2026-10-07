@@ -15,6 +15,7 @@ export const SETTING_ENTRIES: SettingEntry[] = [
   { label: "Cursor style and blink", query: "cursor" },
   { label: "Scrollback length", query: "scrollback", words: "history lines buffer" },
   { label: "Copy on select and clipboard", query: "clipboard", words: "copy paste osc 52" },
+  { label: "Highlight words in terminal output", query: "highlight", words: "colour color rules error warning notify trigger" },
   { label: "Session logging", query: "session log", words: "record raw" },
   { label: "Screen reader mode", query: "screen reader", words: "accessibility" },
   { label: "Auto-lock after inactivity", query: "auto-lock", words: "timeout minutes security" },

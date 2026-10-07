@@ -101,6 +101,8 @@ export type Modal =
   | { kind: "save-workspace" }
   | { kind: "shortcuts" }
   | { kind: "snippet-pack" }
+  | { kind: "integration-install"; hostId: Uuid }
+  | { kind: "terminal-search" }
   | { kind: "serial" }
   | { kind: "bulk-edit" }
   | { kind: "host-details"; id: Uuid }
@@ -205,6 +207,16 @@ class UiStore {
     const a = this.toasts.find((t) => t.id === id)?.action;
     this.dismissToast(id);
     a?.run();
+  }
+
+  /** Switch to the tab holding a pane and make it the active one. */
+  showPane(paneId: string) {
+    const tab = this.tabs.find((t) => t.panes.some((p) => p.id === paneId));
+    if (!tab) return false;
+    this.activeTabId = tab.id;
+    tab.activePaneId = paneId;
+    if (tab.zoomedPaneId && tab.zoomedPaneId !== paneId) tab.zoomedPaneId = undefined;
+    return true;
   }
 
   /** Show one pane full size, or restore the split. */

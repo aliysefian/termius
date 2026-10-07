@@ -186,38 +186,48 @@ is started, as `feat.md` does.
 
 ### 4.4 Terminal
 
-- **TB1 Command blocks** (P1, M). Warp's best idea, and the app already tracks
+- ✅ **TB1 Command blocks** (P1, M). Warp's best idea, and the app already tracks
   OSC 133 prompt, input and end marks. Group a command with its output; fold,
   copy the output, jump between them, search inside one, show duration and exit
   code, pin one. Must keep working when the shell has no integration (just no
   blocks). *Done:* with integration on, a block gutter in the pane; every action
   works by keyboard.
-- **TB2 Highlight and trigger rules** (P1, M). MobaXterm, SecureCRT and WindTerm
+  *Built (4.4, v0.21.0): margin bars, copy/select/pin, jump to failed. Folding is not possible in xterm.js, so output stays visible.*
+- ✅ **TB2 Highlight and trigger rules** (P1, M). MobaXterm, SecureCRT and WindTerm
   colour `ERROR` red, or react to text (notify, send a reply). Per host or
   global, regex, ordered. *Done:* a rules list with live preview, tested
   against large output without slowing it.
-- **TB3 Profiles per host** (P2, S). Font, theme, bell, scrollback and
+  *Built: global ordered rules with live preview and notify triggers; not per host, and no auto-reply (sending text on a match is a risk without a clear need).*
+- ✅ **TB3 Profiles per host** (P2, S). Font, theme, bell, scrollback and
   environment per host or group (the red production tint is the one example
   today).
-- **TB4 Terminal images and links** (P2, M). Inline images (iTerm2 protocol,
+  *Built: theme, text size, scrollback per host. Not built: bell, environment, group-level profiles.*
+- ✅ **TB4 Terminal images and links** (P2, M). Inline images (iTerm2 protocol,
   Sixel, kitty graphics), OSC 8 hyperlinks, and clicking `file:line` in
   compiler output to open the local editor.
-- **TB5 Multi-window and tear-off tabs** (P2, M). Drag a tab out into its own
+  *Built: Sixel/iTerm2 images, OSC 8, file:line. Not built: kitty graphics, opening a local editor.*
+- ⏸ **TB5 Multi-window and tear-off tabs** (P2, M). Drag a tab out into its own
   window; reopen windows after a restart.
-- **TB6 Search across all open terminals** (P2, S to M). One search box over
+  *Not built: needs a second webview window sharing live SSH sessions and the unlocked vault, a design of its own.*
+- ✅ **TB6 Search across all open terminals** (P2, S to M). One search box over
   every pane's scrollback and the session logs.
-- **TB7 Shell integration, one click** (P2, S). Offer to install the integration
+  *Built for open terminals; session logs are not searched.*
+- ✅ **TB7 Shell integration, one click** (P2, S). Offer to install the integration
   snippet on a host (with a diff and consent), instead of the person pasting it
   into `.bashrc`. Also PowerShell and cmd integration (none today), which is
   also what smart completion needs on Windows.
-- **TB8 ZMODEM and trzsz** (P2, M). Planned as F6; listed here because it is a
+  *Built for bash, zsh and fish. PowerShell and cmd integration remain open.*
+- ⏸ **TB8 ZMODEM and trzsz** (P2, M). Planned as F6; listed here because it is a
   terminal feature MobaXterm and WindTerm have and people on serial and jump
   hosts use daily.
-- **TB9 A built-in X server for Windows** (P3, L). MobaXterm's best-known
+  *Not built: the protocol needs `lrzsz` on the host and a careful transfer UI; SFTP covers the same need. Revisit on demand.*
+- ⏸ **TB9 A built-in X server for Windows** (P3, L). MobaXterm's best-known
   feature. Today X11 forwarding needs VcXsrv or X410. Large; consider
   documenting the setup first and bundling later.
-- **TB10 Ligatures, font fallback, emoji width** (P3, S). Check the terminal
+  *Not built: bundling an X server is a large, separate project; the setup (VcXsrv/X410) is documented.*
+- ✅ **TB10 Ligatures, font fallback, emoji width** (P3, S). Check the terminal
   renders programmer fonts and wide characters the way people expect.
+  *Emoji and wide characters fixed with Unicode 11; ligatures not enabled.*
 
 ### 4.5 Smart completion follow-ups
 
@@ -413,3 +423,4 @@ Not features, but each makes everything above more expensive if left:
 6. **Cloud sync relay** (SY3). Keep the folder-only model as the identity of the
    product, or add an optional relay?
 7. **Mobile.** Stay out of scope, or a read-only companion later?
+

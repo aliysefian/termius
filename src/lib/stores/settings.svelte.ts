@@ -1,5 +1,6 @@
 // Per-computer preferences. Stored in localStorage because they are
 // deliberately *not* synced: font size or auto-lock suit one machine, not all.
+import type { HighlightRule } from "$lib/highlight";
 import { completionHistory, rejectReason } from "$lib/completion/history";
 
 export interface Prefs {
@@ -89,6 +90,12 @@ export interface Prefs {
   metricsKeep: "off" | "day" | "week";
   /** The names under the sidebar icons. */
   railLabels: boolean;
+  /** Show pictures a program draws in the terminal (Sixel, iTerm2). Takes effect in terminals opened afterwards. */
+  terminalImages: boolean;
+  /** Words coloured in terminal output, and which of them raise a notice. */
+  highlightRules: HighlightRule[];
+  /** A coloured bar in the margin for each command the shell reports (needs shell integration). */
+  commandBlocks: boolean;
   /** The language of the sidebar, menus and headings: a code like "de", or "auto" to follow the system. */
   language: string;
   /** Sidebar entries put away into the Manage menu (page names, e.g. "databases"). */
@@ -181,6 +188,9 @@ export const DEFAULT_PREFS: Prefs = {
   alertMuted: [],
   metricsKeep: "off",
   railLabels: true,
+  terminalImages: true,
+  highlightRules: [],
+  commandBlocks: true,
   language: "auto",
   railHidden: [],
   railOrder: [],

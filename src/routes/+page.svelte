@@ -49,6 +49,8 @@
   import Onboarding from "$lib/components/Onboarding.svelte";
   import Tour from "$lib/components/Tour.svelte";
   import SnippetPack from "$lib/components/SnippetPack.svelte";
+  import TerminalSearch from "$lib/components/TerminalSearch.svelte";
+  import IntegrationInstall from "$lib/components/IntegrationInstall.svelte";
   import StatusBar from "$lib/components/StatusBar.svelte";
   import TerminalArea from "$lib/components/TerminalArea.svelte";
   import UnlockScreen from "$lib/components/UnlockScreen.svelte";
@@ -306,6 +308,12 @@
     {#key ui.modal.id}
       <HostDetails id={ui.modal.id} />
     {/key}
+  {:else if ui.modal?.kind === "integration-install"}
+    {#key ui.modal.hostId}
+      <IntegrationInstall hostId={ui.modal.hostId} />
+    {/key}
+  {:else if ui.modal?.kind === "terminal-search"}
+    <TerminalSearch />
   {:else if ui.modal?.kind === "snippet-pack"}
     <SnippetPack />
   {:else if ui.modal?.kind === "onboarding"}

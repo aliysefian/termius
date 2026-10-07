@@ -1,4 +1,5 @@
 <script lang="ts">
+  import HighlightRules from "./HighlightRules.svelte";
   import { ChevronDown, ChevronUp, Copy, Download, ExternalLink, Loader2, Lock, Palette, RefreshCw, RotateCcw, Search, ShieldAlert, SquareTerminal, TerminalSquare, X } from "lucide-svelte";
   import { onMount } from "svelte";
     import { RELEASES_URL, formatSize, installHint, installUpdate, updates } from "$lib/stores/updates.svelte";
@@ -232,7 +233,7 @@
       {/if}
     {/if}
 
-    {#if visible("appearance", "terminal appearance theme colour color dark light font family size letter spacing padding contrast bold bright cursor block bar underline blink scrollback copy select clipboard osc 52 remote session log raw preview screen reader accessibility word separator double-click")}
+    {#if visible("appearance", "terminal appearance theme colour color dark light font family size letter spacing padding contrast bold bright cursor block bar underline blink scrollback copy select clipboard osc 52 remote session log raw preview screen reader accessibility word separator double-click highlight words rules notify trigger command blocks margin bar images pictures sixel")}
     <section class="rounded-xl border border-line bg-panel p-5">
       <div class="mb-1 flex items-center justify-between">
         <h2 class="flex items-center gap-2 text-sm font-semibold"><Palette size={15} class="text-accent" /> Terminal appearance</h2>
@@ -354,6 +355,13 @@
         </label>
         <label class="flex items-center gap-2 text-sm">
           <input type="checkbox" class="accent-input" bind:checked={settings.prefs.copyOnSelect} /> Copy on select
+        </label>
+        <label class="col-span-2 flex items-center gap-2 text-sm" title="A thin bar beside each command: green when it worked, red when it failed. Click it to copy the output or pin it. Needs shell integration.">
+          <input type="checkbox" class="accent-input" bind:checked={settings.prefs.commandBlocks} /> Mark each command's output in the margin (shell integration)
+        </label>
+        <HighlightRules />
+        <label class="col-span-2 flex items-center gap-2 text-sm" title="Sixel and the iTerm2 protocol (imgcat, chafa, timg). Applies to terminals opened after the change.">
+          <input type="checkbox" class="accent-input" bind:checked={settings.prefs.terminalImages} /> Show pictures a program draws in the terminal
         </label>
         <label class="col-span-2 flex items-center gap-2 text-sm" title="OSC 52. tmux (with set-clipboard on), Claude Code and Neovim copy this way.">
           <input type="checkbox" class="accent-input" bind:checked={settings.prefs.remoteClipboard} /> Let programs in the terminal copy to the clipboard

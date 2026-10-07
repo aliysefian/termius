@@ -6,6 +6,17 @@ View changelog**.
 
 ## Unreleased
 
+- **Terminal.** *Command blocks:* with shell integration, a thin bar in the margin beside each command, green
+  when it worked and red when it failed; hover for the command, outcome and duration, click to copy its output
+  or command, select the output or pin it, and jump between failed commands from the right-click menu.
+  *Highlight words:* colour words such as ERROR in the output, in order, with a live preview and one-click
+  starting sets; a rule can also raise a notice when new output matches. *Search all terminals:* one box over
+  the screen and scrollback of every open terminal (command palette). *A look per host:* a theme, text size
+  and scrollback for one host. *One-click shell integration:* a pane's right-click menu shows exactly the lines
+  that would be added to the host's startup file and adds or removes them (a copy of the file is kept).
+  Also: emoji and wide characters line up (Unicode 11), pictures drawn with Sixel or the iTerm2 protocol,
+  clickable `file:line` paths, and links a program marks up are followed only for web and mail addresses
+  and confirmed when the address differs from the text shown.
 - **Everyday polish.** A guided tour (*Take the tour* in the command palette). The command
   palette also finds keys, credentials, groups, trusted servers and settings. The sidebar can be rearranged:
   names on or off, entries put away into Manage, entries reordered. The sidebar, menus, headings and tour

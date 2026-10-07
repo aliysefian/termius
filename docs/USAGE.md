@@ -311,6 +311,26 @@ For a one-off connection, type an `ssh -J` command in Quick connect instead
   rather remote programs could not write to it.
 - If the connection drops, a **Reconnect** button appears at the bottom of the
   pane.
+- **Command blocks.** On a host with shell integration, each command gets a thin bar in the left margin: green
+  if it succeeded, red if it failed, grey if the shell didn't say. Hover for the command, outcome and how long
+  it took. Click it to copy the output or the command, select the output, or pin the command (pinned bars are
+  purple). Right-click → *Previous / Next failed command* jumps between failures. Turn the bars off under
+  **Settings → Terminal**.
+- **Highlight words.** Under **Settings → Terminal**, add rules that colour words in the output (plain text or a
+  pattern, ordered; earlier rules win where two overlap). Start from Errors, Warnings, Success or IP addresses.
+  *Notify me* raises a desktop notice when new output matches while the app is in the background. Only the lines
+  on screen are coloured, so a large output stays fast.
+- **Search all terminals.** Command palette → *Search all open terminals…* looks through the screen and
+  scrollback of every open terminal; choosing a result switches to that tab and selects the line.
+- **A look for one host.** In the host's form, *Terminal look on this host* sets a theme, text size and
+  scrollback just for it (handy for telling production apart). Empty fields follow Settings, and zooming still
+  works on top of the host's size.
+- **Shell integration in one click.** Right-click in a pane → *Install shell integration on this host…* shows the
+  exact lines for the host's login shell (bash, zsh or fish), then adds or removes them. A copy of the file
+  is kept as `<file>.sshvault.bak`, and on production hosts you type the host's name first.
+- **Links and pictures.** Ctrl/Cmd+click a link a program printed. Only web and mail addresses are followed,
+  and you are asked first when the address differs from the text shown. A path with `:line:col` browses to the
+  file. Sixel and iTerm2 pictures are drawn in the terminal (Settings can turn this off).
 - Change the colour theme, font, cursor, scrollback, letter spacing, padding,
   minimum contrast and cursor colour under **Settings**, with a live preview
   next to the controls. These settings are per computer and are not synced.

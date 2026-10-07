@@ -124,6 +124,18 @@ impl Default for RdpOptions {
     }
 }
 
+/// A terminal's look on one host. Anything left empty follows the settings.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TerminalProfile {
+    /// Id of a built-in or imported terminal theme; empty follows the settings.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub theme: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub font_size: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scrollback: Option<u32>,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Host {
     pub label: String,
@@ -196,6 +208,9 @@ pub struct Host {
     /// Settings for a Remote Desktop host (`protocol` = "rdp").
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rdp: Option<RdpOptions>,
+    /// How this host's terminal looks, over the settings (a theme, text size, scrollback).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile: Option<TerminalProfile>,
     /// "telnet" for Telnet hosts (network gear); empty means SSH.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub protocol: String,
@@ -581,6 +596,18 @@ pub fn redact_record(c: crate::vault::Collection, v: serde_json::Value) -> Optio
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_terminal_profile_is_optional_and_old_hosts_still_load() {
+        let old: Host = serde_json::from_str(r#"{"label":"a","hostname":"h"}"#).unwrap();
+        assert_eq!(old.profile, None);
+        let plain = serde_json::to_string(&old).unwrap();
+        assert!(!plain.contains("profile"), "nothing is written for a host without one: {plain}");
+        let host = Host { label: "a".into(), hostname: "h".into(), profile: Some(TerminalProfile { theme: "dracula".into(), font_size: Some(16), scrollback: None }), ..Default::default() };
+        let back: Host = serde_json::from_str(&serde_json::to_string(&host).unwrap()).unwrap();
+        assert_eq!(back.profile, host.profile);
+        assert!(!serde_json::to_string(&host).unwrap().contains("scrollback"));
+    }
 
     #[test]
     fn live_records_are_redacted_like_lists() {

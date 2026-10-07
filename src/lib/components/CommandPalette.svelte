@@ -1,6 +1,6 @@
 <script lang="ts">
   import {
-    Activity, Container, Database, FileOutput, History, Keyboard, SquareTerminal, ArrowLeftRight, ServerCog, Code, FileInput, FolderSync, KeyRound, Lock, Play, Plus, Server, Settings, ShieldAlert, SquareSplitHorizontal, SquareSplitVertical, Zap,
+    Activity, Search, Container, Database, FileOutput, History, Keyboard, SquareTerminal, ArrowLeftRight, ServerCog, Code, FileInput, FolderSync, KeyRound, Lock, Play, Plus, Server, Settings, ShieldAlert, SquareSplitHorizontal, SquareSplitVertical, Zap,
       Wrench,
     Ship,
 } from "lucide-svelte";
@@ -215,6 +215,7 @@
       ["Save open tabs as a workspace…", SquareSplitHorizontal, () => (ui.modal = { kind: "save-workspace" })],
       ["Hide or show the list panel", SquareSplitHorizontal, () => ui.toggleSidebar(), "Ctrl+Shift+H"],
       ["Maximize or restore the pane", SquareSplitHorizontal, () => ui.toggleZoomActive(), "Ctrl+Shift+Enter"],
+      ["Search all open terminals…", Search, () => (ui.modal = { kind: "terminal-search" })],
       ["Take the tour: a two-minute walk through the sidebar, the list and the palette", Keyboard, () => (ui.tour = true)],
       ["Keyboard shortcuts", Keyboard, () => (ui.modal = { kind: "shortcuts" }), "Ctrl+Shift+/"],
       ["Focus mode (toggle)", Keyboard, () => (settings.prefs.focusMode = !settings.prefs.focusMode), "Ctrl+Shift+U"],

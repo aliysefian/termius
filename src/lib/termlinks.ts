@@ -12,7 +12,10 @@ export interface TextMatch {
 const TRAILING_PUNCTUATION = /[.,;:!?)]+$/;
 
 /** `/abs/path`, `~/path`, `./rel` or `../rel`, each at least one segment deep. */
-const PATH_RE = /(?:~\/|\.\.?\/)[\w.\-/]*[\w.\-]|\/[\w.\-]+(?:\/[\w.\-]+)+/g;
+const PATH_RE = /(?:(?:~\/|\.\.?\/)[\w.\-/]*[\w.\-]|\/[\w.\-]+(?:\/[\w.\-]+)+)(?::\d+(?::\d+)?)?/g;
+
+/** A path with the `:line` or `:line:column` of a compiler or grep message taken off. */
+export const withoutLocation = (match: string): string => match.replace(/:\d+(?::\d+)?$/, "");
 
 export function findPathMatches(line: string): TextMatch[] {
   const out: TextMatch[] = [];
@@ -21,6 +24,7 @@ export function findPathMatches(line: string): TextMatch[] {
     // Not the tail of a URL's scheme (http://, ssh://, ...): either right
     // after the colon, or right after the second slash of "//".
     if (line[start - 1] === ":" || line[start - 1] === "/") continue;
+    // "file.rs:42:7:" ends in a colon from the message around it; the location itself is part of the link.
     const trimmed = m[0].replace(TRAILING_PUNCTUATION, "");
     if (!trimmed) continue;
     out.push({ start, end: start + trimmed.length, text: trimmed });

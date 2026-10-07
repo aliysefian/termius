@@ -1,6 +1,9 @@
 <script lang="ts">
   import { keepInView } from "$lib/actions";
   import { onDestroy, onMount } from "svelte";
+  import { registerTerminal } from "$lib/terminalsearch";
+  import { matchLine, sanitize, triggered } from "$lib/highlight";
+  import { MAX_BLOCKS, failed, nextMatching, summary, trim, visibleBlocks, type Block } from "$lib/commandblocks";
   import { Terminal } from "@xterm/xterm";
   import { FitAddon } from "@xterm/addon-fit";
   import { SearchAddon } from "@xterm/addon-search";
@@ -17,12 +20,17 @@
   import { render } from "$lib/snippetvars";
   import { ask } from "$lib/dialogs.svelte";
   import { connectionLog } from "$lib/stores/connectionlog.svelte";
-  import { findHostPortMatches, findPathMatches, resolveBrowsePath } from "$lib/termlinks";
-  import { settings } from "$lib/stores/settings.svelte";
+  import { findHostPortMatches, findPathMatches, resolveBrowsePath, withoutLocation } from "$lib/termlinks";
+  import { judgeLink } from "$lib/linksafety";
+  import { Unicode11Addon } from "@xterm/addon-unicode11";
+  import { ImageAddon } from "@xterm/addon-image";
+  import { openUrl } from "@tauri-apps/plugin-opener";
+  import { DEFAULT_PREFS, settings } from "$lib/stores/settings.svelte";
   import { localShells } from "$lib/stores/localshells.svelte";
   import { adhocLabel, ui, type Pane } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
-  import { themeById } from "$lib/themes";
+  import { allThemes, themeById } from "$lib/themes";
+  import { effectiveLook } from "$lib/terminalprofile";
   import { mix } from "$lib/themeimport";
   import { errorMessage, isApiError } from "$lib/types";
   import { LineTracker, looksLikeSecret, matchDestructive, pastedLines, pasteNeedsConfirm } from "$lib/guard";
@@ -177,6 +185,7 @@
     // without switching it off): stop reporting, or the reports are typed into the shell.
     if (mark.kind === "prompt" && term.modes.mouseTrackingMode !== "none") term.write(MOUSE_OFF);
     if (rec) recordFinished(rec);
+    if (rec) addBlock(rec);
     if (mark.kind === "prompt" || mark.kind === "end") refreshSuggestion();
     if (rec && rec.endedAt - rec.startedAt >= NOTIFY_AFTER_MS) {
       void notifyDone(`${rec.command.split("\n")[0].slice(0, 80)} finished${rec.exit ? ` (exit ${rec.exit})` : ""} on ${label}`);
@@ -619,8 +628,15 @@
   let newOutputWhileScrolled = $state(false);
 
   /** The chosen theme, with a red cast on production hosts if enabled. */
+  /** The settings' look, with this host's own theme, size and scrollback over it. */
+  function look() {
+    const p = settings.prefs;
+    const known = new Set(allThemes(p.customThemes).map((t) => t.id));
+    return effectiveLook(p, host?.profile, DEFAULT_PREFS.fontSize, (id) => known.has(id));
+  }
+
   function paneTheme() {
-    const base = themeById(settings.prefs.themeId, settings.prefs.customThemes).theme;
+    const base = themeById(look().themeId, settings.prefs.customThemes).theme;
     const tinted = production && settings.prefs.prodTint && base.background ? { ...base, background: mix(base.background, "#ff0000", 0.08) } : base;
     return settings.prefs.cursorColor ? { ...tinted, cursor: settings.prefs.cursorColor } : tinted;
   }
@@ -779,6 +795,17 @@
     }
   }
 
+  async function followLink(uri: string, shown: string) {
+    const v = judgeLink(uri, shown);
+    if (!v.ok) return void ui.notify("info", v.reason);
+    if (v.confirm && !(await ask(`Open this address?\n\n${v.address}\n\nThe text on screen says “${shown.slice(0, 80)}”.`, { title: "Open link", confirm: "Open" }))) return;
+    try {
+      await openUrl(v.address);
+    } catch (e) {
+      ui.notify("error", errorMessage(e));
+    }
+  }
+
   function usePlainSsh() {
     plainSsh = true;
     void connect(null);
@@ -880,20 +907,35 @@
     term = new Terminal({
       theme: paneTheme(),
       fontFamily: p.fontFamily,
-      fontSize: p.fontSize,
+      fontSize: look().fontSize,
       lineHeight: p.lineHeight,
       cursorStyle: p.cursorStyle,
       cursorBlink: p.cursorBlink,
-      scrollback: p.scrollback,
+      scrollback: look().scrollback,
       allowProposedApi: true,
       macOptionIsMeta: true,
       rightClickSelectsWord: false,
+      // Links programs mark up themselves (OSC 8): only web and mail addresses are followed, and an address that
+      // differs from the text shown is confirmed first, since the text can lie about where it goes.
+      linkHandler: {
+        allowNonHttpProtocols: false,
+        activate: (e, uri, range) => {
+          if (!e.ctrlKey && !e.metaKey) return;
+          const shown = term.buffer.active.getLine(range.start.y - 1)?.translateToString(true, range.start.x - 1, range.end.x - 1) ?? uri;
+          void followLink(uri, shown);
+        },
+      },
     });
     fit = new FitAddon();
     search = new SearchAddon();
     term.loadAddon(fit);
     term.loadAddon(search);
     term.loadAddon(new WebLinksAddon());
+    // Emoji and other wide characters take two cells, as programs expect; without this the text after one is misplaced.
+    term.loadAddon(new Unicode11Addon());
+    term.unicode.activeVersion = "11";
+    // Pictures (Sixel and the iTerm2 protocol), within limits so a program can't fill the memory.
+    if (settings.prefs.terminalImages) term.loadAddon(new ImageAddon({ sixelSupport: true, iipSupport: true, pixelLimit: 8_000_000, storageLimit: 32, showPlaceholder: false }));
     // Ctrl+click a path to browse to it in SFTP, or a host:port to quick
     // connect. Saved-host panes only: there's no SFTP target for a telnet,
     // serial or ad-hoc session, and no reliable remote cwd without one.
@@ -912,7 +954,7 @@
               text: m.text,
               activate: (e) => {
                 if (!e.ctrlKey && !e.metaKey) return;
-                ui.openSftpAt(hostId, resolveBrowsePath(m.text, ui.paneInfo[paneId]?.cwd));
+                ui.openSftpAt(hostId, resolveBrowsePath(withoutLocation(m.text), ui.paneInfo[paneId]?.cwd));
               },
             });
           }
@@ -1017,6 +1059,8 @@
     }
     term.attachCustomWheelEventHandler(wheelToKeys);
     term.onWriteParsed(refreshModes);
+    term.onWriteParsed(scheduleHighlight);
+    term.onScroll(scheduleHighlight);
     term.onWriteParsed(refreshSuggestion);
     // Font, zoom, padding and fitting all change the screen's size; the suggestion follows.
     const screenEl = container.querySelector(".xterm-screen");
@@ -1058,6 +1102,22 @@
 
     resizeObserver = new ResizeObserver(safeFit);
     resizeObserver.observe(container);
+
+    // Lets "Search all terminals" read this terminal's lines and bring one into view.
+    unregisterSearch = registerTerminal({
+      paneId,
+      label: host?.label ?? (ui.paneInfo[paneId]?.remoteTitle || "Terminal"),
+      lines: () => {
+        const buf = term.buffer.active;
+        const out: string[] = [];
+        for (let i = 0; i < buf.length; i++) out.push(buf.getLine(i)?.translateToString(true) ?? "");
+        return out;
+      },
+      reveal: (line) => {
+        term.scrollToLine(Math.max(0, line - Math.floor(term.rows / 2)));
+        term.select(0, line, term.cols);
+      },
+    });
 
     unlisten = await ssh.onStatus((e) => {
       if (e.pane_id !== paneId) return;
@@ -1101,7 +1161,144 @@
     if (!needsCredentials) connect(null);
   });
 
+  let unregisterSearch: (() => void) | undefined;
+
+  // Highlight rules: only the rows on screen get decorations, redrawn when output or scrolling changes them.
+  let highlightFrame = 0;
+  let decorations: { dispose(): void }[] = [];
+  let scannedTo = -1;
+  const scheduleHighlight = () => {
+    if (highlightFrame) return;
+    highlightFrame = requestAnimationFrame(() => {
+      highlightFrame = 0;
+      paintHighlights();
+      paintBlocks();
+    });
+  };
+  function paintHighlights() {
+    for (const d of decorations) d.dispose();
+    decorations = [];
+    if (!term) return;
+    const rules = sanitize($state.snapshot(settings.prefs.highlightRules));
+    const buf = term.buffer.active;
+    const cursorAbs = buf.baseY + buf.cursorY;
+    // Output that came before a rule existed is never reported.
+    if (!rules.some((r) => r.enabled)) {
+      scannedTo = Math.max(scannedTo, cursorAbs - 1);
+      return;
+    }
+    if (buf.type === "alternate") return;
+    for (let y = buf.viewportY; y < buf.viewportY + term.rows && y < buf.length; y++) {
+      const line = buf.getLine(y);
+      if (!line) continue;
+      for (const m of matchLine(rules, line.translateToString(true))) {
+        const marker = term.registerMarker(y - cursorAbs);
+        if (!marker) continue;
+        const d = term.registerDecoration({ marker, x: m.from, width: m.to - m.from, backgroundColor: m.rule.color, layer: "bottom" });
+        if (d) decorations.push(d, marker);
+      }
+    }
+    // New lines that match a rule asking for a notice.
+    for (let y = Math.max(scannedTo + 1, cursorAbs - 200); y < cursorAbs; y++) {
+      const text = buf.getLine(y)?.translateToString(true) ?? "";
+      for (const r of triggered(rules, text)) void notifyDone(`${r.name || r.pattern} on ${host?.label ?? "a terminal"}: ${text.trim().slice(0, 100)}`);
+    }
+    scannedTo = Math.max(scannedTo, cursorAbs - 1);
+  }
+
+  // Command blocks: a marker at each end keeps the lines right while the scrollback moves.
+  type Live = Block & { startM: { line: number; isDisposed: boolean; dispose(): void }; endM: { line: number; isDisposed: boolean; dispose(): void } };
+  let live: Live[] = [];
+  let blockDecorations: { dispose(): void }[] = [];
+  let blockSeq = 0;
+  let blockMenu = $state<{ x: number; y: number; id: number } | null>(null);
+
+  function addBlock(rec: { command: string; exit: number | null; startedAt: number; endedAt: number; outputStart: number | null; outputEnd: number | null }) {
+    if (!settings.prefs.commandBlocks || rec.outputStart === null || rec.outputEnd === null) return;
+    const cur = cursor().line;
+    const startM = term.registerMarker(Math.max(0, rec.outputStart - 1) - cur);
+    const endM = term.registerMarker(rec.outputEnd - cur);
+    if (!startM || !endM) return;
+    live.push({ id: ++blockSeq, command: rec.command, exit: rec.exit, durationMs: rec.endedAt - rec.startedAt, pinned: false, start: startM.line, end: endM.line, startM, endM });
+    const kept = trim(live, MAX_BLOCKS);
+    for (const b of live) if (!kept.includes(b)) { b.startM.dispose(); b.endM.dispose(); }
+    live = kept;
+    scheduleHighlight();
+  }
+
+  /** The blocks whose lines are still in the buffer, with their lines brought up to date. */
+  function liveBlocks(): Live[] {
+    live = live.filter((b) => !b.startM.isDisposed && !b.endM.isDisposed && b.startM.line >= 0);
+    for (const b of live) { b.start = b.startM.line; b.end = b.endM.line; }
+    return live;
+  }
+
+  // The bars sit in the left padding, clear of the list panel's resize handle that overlaps the first pixels.
+  const BAR_AT = 6;
+  const leftPad = $derived(settings.prefs.commandBlocks ? Math.max(settings.prefs.terminalPadding, BAR_AT + 4) : settings.prefs.terminalPadding);
+
+  function paintBlocks() {
+    for (const d of blockDecorations) d.dispose();
+    blockDecorations = [];
+    if (!term || !settings.prefs.commandBlocks || term.buffer.active.type === "alternate") return;
+    const buf = term.buffer.active;
+    for (const b of visibleBlocks(liveBlocks(), buf.viewportY, term.rows)) {
+      const d = term.registerDecoration({ marker: b.startM as never, x: 0, width: 1, height: Math.max(1, b.end - b.start + 1) });
+      if (!d) continue;
+      blockDecorations.push(d);
+      d.onRender((el) => {
+        // In the terminal's padding, so the first letter of each line stays whole.
+        el.style.width = "3px";
+        el.style.transform = `translateX(-${leftPad - BAR_AT}px)`;
+        el.style.background = b.pinned ? "var(--color-accent)" : failed(b) ? "var(--color-danger)" : b.exit === 0 ? "var(--color-success)" : "var(--color-fg-muted)";
+        el.style.opacity = b.pinned ? "1" : "0.75";
+        el.style.cursor = "pointer";
+        el.style.pointerEvents = "auto";
+        el.style.zIndex = "5";
+        el.title = summary(b);
+        el.dataset.block = String(b.id);
+        el.onclick = (e) => { e.stopPropagation(); blockMenu = { x: e.clientX, y: e.clientY, id: b.id }; };
+      });
+    }
+  }
+
+  const blockById = (id: number) => liveBlocks().find((b) => b.id === id);
+  function outputOf(b: Block): string {
+    term.selectLines(Math.min(b.end, b.start + 1), b.end);
+    const text = term.getSelection();
+    term.clearSelection();
+    return text;
+  }
+  async function copyBlock(b: Block, what: "output" | "command") {
+    const text = what === "output" ? outputOf(b) : b.command;
+    if (!text.trim()) return ui.notify("info", "That command printed nothing.");
+    try {
+      await writeText(text);
+      ui.notify("info", `Copied the ${what} of "${b.command.split("\n")[0].slice(0, 40)}".`);
+    } catch (e) {
+      ui.notify("error", `Copy failed: ${errorMessage(e)}`);
+    }
+  }
+  function jumpBlock(dir: -1 | 1, only: "failed" | "pinned" = "failed") {
+    const here = term.buffer.active.viewportY;
+    const b = nextMatching(liveBlocks(), dir === -1 ? here : here, dir, only);
+    if (b) term.scrollToLine(Math.max(0, b.start - 1));
+    else ui.notify("info", only === "failed" ? "No failed command that way." : "No pinned command that way.");
+  }
+
+  $effect(() => {
+    void settings.prefs.commandBlocks;
+    scheduleHighlight();
+  });
+  $effect(() => {
+    void settings.prefs.highlightRules.map((r) => `${r.pattern}${r.color}${r.enabled}${r.regex}${r.matchCase}`).join();
+    scheduleHighlight();
+  });
   onDestroy(() => {
+    unregisterSearch?.();
+    cancelAnimationFrame(highlightFrame);
+    for (const d of blockDecorations) d.dispose();
+    for (const d of decorations) d.dispose();
     completionBridge.clear(controls);
     screenWatch?.disconnect();
     clearTimeout(reconnectTimer);
@@ -1117,11 +1314,12 @@
   $effect(() => {
     const p = settings.prefs;
     const theme = paneTheme();
-    const { fontFamily, fontSize, lineHeight, cursorStyle, cursorBlink, scrollback, letterSpacing, minimumContrastRatio, boldAsBright, terminalPadding, wordSeparator, screenReaderMode } = p;
+    const { fontFamily, lineHeight, cursorStyle, cursorBlink, letterSpacing, minimumContrastRatio, boldAsBright, terminalPadding, wordSeparator, screenReaderMode } = p;
     void terminalPadding; // read so this effect (and its safeFit()) reruns when padding changes too
     if (!term) return;
     term.options.theme = theme;
     term.options.fontFamily = fontFamily;
+    const { fontSize, scrollback } = look();
     term.options.fontSize = fontSize;
     term.options.lineHeight = lineHeight;
     term.options.cursorStyle = cursorStyle;
@@ -1183,6 +1381,7 @@
   <div
     class="relative isolate z-0 min-h-0 flex-1"
     style:padding="{settings.prefs.terminalPadding}px"
+    style:padding-left="{leftPad}px"
     bind:this={container}
     role="presentation"
     oncontextmenu={(e) => {
@@ -1262,6 +1461,27 @@
     </div>
   {/if}
 
+  {#if blockMenu}
+    {@const blk = blockById(blockMenu?.id ?? -1)}
+    <button class="fixed inset-0 z-40 cursor-default" aria-label="Close menu" onclick={() => (blockMenu = null)} oncontextmenu={(e) => { e.preventDefault(); blockMenu = null; }}></button>
+    <div class="fixed z-50 w-60 rounded-md border border-line bg-panel py-1 text-sm shadow-2xl" use:keepInView={blockMenu} role="menu" aria-label="Command" data-testid="block-menu">
+      {#if blk}
+        <div class="truncate px-3 py-1 text-xs text-fg-muted" title={summary(blk)}>{summary(blk)}</div>
+        {#each [
+          { label: "Copy output", run: (b: Block) => void copyBlock(b, "output") },
+          { label: "Copy command", run: (b: Block) => void copyBlock(b, "command") },
+          { label: "Select output", run: (b: Block) => term.selectLines(Math.min(b.end, b.start + 1), b.end) },
+          { label: blk.pinned ? "Unpin" : "Pin this command", run: (b: Block) => { b.pinned = !b.pinned; scheduleHighlight(); } },
+          { label: "Next pinned command", run: () => jumpBlock(1, "pinned") },
+        ] as item (item.label)}
+          <button class="flex w-full items-center px-3 py-1.5 text-left hover:bg-hover" role="menuitem" onclick={() => { const b = blk; blockMenu = null; item.run(b); }}>{item.label}</button>
+        {/each}
+      {:else}
+        <div class="px-3 py-1 text-xs text-fg-muted">That output has scrolled out of the buffer.</div>
+      {/if}
+    </div>
+  {/if}
+
   {#if menu}
     <button class="fixed inset-0 z-40 cursor-default" aria-label="Close menu" onclick={() => (menu = null)} oncontextmenu={(e) => { e.preventDefault(); menu = null; }}></button>
     <div class="fixed z-50 w-60 rounded-md border border-line bg-panel py-1 text-sm shadow-2xl" use:keepInView={menu} role="menu">
@@ -1271,6 +1491,9 @@
         { label: "Select all", keys: "", run: () => term.selectAll(), disabled: false },
         { label: "Find…", keys: "Ctrl+Shift+F", run: openFind, disabled: false },
         { label: "Copy last command output", keys: "", run: copyLastOutput, disabled: !commands.last },
+        ...(hostId && askable() ? [{ label: commands.active ? "Shell integration on this host…" : "Install shell integration on this host…", keys: "", run: () => (ui.modal = { kind: "integration-install", hostId }), disabled: false }] : []),
+        { label: "Previous failed command", keys: "", run: () => jumpBlock(-1), disabled: !liveBlocks().some(failed) },
+        { label: "Next failed command", keys: "", run: () => jumpBlock(1), disabled: !liveBlocks().some(failed) },
         { label: "Previous / next prompt", keys: "Ctrl+Shift+↑ / ↓", run: () => jumpPrompt(-1), disabled: !commands.active },
         { label: selectMode ? "Give the mouse back to the program" : "Select text with the mouse", keys: "", run: toggleSelectMode, disabled: !mouseTracked },
         { label: "Copy entire buffer", keys: "", run: copyEntireBuffer, disabled: false },

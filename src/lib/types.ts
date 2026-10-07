@@ -53,6 +53,13 @@ export type HostCredentials =
   | { mode: "identity"; identity_id: Uuid }
   | { mode: "inline"; username: string; auth: InlineAuth; save_to_keychain: string | null };
 
+export interface TerminalProfile {
+  /** Id of a built-in or imported terminal theme. */
+  theme?: string;
+  font_size?: number;
+  scrollback?: number;
+}
+
 export interface Host {
   label: string;
   hostname: string;
@@ -68,6 +75,8 @@ export interface Host {
   environment?: string;
   /** Typed into the shell right after connecting. */
   startup_command?: string;
+  /** How this host's terminal looks; anything missing follows the settings. */
+  profile?: TerminalProfile;
   /** Slash-separated group path, e.g. "Production/Databases". */
   group: string;
   tags: string[];
