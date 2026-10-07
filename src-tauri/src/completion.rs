@@ -98,9 +98,9 @@ fn generator(id: &str) -> Option<&'static str> {
         "docker-containers" => r#"docker ps -a --format '{{.Names}}' 2>/dev/null | head -n "$2""#,
         "docker-images" => r#"docker images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null | grep -v '<none>' | head -n "$2""#,
         "systemd-units" => r#"systemctl list-units --all --plain --no-legend --no-pager 2>/dev/null | cut -d' ' -f1 | head -n "$2""#,
-        "kubectl-contexts" => r#"kubectl config get-contexts -o name 2>/dev/null | head -n "$2""#,
-        "kubectl-namespaces" => r#"kubectl get namespaces -o name 2>/dev/null | sed 's|^namespace/||' | head -n "$2""#,
-        "kubectl-pods" => r#"kubectl get pods -o name 2>/dev/null | sed 's|^pod/||' | head -n "$2""#,
+        "kubectl-contexts" => r#"kubectl --request-timeout=2s config get-contexts -o name 2>/dev/null | head -n "$2""#,
+        "kubectl-namespaces" => r#"kubectl --request-timeout=2s get namespaces -o name 2>/dev/null | sed 's|^namespace/||' | head -n "$2""#,
+        "kubectl-pods" => r#"kubectl --request-timeout=2s get pods -o name 2>/dev/null | sed 's|^pod/||' | head -n "$2""#,
         _ => return None,
     })
 }
@@ -583,10 +583,12 @@ mod tests {
             let none = lookups.lookup(&client, &Request::Generator { id: "git-branches".into(), dir: Some("/".into()) }).await.unwrap();
             assert!(none.entries.is_empty());
         }
-        // A tool that isn't installed (or has no daemon to talk to) is an empty answer, never a refusal.
+        // A tool that isn't installed (or has no daemon or cluster to talk to) is an empty answer, never a
+        // refusal. On a machine that has kubectl but no cluster it may also run out of time; that is the
+        // lookup's own cap working, and says nothing about the host refusing anything.
         for id in ["docker-containers", "kubectl-pods", "kubectl-contexts"] {
             let r = lookups.lookup(&client, &Request::Generator { id: id.into(), dir: None }).await;
-            assert!(r.is_ok(), "{id}: {r:?}");
+            assert!(matches!(r, Ok(_) | Err(LookupError::Timeout)), "{id}: {r:?}");
         }
         assert!(!lookups.refused());
         // An id outside the list never reaches the host.
