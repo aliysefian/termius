@@ -74,7 +74,7 @@
 
     {#if all.length === 0}
       <div class="rounded-xl border border-line bg-panel p-8">
-        <EmptyState icon={ShieldCheck} text="Nothing to flag right now." />
+        <EmptyState art="security" text="Nothing to flag right now." />
       </div>
     {:else}
       {#if dangers.length}

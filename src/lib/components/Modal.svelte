@@ -61,13 +61,13 @@
 </script>
 
 <div
-  class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+  class="anim-fade fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
   role="presentation"
   onclick={(e) => e.target === e.currentTarget && void requestClose()}
 >
   <div
     bind:this={dialog}
-    class="flex w-full {width} max-h-[90vh] flex-col rounded-xl border border-line bg-panel shadow-2xl outline-none"
+    class="anim-pop flex w-full {width} max-h-[90vh] flex-col rounded-xl border border-line bg-panel shadow-2xl outline-none"
     role="dialog"
     aria-modal="true"
     aria-labelledby={titleId}

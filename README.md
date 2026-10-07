@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="static/logo.svg" alt="SSHVault" width="96" height="96">
+
 # SSHVault
 
 **An SSH client for people who live in terminals, with an encrypted vault you

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Illustration from "./Illustration.svelte";
   import { onMount } from "svelte";
   import { keepInView } from "$lib/actions";
   import { writeText } from "@tauri-apps/plugin-clipboard-manager";
@@ -713,10 +714,8 @@
 
   {#if !tab}
     <div class="flex flex-1 flex-col items-center justify-center p-6 text-center">
-      <div class="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-panel text-accent">
-        <Terminal size={26} />
-      </div>
-      <h2 class="text-base font-semibold">No open terminals</h2>
+      <div class="anim-rise mb-2"><Illustration scene="terminal" size={150} /></div>
+      <h2 class="anim-rise text-base font-semibold" style="--i:1">No open terminals</h2>
       <p class="mt-1 max-w-sm text-sm text-fg-muted">
         Double-click a host in the sidebar, or connect to any server without saving it first.
       </p>

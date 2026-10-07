@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Logo from "./Logo.svelte";
   import { onMount } from "svelte";
   import type { HTMLInputAttributes } from "svelte/elements";
   import { ArrowLeft, Eye, EyeOff, FileInput, FolderOpen, FolderPlus, FolderSearch, History, KeyRound, Lock, ShieldCheck, Smartphone, X } from "lucide-svelte";
@@ -222,9 +223,7 @@
 <div class="flex min-h-screen items-center justify-center bg-base p-4">
   <div class="w-full max-w-md rounded-2xl border border-line bg-panel p-8 shadow-2xl">
     <div class="mb-6 flex items-center gap-3">
-      <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-accent/15 text-accent">
-        <ShieldCheck size={22} />
-      </div>
+      <Logo size={44} />
       <div>
         <h1 class="text-lg font-semibold">SSHVault</h1>
         <p class="text-xs text-fg-muted">End-to-end encrypted. Synced by any folder you choose.</p>

@@ -85,7 +85,7 @@
 
     {#if shown.length === 0}
       <div class="rounded-xl border border-line bg-panel p-8">
-        <EmptyState icon={Server} text={groupFilter ? "No hosts in this group." : "No hosts yet."} />
+        <EmptyState art="hosts" text={groupFilter ? "No hosts in this group." : "No hosts yet."} />
       </div>
     {:else}
       <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">

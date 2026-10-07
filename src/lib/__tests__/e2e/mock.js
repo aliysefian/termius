@@ -68,6 +68,11 @@
   }
 
   async function invoke(cmd, args = {}) {
+    // A page can answer some commands itself (a screenshot script gives the vault some hosts).
+    if (typeof window.__invoke === "function") {
+      const r = await window.__invoke(cmd, args);
+      if (r !== undefined) return r;
+    }
     switch (cmd) {
       case "get_status": return { state: "unlocked", path: "/v", vault_id: "v" };
       case "get_vault_settings": return { rev: 0, settings: { backup_retention: 10, destructive_patterns: [], paste_confirm_lines: 0, clipboard_clear_secs: 30 } };

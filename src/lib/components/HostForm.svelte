@@ -334,14 +334,14 @@
       </p>
     </div>
   {:else}
-    <form id="host-form" onsubmit={save} class="space-y-5">
-      <div class="-mb-1 flex overflow-hidden rounded-md border border-line text-xs" role="tablist">
+    <form id="host-form" onsubmit={save} class="min-h-[28rem] space-y-5">
+      <div class="flex gap-1 rounded-lg border border-line bg-base p-1 text-sm" role="tablist">
         {#each TABS as t (t.id)}
           <button
             type="button"
             role="tab"
             aria-selected={activeTab === t.id}
-            class="flex-1 py-2 {activeTab === t.id ? 'bg-accent text-white' : 'text-fg-muted hover:bg-panel-hover'}"
+            class="flex-1 rounded-md px-3 py-1.5 font-medium transition-colors {activeTab === t.id ? 'bg-accent text-white shadow-sm' : 'text-fg-muted hover:bg-panel-hover hover:text-fg'}"
             onclick={() => (activeTab = t.id)}
           >
             {t.label}
@@ -394,18 +394,18 @@
             <option value="telnet">Telnet (unencrypted, for network gear)</option>
           </select>
           {#if form.protocol !== "telnet" && form.protocol !== "rdp" && form.protocol !== "ftp"}
-            <div class="mt-2 flex items-center gap-2 text-xs">
-              <label class="shrink-0 font-medium" for="h-files">Files</label>
-              <select id="h-files" class="input w-auto py-1 text-xs" value={form.file_protocol ?? ""} onchange={(e) => (form.file_protocol = e.currentTarget.value === "scp" ? "scp" : undefined)}>
+            <div class="mt-4">
+              <label class="label" for="h-files">File browser uses</label>
+              <select id="h-files" class="input" value={form.file_protocol ?? ""} onchange={(e) => (form.file_protocol = e.currentTarget.value === "scp" ? "scp" : undefined)}>
                 <option value="">SFTP (default)</option>
                 <option value="scp">SCP (the server has no SFTP)</option>
               </select>
             </div>
-            <label class="mt-2 flex items-start gap-2 text-xs">
-              <input type="checkbox" class="mt-0.5" checked={!!form.mosh} onchange={(e) => (form.mosh = e.currentTarget.checked || undefined)} />
-              <span>
+            <label class="mt-4 flex cursor-pointer items-start gap-3 rounded-lg border border-line bg-base/40 p-3 text-sm">
+              <input type="checkbox" class="mt-1 shrink-0" checked={!!form.mosh} onchange={(e) => (form.mosh = e.currentTarget.checked || undefined)} />
+              <span class="min-w-0">
                 <span class="font-medium">Use Mosh</span>
-                <span class="block text-fg-muted">
+                <span class="mt-0.5 block text-xs leading-relaxed text-fg-muted">
                   Keeps the session alive across network changes and sleep. Needs <code>mosh-server</code> on the host and
                   <code>mosh-client</code> on this computer, and UDP ports 60000–61000 open to the host.
                   {#if moshInstalled === false}<span class="text-warning">mosh-client wasn't found on this computer.</span>{/if}
@@ -513,8 +513,8 @@
         </div>
       </div>
 
-      <div class="flex items-center gap-2">
-        <button type="button" class="btn-secondary py-1 text-xs" disabled={!id || testing} title={id ? undefined : "Save the host first"} onclick={testConnection}>
+      <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <button type="button" class="btn-secondary py-1.5 text-xs" disabled={!id || testing} title={id ? undefined : "Save the host first"} onclick={testConnection}>
           {#if testing}<Loader2 size={13} class="animate-spin" /> Testing…{:else}<Wifi size={13} /> Test connection{/if}
         </button>
         {#if !id}
@@ -534,13 +534,13 @@
         <div class="mb-3 flex items-center justify-between">
           <span class="text-sm font-semibold">Credentials</span>
         </div>
-        <div class="mb-4 grid grid-cols-4 overflow-hidden rounded-md border border-line text-xs" role="tablist">
+        <div class="mb-4 grid grid-cols-4 gap-1 rounded-lg border border-line bg-base p-1 text-xs" role="tablist">
           {#each modes as m (m.value)}
             <button
               type="button"
               role="tab"
               aria-selected={mode === m.value}
-              class="flex items-center justify-center gap-1.5 py-2 {mode === m.value ? 'bg-accent text-white' : 'text-fg-muted hover:bg-panel-hover'}"
+              class="flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 font-medium transition-colors {mode === m.value ? 'bg-accent text-white shadow-sm' : 'text-fg-muted hover:bg-panel-hover hover:text-fg'}"
               onclick={() => (mode = m.value)}
             >
               <m.icon size={13} />
@@ -682,7 +682,7 @@
       {/if}
 
       {#if activeTab === "route"}
-      <div class="grid grid-cols-2 gap-3">
+      <div class="grid grid-cols-2 gap-x-3 gap-y-4">
         <div class="col-span-2">
           <label class="label" for="h-jump">Jump host</label>
           <Combobox
@@ -702,11 +702,11 @@
             <p class="mt-1 text-xs text-danger">"{jumpMissingIdentity}" has no saved credentials. Jump hosts need them to connect.</p>
           {/if}
         </div>
-        <label class="col-span-2 flex items-start gap-2 text-sm">
-          <input type="checkbox" class="mt-0.5 accent-input" bind:checked={form.forward_agent} />
-          <span>
-            Forward ssh-agent
-            <span class="block text-xs text-fg-muted">
+        <label class="col-span-2 flex cursor-pointer items-start gap-3 rounded-lg border border-line bg-base/40 p-3 text-sm">
+          <input type="checkbox" class="mt-1 shrink-0 accent-input" bind:checked={form.forward_agent} />
+          <span class="min-w-0">
+            <span class="font-medium">Forward ssh-agent</span>
+            <span class="mt-0.5 block text-xs leading-relaxed text-fg-muted">
               Lets this host use your local keys, for example to reach another server or git. Anyone with root on the
               host can use them while you're connected, so only enable it for hosts you trust.
             </span>
@@ -726,11 +726,11 @@
           <label class="label" for="h-keepalive">Keep-alive (seconds)</label>
           <input id="h-keepalive" class="input font-mono" type="number" min="0" max="3600" bind:value={form.keepalive_secs} placeholder="30 (0 = off)" />
         </div>
-        <label class="col-span-2 flex items-start gap-2 text-sm">
-          <input type="checkbox" class="mt-0.5 accent-input" bind:checked={form.forward_x11} />
-          <span>
-            Forward X11
-            <span class="block text-xs text-fg-muted">
+        <label class="col-span-2 flex cursor-pointer items-start gap-3 rounded-lg border border-line bg-base/40 p-3 text-sm">
+          <input type="checkbox" class="mt-1 shrink-0 accent-input" bind:checked={form.forward_x11} />
+          <span class="min-w-0">
+            <span class="font-medium">Forward X11</span>
+            <span class="mt-0.5 block text-xs leading-relaxed text-fg-muted">
               Show the host's graphical programs on this computer. Needs an X server here (built into most Linux
               desktops, XQuartz on macOS, VcXsrv or X410 on Windows) and <code>xauth</code> on the host.
             </span>
@@ -740,7 +740,7 @@
       {/if}
 
       {#if activeTab === "organise"}
-      <div class="grid grid-cols-2 gap-3">
+      <div class="grid grid-cols-2 gap-x-3 gap-y-4">
         <div>
           <label class="label" for="h-env">Environment</label>
           <select id="h-env" class="input" bind:value={envChoice}>
@@ -756,10 +756,14 @@
             <p class="mt-1 text-xs text-danger">Marked in red, and bulk actions ask before touching it.</p>
           {/if}
         </div>
-        <label class="flex items-end gap-2 pb-2 text-sm">
-          <input type="checkbox" class="accent-input" bind:checked={form.favorite} />
-          Favorite
-        </label>
+        <div>
+          <!-- An invisible label keeps the box level with the Environment select next to it. -->
+          <span class="label invisible" aria-hidden="true">Favorite</span>
+          <label class="input flex cursor-pointer items-center gap-2.5 text-sm">
+            <input type="checkbox" class="accent-input" bind:checked={form.favorite} />
+            Favorite
+          </label>
+        </div>
         <div>
           <label class="label" for="h-group">Group</label>
           <Combobox
@@ -780,10 +784,10 @@
         </div>
         <div class="col-span-2">
           <span class="label">Colour</span>
-          <div class="flex items-center gap-2">
+          <div class="flex flex-wrap items-center gap-2.5 py-1">
             <button
               type="button"
-              class="flex h-6 w-6 items-center justify-center rounded-full border border-line {!form.color ? 'ring-2 ring-fg' : ''}"
+              class="flex h-7 w-7 items-center justify-center rounded-full border border-line {!form.color ? 'ring-2 ring-fg' : ''}"
               onclick={() => (form.color = undefined)}
               title="No colour"
               aria-label="No colour"
@@ -793,7 +797,7 @@
             {#each colors as c (c)}
               <button
                 type="button"
-                class="h-6 w-6 rounded-full ring-offset-2 ring-offset-panel {form.color === c ? 'ring-2 ring-fg' : ''}"
+                class="h-7 w-7 rounded-full ring-offset-2 ring-offset-panel {form.color === c ? 'ring-2 ring-fg' : ''}"
                 style:background={c}
                 onclick={() => (form.color = c)}
                 aria-label="Colour {c}"
@@ -801,7 +805,7 @@
             {/each}
             <input
               type="color"
-              class="h-6 w-6 shrink-0 cursor-pointer rounded-full border border-line bg-base p-0"
+              class="h-7 w-7 shrink-0 cursor-pointer rounded-full border border-line bg-base p-0"
               value={form.color ?? "#7b61ff"}
               oninput={(e) => (form.color = e.currentTarget.value)}
               aria-label="Custom colour"

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Illustration from "./Illustration.svelte";
   import { Copy, Eye, EyeOff, KeyRound, Pencil, Plus, Trash2 } from "lucide-svelte";
   import { copySecret, revealIdentity } from "$lib/secrets.svelte";
   import type { Revealed } from "$lib/types";
@@ -87,9 +88,10 @@
   </div>
   <div class="flex-1 overflow-y-auto px-2 pb-4">
     {#if vaultStore.identities.length === 0}
-      <div class="px-3 py-10 text-center">
-        <KeyRound size={28} class="mx-auto mb-3 text-fg-muted/50" />
-        <p class="text-sm text-fg-muted">No credentials yet.</p>
+      <div class="anim-rise px-3 py-8 text-center">
+        <Illustration scene="keys" size={120} />
+        <p class="mt-2 text-sm font-medium">No credentials yet</p>
+        <p class="mt-1 text-xs text-fg-muted">Save a login once and use it on many hosts.</p>
         <button class="btn-primary mt-4" onclick={() => (ui.modal = { kind: "identity", id: null })}>
           <Plus size={14} /> Add credential
         </button>

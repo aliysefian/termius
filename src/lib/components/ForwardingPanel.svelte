@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Illustration from "./Illustration.svelte";
   import { ArrowLeftRight, Globe, Loader2, Pencil, Play, Plus, Search, Square, Trash2 } from "lucide-svelte";
   import { matchesForward, statusWord, type StatusFilter } from "$lib/forwardsearch";
   import { openUrl } from "@tauri-apps/plugin-opener";
@@ -109,9 +110,10 @@
   {/if}
   <div class="flex-1 overflow-y-auto px-2 pb-4">
     {#if vaultStore.forwards.length === 0}
-      <div class="px-3 py-10 text-center">
-        <ArrowLeftRight size={28} class="mx-auto mb-3 text-fg-muted/50" />
-        <p class="text-sm text-fg-muted">No forwarding rules yet.</p>
+      <div class="anim-rise px-3 py-8 text-center">
+        <Illustration scene="tunnels" size={120} />
+        <p class="mt-2 text-sm font-medium">No tunnels yet</p>
+        <p class="mt-1 text-xs text-fg-muted">Forward a port to reach a service behind a server.</p>
         <button class="btn-primary mt-4" onclick={() => (ui.modal = { kind: "forward", id: null })}>
           <Plus size={14} /> Add rule
         </button>

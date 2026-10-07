@@ -189,7 +189,7 @@
 
   {#if !src}
     <div class="flex flex-1 items-center justify-center">
-      <EmptyState icon={Container} text="Open this computer or one of your hosts to see its containers.">
+      <EmptyState art="containers" text="Open this computer or one of your hosts to see its containers.">
         <button class="btn-primary" onclick={() => containers.open(LOCAL)}>Open this computer</button>
       </EmptyState>
     </div>

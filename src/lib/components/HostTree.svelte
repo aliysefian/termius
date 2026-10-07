@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Illustration from "./Illustration.svelte";
   import { Activity, Clock, FileInput, FoldVertical, Plus, Search, Server, UnfoldVertical } from "lucide-svelte";
   import { settings } from "$lib/stores/settings.svelte";
   import HostRow from "./HostRow.svelte";
@@ -177,10 +178,19 @@
       <input class="input py-1.5 pl-8" placeholder="Search hosts…" bind:value={ui.search} />
     </div>
     <div class="mt-1.5 flex flex-wrap gap-1.5">
-      <select class="input min-w-[6.5rem] flex-1 py-1 text-xs" bind:value={envFilter} aria-label="Filter by environment">
-        <option value="">Any environment</option>
-        {#each envChoices as e (e)}<option value={e}>{e}</option>{/each}
-      </select>
+      {#if envChoices.length}
+        <!-- One tap per environment instead of a drop-down: what is in production is the thing to see at a glance. -->
+        <div class="flex w-full gap-1 rounded-lg border border-line bg-base p-0.5 text-[11px]" role="group" aria-label="Filter by environment">
+          {#each ["", ...envChoices] as e (e)}
+            <button
+              type="button"
+              class="min-w-0 flex-1 truncate rounded-md px-1.5 py-1 font-medium capitalize transition-colors {envFilter === e ? 'bg-accent text-white shadow-sm' : 'text-fg-muted hover:bg-panel-hover hover:text-fg'}"
+              aria-pressed={envFilter === e}
+              onclick={() => (envFilter = e)}
+            >{e === "" ? "All" : e === "production" ? "Prod" : e === "development" ? "Dev" : e === "staging" ? "Stage" : e}</button>
+          {/each}
+        </div>
+      {/if}
       {#if allTags.length}
         <select class="input min-w-[6.5rem] flex-1 py-1 text-xs" bind:value={tagFilter} aria-label="Filter by tag">
           <option value="">Any tag</option>
@@ -240,9 +250,10 @@
     {#if vaultStore.loading}
       <div class="flex justify-center py-6"><Spinner label="Decrypting…" /></div>
     {:else if vaultStore.hosts.length === 0}
-      <div class="px-3 py-10 text-center">
-        <Server size={28} class="mx-auto mb-3 text-fg-muted/50" />
-        <p class="text-sm text-fg-muted">No hosts yet.</p>
+      <div class="anim-rise px-3 py-8 text-center">
+        <Illustration scene="hosts" size={128} />
+        <p class="mt-2 text-sm font-medium">No hosts yet</p>
+        <p class="mt-1 text-xs text-fg-muted">Add a server, or import what you already have.</p>
         <button class="btn-primary mt-4" onclick={() => (ui.modal = { kind: "host", id: null })}>
           <Plus size={14} /> Add your first host
         </button>

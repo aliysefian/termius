@@ -306,7 +306,7 @@
     <div class="pointer-events-none fixed inset-x-0 bottom-4 z-50 flex flex-col items-center gap-2 px-4">
       {#each ui.toasts as toast (toast.id)}
         <div
-          class="pointer-events-auto flex w-full max-w-md items-start gap-3 rounded-md border px-4 py-2 text-sm shadow-xl
+          class="anim-pop pointer-events-auto flex w-full max-w-md items-start gap-3 rounded-md border px-4 py-2 text-sm shadow-xl
             {toast.kind === 'error' ? 'border-danger/30 bg-panel text-danger' : 'border-line bg-panel text-fg'}"
           role={toast.kind === "error" ? "alert" : "status"}
         >

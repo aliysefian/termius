@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="SSHVault">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#8f72ff"/>
+      <stop offset="1" stop-color="#4b32e8"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.28" cy="0.18" r="0.8">
+      <stop offset="0" stop-color="#fff" stop-opacity="0.28"/>
+      <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="512" height="512" rx="116" fill="url(#bg)"/>
+  <rect width="512" height="512" rx="116" fill="url(#glow)"/>
+  <!-- the vault: a shield -->
+  <path d="M256 92 394 142v112c0 82-58 140-138 172-80-32-138-90-138-172V142z" fill="#fff" fill-opacity="0.13" stroke="#fff" stroke-opacity="0.92" stroke-width="16" stroke-linejoin="round"/>
+  <!-- the shell: a prompt -->
+  <path transform="translate(-14 0)" d="m204 212 58 44-58 44" fill="none" stroke="#fff" stroke-width="28" stroke-linecap="round" stroke-linejoin="round"/>
+  <path transform="translate(-14 0)" d="M284 306h52" fill="none" stroke="#fff" stroke-width="28" stroke-linecap="round"/>
+</svg>

@@ -5,6 +5,7 @@
   import { settings } from "$lib/stores/settings.svelte";
   import { sshCommand, timeAgo } from "$lib/sshcmd";
   import { envInfo, errorMessage } from "$lib/types";
+  import { ask } from "$lib/dialogs.svelte";
   import { hostDragStart } from "$lib/hostdrag.svelte";
   import { ui } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
@@ -58,6 +59,7 @@
 
   async function duplicate(e: MouseEvent) {
     e.stopPropagation();
+    if (!(await ask(`Duplicate "${d.label}"? A copy is added to the list and opened for editing.`, { title: "Duplicate host", confirm: "Duplicate" }))) return;
     try {
       const rec = await vaultStore.saveHost(null, { ...$state.snapshot(d), label: `${d.label} (copy)`, favorite: false });
       ui.modal = { kind: "host", id: rec.id };

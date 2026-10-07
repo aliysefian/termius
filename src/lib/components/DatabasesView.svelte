@@ -170,7 +170,7 @@
 
     <div class="min-h-0 flex-1 overflow-y-auto py-1">
       {#if connections.length === 0}
-        <EmptyState icon={Database} text="No database connections yet.">
+        <EmptyState art="databases" text="No database connections yet.">
           <button class="btn-primary" onclick={() => (ui.modal = { kind: "db-connection", id: null })}>New connection</button>
         </EmptyState>
       {/if}
@@ -225,7 +225,7 @@
   <section class="flex min-w-0 flex-1 flex-col" aria-label="Query workspace">
     {#if databases.tabs.length === 0}
       <div class="flex flex-1 items-center justify-center">
-        <EmptyState icon={Database} text={connections.length ? "Connect to a database, then open a table or start a query." : "Add a connection to get started."}>
+        <EmptyState art="databases" text={connections.length ? "Connect to a database, then open a table or start a query." : "Add a connection to get started."}>
           {#if connections.length}
             <button class="btn-primary" onclick={() => connectAndShow(connections[0].id).then(() => newQueryFor(connections[0].id))}>New query on {connections[0].data!.name}</button>
           {/if}

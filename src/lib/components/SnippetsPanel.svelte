@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Illustration from "./Illustration.svelte";
   import { ServerCog, ClipboardPaste, Code, Folder, Pencil, Play, Plus, Search, Trash2 } from "lucide-svelte";
   import { runSnippet } from "$lib/runsnippet";
   import { ask } from "$lib/dialogs.svelte";
@@ -41,9 +42,10 @@
   </div>
   <div class="flex-1 overflow-y-auto px-2 pb-4">
     {#if vaultStore.snippets.length === 0}
-      <div class="px-3 py-10 text-center">
-        <Code size={28} class="mx-auto mb-3 text-fg-muted/50" />
-        <p class="text-sm text-fg-muted">No snippets yet.</p>
+      <div class="anim-rise px-3 py-8 text-center">
+        <Illustration scene="snippets" size={120} />
+        <p class="mt-2 text-sm font-medium">No snippets yet</p>
+        <p class="mt-1 text-xs text-fg-muted">Save a command you type often and run it anywhere.</p>
         <button class="btn-primary mt-4" onclick={() => (ui.modal = { kind: "snippet", id: null })}>
           <Plus size={14} /> Add snippet
         </button>

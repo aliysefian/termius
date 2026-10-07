@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Illustration from "./Illustration.svelte";
   import { BadgeCheck, Bot, ChevronDown, ChevronRight, Copy, Download, FileKey, KeyRound, Lock, Pencil, Plus, Sparkles, Trash2, Upload, Users } from "lucide-svelte";
   import Badge from "./Badge.svelte";
   import { open, save } from "@tauri-apps/plugin-dialog";
@@ -378,9 +379,9 @@
           {/if}
         </div>
       {:else}
-        <div class="px-4 py-10 text-center">
-          <KeyRound size={28} class="mx-auto mb-3 text-fg-muted/50" />
-          <p class="text-sm text-fg-muted">{vaultStore.keys.length ? "No matches." : "No keys yet. Generate one or import an existing key."}</p>
+        <div class="anim-rise px-4 py-8 text-center">
+          <Illustration scene="keys" size={120} />
+          <p class="mt-2 text-sm text-fg-muted">{vaultStore.keys.length ? "No matches." : "No keys yet. Generate one or import an existing key."}</p>
         </div>
       {/each}
     </div>

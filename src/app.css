@@ -154,3 +154,66 @@ body {
   padding-top: 0.0625rem;
   padding-bottom: 0.0625rem;
 }
+
+/* ---- Motion ---------------------------------------------------------------
+   Short, soft, and always in service of "where did that come from": panels
+   arrive from where they were opened, lists settle in, toasts rise. The
+   reduced-motion rule above turns every one of these into an instant change. */
+@keyframes sv-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes sv-pop {
+  from { opacity: 0; transform: translateY(6px) scale(0.97); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes sv-pop-left {
+  from { opacity: 0; transform: translateX(-8px) scale(0.97); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes sv-rise {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes sv-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+@keyframes sv-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.15; }
+}
+@keyframes sv-dash {
+  to { stroke-dashoffset: -24; }
+}
+@keyframes sv-sparkle {
+  0%, 100% { opacity: 0.2; transform: scale(0.6); }
+  50% { opacity: 1; transform: scale(1); }
+}
+@keyframes sv-ring {
+  from { opacity: 0.5; transform: scale(0.85); }
+  to { opacity: 0; transform: scale(1.5); }
+}
+
+.anim-fade { animation: sv-fade 0.16s ease-out both; }
+.anim-pop { animation: sv-pop 0.18s cubic-bezier(0.2, 0.9, 0.3, 1.2) both; }
+.anim-pop-left { animation: sv-pop-left 0.16s cubic-bezier(0.2, 0.9, 0.3, 1.1) both; transform-origin: left center; }
+.anim-rise { animation: sv-rise 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) both; animation-delay: calc(var(--i, 0) * 55ms); }
+.anim-float { animation: sv-float 4.5s ease-in-out infinite; }
+
+/* Illustration parts (see Illustration.svelte). transform-box lets each shape scale around its own centre. */
+.il-blink { animation: sv-blink 1.6s ease-in-out infinite; animation-delay: calc(var(--i, 0) * 0.35s); }
+.il-dash { stroke-dasharray: 6 6; animation: sv-dash 1.2s linear infinite; }
+.il-sparkle { transform-box: fill-box; transform-origin: center; animation: sv-sparkle 2.4s ease-in-out infinite; animation-delay: calc(var(--i, 0) * 0.6s); }
+.il-ring { transform-box: fill-box; transform-origin: center; animation: sv-ring 2.8s ease-out infinite; animation-delay: calc(var(--i, 0) * 0.9s); }
+
+/* A press gives way a little, so a click feels received. */
+.btn-primary:active, .btn-secondary:active, .btn-ghost:active, .icon-btn:active {
+  transform: scale(0.97);
+}
+.btn-primary, .btn-secondary, .btn-ghost, .icon-btn {
+  transition: background-color 0.15s, color 0.15s, border-color 0.15s, transform 0.1s;
+}
+.host-row {
+  transition: background-color 0.12s, box-shadow 0.12s;
+}
