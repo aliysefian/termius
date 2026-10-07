@@ -683,7 +683,7 @@
                 <button class="icon-btn h-6 w-6" title="Close pane" onclick={() => void ui.requestClosePane(t.id, pane.id)}><X size={13} /></button>
               {/if}
             </div>
-            {#if pane.target.kind === "host" && vaultStore.hostById.get(pane.target.hostId)?.data?.protocol === "rdp"}
+            {#if pane.target.kind === "host" && ["rdp", "vnc"].includes(vaultStore.hostById.get(pane.target.hostId)?.data?.protocol ?? "")}
               <RemotePane {pane} active={pane.id === t.activePaneId && t.id === ui.activeTabId} />
             {:else}
               <TerminalPane

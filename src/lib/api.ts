@@ -286,6 +286,19 @@ export const rdp = {
   close: (paneId: string) => invoke<void>("rdp_close", { paneId }),
 };
 
+/** VNC: the same pictures and input as RDP, through an SSH connection to the machine by default. */
+export const vnc = {
+  connect(paneId: string, hostId: string, password: string | null, credentials: import("./ssh").Credentials | null, onMessage: (bytes: Uint8Array) => void) {
+    const channel = new Channel<ArrayBuffer | number[]>((msg) => onMessage(msg instanceof ArrayBuffer ? new Uint8Array(msg) : Uint8Array.from(msg)));
+    return invoke<void>("vnc_connect", { paneId, hostId, password, credentials, onEvent: channel });
+  },
+  input: (paneId: string, input: RdpInput) => invoke<void>("vnc_input", { paneId, input }),
+  close: (paneId: string) => invoke<void>("vnc_close", { paneId }),
+};
+
+/** Send a Wake-on-LAN packet to a machine on this computer's network. */
+export const wakeOnLan = (mac: string, broadcast: string) => invoke<void>("wake_on_lan", { mac, broadcast });
+
 export type RdpInput =
   | { type: "key"; code: string; down: boolean }
   | { type: "mouse_move"; x: number; y: number }

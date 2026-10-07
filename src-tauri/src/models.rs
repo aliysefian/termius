@@ -136,6 +136,28 @@ pub struct TerminalProfile {
     pub scrollback: Option<u32>,
 }
 
+/// A VNC host's settings. `hostname` and `port` (5900 and up) say where the VNC server is.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VncOptions {
+    /// Reach the server through an SSH connection to the same machine (with the host's credentials, jump host
+    /// and proxy), so the VNC password and the picture are not sent in the clear. On by default.
+    #[serde(default = "yes")]
+    pub ssh_tunnel: bool,
+    /// The SSH port, when tunnelling.
+    #[serde(default = "default_port")]
+    pub ssh_port: u16,
+}
+
+fn yes() -> bool {
+    true
+}
+
+impl Default for VncOptions {
+    fn default() -> Self {
+        Self { ssh_tunnel: true, ssh_port: 22 }
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Host {
     pub label: String,
@@ -208,6 +230,15 @@ pub struct Host {
     /// Settings for a Remote Desktop host (`protocol` = "rdp").
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rdp: Option<RdpOptions>,
+    /// Settings for a VNC host (`protocol` = "vnc").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vnc: Option<VncOptions>,
+    /// The machine's MAC address, so it can be woken with Wake-on-LAN. Empty when not set.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub wol_mac: String,
+    /// Where the wake-up packet goes: empty for the whole local network, or a subnet's broadcast address.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub wol_broadcast: String,
     /// How this host's terminal looks, over the settings (a theme, text size, scrollback).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub profile: Option<TerminalProfile>,
@@ -610,6 +641,19 @@ mod tests {
         let back: Host = serde_json::from_str(&serde_json::to_string(&host).unwrap()).unwrap();
         assert_eq!(back.profile, host.profile);
         assert!(!serde_json::to_string(&host).unwrap().contains("scrollback"));
+    }
+
+    #[test]
+    fn vnc_and_wake_on_lan_settings_are_optional_and_old_hosts_still_load() {
+        let old: Host = serde_json::from_str(r#"{"label":"a","hostname":"h"}"#).unwrap();
+        assert_eq!((old.vnc.clone(), old.wol_mac.as_str(), old.wol_broadcast.as_str()), (None, "", ""));
+        let plain = serde_json::to_string(&old).unwrap();
+        assert!(!plain.contains("vnc") && !plain.contains("wol"), "nothing is written for a host without them: {plain}");
+        // A VNC host that says nothing about the tunnel goes through SSH.
+        let v: Host = serde_json::from_str(r#"{"label":"a","hostname":"h","protocol":"vnc","vnc":{}}"#).unwrap();
+        assert_eq!(v.vnc, Some(VncOptions { ssh_tunnel: true, ssh_port: 22 }));
+        let direct: Host = serde_json::from_str(r#"{"label":"a","hostname":"h","vnc":{"ssh_tunnel":false,"ssh_port":2222}}"#).unwrap();
+        assert_eq!(direct.vnc, Some(VncOptions { ssh_tunnel: false, ssh_port: 2222 }));
     }
 
     #[test]

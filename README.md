@@ -74,6 +74,8 @@ Linux and Windows · Built with Rust, Tauri, Svelte and xterm.js
 - Remote Desktop (RDP) hosts open in a tab beside your terminals, with
   keyboard, mouse, wheel and shared clipboard text, and the server's
   certificate pinned like an SSH host key
+- VNC hosts (through SSH by default) in the same kind of tab, and
+  Wake-on-LAN for a host with a MAC address
 - Quick connect (`user@host:port`), command palette, "copy as `ssh`
   command", reachability check
 - A Fleet view: a tile per host with reachability colour-coding and

@@ -1,6 +1,7 @@
 <script lang="ts">
   import * as api from "$lib/api";
   import { allThemes } from "$lib/themes";
+  import { normalizeMac, validBroadcast } from "$lib/wol";
   import { settings } from "$lib/stores/settings.svelte";
   import { FONT_MAX, FONT_MIN, SCROLLBACK_MAX, SCROLLBACK_MIN, cleanProfile } from "$lib/terminalprofile";
   import { RDP_SIZES, formatFingerprint } from "$lib/rdp";
@@ -14,7 +15,7 @@
   import { ui } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
   import { hostMode } from "$lib/completion/policy";
-  import { ENVIRONMENTS, emptyFtp, emptyHost, emptyRdp, errorMessage, type FtpTls, type Host, type HostCredentials, type InlineAuth, type Uuid } from "$lib/types";
+  import { ENVIRONMENTS, emptyFtp, emptyHost, emptyRdp, emptyVnc, errorMessage, type FtpTls, type Host, type HostCredentials, type InlineAuth, type Uuid } from "$lib/types";
 
   let { id, group }: { id: Uuid | null; group?: string } = $props();
 
@@ -265,6 +266,17 @@
   let profSize = $state<number | null>(existing?.profile?.font_size ?? null);
   let profScroll = $state<number | null>(existing?.profile?.scrollback ?? null);
 
+  let wakeNote = $state("");
+  async function sendWake() {
+    wakeNote = "";
+    try {
+      await api.wakeOnLan(normalizeMac(form.wol_mac ?? "") ?? "", form.wol_broadcast?.trim() ?? "");
+      wakeNote = "Sent. The machine may take a minute to start.";
+    } catch (e) {
+      wakeNote = errorMessage(e);
+    }
+  }
+
   async function save(e: SubmitEvent) {
     e.preventDefault();
     error = null;
@@ -281,7 +293,13 @@
       } else {
         form.rdp = undefined;
       }
-      form.mosh = form.protocol === "rdp" || form.protocol === "ftp" ? undefined : form.mosh;
+      form.mosh = form.protocol === "rdp" || form.protocol === "ftp" || form.protocol === "vnc" ? undefined : form.mosh;
+      form.vnc = form.protocol === "vnc" ? { ssh_tunnel: form.vnc?.ssh_tunnel ?? true, ssh_port: form.vnc?.ssh_port || 22 } : undefined;
+      const mac = form.wol_mac?.trim() ? normalizeMac(form.wol_mac) : null;
+      if (form.wol_mac?.trim() && !mac) throw new Error("The MAC address for Wake-on-LAN isn't valid. Use six pairs of hex digits, like 00:1A:2B:3C:4D:5E.");
+      if (!validBroadcast(form.wol_broadcast ?? "")) throw new Error("The Wake-on-LAN broadcast address should be an IPv4 address such as 192.168.1.255, or empty.");
+      form.wol_mac = mac ?? undefined;
+      form.wol_broadcast = form.wol_broadcast?.trim() || undefined;
       if (form.protocol === "rdp" || form.protocol === "telnet" || form.protocol === "ftp") form.file_protocol = undefined;
       form.ftp = form.protocol === "ftp" ? (form.ftp ?? emptyFtp()) : undefined;
       form.environment = envChoice === "custom" ? customEnv.trim() || undefined : envChoice || undefined;
@@ -386,19 +404,21 @@
           <select
             id="h-proto"
             class="input"
-            value={form.protocol === "telnet" ? "telnet" : form.protocol === "rdp" ? "rdp" : form.protocol === "ftp" ? "ftp" : "ssh"}
+            value={form.protocol === "telnet" ? "telnet" : form.protocol === "rdp" ? "rdp" : form.protocol === "vnc" ? "vnc" : form.protocol === "ftp" ? "ftp" : "ssh"}
             onchange={(e) => {
               const v = e.currentTarget.value;
               form.protocol = v === "ssh" ? undefined : v;
               // Move the port only if it is still the old protocol's default.
-              const defaults: Record<string, number> = { ssh: 22, telnet: 23, rdp: 3389, ftp: 21 };
+              const defaults: Record<string, number> = { ssh: 22, telnet: 23, rdp: 3389, vnc: 5900, ftp: 21 };
               if (Object.values(defaults).includes(form.port)) form.port = defaults[v];
               if (v === "rdp") form.rdp ??= emptyRdp();
               if (v === "ftp") form.ftp ??= emptyFtp();
+              if (v === "vnc") form.vnc ??= emptyVnc();
             }}
           >
             <option value="ssh">SSH</option>
             <option value="rdp">Remote Desktop (RDP)</option>
+            <option value="vnc">VNC (through SSH by default)</option>
             <option value="ftp">FTP / FTPS (files only)</option>
             <option value="telnet">Telnet (unencrypted, for network gear)</option>
           </select>
@@ -511,6 +531,24 @@
                 {/if}
                 <div class="mt-1">Credentials below must be a user name and password. Jump hosts and proxies aren't used for Remote Desktop.</div>
               </div>
+            </div>
+          {/if}
+          {#if form.protocol === "vnc" && form.vnc}
+            <div class="mt-3 space-y-3 rounded-lg border border-line bg-base/40 p-3" data-testid="vnc-options">
+              <label class="flex items-start gap-2 text-sm">
+                <input type="checkbox" class="mt-0.5 accent-input" bind:checked={form.vnc.ssh_tunnel} />
+                <span>
+                  Connect through SSH
+                  <span class="block text-xs text-fg-muted">Signs in over SSH to this machine (with the credentials below, and its jump host or proxy) and reaches the VNC port from there. VNC's own password scheme is weak and the picture is not encrypted, so leave this on unless the network is trusted.</span>
+                </span>
+              </label>
+              {#if form.vnc.ssh_tunnel}
+                <div class="w-32">
+                  <label class="label" for="h-vnc-ssh">SSH port</label>
+                  <input id="h-vnc-ssh" class="input font-mono" type="number" min="1" max="65535" bind:value={form.vnc.ssh_port} />
+                </div>
+              {/if}
+              <p class="text-xs text-fg-muted">The port above is the VNC port (5900 for display :0, 5901 for :1). The VNC password is asked for when you connect and is not saved.</p>
             </div>
           {/if}
           {#if form.protocol === "telnet"}
@@ -857,6 +895,24 @@
             placeholder="sudo -i, cd /srv/app, tmux attach"
             spellcheck="false"
           />
+        </div>
+        <div data-testid="host-wol">
+          <span class="label">Wake-on-LAN</span>
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="mb-0.5 block text-xs text-fg-muted" for="h-wol-mac">MAC address</label>
+              <input id="h-wol-mac" class="input font-mono text-xs" bind:value={form.wol_mac} placeholder="00:1A:2B:3C:4D:5E" spellcheck="false" autocomplete="off" aria-invalid={form.wol_mac?.trim() && !normalizeMac(form.wol_mac) ? "true" : undefined} />
+            </div>
+            <div>
+              <label class="mb-0.5 block text-xs text-fg-muted" for="h-wol-bc">Broadcast address <span class="font-normal">(optional)</span></label>
+              <input id="h-wol-bc" class="input font-mono text-xs" bind:value={form.wol_broadcast} placeholder="whole local network" spellcheck="false" autocomplete="off" aria-invalid={validBroadcast(form.wol_broadcast ?? "") ? undefined : "true"} />
+            </div>
+          </div>
+          <div class="mt-1 flex items-center gap-3 text-xs text-fg-muted">
+            <button type="button" class="btn-ghost py-1 text-xs" disabled={!form.wol_mac || !normalizeMac(form.wol_mac) || !validBroadcast(form.wol_broadcast ?? "")} onclick={sendWake}>Send a wake-up now</button>
+            {#if wakeNote}<span role="status">{wakeNote}</span>{/if}
+          </div>
+          <p class="mt-1 text-xs text-fg-muted">Wakes a machine on this computer's network when its connection fails (a button appears next to Reconnect). The machine must be set up to wake, and it has to be on the same network as this computer.</p>
         </div>
         <div data-testid="host-profile">
           <span class="label">Terminal look on this host</span>

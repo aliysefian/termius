@@ -4,6 +4,14 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## Unreleased
+
+- **VNC and Wake-on-LAN.** A new **VNC** host type opens a desktop in a tab like RDP does: through SSH to the
+  same machine by default (credentials, jump host and proxy as for SSH), asking for the VNC password when the
+  server wants one. Keys, mouse, wheel, Ctrl+Alt+Del and clipboard text work; only the Raw and CopyRect picture
+  encodings are supported. A host can have a MAC address, and **Wake it up** next to Reconnect sends a
+  Wake-on-LAN packet (also testable from the host's form). Tested against a simulated server, not a real one.
+
 ## 0.22.1 — 2026-10-07
 
 - Fixes the Windows build of 0.22.0, whose test run failed: the folder listing for local tabs only

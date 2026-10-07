@@ -1,9 +1,9 @@
 <script lang="ts">
-  // A remote desktop in a tab: connects, asks about the server's certificate,
-  // and shows the screen. Today that means RDP.
+  // A remote desktop in a tab: connects, asks about the server's certificate (RDP) or the VNC password,
+  // and shows the screen. RDP and VNC send the same pictures and take the same input.
   import { onDestroy, onMount } from "svelte";
   import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
-  import { ClipboardCopy, KeyRound, Loader2, Maximize, Minimize, MonitorOff, RefreshCw, ShieldAlert } from "lucide-svelte";
+  import { ClipboardCopy, KeyRound, Loader2, Maximize, Minimize, MonitorOff, Power, RefreshCw, ShieldAlert } from "lucide-svelte";
   import * as api from "$lib/api";
   import type { Credentials } from "$lib/ssh";
     import { askAboutCertificate } from "$lib/certprompt";
@@ -11,7 +11,7 @@
   import { settings } from "$lib/stores/settings.svelte";
   import { ui, type Pane } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
-  import { errorMessage } from "$lib/types";
+  import { errorMessage, isApiError } from "$lib/types";
   import RemoteDisplay from "./RemoteDisplay.svelte";
 
   let { pane, active = true }: { pane: Pane; active?: boolean } = $props();
@@ -23,7 +23,15 @@
   const hostId = target.kind === "host" ? target.hostId : "";
   const host = $derived(vaultStore.hostById.get(hostId)?.data);
   const label = $derived(host?.label ?? "host");
-  const needsCredentials = $derived(!!host && !vaultStore.effectiveIdentity(host));
+  const isVnc = $derived(host?.protocol === "vnc");
+  // RDP always signs in with a user name and password; VNC only when it goes through SSH.
+  const needsCredentials = $derived(!!host && (!isVnc || (host.vnc?.ssh_tunnel ?? true)) && !vaultStore.effectiveIdentity(host));
+  const defaultPort = $derived(isVnc ? 5900 : 3389);
+  /** The VNC server wants its password. */
+  let askVncPassword = $state(false);
+  let vncPassword = $state("");
+  let vncPasswordNote = $state<string | null>(null);
+  let wakeNote = $state("");
 
   type Status = { kind: "idle" } | { kind: "connecting" } | { kind: "connected" } | { kind: "error"; message: string } | { kind: "disconnected" };
   let status = $state<Status>({ kind: "idle" });
@@ -86,14 +94,23 @@
     setInfo("connecting");
     const { width, height } = usableSize(area.clientWidth, area.clientHeight);
     try {
-      await api.rdp.connect(paneId, hostId, width, height, credentials, accept, onMessage);
+      if (isVnc) await api.vnc.connect(paneId, hostId, vncPassword || null, credentials, onMessage);
+      else await api.rdp.connect(paneId, hostId, width, height, credentials, accept, onMessage);
       status = { kind: "connected" };
       setInfo("connected");
       settings.markRecent(hostId);
       display?.focus();
       void sendLocalClipboard();
     } catch (e) {
-      const fingerprint = await askAboutCertificate(label, e);
+      const code = isApiError(e) ? e.code : "";
+      if (isVnc && (code === "vnc_password_required" || code === "vnc_bad_password")) {
+        askVncPassword = true;
+        vncPassword = "";
+        vncPasswordNote = code === "vnc_bad_password" ? "That password wasn't accepted. Try again." : null;
+        status = { kind: "idle" };
+        return;
+      }
+      const fingerprint = isVnc ? null : await askAboutCertificate(label, e);
       if (fingerprint) return connect(credentials, fingerprint);
       status = { kind: "error", message: errorMessage(e) };
       setInfo("error");
@@ -123,8 +140,26 @@
   }
 
   const send = (input: api.RdpInput) => {
-    if (status.kind === "connected") void api.rdp.input(paneId, input).catch(() => {});
+    if (status.kind !== "connected") return;
+    void (isVnc ? api.vnc : api.rdp).input(paneId, input).catch(() => {});
   };
+
+  function submitVncPassword(e: SubmitEvent) {
+    e.preventDefault();
+    askVncPassword = false;
+    void connect(null);
+  }
+
+  async function wake() {
+    if (!host?.wol_mac) return;
+    wakeNote = "";
+    try {
+      await api.wakeOnLan(host.wol_mac, host.wol_broadcast ?? "");
+      wakeNote = "Wake-up sent. Give it a minute, then reconnect.";
+    } catch (e) {
+      wakeNote = errorMessage(e);
+    }
+  }
 
   /** Offer the local clipboard's text to the remote, when it has changed. */
   async function sendLocalClipboard() {
@@ -151,7 +186,7 @@
   });
 
   onDestroy(() => {
-    void api.rdp.close(paneId).catch(() => {});
+    void (isVnc ? api.vnc : api.rdp).close(paneId).catch(() => {});
   });
 
   // Coming back to this tab: the keyboard goes to the screen, and the clipboard is offered.
@@ -165,7 +200,7 @@
 
 <div class="relative flex h-full w-full flex-col bg-black">
   <div class="flex h-7 shrink-0 items-center gap-1 border-b border-line bg-panel px-2 text-xs text-fg-muted">
-    <span class="mr-auto truncate">{host ? `${host.hostname}${host.port !== 3389 ? `:${host.port}` : ""}` : ""}</span>
+    <span class="mr-auto truncate">{host ? `${host.hostname}${host.port !== defaultPort ? `:${host.port}` : ""}` : ""}</span>
     <button class="btn-ghost h-6 shrink-0 px-2 py-0 text-xs" title="Send Ctrl+Alt+Del" disabled={status.kind !== "connected"} onclick={() => send({ type: "ctrl_alt_del" })}>
       Ctrl+Alt+Del
     </button>
@@ -195,10 +230,11 @@
             <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-accent/15 text-accent"><KeyRound size={18} /></div>
             <div class="min-w-0">
               <div class="truncate text-sm font-semibold">Sign in to {label}</div>
-              <div class="truncate font-mono text-xs text-fg-muted">{host?.hostname}{host && host.port !== 3389 ? `:${host.port}` : ""}</div>
+              <div class="truncate font-mono text-xs text-fg-muted">{host?.hostname}{host && host.port !== defaultPort ? `:${host.port}` : ""}</div>
             </div>
           </div>
           <div>
+            {#if isVnc}<p class="text-xs text-fg-muted">The SSH account used to reach the machine. The VNC password is asked for next.</p>{/if}
             <label class="label" for="r-user-{paneId}">User name</label>
             <!-- svelte-ignore a11y_autofocus -->
             <input id="r-user-{paneId}" class="input font-mono" bind:value={username} required autocomplete="username" spellcheck="false" autofocus />
@@ -220,6 +256,25 @@
           </div>
         </form>
       </div>
+    {:else if askVncPassword}
+      <div class="absolute inset-0 z-30 flex items-center justify-center bg-base/95 p-4" data-testid="vnc-password">
+        <form onsubmit={submitVncPassword} class="w-full max-w-sm space-y-4 rounded-xl border border-line bg-panel p-6 shadow-2xl">
+          <div class="flex items-center gap-3">
+            <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-accent/15 text-accent"><KeyRound size={18} /></div>
+            <div class="min-w-0">
+              <div class="truncate text-sm font-semibold">VNC password for {label}</div>
+              <div class="text-xs text-fg-muted">Not saved. Only the first eight characters count.</div>
+            </div>
+          </div>
+          <div>
+            <label class="label" for="v-pw-{paneId}">Password</label>
+            <!-- svelte-ignore a11y_autofocus -->
+            <input id="v-pw-{paneId}" class="input" type="password" bind:value={vncPassword} required autocomplete="off" autofocus />
+          </div>
+          {#if vncPasswordNote}<p class="rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger" role="alert">{vncPasswordNote}</p>{/if}
+          <button class="btn-primary w-full" type="submit">Connect</button>
+        </form>
+      </div>
     {:else if status.kind === "connecting"}
       <div class="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-base/70">
         <div class="flex items-center gap-2 rounded-md bg-panel px-4 py-2 text-sm text-fg-muted">
@@ -235,6 +290,8 @@
           <MonitorOff size={14} class="shrink-0 text-fg-muted" />
           <span class="flex-1 text-fg-muted">Disconnected</span>
         {/if}
+        {#if wakeNote}<span class="text-fg-muted" role="status">{wakeNote}</span>{/if}
+        {#if host?.wol_mac}<button class="btn-ghost py-1" onclick={() => void wake()} title="Send a Wake-on-LAN packet to {host.wol_mac}"><Power size={12} /> Wake it up</button>{/if}
         <button class="btn-ghost py-1" onclick={reconnect}><RefreshCw size={12} /> Reconnect</button>
       </div>
     {/if}

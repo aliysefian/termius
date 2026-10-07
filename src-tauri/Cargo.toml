@@ -16,6 +16,7 @@ crate-type = ["rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+des = "0.9"
 tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"

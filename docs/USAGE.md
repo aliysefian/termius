@@ -161,6 +161,27 @@ been copied since.
     directly, so jump hosts and proxies aren't used; the screen size is fixed
     when you connect (close and reopen the tab to change it); Kerberos isn't
     supported (NTLM only); a key-based credential can't be used.
+- **VNC.** In a host's form choose **VNC** (the port becomes 5900: 5900 is
+  display `:0`, 5901 is `:1`). By default the connection goes **through SSH**:
+  the app signs in over SSH to the same machine (with the host's credential,
+  jump host and proxy, and trusted-server rules, on the SSH port in the VNC
+  settings) and reaches the VNC port from there, because VNC's own password
+  scheme is weak and its picture is not encrypted. Untick *Connect through SSH*
+  only on a network you trust. The **VNC password** is asked for when the
+  server wants one, is not saved, and only its first eight characters count.
+  The tab works like an RDP tab (keys, mouse, wheel, Ctrl+Alt+Del, shared
+  clipboard text, actual size). Limits: US keyboard layout (keys are sent as
+  symbols), clipboard text is Latin-1, only the Raw and CopyRect picture
+  encodings (a server falls back to them, using more bandwidth than a
+  compressed one would), no TLS or VeNCrypt or Apple logins, no SPICE.
+  Tested against a protocol simulator, not a real VNC server.
+- **Wake-on-LAN.** In a host's form, under **Automation**, enter the machine's
+  MAC address (and, for another subnet, its broadcast address such as
+  `192.168.1.255`). **Send a wake-up now** tests it; when a connection to that
+  host fails, **Wake it up** appears next to Reconnect. It only reaches a
+  machine on the same network as this computer, which must be set up to wake
+  (BIOS and network card); nothing here can tell whether it did. There is no
+  scheduled wake yet.
 - **Mosh.** In a host's form, tick **Use Mosh**. Connecting then logs in with
   SSH as usual (vault keys, jump hosts, proxies and trusted-server rules all
   apply), starts `mosh-server` on the host, and runs your computer's

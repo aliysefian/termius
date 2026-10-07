@@ -56,6 +56,7 @@ pub struct AppState {
     pub local: Arc<crate::localpty::LocalManager>,
     /// Remote desktop (RDP) sessions.
     pub rdp: Arc<crate::rdp::RdpManager>,
+    pub vnc: Arc<crate::vnc::VncManager>,
     /// Telnet and serial-console sessions.
     pub raw: Arc<crate::rawterm::RawManager>,
     /// Open database connections (the Databases view).
@@ -246,6 +247,26 @@ impl From<crate::rdp::RdpError> for ApiError {
             E::NoSession => Self::new("no_session", message),
             E::Connect(_) => Self::new("rdp", message),
         }
+    }
+}
+
+impl From<crate::vnc::VncError> for ApiError {
+    fn from(e: crate::vnc::VncError) -> Self {
+        use crate::vnc::VncError as E;
+        let message = e.to_string();
+        match e {
+            E::PasswordRequired => Self::new("vnc_password_required", message),
+            E::BadPassword => Self::new("vnc_bad_password", message),
+            E::Unreachable(_) => Self::new("vnc_unreachable", message),
+            E::NoSession => Self::new("no_session", message),
+            E::Refused(_) | E::Protocol(_) | E::Io(_) => Self::new("vnc", message),
+        }
+    }
+}
+
+impl From<crate::wol::WolError> for ApiError {
+    fn from(e: crate::wol::WolError) -> Self {
+        Self::new("wol", e.to_string())
     }
 }
 
@@ -632,6 +653,7 @@ pub async fn lock_vault(state: State<'_, AppState>) -> ApiResult<VaultStatus> {
     state.runs.cancel_all();
     state.local.close_all();
     state.rdp.close_all();
+    state.vnc.close_all();
     state.raw.close_all();
     state.dbs.close_all().await;
     state.containers.close_all().await;
@@ -2589,6 +2611,64 @@ pub fn rdp_close(state: State<'_, AppState>, pane_id: String) {
     state.rdp.close(&pane_id);
 }
 
+/// Open a VNC desktop in a pane: through an SSH connection to the same machine by default (so the picture
+/// and the password don't cross the network in the clear), or straight to the VNC port. A server that wants a
+/// password comes back as `vnc_password_required` (or `vnc_bad_password`) and the window asks.
+#[tauri::command]
+pub async fn vnc_connect(
+    state: State<'_, AppState>,
+    pane_id: String,
+    host_id: Uuid,
+    password: Option<String>,
+    credentials: Option<Credentials>,
+    on_event: Channel<InvokeResponseBody>,
+) -> ApiResult<()> {
+    let host: Host = state
+        .session
+        .with_vault(|v| Ok(v.get::<Host>(Collection::Hosts, host_id)?.data))?
+        .ok_or_else(|| ApiError::new("not_found", "no such host"))?;
+    let options = host.vnc.clone().unwrap_or_default();
+    let password = password.filter(|p| !p.is_empty());
+    let sink = Arc::new(RdpPaneSink(on_event));
+    if options.ssh_tunnel {
+        let mut target = resolve_target(&state, host_id, credentials)?;
+        // A VNC host's own port is the VNC port; the SSH one is in its VNC settings.
+        target.port = options.ssh_port;
+        let (client, _) = crate::ssh::open_client(&target, None).await?;
+        let channel = client
+            .channel_open_direct_tcpip("localhost".to_string(), u32::from(host.port), "127.0.0.1".to_string(), 0)
+            .await
+            .map_err(|e| ApiError::new("vnc_unreachable", format!("the SSH server wouldn't open a connection to the VNC server on port {}: {e}", host.port)))?;
+        state.vnc.connect(pane_id, channel.into_stream(), password, sink, Some(Box::new(client))).await?;
+    } else {
+        let address = format!("{}:{}", host.hostname, host.port);
+        let stream = tokio::time::timeout(std::time::Duration::from_secs(15), tokio::net::TcpStream::connect((host.hostname.as_str(), host.port)))
+            .await
+            .map_err(|_| crate::vnc::VncError::Unreachable(address.clone()))?
+            .map_err(|_| crate::vnc::VncError::Unreachable(address))?;
+        let _ = stream.set_nodelay(true);
+        state.vnc.connect(pane_id, stream, password, sink, None).await?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn vnc_input(state: State<'_, AppState>, pane_id: String, input: crate::display::Input) -> ApiResult<()> {
+    Ok(state.vnc.send(&pane_id, input)?)
+}
+
+#[tauri::command]
+pub fn vnc_close(state: State<'_, AppState>, pane_id: String) {
+    state.vnc.close(&pane_id);
+}
+
+/// Send a Wake-on-LAN packet for `mac` (to `broadcast`, or the whole local network when empty).
+#[tauri::command]
+pub fn wake_on_lan(mac: String, broadcast: String) -> ApiResult<()> {
+    let to = crate::wol::destination(&broadcast)?;
+    Ok(crate::wol::wake(&mac, to)?)
+}
+
 // ---------------------------------------------------------------------------
 // Telnet and serial consoles
 // ---------------------------------------------------------------------------
@@ -4357,6 +4437,7 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         runs: Arc::new(crate::runner::RunManager::new()),
         local: Arc::new(crate::localpty::LocalManager::new()),
         rdp: Arc::new(crate::rdp::RdpManager::new()),
+        vnc: Arc::new(crate::vnc::VncManager::new()),
         raw: Arc::new(crate::rawterm::RawManager::new()),
         dbs: Arc::new(crate::db::DbManager::new()),
         containers: Arc::new(crate::containers::ContainerManager::new()),

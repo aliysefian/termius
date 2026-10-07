@@ -105,6 +105,22 @@ export interface Host {
   rdp?: RdpOptions;
   /** FTP settings, for hosts whose protocol is "ftp". */
   ftp?: FtpOptions;
+  /** VNC settings, for hosts whose protocol is "vnc". */
+  vnc?: VncOptions;
+  /** The machine's MAC address, to wake it with Wake-on-LAN. */
+  wol_mac?: string;
+  /** Where the wake-up goes: absent for the whole local network, or a subnet's broadcast address. */
+  wol_broadcast?: string;
+}
+
+export interface VncOptions {
+  /** Reach the VNC server through SSH to the same machine (on by default). */
+  ssh_tunnel: boolean;
+  ssh_port: number;
+}
+
+export function emptyVnc(): VncOptions {
+  return { ssh_tunnel: true, ssh_port: 22 };
 }
 
 export type HostCompletion = "on" | "off" | "history";

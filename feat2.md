@@ -269,13 +269,16 @@ Already planned in `feat.md` (F3 SMB, F4 WebDAV, F5 S3, F6 ZMODEM). New needs:
   editor; a small built-in editor with syntax colours helps on locked-down
   machines.
 
-### 4.7 Remote desktop
+### 4.7 Remote desktop (VNC and Wake-on-LAN built in 0.23.0)
 
-- **RD1 VNC** (P2, L; `feat.md` T4) and **SPICE** (P3, L; T5), through an SSH
+- ◐ **RD1 VNC** (P2, L; `feat.md` T4) and **SPICE** (P3, L; T5), through an SSH
   tunnel by default.
-- **RD2 RDP depth** (P2, L). Drive and printer redirection, audio, multi-monitor,
+  *VNC built: SSH tunnel by default, password prompt, Raw and CopyRect only, US layout, tested against a simulator, not a real server. SPICE not built.*
+- ⏸ **RD2 RDP depth** (P2, L). Drive and printer redirection, audio, multi-monitor,
   image clipboard, dynamic resize, NLA with smart cards.
-- **RD3 Wake-on-LAN** (P3, S). A button and a scheduled wake.
+  *Not built: each needs a real Windows or xrdp server to test against (xrdp is the only one used so far).*
+- ✅ **RD3 Wake-on-LAN** (P3, S). A button and a scheduled wake.
+  *Built: MAC and broadcast per host, a test button, and "Wake it up" on a failed connection. A scheduled wake waits for A2.*
 
 ### 4.8 Inventory and discovery
 

@@ -14,6 +14,7 @@ pub mod crypto;
 pub mod exportfile;
 pub mod csvimport;
 pub mod db;
+pub mod display;
 pub mod dial;
 pub mod files;
 pub mod forward;
@@ -46,6 +47,8 @@ pub mod ssh;
 pub mod sshconfig;
 pub mod sync;
 pub mod vault;
+pub mod vnc;
+pub mod wol;
 pub mod x11;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -140,6 +143,10 @@ pub fn run() {
             commands::rdp_connect,
             commands::rdp_input,
             commands::rdp_close,
+            commands::vnc_connect,
+            commands::vnc_input,
+            commands::vnc_close,
+            commands::wake_on_lan,
             commands::local_write,
             commands::local_resize,
             commands::local_close,
