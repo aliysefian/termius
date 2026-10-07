@@ -47,6 +47,8 @@
   import SnippetForm from "$lib/components/SnippetForm.svelte";
   import SnippetsPanel from "$lib/components/SnippetsPanel.svelte";
   import Onboarding from "$lib/components/Onboarding.svelte";
+  import Tour from "$lib/components/Tour.svelte";
+  import SnippetPack from "$lib/components/SnippetPack.svelte";
   import StatusBar from "$lib/components/StatusBar.svelte";
   import TerminalArea from "$lib/components/TerminalArea.svelte";
   import UnlockScreen from "$lib/components/UnlockScreen.svelte";
@@ -63,6 +65,13 @@
   import { vaultStore } from "$lib/stores/vault.svelte";
 
   let ready = $state(false);
+
+  /** The name of the page being shown, for screen readers (pages that draw their own heading say it twice, which is harmless). */
+  const VIEW_TITLES: Record<string, string> = {
+    hosts: "Hosts", favorites: "Favorite hosts", keychain: "Credentials", snippets: "Snippets", forwarding: "Tunnels", sftp: "Files", databases: "Databases",
+    containers: "Containers", kubernetes: "Kubernetes", ops: "Operations", fleet: "Fleet", settings: "Settings", keys: "Keys", groups: "Groups and proxies",
+    knownhosts: "Known hosts", vault: "Vault", "security-review": "Security review", changelog: "Changelog",
+  };
 
   // -- keyboard shortcuts (capture phase: beat xterm to the key) ---------
   onMount(() => {
@@ -199,6 +208,8 @@
     {/if}
 
     <!-- Terminals and SFTP stay mounted while hidden so their sessions survive view switches. -->
+    <main class="flex min-w-0 flex-1" aria-label="SSHVault">
+    <h1 class="sr-only">{VIEW_TITLES[ui.view] ?? "SSHVault"}</h1>
     <div class="min-w-0 flex-1 {PAGE_VIEWS.includes(ui.view) || ui.view === 'sftp' ? 'hidden' : 'flex'}">
       <TerminalArea />
     </div>
@@ -232,6 +243,7 @@
     {:else if ui.view === "changelog"}
       <ChangelogView />
     {/if}
+    </main>
     </div>
     <StatusBar />
   </div>
@@ -294,6 +306,8 @@
     {#key ui.modal.id}
       <HostDetails id={ui.modal.id} />
     {/key}
+  {:else if ui.modal?.kind === "snippet-pack"}
+    <SnippetPack />
   {:else if ui.modal?.kind === "onboarding"}
     <Onboarding />
   {/if}
@@ -306,6 +320,8 @@
   {#if ui.paletteOpen}
     <CommandPalette />
   {/if}
+
+  {#if ui.tour}<Tour />{/if}
 
   <MasterPasswordPrompt />
   <RecoveryKeyDialog />

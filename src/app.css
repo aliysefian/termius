@@ -7,11 +7,14 @@
   --color-panel: #20222b;
   --color-panel-hover: #262833;
   --color-line: #2c2f3a;
-  --color-accent: #7b61ff;
-  --color-accent-hover: #6a50f0;
+  /* The accent as text and icons on the dark panels (6:1), and as a solid fill under white text (5:1). */
+  --color-accent: #a592ff;
+  --color-accent-hover: #5d41e6;
+  --color-accent-solid: #6c50f5;
   --color-fg: #e6e6ea;
-  --color-fg-muted: #8b8d98;
-  --color-danger: #ff5c5c;
+  --color-fg-muted: #9b9daa;
+  --color-danger: #ff7a7a;
+  --color-danger-solid: #c92a2f;
   --color-success: #3ddc84;
   --color-warning: #ffb020;
   --font-mono: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
@@ -24,14 +27,36 @@
   --color-panel: #ffffff;
   --color-panel-hover: #eceef3;
   --color-line: #dcdfe6;
-  --color-accent: #6246ea;
-  --color-accent-hover: #5236d8;
+  --color-accent: #5a3ee0;
+  --color-accent-hover: #4a2fc9;
+  --color-accent-solid: #5a3ee0;
   --color-fg: #1c1e26;
   --color-fg-muted: #5c6170;
-  --color-danger: #d7373f;
-  --color-success: #1a8f50;
-  --color-warning: #a86a00;
+  --color-danger: #a3201a;
+  --color-danger-solid: #d7373f;
+  --color-success: #12693c;
+  --color-warning: #855200;
   color-scheme: light;
+}
+
+/* High contrast: the colours are set from src/lib/contrasttheme.ts when the theme is on. What sits on the accent
+   there is black, not white. */
+:root[data-theme="contrast"] .bg-accent,
+:root[data-theme="contrast"] .bg-danger,
+:root[data-theme="contrast"] .btn-primary {
+  color: #000000 !important;
+}
+
+/* A solid accent or danger fill carries white text, so it is a darker shade than the same colour used as text. */
+.bg-accent,
+.btn-primary {
+  background-color: var(--color-accent-solid);
+}
+.btn-primary:hover:not(:disabled) {
+  background-color: var(--color-accent-hover);
+}
+.bg-danger {
+  background-color: var(--color-danger-solid);
 }
 
 html,
@@ -216,4 +241,17 @@ body {
 }
 .host-row {
   transition: background-color 0.12s, box-shadow 0.12s;
+}
+
+/* Text for screen readers only. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }

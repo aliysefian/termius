@@ -11,6 +11,7 @@ pub mod config;
 pub mod containers;
 pub mod control;
 pub mod crypto;
+pub mod exportfile;
 pub mod csvimport;
 pub mod db;
 pub mod dial;
@@ -178,6 +179,7 @@ pub fn run() {
             commands::kube_logs_start,
             commands::kube_forward_start,
             commands::kube_stop,
+            commands::export_text_file,
             commands::containers_list,
             commands::containers_act,
             commands::containers_inspect,

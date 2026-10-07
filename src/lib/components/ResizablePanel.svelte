@@ -76,7 +76,8 @@
 
 <svelte:window bind:innerWidth={windowWidth} onkeydown={cancel} />
 
-<div
+<section
+  aria-label="List panel"
   class="relative flex shrink-0 {dragging && !collapsing ? '' : 'transition-[width] duration-150 ease-out'}"
   style:width="{collapsing ? 0 : width}px"
 >
@@ -113,4 +114,4 @@
     ondblclick={() => (settings.prefs.sidebarWidth = SIDEBAR_DEFAULT)}
     onkeydown={key}
   ></div>
-</div>
+</section>

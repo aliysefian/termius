@@ -1,5 +1,6 @@
 <script lang="ts">
   import Illustration from "./Illustration.svelte";
+  import { t as tr } from "$lib/i18n/index.svelte";
   import { onMount } from "svelte";
   import { keepInView } from "$lib/actions";
   import { writeText } from "@tauri-apps/plugin-clipboard-manager";
@@ -355,16 +356,16 @@
   {#if ui.tabs.length > 0 && !settings.prefs.focusMode}
     <div class="flex h-10 items-stretch border-b border-line bg-panel">
     <div class="relative min-w-0 flex-1">
-    <div bind:this={tabStrip} class="flex h-10 items-end gap-0.5 overflow-x-auto px-2" role="tablist" tabindex="-1" ondrop={onTabDrop} ondragover={(e) => dragTab && e.preventDefault()}>
+    <div bind:this={tabStrip} class="flex h-10 items-end gap-0.5 overflow-x-auto px-2" role="presentation" ondrop={onTabDrop} ondragover={(e) => dragTab && e.preventDefault()}>
+      <!-- Only the tabs are in the tab list; the buttons after them are not tabs. -->
+      <div class="flex items-end gap-0.5" role="tablist" aria-label="Open terminals">
       {#each ui.tabs as t, i (t.id)}
         {@const color = tabColor(t)}
         <div
           class="group relative flex h-9 max-w-56 shrink-0 items-center gap-2 rounded-t-md px-3 text-sm
             {t.id === ui.activeTabId ? 'bg-base text-fg' : 'text-fg-muted hover:bg-panel-hover'}
             {dragTab === t.id ? 'opacity-40' : ''}"
-          role="tab"
-          tabindex="0"
-          aria-selected={t.id === ui.activeTabId}
+          role="presentation"
           title={i < 9 ? `Ctrl+${i + 1}` : undefined}
           draggable={renaming !== t.id}
           ondragstart={(e) => {
@@ -379,7 +380,6 @@
           ondragover={(e) => onTabDragOver(e, i)}
           onclick={() => (ui.activeTabId = t.id)}
           ondblclick={() => startRename(t)}
-          onkeydown={(e) => e.key === "Enter" && (ui.activeTabId = t.id)}
           onauxclick={(e) => e.button === 1 && void ui.requestCloseTab(t.id)}
           oncontextmenu={(e) => {
             e.preventDefault();
@@ -395,6 +395,13 @@
           {#if t.id === ui.activeTabId}
             <span class="absolute inset-x-2 top-0 h-0.5 rounded-b" style:background={color ?? "var(--color-accent)"}></span>
           {/if}
+          <div
+            class="flex h-full min-w-0 flex-1 items-center gap-2 rounded outline-none focus-visible:ring-1 focus-visible:ring-accent"
+            role="tab"
+            tabindex="0"
+            aria-selected={t.id === ui.activeTabId}
+            onkeydown={(e) => e.key === "Enter" && (ui.activeTabId = t.id)}
+          >
           <span class="h-2 w-2 shrink-0 rounded-full {STATUS_DOT[ui.tabStatus(t)]}"></span>
           {#if renaming === t.id}
             <!-- svelte-ignore a11y_autofocus -->
@@ -429,16 +436,19 @@
           {:else if t.id !== ui.activeTabId && t.panes.some((p) => ui.paneInfo[p.id]?.unread)}
             <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" aria-label="New output" title="New output"></span>
           {/if}
+          </div>
           <button
             class="reveal rounded p-0.5 hover:bg-panel-hover {t.id === ui.activeTabId ? 'opacity-60' : ''}"
             onclick={(e) => { e.stopPropagation(); void ui.requestCloseTab(t.id); }}
-            aria-label="Close tab"
+            aria-hidden="true"
+            tabindex="-1"
             title="Close (Ctrl+Shift+W)"
           >
             <X size={12} />
           </button>
         </div>
       {/each}
+      </div>
       <button class="icon-btn mb-1 h-7 w-7 shrink-0" title="New connection (Ctrl+Shift+T)" onclick={() => (ui.modal = { kind: "quick-connect" })}>
         <Plus size={15} />
       </button>
@@ -649,12 +659,12 @@
                 <Badge tone="warning" title="Telnet sends everything, including passwords, unencrypted">UNENCRYPTED</Badge>
               {/if}
               {#if info?.remoteTitle}
-                <span class="truncate text-fg-muted/70">— {info.remoteTitle}</span>
+                <span class="truncate text-fg-muted">— {info.remoteTitle}</span>
               {/if}
               {#if info?.cwd && pane.target.kind === "host"}
                 {@const hid = pane.target.hostId}
                 {@const cwd = info.cwd}
-                <span class="truncate font-mono text-fg-muted/70" title={cwd}>{cwd.replace(/^\/home\/[^/]+/, "~")}</span>
+                <span class="truncate font-mono text-fg-muted" title={cwd}>{cwd.replace(/^\/home\/[^/]+/, "~")}</span>
                 <button class="icon-btn h-6 w-6" title="Browse {cwd} in SFTP" onclick={() => ui.openSftpAt(hid, cwd)}><FolderSync size={12} /></button>
                 <button class="icon-btn h-6 w-6" title="New tab in {cwd}" onclick={() => ui.openTerminal(hid, paneLabel(pane.target), `cd ${shellQuote(cwd)}`)}><SquareTerminal size={12} /></button>
               {/if}
@@ -715,13 +725,11 @@
   {#if !tab}
     <div class="flex flex-1 flex-col items-center justify-center p-6 text-center">
       <div class="anim-rise mb-2"><Illustration scene="terminal" size={150} /></div>
-      <h2 class="anim-rise text-base font-semibold" style="--i:1">No open terminals</h2>
-      <p class="mt-1 max-w-sm text-sm text-fg-muted">
-        Double-click a host in the sidebar, or connect to any server without saving it first.
-      </p>
+      <h2 class="anim-rise text-[16px] leading-6 font-semibold" style="--i:1">{tr("welcome.title")}</h2>
+      <p class="mt-1 max-w-sm text-sm text-fg-muted">{tr("welcome.text")}</p>
       <div class="mt-5 flex gap-2">
-        <button class="btn-primary" onclick={() => (ui.modal = { kind: "quick-connect" })}><Zap size={14} /> Quick connect</button>
-        <button class="btn-secondary" onclick={() => (ui.paletteOpen = true)}><Command size={14} /> Command palette</button>
+        <button class="btn-primary" onclick={() => (ui.modal = { kind: "quick-connect" })}><Zap size={14} /> {tr("welcome.quick")}</button>
+        <button class="btn-secondary" onclick={() => (ui.paletteOpen = true)}><Command size={14} /> {tr("welcome.palette")}</button>
       </div>
       <div class="mt-6 grid grid-cols-2 gap-x-6 gap-y-1.5 text-left text-xs text-fg-muted">
         {#each [

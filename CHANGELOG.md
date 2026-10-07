@@ -6,6 +6,17 @@ View changelog**.
 
 ## Unreleased
 
+- **Everyday polish.** A guided tour (*Take the tour* in the command palette). The command
+  palette also finds keys, credentials, groups, trusted servers and settings. The sidebar can be rearranged:
+  names on or off, entries put away into Manage, entries reordered. The sidebar, menus, headings and tour
+  are available in Spanish, German, Portuguese, Russian, Chinese, Japanese and Persian. Ten more terminal themes
+  and a high-contrast app theme. A starter set of read-only snippets, and snippet packs to import and export.
+- **Accessibility.** Every page and dialog now passes axe-core in the dark, light and high-contrast themes:
+  text and icon contrast raised (the accent and the muted grey), real landmarks and headings, a properly
+  labelled command palette and tab list, and no controls nested inside other controls.
+- **Large vaults.** The host list draws only the rows in view once it has more than a few hundred: with 5,000
+  hosts, start-up went from 22 s to 3 s, memory from 670 MB to 82 MB and the page from 5,800 elements to 23.
+  Search now opens folded groups so matches are never hidden.
 - **Release signing, built but not yet switched on.** Releases can now carry a GPG
   signature on every installer and a signed `SHA256SUMS`, and the Windows build
   verifies that its installers are validly signed before publishing. Neither

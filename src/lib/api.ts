@@ -352,6 +352,8 @@ export const csv = {
 };
 
 export const readTextFile = (path: string) => invoke<string>("read_text_file", { path });
+/** Write a .json file the person chose (a snippet pack). */
+export const exportTextFile = (path: string, contents: string) => invoke<void>("export_text_file", { path, contents });
 
 export const ansible = {
   preview: (path: string) => invoke<SshConfigPreview>("ansible_preview", { path }),

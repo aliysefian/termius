@@ -121,7 +121,7 @@
             onclick={() => databases.sortBy(tab.id, i)}
           >
             <span class="truncate">{c.name}</span>
-            <span class="shrink-0 font-normal text-fg-muted/70">{c.data_type}</span>
+            <span class="shrink-0 font-normal text-fg-muted">{c.data_type}</span>
             {#if tab.sort.col === i}
               {#if tab.sort.dir === "asc"}<ArrowUp size={12} class="shrink-0" />{:else}<ArrowDown size={12} class="shrink-0" />{/if}
             {/if}
@@ -134,7 +134,7 @@
           {#each shown as ri, k (ri)}
             {@const row = result.rows[ri]}
             <div class="flex border-b border-line/50 text-xs {(range.start + k) % 2 ? 'bg-panel/40' : ''}" role="row" aria-rowindex={range.start + k + 2} style="height: {ROW_H}px">
-              <div class="shrink-0 border-r border-line/50 px-2 py-1.5 text-right text-fg-muted/70" style="width: {NUM_W}px">{ri + 1}</div>
+              <div class="shrink-0 border-r border-line/50 px-2 py-1.5 text-right text-fg-muted" style="width: {NUM_W}px">{ri + 1}</div>
               {#each result.columns as c, ci (ci)}
                 {@const cell = row[ci]}
                 {@const isSel = selected?.row === ri && selected.col === ci}
@@ -173,7 +173,7 @@
                       <button class="btn-secondary h-6 shrink-0 px-1.5 py-0 text-[10px]" title="Set this value to NULL" onmousedown={(e) => e.preventDefault()} onclick={() => commit(null)}>NULL</button>
                     </div>
                   {:else if cell === null}
-                    <span class="italic text-fg-muted/60">NULL</span>
+                    <span class="italic text-fg-muted">NULL</span>
                   {:else if isCut(cell)}
                     <span class="truncate text-warning" title="Too long to show in full ({cell.bytes} bytes)">{cell.preview.slice(0, 200)}…</span>
                   {:else}

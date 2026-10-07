@@ -82,9 +82,9 @@
       {@render children()}
     </div>
     {#if footer}
-      <footer class="flex justify-end gap-2 border-t border-line px-5 py-3">
+      <div class="flex justify-end gap-2 border-t border-line px-5 py-3">
         {@render footer()}
-      </footer>
+      </div>
     {/if}
   </div>
 </div>

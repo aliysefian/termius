@@ -23,7 +23,7 @@
 </script>
 
 {#if !settings.prefs.focusMode}
-  <div class="flex h-6 shrink-0 items-center gap-px border-t border-line bg-panel px-1 text-[11px] text-fg-muted" role="presentation">
+  <footer class="flex h-6 shrink-0 items-center gap-px border-t border-line bg-panel px-1 text-[11px] text-fg-muted" aria-label="Status">
     <button class="icon-btn h-5 w-5" title="Lock vault" aria-label="Lock vault" onclick={() => vaultStore.lock()}>
       <Lock size={12} />
     </button>
@@ -61,11 +61,11 @@
       <span class="h-2 w-2 shrink-0 rounded-full {STATUS_DOT[info.status ?? 'disconnected']}"></span>
       <span class="truncate pl-1.5">{activeTab?.customTitle ?? activeTab?.title}</span>
       {#if info.cwd}
-        <span class="truncate pl-1.5 text-fg-muted/70" title={info.cwd}>{info.cwd}</span>
+        <span class="truncate pl-1.5 text-fg-muted" title={info.cwd}>{info.cwd}</span>
       {/if}
       {#if info.cols && info.rows}
         <span class="shrink-0 pl-1.5 font-mono">{info.cols}×{info.rows}</span>
       {/if}
     {/if}
-  </div>
+  </footer>
 {/if}

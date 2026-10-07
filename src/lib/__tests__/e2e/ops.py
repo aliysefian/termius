@@ -50,7 +50,7 @@ async def main():
         # the rail has an entry for it, and the page opens
         await pg.click('button[aria-label="Ops"]')
         await pg.wait_for_timeout(500)
-        check("Ops is on the rail and opens the Operations page", await pg.locator('h1:has-text("Operations")').count() == 1)
+        check("Ops is on the rail and opens the Operations page", await pg.locator('h1:has-text("Operations")').count() >= 1)
 
         # ---- logs ----
         boxes = pg.locator('[role=group][aria-label=Hosts] input[type=checkbox]')

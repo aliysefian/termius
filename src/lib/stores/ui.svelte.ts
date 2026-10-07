@@ -100,6 +100,7 @@ export type Modal =
   | { kind: "run-on-hosts"; command?: string }
   | { kind: "save-workspace" }
   | { kind: "shortcuts" }
+  | { kind: "snippet-pack" }
   | { kind: "serial" }
   | { kind: "bulk-edit" }
   | { kind: "host-details"; id: Uuid }
@@ -266,6 +267,10 @@ class UiStore {
   sftpRequest = $state<{ hostId: Uuid; path: string; n: number } | null>(null);
   /** Read once by the Fleet view on open, to pre-select a group; not kept reactive after that. */
   fleetGroup = $state("");
+  /** The guided tour is showing. */
+  tour = $state(false);
+  /** Typed into the Settings search box when the page opens (from the command palette). */
+  settingsQuery = $state("");
   openSftpAt(hostId: Uuid, path: string) {
     this.sftpRequest = { hostId, path, n: (this.sftpRequest?.n ?? 0) + 1 };
     this.sftpVisited = true;

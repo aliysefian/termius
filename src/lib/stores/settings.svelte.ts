@@ -36,7 +36,7 @@ export interface Prefs {
   sftpSplitRatio: number;
   /** Session logs keep colours and control codes instead of plain text. */
   logRaw: boolean;
-  appTheme: "dark" | "light" | "system";
+  appTheme: "dark" | "light" | "system" | "contrast";
   /** The list panel next to the activity bar is hidden (Ctrl+Shift+H). */
   sidebarHidden: boolean;
   /** Its width in pixels (drag its edge; double-click resets). */
@@ -87,6 +87,14 @@ export interface Prefs {
   alertMuted: string[];
   /** Keep the monitoring charts for longer than 15 minutes, on this computer. */
   metricsKeep: "off" | "day" | "week";
+  /** The names under the sidebar icons. */
+  railLabels: boolean;
+  /** The language of the sidebar, menus and headings: a code like "de", or "auto" to follow the system. */
+  language: string;
+  /** Sidebar entries put away into the Manage menu (page names, e.g. "databases"). */
+  railHidden: string[];
+  /** Order of the sidebar entries within their groups (page names; what is not listed keeps its place). */
+  railOrder: string[];
   /** System notification when a long command finishes in a background tab. */
   notifyBackground: boolean;
   /** Hide the activity bar, list panel, tab strip and pane headers. */
@@ -172,6 +180,10 @@ export const DEFAULT_PREFS: Prefs = {
   alertQuietTo: "07:00",
   alertMuted: [],
   metricsKeep: "off",
+  railLabels: true,
+  language: "auto",
+  railHidden: [],
+  railOrder: [],
   notifyBackground: true,
   focusMode: false,
   density: "comfortable",

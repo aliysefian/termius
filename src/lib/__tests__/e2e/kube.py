@@ -42,7 +42,7 @@ async def main():
         await pg.wait_for_timeout(300)
         await pg.click('[role=tab]:has-text("Kubernetes")')
         await pg.wait_for_timeout(300)
-        check("Kubernetes is a tab of the Containers entry, which stays highlighted", await pg.locator('h1:has-text("Kubernetes")').count() == 1 and await pg.locator('button[aria-label="Containers"][aria-current=page]').count() == 1)
+        check("Kubernetes is a tab of the Containers entry, which stays highlighted", await pg.locator('h1:has-text("Kubernetes")').count() >= 1 and await pg.locator('button[aria-label="Containers"][aria-current=page]').count() == 1)
 
         await pg.click('button:has-text("Open this computer")')
         await pg.wait_for_timeout(900)

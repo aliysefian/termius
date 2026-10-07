@@ -81,6 +81,5 @@
   class="h-40 overflow-hidden rounded-md border border-line"
   style:padding="{settings.prefs.terminalPadding}px"
   style:background={themeById(settings.prefs.themeId, settings.prefs.customThemes).theme.background}
-  role="img"
-  aria-label="Preview of the current terminal appearance"
+  inert
 ></div>

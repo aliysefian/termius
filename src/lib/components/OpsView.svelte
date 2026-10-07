@@ -5,15 +5,16 @@
   import ServicesPanel from "./ServicesPanel.svelte";
   import { alerts } from "$lib/stores/alerts.svelte";
   import type { Uuid } from "$lib/types";
+  import { t as tr } from "$lib/i18n/index.svelte";
 
   type Tab = "logs" | "services" | "alerts";
   let tab = $state<Tab>("logs");
   let preset = $state<{ hostId: Uuid; unit: string } | null>(null);
 
-  const TABS: { id: Tab; label: string; icon: typeof Server }[] = [
-    { id: "logs", label: "Logs", icon: ScrollText },
-    { id: "services", label: "Services", icon: Wrench },
-    { id: "alerts", label: "Alerts", icon: BellRing },
+  const TABS: { id: Tab; label: "ops.logs" | "ops.services" | "ops.alerts"; icon: typeof Server }[] = [
+    { id: "logs", label: "ops.logs", icon: ScrollText },
+    { id: "services", label: "ops.services", icon: Wrench },
+    { id: "alerts", label: "ops.alerts", icon: BellRing },
   ];
 
   /** From a service's "Follow its log" button. */
@@ -26,7 +27,7 @@
 <div class="flex-1 overflow-y-auto bg-base p-8">
   <div class="mx-auto max-w-6xl space-y-5">
     <div>
-      <h1 class="flex items-center gap-2 text-lg font-semibold"><Wrench size={20} class="text-accent" /> Operations</h1>
+      <h1 class="flex items-center gap-2 text-lg font-semibold"><Wrench size={20} class="text-accent" /> {tr("ops.title")}</h1>
       <p class="mt-1 text-sm text-fg-muted">Follow logs on several hosts at once, manage systemd services, and get told when a host goes down or runs hot. Everything is read over a second connection; nothing is installed on the host.</p>
     </div>
 
@@ -39,7 +40,7 @@
           onclick={() => (tab = t.id)}
         >
           <t.icon size={14} />
-          {t.label}
+          {tr(t.label)}
           {#if t.id === "alerts" && alerts.unread > 0}<span class="rounded-full bg-danger px-1.5 text-[10px] font-semibold text-white">{alerts.unread}</span>{/if}
         </button>
       {/each}

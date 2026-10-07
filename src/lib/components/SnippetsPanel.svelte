@@ -1,10 +1,13 @@
 <script lang="ts">
   import Illustration from "./Illustration.svelte";
-  import { ServerCog, ClipboardPaste, Code, Folder, Pencil, Play, Plus, Search, Trash2 } from "lucide-svelte";
+  import { ServerCog, ClipboardPaste, Code, FileDown, Folder, Library, Pencil, Play, Plus, Search, Trash2 } from "lucide-svelte";
   import { runSnippet } from "$lib/runsnippet";
   import { ask } from "$lib/dialogs.svelte";
   import { ui } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
+  import * as api from "$lib/api";
+  import { toPack } from "$lib/snippetpacks";
+  import { errorMessage } from "$lib/types";
 
   let query = $state("");
   let tag = $state("");
@@ -27,6 +30,20 @@
       .map(([folder, list]) => ({ folder, list: list.sort((x, y) => x.data!.label.localeCompare(y.data!.label)) }));
   });
 
+  async function exportPack() {
+    const list = vaultStore.snippets.flatMap((s) => (s.data ? [s.data] : []));
+    if (!list.length) return;
+    try {
+      const { save } = await import("@tauri-apps/plugin-dialog");
+      const path = await save({ title: "Export snippets", defaultPath: "sshvault-snippets.json", filters: [{ name: "Snippet pack", extensions: ["json"] }] });
+      if (!path) return;
+      await api.exportTextFile(path, toPack(list));
+      ui.notify("info", `Exported ${list.length} snippet${list.length === 1 ? "" : "s"}.`);
+    } catch (e) {
+      ui.notify("error", errorMessage(e));
+    }
+  }
+
   async function remove(id: string, label: string) {
     if (!await ask(`Delete snippet "${label}"?`)) return;
     await vaultStore.deleteSnippet(id);
@@ -36,9 +53,13 @@
 <aside class="flex min-w-0 flex-1 flex-col border-r border-line bg-panel">
   <div class="flex items-center justify-between px-4 pt-4 pb-2">
     <h2 class="text-sm font-semibold">Snippets</h2>
-    <button class="icon-btn" title="New snippet" onclick={() => (ui.modal = { kind: "snippet", id: null })}>
-      <Plus size={16} />
-    </button>
+    <div class="flex">
+      <button class="icon-btn" title="Add the starter snippets, or snippets from a file" onclick={() => (ui.modal = { kind: "snippet-pack" })}><Library size={16} /></button>
+      <button class="icon-btn" title="Export every snippet to a file" disabled={!vaultStore.snippets.length} onclick={() => void exportPack()}><FileDown size={16} /></button>
+      <button class="icon-btn" title="New snippet" onclick={() => (ui.modal = { kind: "snippet", id: null })}>
+        <Plus size={16} />
+      </button>
+    </div>
   </div>
   <div class="flex-1 overflow-y-auto px-2 pb-4">
     {#if vaultStore.snippets.length === 0}
@@ -46,6 +67,7 @@
         <Illustration scene="snippets" size={120} />
         <p class="mt-2 text-sm font-medium">No snippets yet</p>
         <p class="mt-1 text-xs text-fg-muted">Save a command you type often and run it anywhere.</p>
+        <button class="btn-secondary mt-4 mr-2" onclick={() => (ui.modal = { kind: "snippet-pack" })}><Library size={14} /> Starter snippets</button>
         <button class="btn-primary mt-4" onclick={() => (ui.modal = { kind: "snippet", id: null })}>
           <Plus size={14} /> Add snippet
         </button>

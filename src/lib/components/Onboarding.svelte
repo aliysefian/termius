@@ -2,6 +2,7 @@
   import { Command, FileInput, Keyboard, Plus, Server, Zap } from "lucide-svelte";
   import Modal from "./Modal.svelte";
   import { ui } from "$lib/stores/ui.svelte";
+  import { t } from "$lib/i18n/index.svelte";
 
 </script>
 
@@ -41,6 +42,7 @@
     </div>
   </div>
   {#snippet footer()}
-    <button class="btn-ghost" onclick={() => (ui.modal = null)}>I'll explore on my own</button>
+    <button class="btn-ghost" onclick={() => (ui.modal = null)}>{t("tour.skip")}</button>
+    <button class="btn-secondary" onclick={() => { ui.modal = null; ui.tour = true; }}>{t("tour.start")}</button>
   {/snippet}
 </Modal>

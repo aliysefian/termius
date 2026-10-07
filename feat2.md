@@ -320,25 +320,25 @@ Already planned: D3 to D8 (SQLite, MSSQL, Redis, MongoDB, key browsers), C2 to C
   next to containers. kubectl is the common denominator; use it over the same
   transport.
 
-### 4.12 Everyday experience
+### 4.12 Everyday experience (built; see the notes under each item)
 
-- **UX1 First run** (P1, S). A guided start: create or open a vault, import from
+- **UX1 First run** ✓ _tour, palette and sidebar steps, from the welcome dialog or the palette; 6 steps; keyboard, focus, 3 themes checked_. (P1, S). A guided start: create or open a vault, import from
   `~/.ssh/config`, connect to the first host, and a two-minute tour of the
   palette, the list and Manage. The new logo and empty-state art are a start.
-- **UX2 Accessibility pass** (P1, M). Test with NVDA and Orca; focus order in the
+- **UX2 Accessibility pass** ✓ _axe-core clean in all three themes on 14 pages and dialogs; high-contrast theme added; **not** tested with NVDA or Orca_. (P1, M). Test with NVDA and Orca; focus order in the
   sidebar and Manage menu; contrast in both themes; every animation respects
   reduced motion (done globally); a high-contrast theme.
-- **UX3 Languages** (P2, M; `feat.md` S1 and S2). Start with strings extracted
+- **UX3 Languages** ✓ _infrastructure plus the sidebar, menus, headings and tour in 7 languages (**dialogs and most settings still English; translations unreviewed by natives; no RTL layout mirroring**)_. (P2, M; `feat.md` S1 and S2). Start with strings extracted
   and Spanish, German, Chinese, Russian, Portuguese, Japanese, Persian.
-- **UX4 Search everything** (P2, S). The palette already finds hosts and
+- **UX4 Search everything** ✓ _keys, credentials, groups, trusted servers and settings in the palette_. (P2, S). The palette already finds hosts and
   actions; add snippets, keys, credentials, groups, settings, and known hosts.
-- **UX5 Customisable layout** (P3, M). Resize and hide the rail labels, pin
+- **UX5 Customisable layout** ✓ _labels on/off, hide into Manage, reorder; no drag to resize the rail_. (P3, M). Resize and hide the rail labels, pin
   items, reorder the sections.
-- **UX6 Snippet library** (P3, S). Built-in starter snippets (disk, memory,
+- **UX6 Snippet library** ✓ _25 read-only starters, import and export of packs with validation_. (P3, S). Built-in starter snippets (disk, memory,
   logs, docker) and import and export of snippet packs.
-- **UX7 Themes** (P3, S). More built-in themes and a gallery; imports from VS
+- **UX7 Themes** ✓ _10 more themes (AA contrast tested), two high-contrast_. (P3, S). More built-in themes and a gallery; imports from VS
   Code, Windows Terminal and iTerm2 already exist.
-- **UX8 Speed with big fleets** (P2, S). Virtualise the host list for 5,000+
+- **UX8 Speed with big fleets** ✓ _windowed host list; measured 22 s → 3 s, 670 → 82 MB at 5,000 hosts; start-up and memory budgets **not** added to CI_. (P2, S). Virtualise the host list for 5,000+
   hosts; measure start-up time and memory per tab and set budgets in CI.
 
 ### 4.13 Sync and data

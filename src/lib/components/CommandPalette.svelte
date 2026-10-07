@@ -6,6 +6,8 @@
 } from "lucide-svelte";
   import * as api from "$lib/api";
   import { fuzzyScore } from "$lib/fuzzy";
+  import { SETTING_ENTRIES } from "$lib/settingsindex";
+  import type { VaultKnownHost } from "$lib/types";
   import { ask } from "$lib/dialogs.svelte";
   import { describeForward, errorMessage } from "$lib/types";
   import { parseAdhoc } from "$lib/ssh";
@@ -27,6 +29,11 @@
   }
 
   let query = $state("");
+  // Trusted server keys live in the vault but are read on demand; fetched once when the palette opens.
+  let knownHosts = $state<VaultKnownHost[]>([]);
+  $effect(() => {
+    void api.knownHosts.list().then((l) => (knownHosts = l)).catch(() => {});
+  });
   let selected = $state(0);
   let input = $state<HTMLInputElement>();
   let list = $state<HTMLDivElement>();
@@ -148,6 +155,49 @@
         run: () => (ui.modal = { kind: "run-on-hosts", command: d.command }),
       });
     }
+    // Keys, credentials, groups, settings and trusted servers: found by name, opened where they live.
+    for (const k of vaultStore.keys) {
+      if (!k.data) continue;
+      out.push({ id: `key-${k.id}`, label: `Key: ${k.data.name}`, hint: `${k.data.algorithm} · ${k.data.fingerprint}`, group: "Keys", icon: KeyRound, run: go("keys") });
+    }
+    for (const i of vaultStore.identities) {
+      if (!i.data) continue;
+      out.push({ id: `cred-${i.id}`, label: `Credential: ${i.data.label}`, hint: i.data.username, group: "Credentials", icon: KeyRound, run: () => (ui.modal = { kind: "identity", id: i.id }) });
+    }
+    const groups = new Set<string>();
+    for (const h of vaultStore.hosts) {
+      const parts = (h.data?.group ?? "").split("/").filter(Boolean);
+      for (let n = 1; n <= parts.length; n++) groups.add(parts.slice(0, n).join("/"));
+    }
+    for (const g of [...groups].sort()) {
+      out.push({
+        id: `group-${g}`,
+        label: `Group: ${g}`,
+        hint: "Show its hosts",
+        group: "Groups",
+        icon: Server,
+        run: () => {
+          ui.view = "hosts";
+          ui.search = g;
+        },
+      });
+    }
+    for (const e of SETTING_ENTRIES) {
+      out.push({
+        id: `setting-${e.query}`,
+        label: `Setting: ${e.label}`,
+        hint: e.words,
+        group: "Settings",
+        icon: Settings,
+        run: () => {
+          ui.settingsQuery = e.query;
+          ui.view = "settings";
+        },
+      });
+    }
+    for (const kh of knownHosts) {
+      out.push({ id: `kh-${kh.id}`, label: `Trusted server: ${kh.host}${kh.port === 22 ? "" : `:${kh.port}`}`, hint: kh.fingerprint, group: "Known hosts", icon: Settings, run: go("knownhosts") });
+    }
     const actions: [string, typeof Server, () => void, string?][] = [
       ["Quick connect…", Zap, () => (ui.modal = { kind: "quick-connect" }), "Ctrl+Shift+T"],
       ["New host", Plus, () => (ui.modal = { kind: "host", id: null })],
@@ -165,6 +215,7 @@
       ["Save open tabs as a workspace…", SquareSplitHorizontal, () => (ui.modal = { kind: "save-workspace" })],
       ["Hide or show the list panel", SquareSplitHorizontal, () => ui.toggleSidebar(), "Ctrl+Shift+H"],
       ["Maximize or restore the pane", SquareSplitHorizontal, () => ui.toggleZoomActive(), "Ctrl+Shift+Enter"],
+      ["Take the tour: a two-minute walk through the sidebar, the list and the palette", Keyboard, () => (ui.tour = true)],
       ["Keyboard shortcuts", Keyboard, () => (ui.modal = { kind: "shortcuts" }), "Ctrl+Shift+/"],
       ["Focus mode (toggle)", Keyboard, () => (settings.prefs.focusMode = !settings.prefs.focusMode), "Ctrl+Shift+U"],
       ["Import PuTTY sessions or a CSV of hosts…", FileInput, () => (ui.modal = { kind: "import-ssh-config" })],
@@ -285,21 +336,31 @@
 </script>
 
 <div class="fixed inset-0 z-50 flex items-start justify-center bg-black/50 pt-[12vh]" role="presentation" onclick={(e) => e.target === e.currentTarget && close()}>
-  <div class="w-full max-w-xl overflow-hidden rounded-xl border border-line bg-panel shadow-2xl" role="dialog" aria-label="Command palette">
+  <div class="w-full max-w-xl overflow-hidden rounded-xl border border-line bg-panel shadow-2xl" role="dialog" aria-modal="true" aria-label="Command palette">
     <input
       bind:this={input}
       class="w-full border-b border-line bg-transparent px-4 py-3 text-sm outline-none placeholder:text-fg-muted/60"
       placeholder="Search hosts, snippets and actions, or type user@host"
+      role="combobox"
+      aria-label="Search hosts, snippets and actions"
+      aria-expanded="true"
+      aria-controls="palette-list"
+      aria-autocomplete="list"
+      aria-activedescendant={results.length ? `palette-option-${selected}` : undefined}
       bind:value={query}
       {onkeydown}
     />
-    <div bind:this={list} class="max-h-[50vh] overflow-y-auto py-1">
+    <div bind:this={list} id="palette-list" role="listbox" aria-label="Results" class="max-h-[50vh] overflow-y-auto py-1">
       {#each results as it, i (it.id)}
         {#if i === 0 || results[i - 1].group !== it.group}
           <div class="px-4 pb-1 pt-2 text-[11px] font-medium uppercase tracking-wide text-fg-muted">{it.group}</div>
         {/if}
         <button
           data-index={i}
+          id="palette-option-{i}"
+          role="option"
+          aria-selected={i === selected}
+          tabindex="-1"
           class="flex w-full items-center gap-3 px-4 py-2 text-left text-sm {i === selected ? 'bg-accent/20' : 'hover:bg-panel-hover'}"
           onmousemove={() => (selected = i)}
           onclick={() => run(it)}
@@ -307,7 +368,7 @@
           <it.icon size={15} class="shrink-0 {i === selected ? 'text-accent' : 'text-fg-muted'}" />
           <span class="truncate">{it.label}</span>
           {#if it.hint}
-            <span class="ml-auto truncate pl-4 text-xs text-fg-muted">{it.hint}</span>
+            <span class="ml-auto truncate pl-4 text-xs {i === selected ? 'text-fg' : 'text-fg-muted'}">{it.hint}</span>
           {/if}
         </button>
       {:else}

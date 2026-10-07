@@ -255,7 +255,7 @@
               <div class="group relative flex items-center rounded-md hover:bg-panel-hover">
                 <button class="min-w-0 flex-1 truncate rounded-md px-2 py-1.5 text-left text-xs" title={p} disabled={busy} onclick={() => openRecentVault(p)}>
                   {folderName(p)}
-                  <span class="block truncate text-fg-muted/70">{p}</span>
+                  <span class="block truncate text-fg-muted">{p}</span>
                 </button>
                 <button
                   class="icon-btn reveal mr-1 h-6 w-6 shrink-0"
@@ -293,7 +293,7 @@
           <div>
             <span class="label">Location</span>
             <div class="flex gap-2">
-              <div class="input flex-1 truncate font-mono text-xs {location ? '' : 'text-fg-muted/60'}" title={location ?? ""}>
+              <div class="input flex-1 truncate font-mono text-xs {location ? '' : 'text-fg-muted'}" title={location ?? ""}>
                 {location ? join(location, name || "…") : "Choose a folder, e.g. ~/Dropbox"}
               </div>
               <button class="btn-secondary" type="button" onclick={chooseLocation}><FolderSearch size={16} /> Browse</button>
@@ -325,7 +325,7 @@
         <div>
           <span class="label">Vault folder</span>
           <div class="flex gap-2">
-            <div class="input flex-1 truncate font-mono text-xs {path ? '' : 'text-fg-muted/60'}" title={path ?? ""}>{path ?? "Not chosen yet"}</div>
+            <div class="input flex-1 truncate font-mono text-xs {path ? '' : 'text-fg-muted'}" title={path ?? ""}>{path ?? "Not chosen yet"}</div>
             <button class="btn-secondary" type="button" onclick={chooseExisting}><FolderSearch size={16} /> Browse</button>
           </div>
         </div>

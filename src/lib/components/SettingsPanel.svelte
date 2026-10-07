@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Copy, Download, ExternalLink, Loader2, Lock, Palette, RefreshCw, RotateCcw, Search, ShieldAlert, SquareTerminal, TerminalSquare, X } from "lucide-svelte";
+  import { ChevronDown, ChevronUp, Copy, Download, ExternalLink, Loader2, Lock, Palette, RefreshCw, RotateCcw, Search, ShieldAlert, SquareTerminal, TerminalSquare, X } from "lucide-svelte";
   import { onMount } from "svelte";
     import { RELEASES_URL, formatSize, installHint, installUpdate, updates } from "$lib/stores/updates.svelte";
   import { openUrl } from "@tauri-apps/plugin-opener";
@@ -10,6 +10,8 @@
   import { localShells } from "$lib/stores/localshells.svelte";
   import { settings } from "$lib/stores/settings.svelte";
   import { allThemes } from "$lib/themes";
+  import { LOCALES, t as tr, type Key } from "$lib/i18n/index.svelte";
+  import { ALWAYS_SHOWN, RAIL_GROUPS, arrange as arrangeRail, move as moveRail } from "$lib/railitems";
   import { importTheme } from "$lib/themeimport";
   import { open as openFile } from "@tauri-apps/plugin-dialog";
   import * as api from "$lib/api";
@@ -38,7 +40,15 @@
   ] as const;
   type Category = (typeof CATEGORIES)[number]["id"];
   let activeCategory = $state<Category>("appearance");
-  let searchQuery = $state("");
+  // svelte-ignore state_referenced_locally
+  let searchQuery = $state(ui.settingsQuery);
+  // From the command palette: open with a setting already searched for. Taken once, then cleared.
+  $effect(() => {
+    if (ui.settingsQuery) {
+      searchQuery = ui.settingsQuery;
+      ui.settingsQuery = "";
+    }
+  });
 
   /** While searching, every category's matching sections show at once. */
   function visible(category: Category, keywords: string): boolean {
@@ -47,8 +57,11 @@
     return category === activeCategory;
   }
 
+  const railName = (view: string) => tr(`rail.${view}` as Key);
+  const railView = $derived(arrangeRail(RAIL_GROUPS, settings.prefs.railOrder, settings.prefs.railHidden));
   const searching = $derived(!!searchQuery.trim());
 
+  const SIDEBAR_KEYWORDS = "sidebar rail icons labels hide show reorder order pin manage layout";
   const OPS_KEYWORDS = "alerts alert notify notification host down cpu memory disk threshold quiet hours mute monitoring history charts keep week day operations";
   const SMART_COMPLETION_KEYWORDS = "smart completion autocomplete auto complete suggestions suggest ghost inline tab history snippets options paths";
 
@@ -62,6 +75,7 @@
     "local terminal shell bash zsh fish powershell wsl start folder cwd",
     SMART_COMPLETION_KEYWORDS,
     OPS_KEYWORDS,
+    SIDEBAR_KEYWORDS,
     "connections auto-reconnect notify background command history remember restore session reopen tabs last time production paste trailing newline",
     "command line cli scripting sshvault run list connect",
     "shell integration osc 133 7 prompt directory",
@@ -231,36 +245,38 @@
         <option value="dark">Dark</option>
         <option value="light">Light</option>
         <option value="system">Match system</option>
+        <option value="contrast">High contrast (dark)</option>
       </select>
+
+      <label class="label" for="s-language">{tr("settings.language")} / Language</label>
+      <select id="s-language" class="input max-w-xs" bind:value={settings.prefs.language}>
+        <option value="auto">{tr("settings.language.auto")}</option>
+        {#each LOCALES as l (l.code)}<option value={l.code}>{l.name}</option>{/each}
+      </select>
+      <p class="mb-4 mt-1 text-xs text-fg-muted">{tr("settings.language.note")}</p>
 
       <span class="label">Terminal colour theme</span>
       <div class="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
         {#each allThemes(settings.prefs.customThemes) as t (t.id)}
-          <!-- A div, not a button: it holds a real nested button (Remove),
-               and a button can't contain another interactive control. -->
-          <div
-            role="button"
-            tabindex="0"
-            class="overflow-hidden rounded-md border text-left text-xs {settings.prefs.themeId === t.id ? 'border-accent ring-1 ring-accent' : 'border-line hover:border-fg-muted'}"
-            onclick={() => (settings.prefs.themeId = t.id)}
-            onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); settings.prefs.themeId = t.id; } }}
-          >
-            <div class="flex h-10 flex-col justify-center gap-1 px-2 font-mono text-[10px]" style:background={t.theme.background} style:color={t.theme.foreground}>
-              <span><span style:color={t.theme.green}>user@host</span>:<span style:color={t.theme.blue}>~</span>$ ls</span>
-              <span class="flex gap-0.5">
-                {#each [t.theme.red, t.theme.yellow, t.theme.green, t.theme.cyan, t.theme.blue, t.theme.magenta] as c, i (i)}
-                  <span class="h-1.5 w-2.5 rounded-sm" style:background={c}></span>
-                {/each}
+          <!-- The card is not itself a button: Remove is a second control, so the card is a box with the
+               choosing button filling it and Remove laid over its corner. -->
+          <div class="relative overflow-hidden rounded-md border text-left text-xs {settings.prefs.themeId === t.id ? 'border-accent ring-1 ring-accent' : 'border-line hover:border-fg-muted'}">
+            <button type="button" class="block w-full text-left" aria-pressed={settings.prefs.themeId === t.id} onclick={() => (settings.prefs.themeId = t.id)}>
+              <span class="flex h-10 flex-col justify-center gap-1 px-2 font-mono text-[10px]" style:background={t.theme.background} style:color={t.theme.foreground}>
+                <span>user@host:~$ ls</span>
+                <span class="flex gap-0.5">
+                  {#each [t.theme.red, t.theme.yellow, t.theme.green, t.theme.cyan, t.theme.blue, t.theme.magenta] as c, i (i)}
+                    <span class="h-1.5 w-2.5 rounded-sm" style:background={c}></span>
+                  {/each}
+                </span>
               </span>
-            </div>
-            <div class="flex items-center justify-between bg-base px-2 py-1">
-              <span class="truncate">{t.name}</span>
-              {#if t.id.startsWith("custom-")}
-                <button type="button" class="icon-btn h-5 w-5 text-fg-muted hover:text-danger" aria-label="Remove {t.name}" title="Remove" onclick={(e) => { e.stopPropagation(); removeTheme(t.id); }}>
-                  <X size={11} />
-                </button>
-              {/if}
-            </div>
+              <span class="block truncate bg-base px-2 py-1.5 {t.id.startsWith('custom-') ? 'pr-7' : ''}">{t.name}</span>
+            </button>
+            {#if t.id.startsWith("custom-")}
+              <button type="button" class="icon-btn absolute bottom-0.5 right-0.5 h-5 w-5 text-fg-muted hover:text-danger" aria-label="Remove {t.name}" title="Remove" onclick={() => removeTheme(t.id)}>
+                <X size={11} />
+              </button>
+            {/if}
           </div>
         {/each}
       </div>
@@ -409,6 +425,48 @@
           <button class="text-accent hover:underline" onclick={() => updates.available && openUrl(updates.available.url)}>What's new</button>
         </p>
       {/if}
+    </section>
+    {/if}
+
+    {#if visible("appearance", SIDEBAR_KEYWORDS)}
+    <section class="rounded-xl border border-line bg-panel p-5">
+      <div class="mb-1 flex items-center justify-between">
+        <h2 class="text-sm font-semibold">Sidebar</h2>
+        <button class="btn-ghost py-1 text-xs" onclick={() => { settings.prefs.railOrder = []; settings.prefs.railHidden = []; settings.prefs.railLabels = true; }}>Reset</button>
+      </div>
+      <p class="mb-3 text-xs text-fg-muted">Choose what the icons on the left show and in what order. An entry you hide moves into the <strong>Manage</strong> menu, so it is still one click away. Hosts always stays.</p>
+      <label class="mb-3 flex items-center gap-2 text-sm"><input type="checkbox" class="accent-input" bind:checked={settings.prefs.railLabels} /> Show a name under each icon</label>
+      <ul class="space-y-3" aria-label="Sidebar entries">
+        {#each railView.groups as g, gi (gi)}
+          <li>
+            <ul class="divide-y divide-line/60 rounded-md border border-line">
+              {#each g as item (item.view)}
+                <li class="flex items-center gap-3 px-3 py-1.5 text-sm">
+                  <item.icon size={16} class="shrink-0 text-fg-muted" />
+                  <span class="min-w-0 flex-1 truncate">{railName(item.view)}</span>
+                  <label class="flex items-center gap-1.5 text-xs text-fg-muted"><input type="checkbox" class="accent-input" checked disabled={ALWAYS_SHOWN.includes(item.view)} aria-label="Show {railName(item.view)} in the sidebar" onchange={() => (settings.prefs.railHidden = [...settings.prefs.railHidden, item.view])} /> shown</label>
+                  <button class="icon-btn h-6 w-6" aria-label="Move {railName(item.view)} up" disabled={g[0] === item} onclick={() => (settings.prefs.railOrder = moveRail(RAIL_GROUPS, settings.prefs.railOrder, item.view, -1))}><ChevronUp size={14} /></button>
+                  <button class="icon-btn h-6 w-6" aria-label="Move {railName(item.view)} down" disabled={g[g.length - 1] === item} onclick={() => (settings.prefs.railOrder = moveRail(RAIL_GROUPS, settings.prefs.railOrder, item.view, 1))}><ChevronDown size={14} /></button>
+                </li>
+              {/each}
+            </ul>
+          </li>
+        {/each}
+        {#if railView.away.length}
+          <li>
+            <div class="mb-1 text-xs font-medium text-fg-muted">In the Manage menu</div>
+            <ul class="divide-y divide-line/60 rounded-md border border-line">
+              {#each railView.away as item (item.view)}
+                <li class="flex items-center gap-3 px-3 py-1.5 text-sm">
+                  <item.icon size={16} class="shrink-0 text-fg-muted" />
+                  <span class="min-w-0 flex-1 truncate">{railName(item.view)}</span>
+                  <label class="flex items-center gap-1.5 text-xs text-fg-muted"><input type="checkbox" class="accent-input" aria-label="Show {railName(item.view)} in the sidebar" onchange={() => (settings.prefs.railHidden = settings.prefs.railHidden.filter((v) => v !== item.view))} /> shown</label>
+                </li>
+              {/each}
+            </ul>
+          </li>
+        {/if}
+      </ul>
     </section>
     {/if}
 

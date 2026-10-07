@@ -620,7 +620,7 @@
                 </p>
               {:else if keySource === "file"}
                 <div class="flex items-center gap-2">
-                  <div class="input flex-1 truncate font-mono text-xs {keyFile ? '' : 'text-fg-muted/60'}" title={keyFile ?? ""}>
+                  <div class="input flex-1 truncate font-mono text-xs {keyFile ? '' : 'text-fg-muted'}" title={keyFile ?? ""}>
                     {keyFile ?? "No file chosen, for example ~/.ssh/id_ed25519"}
                   </div>
                   <button type="button" class="btn-secondary" onclick={chooseKeyFile}><FileKey size={14} /> Choose…</button>

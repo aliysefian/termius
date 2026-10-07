@@ -128,6 +128,13 @@
       case "kube_stop":
         window.__kubeStopped = (window.__kubeStopped ?? 0) + 1;
         return null;
+      case "save_snippet": {
+        window.__savedSnippets = [...(window.__savedSnippets ?? []), args.snippet];
+        return { id: "sn-" + (++monitorId), rev: 1, updated_at: 1, deleted: false, data: args.snippet };
+      }
+      case "plugin:dialog|open": return window.__pickedFile ?? null;
+      case "read_text_file": return window.__fileText ?? "";
+      case "known_hosts_list": return [];
       case "monitor_open": return "m-" + (++monitorId);
       case "monitor_close": return null;
       case "monitor_exec": {

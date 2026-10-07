@@ -417,6 +417,35 @@ Alerts and monitoring history** you can keep one-minute averages for a day or a 
 instead; the host's detail view then offers 24 h and 7 days. They are stored on this
 computer, not synced, and not encrypted; choosing 15 minutes again deletes them.
 
+## Finding your way: the tour, the sidebar, languages and themes
+
+- **The tour.** *Show me around* in the welcome dialog, or *Take the tour* in the command palette, walks
+  through the sidebar, the host list, Manage, the palette and quick connect in six short steps, pointing at the real
+  thing. Arrow keys or Enter move on, Esc ends it.
+- **The command palette finds more.** Besides hosts, snippets, tunnels, workspaces and actions it now finds
+  **keys**, **credentials**, **groups** (it shows that group's hosts), **trusted servers** and **settings** (*Setting:
+  Font and font size* opens Settings already searched for it).
+- **The sidebar is yours to arrange.** **Settings → Appearance → Sidebar** turns the names under the icons on or off,
+  puts entries away (they move into the **Manage** menu, one click away) and moves them up and down within their
+  group. Hosts always stays. Reset puts everything back.
+- **Languages.** **Settings → Appearance → Language** changes the sidebar, menus, headings and the tour to Spanish,
+  German, Portuguese, Russian, Chinese, Japanese or Persian, or follows the system. Dialogs and most of Settings are
+  still in English. The translations were written for this app and have not been reviewed by native speakers;
+  corrections are welcome. Persian text is shown, but the layout is not mirrored.
+- **Themes.** Ten more terminal themes (Catppuccin Mocha and Latte, Monokai, Rosé Pine, Everforest, Night Owl,
+  Palenight and two high-contrast ones) join the gallery. **App theme → High contrast** gives black and white with
+  visible edges: text is 7:1 or better.
+- **Snippet packs.** The **library** button on the Snippets list adds a **starter set** (disk, memory, processes,
+  services, logs, network, Docker and Git: read-only commands) or the snippets in a pack file; **export** saves
+  yours as a `.json` pack. Snippets already in your list are not offered again, and nothing from a pack runs.
+- **Thousands of hosts.** Past a few hundred rows the host list draws only what is on screen, so a vault of 5,000 hosts
+  starts in seconds and scrolls smoothly. Search opens every group.
+
+**Accessibility.** The pages and dialogs are checked with axe-core in the dark, light and high-contrast themes (no
+serious findings). Every animation stops under *reduce motion*. A screen reader has labelled landmarks, a page heading
+and a labelled command palette. Not tested with a real screen reader yet; the terminal itself (a canvas) is the
+terminal's own accessibility mode, under **Settings → Terminal appearance → Screen reader mode**.
+
 ## Quick connect and the command palette
 
 Press **Ctrl+Shift+T**, or the **+** next to the tabs, and type
