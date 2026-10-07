@@ -4,7 +4,7 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
-## Unreleased
+## 0.21.0 — 2026-10-07
 
 - **Terminal.** *Command blocks:* with shell integration, a thin bar in the margin beside each command, green
   when it worked and red when it failed; hover for the command, outcome and duration, click to copy its output
