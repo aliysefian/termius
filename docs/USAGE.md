@@ -768,6 +768,27 @@ hint for the usual causes: a user who isn't in the `docker` group, a daemon
 that isn't running, a Podman socket that isn't available. Docker is used as
 the signed-in user; there is no `sudo`.
 
+### Kubernetes
+
+The **Kubernetes** tab next to Containers shows the pods of a cluster through the `kubectl`
+that is already on this computer or on one of your saved hosts, with that machine's own
+kubeconfig. Nothing is installed anywhere and SSHVault never reads the kubeconfig itself.
+
+- Open **This computer** or a host (it needs saved credentials), pick a **context** and a
+  **namespace** (or all of them). Pods refresh every ten seconds and can be searched; the
+  status is coloured and shows what kubectl shows (CrashLoopBackOff, Terminating,
+  ImagePullBackOff ...), with ready containers, restarts, age, node and owner.
+- **Logs** follows a pod's log (pick the container; the previous run after a crash; filter and
+  pause as in Operations). **Describe** shows `kubectl describe`. **Shell** opens a terminal
+  tab running `kubectl exec -it` with bash or sh. **Delete** asks first; on a production host
+  you type the pod's name.
+- **Port-forward** (this computer only) forwards a pod or service port to `127.0.0.1` until you
+  stop it. On a host the port would open on that host, so the button isn't offered there.
+- Names are checked against what Kubernetes allows and passed to kubectl as separate
+  arguments, never as part of a command line. Every call has a 15-second limit so a cluster
+  that isn't answering shows an error with a hint instead of hanging. The connection stays open
+  when you go to another page and closes when the vault locks.
+
 ## Locking
 
 The lock icon at the bottom of the sidebar, or **Ctrl+Shift+L**, closes every

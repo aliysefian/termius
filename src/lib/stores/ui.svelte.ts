@@ -20,13 +20,14 @@ export type View =
   | "security-review"
   | "fleet"
   | "ops"
+  | "kubernetes"
   | "databases"
   | "containers"
   | "settings"
   | "changelog";
 
 /** Views that fill the window instead of sitting beside the terminals. */
-export const PAGE_VIEWS: View[] = ["groups", "keys", "knownhosts", "vault", "security-review", "fleet", "ops", "databases", "containers", "settings", "changelog"];
+export const PAGE_VIEWS: View[] = ["groups", "keys", "knownhosts", "vault", "security-review", "fleet", "ops", "databases", "containers", "kubernetes", "settings", "changelog"];
 
 /** What a pane connects to: a saved host, or an unsaved quick connection. */
 export type PaneTarget =

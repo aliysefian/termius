@@ -28,7 +28,7 @@
   import { updates } from "$lib/stores/updates.svelte";
   import { alerts } from "$lib/stores/alerts.svelte";
 
-  type Item = { view: View; label: string; icon: typeof Server; hint?: string };
+  type Item = { view: View; label: string; icon: typeof Server; hint?: string; /** Other pages that belong to the same entry. */ also?: View[] };
 
   // What people open every day stays on the rail, in groups: where to connect, what to do once connected,
   // and the data stores. Everything that is set up once and then left alone sits behind "Manage".
@@ -44,7 +44,7 @@
     ],
     [
       { view: "databases", label: "Databases", icon: Database },
-      { view: "containers", label: "Containers", icon: Container },
+      { view: "containers", label: "Containers", icon: Container, also: ["kubernetes"] },
       { view: "ops", label: "Ops", icon: Wrench },
     ],
   ];
@@ -57,6 +57,7 @@
     { view: "vault", label: "Vault", icon: Vault, hint: "Sync, backups, conflicts and the connection log" },
   ];
 
+  const isCurrent = (item: Item) => ui.view === item.view || !!item.also?.includes(ui.view);
   const inManage = $derived(manage.some((m) => m.view === ui.view));
   let open = $state(false);
   let flyout = $state<{ top: number }>({ top: 0 });
@@ -116,13 +117,13 @@
     {#if g > 0}<div class="my-1.5 h-px w-8 shrink-0 bg-line" role="separator"></div>{/if}
     {#each group as item (item.view)}
       <button
-        class="{rail} mb-0.5 h-[46px] w-[56px] {tone(ui.view === item.view)}"
+        class="{rail} mb-0.5 h-[46px] w-[56px] {tone(isCurrent(item))}"
         onclick={() => go(item.view)}
         title={item.label}
         aria-label={item.label}
-        aria-current={ui.view === item.view ? "page" : undefined}
+        aria-current={isCurrent(item) ? "page" : undefined}
       >
-        {#if ui.view === item.view}
+        {#if isCurrent(item)}
           <span class="absolute -left-[6px] h-6 w-[3px] rounded-r bg-accent"></span>
         {/if}
         <item.icon size={19} />

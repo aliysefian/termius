@@ -20,6 +20,7 @@
   import SecurityReview from "$lib/components/SecurityReview.svelte";
   import FleetView from "$lib/components/FleetView.svelte";
   import OpsView from "$lib/components/OpsView.svelte";
+  import KubernetesView from "$lib/components/KubernetesView.svelte";
   // Alerts run in the background whichever page is open.
   import "$lib/stores/alerts.svelte";
   import DatabasesView from "$lib/components/DatabasesView.svelte";
@@ -222,6 +223,8 @@
       <FleetView />
     {:else if ui.view === "ops"}
       <OpsView />
+    {:else if ui.view === "kubernetes"}
+      <KubernetesView />
     {:else if ui.view === "databases"}
       <DatabasesView />
     {:else if ui.view === "containers"}

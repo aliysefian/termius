@@ -91,6 +91,43 @@
       case "plugin:event|listen":
         (listeners[args.event] ??= []).push(args.handler);
         return args.handler;
+      case "kube_open":
+        window.__kubeOpened = [...(window.__kubeOpened ?? []), args.hostId];
+        return { session_id: "k-" + (++monitorId), info: { version: "v1.30.2", contexts: ["prod", "staging"], current: "prod" } };
+      case "kube_close": return null;
+      case "kube_namespaces": return ["jobs", "shop"];
+      case "kube_pods": {
+        window.__kubePodCalls = [...(window.__kubePodCalls ?? []), { context: args.context, scope: args.scope }];
+        const all = [
+          { name: "web-7d9f-abc", namespace: "shop", status: "Running", ready: "2/2", restarts: 0, node: "node-1", ip: "10.1.2.3", created: new Date(Date.now() - 3 * 3600_000).toISOString(), containers: ["app", "sidecar"], owner: "ReplicaSet/web-7d9f" },
+          { name: "api-0", namespace: "shop", status: "CrashLoopBackOff", ready: "0/1", restarts: 12, node: "node-2", ip: null, created: new Date(Date.now() - 2 * 86400_000).toISOString(), containers: ["api"], owner: "StatefulSet/api" },
+          { name: "batch-1", namespace: "jobs", status: "Succeeded", ready: "0/1", restarts: 0, node: "node-1", ip: null, created: new Date(Date.now() - 600_000).toISOString(), containers: ["c"], owner: null },
+        ];
+        return args.scope.scope === "namespace" ? all.filter((p) => p.namespace === args.scope.name) : all;
+      }
+      case "kube_describe": return "Name: " + args.pod + "\nNamespace: " + args.namespace + "\nStatus: Running";
+      case "kube_delete_pod":
+        window.__kubeDeleted = [...(window.__kubeDeleted ?? []), args.pod];
+        return null;
+      case "kube_logs_start": {
+        window.__kubeLogs = [...(window.__kubeLogs ?? []), { pod: args.pod, container: args.container, options: args.options }];
+        const ch = args.onEvent;
+        let idx = 0;
+        const emit = (m) => window["_" + ch.id]({ index: idx++, message: m });
+        setTimeout(() => emit({ event: "chunk", text: "starting app\r\nlistening on :8080\r\nERROR upstream timed out\r\n" }), 50);
+        return "ks-" + (++monitorId);
+      }
+      case "kube_forward_start": {
+        window.__kubeForwards = [...(window.__kubeForwards ?? []), { to: args.to, local: args.localPort, remote: args.remotePort }];
+        const ch = args.onEvent;
+        let idx = 0;
+        const emit = (m) => window["_" + ch.id]({ index: idx++, message: m });
+        setTimeout(() => emit({ event: "chunk", text: "Forwarding from 127.0.0.1:" + args.localPort + " -> " + args.remotePort + "\n" }), 50);
+        return "kf-" + (++monitorId);
+      }
+      case "kube_stop":
+        window.__kubeStopped = (window.__kubeStopped ?? 0) + 1;
+        return null;
       case "monitor_open": return "m-" + (++monitorId);
       case "monitor_close": return null;
       case "monitor_exec": {

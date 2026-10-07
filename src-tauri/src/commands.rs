@@ -62,6 +62,7 @@ pub struct AppState {
     pub dbs: Arc<crate::db::DbManager>,
     /// Open container sessions (the Containers view).
     pub containers: Arc<crate::containers::ContainerManager>,
+    pub kube: Arc<crate::kube::KubeManager>,
     /// Open detail-monitoring connections (one per host being watched).
     pub monitors: Arc<crate::monitor::MonitorManager>,
     pub edits: Arc<crate::remoteedit::EditManager>,
@@ -634,6 +635,7 @@ pub async fn lock_vault(state: State<'_, AppState>) -> ApiResult<VaultStatus> {
     state.raw.close_all();
     state.dbs.close_all().await;
     state.containers.close_all().await;
+    state.kube.close_all().await;
     state.monitors.close_all().await;
     state.edits.stop_all();
     // The agent serves vault keys, so it goes when the vault locks, and
@@ -3443,6 +3445,89 @@ pub async fn containers_open(state: State<'_, AppState>, host_id: Option<Uuid>) 
     Ok(ContainersOpened { session_id, runtimes })
 }
 
+// -- Kubernetes ----------------------------------------------------------------------
+
+#[derive(Serialize)]
+pub struct KubeOpened {
+    pub session_id: Uuid,
+    pub info: crate::kube::KubeInfo,
+}
+
+/// Open this computer (`host_id` empty) or a saved host with saved credentials, and read its kubectl contexts.
+#[tauri::command]
+pub async fn kube_open(state: State<'_, AppState>, host_id: Option<Uuid>) -> ApiResult<KubeOpened> {
+    let via = match host_id {
+        Some(id) => Some(resolve_target(&state, id, None)?),
+        None => None,
+    };
+    let (session_id, info) = state.kube.open(via).await?;
+    Ok(KubeOpened { session_id, info })
+}
+
+#[tauri::command]
+pub async fn kube_close(state: State<'_, AppState>, session_id: Uuid) -> ApiResult<()> {
+    state.kube.close(session_id).await;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn kube_pods(state: State<'_, AppState>, session_id: Uuid, context: String, scope: crate::kube::Scope) -> ApiResult<Vec<crate::kube::Pod>> {
+    Ok(state.kube.pods(session_id, &context, &scope).await?)
+}
+
+#[tauri::command]
+pub async fn kube_namespaces(state: State<'_, AppState>, session_id: Uuid, context: String) -> ApiResult<Vec<String>> {
+    Ok(state.kube.namespaces(session_id, &context).await?)
+}
+
+#[tauri::command]
+pub async fn kube_describe(state: State<'_, AppState>, session_id: Uuid, context: String, namespace: String, pod: String) -> ApiResult<String> {
+    Ok(state.kube.describe(session_id, &context, &namespace, &pod).await?)
+}
+
+#[tauri::command]
+pub async fn kube_delete_pod(state: State<'_, AppState>, session_id: Uuid, context: String, namespace: String, pod: String) -> ApiResult<()> {
+    Ok(state.kube.delete_pod(session_id, &context, &namespace, &pod).await?)
+}
+
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub fn kube_logs_start(
+    state: State<'_, AppState>,
+    session_id: Uuid,
+    context: String,
+    namespace: String,
+    pod: String,
+    container: Option<String>,
+    options: crate::kube::LogOptions,
+    on_event: Channel<crate::containers::LogEvent>,
+) -> ApiResult<Uuid> {
+    let sink: Arc<dyn crate::containers::LogSink> = Arc::new(ChannelLogSink(on_event));
+    Ok(state.kube.start_logs(session_id, &context, &namespace, &pod, container.as_deref(), options, sink)?)
+}
+
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub fn kube_forward_start(
+    state: State<'_, AppState>,
+    session_id: Uuid,
+    context: String,
+    namespace: String,
+    to: crate::kube::Target_,
+    local_port: u32,
+    remote_port: u32,
+    on_event: Channel<crate::containers::LogEvent>,
+) -> ApiResult<Uuid> {
+    let sink: Arc<dyn crate::containers::LogSink> = Arc::new(ChannelLogSink(on_event));
+    Ok(state.kube.start_forward(session_id, &context, &namespace, &to, local_port, remote_port, sink)?)
+}
+
+/// Stop a followed log or a port-forward.
+#[tauri::command]
+pub fn kube_stop(state: State<'_, AppState>, stream_id: Uuid) {
+    state.kube.stop_stream(stream_id);
+}
+
 #[tauri::command]
 pub async fn containers_close(state: State<'_, AppState>, session_id: Uuid) -> ApiResult<()> {
     state.containers.close(session_id).await;
@@ -4254,6 +4339,7 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         raw: Arc::new(crate::rawterm::RawManager::new()),
         dbs: Arc::new(crate::db::DbManager::new()),
         containers: Arc::new(crate::containers::ContainerManager::new()),
+        kube: Arc::new(crate::kube::KubeManager::new()),
         monitors: Arc::new(crate::monitor::MonitorManager::new()),
         edits: Arc::new(crate::remoteedit::EditManager::new()),
         edit_dir,

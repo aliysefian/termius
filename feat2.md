@@ -311,12 +311,12 @@ Already planned in `feat.md` (F3 SMB, F4 WebDAV, F5 S3, F6 ZMODEM). New needs:
 - **O4 History that survives** ✓ (P3, S). Keep the 15-minute charts for a day or a
   week on disk, optionally.
 
-### 4.11 Databases and containers
+### 4.11 Databases and containers (DC1 built in 0.20.0; the rest stays in `feat.md`)
 
 Already planned: D3 to D8 (SQLite, MSSQL, Redis, MongoDB, key browsers), C2 to C5
 (Podman verified, Compose editing, Kubernetes). One need not in `feat.md`:
 
-- **DC1 Kubernetes** (P2, L). Pods, logs, exec and port-forward for a context,
+- **DC1 Kubernetes** ✓ (P2, L). Pods, logs, exec and port-forward for a context,
   next to containers. kubectl is the common denominator; use it over the same
   transport.
 

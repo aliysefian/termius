@@ -421,6 +421,26 @@ export const containers = {
   compose: (sessionId: Uuid, project: string, verb: ComposeVerb) => invoke<void>("containers_compose", { sessionId, project, verb }),
 };
 
+/** Kubernetes, through the kubectl on this computer or on a saved host. */
+export const kube = {
+  open: (hostId: Uuid | null) => invoke<{ session_id: Uuid; info: import("./kubedata").KubeInfo }>("kube_open", { hostId }),
+  close: (sessionId: Uuid) => invoke<void>("kube_close", { sessionId }),
+  pods: (sessionId: Uuid, context: string, scope: import("./kubedata").Scope) => invoke<import("./kubedata").KubePod[]>("kube_pods", { sessionId, context, scope }),
+  namespaces: (sessionId: Uuid, context: string) => invoke<string[]>("kube_namespaces", { sessionId, context }),
+  describe: (sessionId: Uuid, context: string, namespace: string, pod: string) => invoke<string>("kube_describe", { sessionId, context, namespace, pod }),
+  deletePod: (sessionId: Uuid, context: string, namespace: string, pod: string) => invoke<void>("kube_delete_pod", { sessionId, context, namespace, pod }),
+  /** Resolves to an id for `stop`; events arrive until an "end". */
+  logs(sessionId: Uuid, context: string, namespace: string, pod: string, container: string | null, options: { tail: number; follow: boolean; timestamps: boolean; previous: boolean }, onEvent: (e: ContainerLogEvent) => void) {
+    const channel = new Channel<ContainerLogEvent>(onEvent);
+    return invoke<Uuid>("kube_logs_start", { sessionId, context, namespace, pod, container, options, onEvent: channel });
+  },
+  forward(sessionId: Uuid, context: string, namespace: string, to: { kind: "pod" | "service"; name: string }, localPort: number, remotePort: number, onEvent: (e: ContainerLogEvent) => void) {
+    const channel = new Channel<ContainerLogEvent>(onEvent);
+    return invoke<Uuid>("kube_forward_start", { sessionId, context, namespace, to, localPort, remotePort, onEvent: channel });
+  },
+  stop: (streamId: Uuid) => invoke<void>("kube_stop", { streamId }),
+};
+
 /** Detail monitoring: one SSH connection per watched host, scripts run under `sh -c`. */
 export const monitor = {
   open: (hostId: Uuid) => invoke<Uuid>("monitor_open", { hostId }),

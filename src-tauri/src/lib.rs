@@ -21,6 +21,7 @@ pub mod hostkeys;
 pub mod hostcreds;
 pub mod keychain;
 pub mod keymanager;
+pub mod kube;
 pub mod keys;
 pub mod knownhosts;
 pub mod localpty;
@@ -168,6 +169,15 @@ pub fn run() {
             commands::db_save_export,
             commands::containers_open,
             commands::containers_close,
+            commands::kube_open,
+            commands::kube_close,
+            commands::kube_pods,
+            commands::kube_namespaces,
+            commands::kube_describe,
+            commands::kube_delete_pod,
+            commands::kube_logs_start,
+            commands::kube_forward_start,
+            commands::kube_stop,
             commands::containers_list,
             commands::containers_act,
             commands::containers_inspect,

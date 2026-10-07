@@ -108,6 +108,10 @@ Linux and Windows · Built with Rust, Tauri, Svelte and xterm.js
   preview exactly what an "unused" cleanup would remove, and act on Compose
   projects as a whole
 
+- Kubernetes: pods across contexts and namespaces with status colours, followed
+  logs, describe, a shell in a pod, and port-forwards, using the kubectl you
+  already have (no agent, no kubeconfig import)
+
 ### Keys and credentials
 - Generate Ed25519, ECDSA and RSA keys; import OpenSSH, PEM, PKCS#8 and PuTTY
   keys; OpenSSH certificates
