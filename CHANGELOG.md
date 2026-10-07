@@ -4,6 +4,19 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## 0.19.0 — 2026-10-07
+
+- **Operations.** A new **Ops** page with three tabs. **Logs** follows the system
+  journal or a log file on several hosts at once, with filtering, regular
+  expressions, level colours, highlighting and pause. **Services** lists systemd
+  units and starts, stops, restarts, reloads, enables or disables them, with a
+  typed-name confirmation on production hosts. **Alerts** (off until you turn them
+  on) tells you when a monitored host stops answering or its CPU, memory or disk
+  stays high, with quiet hours and per-host muting.
+- **Monitoring charts can be kept** for a day or a week (Settings → Alerts and
+  monitoring history); the host detail view gains 24 h and 7 day ranges. Stored on
+  this computer only; off by default.
+
 ## 0.18.1 — 2026-10-07
 
 - **Fixed: stray text like `35;2;16M35;6;15M` in the shell after a program that
