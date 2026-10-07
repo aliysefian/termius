@@ -532,6 +532,43 @@ async def main():
         rgb = [int(x) for x in colour.replace("rgb(", "").replace("rgba(", "").replace(")", "").split(",")[:3]]
         check("and its colour follows the theme (dark text on a light background)", sum(rgb) < 300, colour)
 
+
+        # ---- the mouse is only reported while a program has it ----
+        await session(pg, {"smartCompletion": False})
+        def is_mouse(chunk):
+            return bytes(chunk).startswith(b"\x1b[<") or bytes(chunk).startswith(b"\x1b[M")
+        await pg.keyboard.type("mouse-on")
+        await pg.keyboard.press("Enter")
+        await pg.wait_for_timeout(600)
+        box = await pg.evaluate("(() => { const r = document.querySelector('.xterm-screen').getBoundingClientRect(); return [r.left, r.top, r.width, r.height]; })()")
+        n0 = await pg.evaluate("window.__sent.length")
+        for i in range(5):
+            await pg.mouse.move(box[0] + 40 + i * 25, box[1] + 60 + i * 9)
+        await pg.wait_for_timeout(300)
+        sent = await pg.evaluate("window.__sent.slice(%d)" % n0)
+        check("(control) with a program asking for every mouse event, moving the mouse sends reports", any(is_mouse(c) for c in sent), sent[:3])
+        # The program dies without switching the mouse off (the mock prints a prompt and nothing else), and
+        # the connection stays up: the shell's prompt must be enough to stop the reports.
+        await pg.keyboard.press("Enter")
+        await pg.wait_for_timeout(500)
+        n_died = await pg.evaluate("window.__sent.length")
+        for i in range(6):
+            await pg.mouse.move(box[0] + 60 + i * 22, box[1] + 80 + i * 8)
+        await pg.wait_for_timeout(300)
+        died = await pg.evaluate("window.__sent.slice(%d)" % n_died)
+        check("when the program dies and a shell prompt appears, the mouse reports stop", not any(is_mouse(c) for c in died), died[:3])
+        await pg.evaluate("window.__emitStatus('disconnected')")
+        await pg.wait_for_timeout(400)
+        n1 = await pg.evaluate("window.__sent.length")
+        for i in range(8):
+            await pg.mouse.move(box[0] + 50 + i * 20, box[1] + 70 + i * 7)
+            await pg.mouse.down()
+            await pg.mouse.up()
+            await pg.mouse.wheel(0, 100)
+        await pg.wait_for_timeout(400)
+        after = await pg.evaluate("window.__sent.slice(%d)" % n1)
+        check("after the session ends, moving, clicking and scrolling send no mouse bytes", not any(is_mouse(c) for c in after) and len(after) == 0, after[:3])
+
         check("no page errors", not errors, errors[:3])
         await b.close()
     print("\n%d failed" % len(failures) if failures else "\nall passed")

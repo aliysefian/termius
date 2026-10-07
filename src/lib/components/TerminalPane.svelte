@@ -37,7 +37,7 @@
   import CompletionMenu from "./CompletionMenu.svelte";
   import { completionHistory } from "$lib/completion/history";
   import CompletionOverlay from "./CompletionOverlay.svelte";
-  import { decodeOsc52, redundantMouseEnable } from "$lib/termprotocol";
+  import { MOUSE_OFF, RESET_INPUT_MODES, RESET_SESSION_MODES, decodeOsc52, mouseReportAllowed, redundantMouseEnable } from "$lib/termprotocol";
   import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
 
   let {
@@ -173,6 +173,9 @@
     if (!mark) return false;
     const rec = commands.feed(mark, cursor());
     watch.feed(mark, cursor(), term.cols);
+    // A shell is drawing its prompt, so the program that wanted the mouse is gone (it crashed or was killed
+    // without switching it off): stop reporting, or the reports are typed into the shell.
+    if (mark.kind === "prompt" && term.modes.mouseTrackingMode !== "none") term.write(MOUSE_OFF);
     if (rec) recordFinished(rec);
     if (mark.kind === "prompt" || mark.kind === "end") refreshSuggestion();
     if (rec && rec.endedAt - rec.startedAt >= NOTIFY_AFTER_MS) {
@@ -733,6 +736,8 @@
     hostKeyNotices = [];
     status = { kind: "connecting" };
     setInfo("connecting");
+    // A new or restarted session starts with every mode off, whatever the last program left on.
+    term.write(RESET_SESSION_MODES);
     term.clear();
     safeFit();
     const onData = (bytes: Uint8Array) => {
@@ -963,6 +968,12 @@
       }
       return true;
     });
+    // A soft reset (CSI ! p) leaves xterm.js's mouse tracking and bracketed paste on; switch them off too,
+    // then let xterm.js do the rest of the reset.
+    term.parser.registerCsiHandler({ intermediates: "!", final: "p" }, () => {
+      term.write(RESET_INPUT_MODES);
+      return false;
+    });
     term.parser.registerOscHandler(133, onMark);
     term.parser.registerOscHandler(7, (data) => {
       const cwd = parseOsc7(data);
@@ -1017,10 +1028,14 @@
 
     term.onData((d) => {
       if (status.kind !== "connected" || pending) return;
+      // A mouse report is only for a program that asked for them, and only while it is still there.
+      if (!mouseReportAllowed(d, term.modes.mouseTrackingMode)) return;
       typed(d);
     });
     term.onBinary((d) => {
       if (status.kind !== "connected") return;
+      // Legacy mouse reports for positions beyond column 223 come this way.
+      if (!mouseReportAllowed(d, term.modes.mouseTrackingMode)) return;
       const bytes = Uint8Array.from(d, (c) => c.charCodeAt(0));
       if (broadcast) broadcast(bytes);
       else void writeToPane(pane, bytes);
@@ -1053,6 +1068,9 @@
       const wasConnected = status.kind === "connected";
       status = e.status;
       setInfo(e.status.kind);
+      // The session is over, and so is whatever program asked for the mouse: stop reporting it, or the
+      // shell that is left (or the next one) would print the reports as text.
+      if (e.status.kind === "disconnected" || e.status.kind === "error" || e.status.kind === "host_key_changed") term.write(RESET_SESSION_MODES);
       if (e.status.kind === "connected") {
         reconnectAttempts = 0;
         safeFit();

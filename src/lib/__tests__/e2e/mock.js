@@ -10,6 +10,11 @@
   window.__lookups = lookups;
   const enc = new TextEncoder();
   const listeners = {};
+  let lastPane = null;
+  // End the session the way the backend does: a status event (the shell is not told anything).
+  window.__emitStatus = (kind) => {
+    for (const h of listeners["ssh:status"] ?? []) window["_" + h]({ event: "ssh:status", id: 0, payload: { pane_id: lastPane, status: kind === "disconnected" ? { kind, code: 0 } : { kind } } });
+  };
   let channel = null;
   let index = 0;
   let line = "";
@@ -41,6 +46,12 @@
         if (line.startsWith("sudo")) {
           mode = "secret";
           out("[sudo] password for me: ");
+          continue;
+        }
+        if (line.startsWith("mouse-on")) {
+          // A program that asks for every mouse event, in the SGR encoding, and stays running.
+          mode = "secret";
+          out("\x1b[?1003h\x1b[?1006h");
           continue;
         }
         if (line.startsWith("vim")) {
@@ -100,6 +111,7 @@
       case "ssh_connect_adhoc":
       case "local_spawn":
         channel = args.onData;
+        lastPane = args.paneId;
         if (real()) {
           await window.__ptySpawn(args.cols, args.rows);
           setTimeout(() => {
