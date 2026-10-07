@@ -171,7 +171,8 @@ pub fn list_local(dir: &str, prefix: &str, limit: Option<usize>) -> Result<Reply
     let path = if dir == "~" || dir.starts_with("~/") {
         let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).ok_or_else(|| LookupError::Invalid("no home folder".into()))?;
         std::path::PathBuf::from(home).join(dir.trim_start_matches('~').trim_start_matches('/'))
-    } else if dir.starts_with('/') {
+    } else if std::path::Path::new(dir).is_absolute() {
+        // `is_absolute`, not a leading slash: a drive path such as C:\work is absolute on Windows.
         std::path::PathBuf::from(dir)
     } else {
         return Err(LookupError::Invalid("the folder must be absolute or start with ~".into()));

@@ -4,6 +4,12 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## 0.22.1 — 2026-10-07
+
+- Fixes the Windows build of 0.22.0, whose test run failed: the folder listing for local tabs only
+  accepted paths starting with `/`, and a Windows path such as `C:\work` is absolute too. No change to the app
+  on Linux. Everything in 0.22.0 is in this release.
+
 ## 0.22.0 — 2026-10-07
 
 - **Smart completion, next steps.** `ssh`, `scp`, `sftp` and `mosh` offer your saved hosts (with the port when it
