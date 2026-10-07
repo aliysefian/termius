@@ -4,6 +4,15 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## Unreleased
+
+- **Release signing, built but not yet switched on.** Releases can now carry a GPG
+  signature on every installer and a signed `SHA256SUMS`, and the Windows build
+  verifies that its installers are validly signed before publishing. Neither
+  happens until a certificate and a key are added to the repository; see
+  `docs/SIGNING.md` (how to turn it on, and `scripts/verify-release.sh` for
+  checking a download).
+
 ## 0.20.0 — 2026-10-07
 
 - **Kubernetes.** A new tab next to Containers lists a cluster's pods through the

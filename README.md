@@ -160,7 +160,10 @@ Download the file for your system from the
 | Any Linux | `SSHVault_…_amd64.AppImage` | `chmod +x SSHVault_*.AppImage` and run it. |
 
 - **Windows:** the installers aren't code-signed yet, so SmartScreen may
-  warn: choose **More info → Run anyway**. The WebView2 runtime is already
+  warn: choose **More info → Run anyway**. Signing (Authenticode for Windows,
+  GPG signatures and checksums for every file) is built and switches on when
+  the keys are added; see [docs/SIGNING.md](docs/SIGNING.md) for how to check a
+  download. The WebView2 runtime is already
   part of Windows 10 and 11, and the installer fetches it if it's missing.
 - **Linux:** the packages need glibc 2.35 or newer (Ubuntu 22.04 and later).
 - **Updates:** new versions appear on the

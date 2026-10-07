@@ -111,6 +111,10 @@ Output goes to `src-tauri/target/release/bundle/`:
 
 ## Code signing
 
+**See `docs/SIGNING.md`** for everything about signing and verifying releases (Windows Authenticode, GPG
+signatures and checksums for every installer, how to set the keys up, and how a downloader checks a
+release). The rest of this section is the short Windows version.
+
 Builds are unsigned until you add signing secrets to the GitHub repository
 (**Settings → Secrets and variables → Actions**). The workflow picks them up
 by itself. Without them, it keeps building unsigned installers.

@@ -80,6 +80,11 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
+      # The scripts that sign releases are tried with a throw-away key on every push.
+      - name: Test the release signing scripts
+        if: runner.os == 'Linux'
+        run: scripts/test-signing.sh
+
       # The frontend is the same on every OS; check it once.
       - name: Type-check frontend
         if: runner.os == 'Linux'
@@ -123,6 +128,7 @@ jobs:
               src-tauri/target/release/bundle/msi/*.msi.sig
               src-tauri/target/release/bundle/nsis/*.exe
               src-tauri/target/release/bundle/nsis/*.exe.sig
+              src-tauri/target/release/bundle/windows-signature.txt
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
 
@@ -235,6 +241,28 @@ jobs:
         # --verbose shows linuxdeploy's own output if AppImage bundling fails.
         run: pnpm tauri build --verbose ${SIGN_CONFIG:+--config "$SIGN_CONFIG"} ${UPDATER_CONFIG:+--config "$UPDATER_CONFIG"}
 
+      # When the build was told to sign, an installer that is not validly signed fails the build, instead of
+      # shipping with a warning. Whether it was signed is written down for the release notes.
+      - name: Verify Windows signatures
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $out = "src-tauri/target/release/bundle/windows-signature.txt"
+          if (-not $env:SIGN_CONFIG) {
+            Set-Content -Path $out -Value "unsigned"
+            Write-Output "Built without a signing certificate: nothing to verify."
+            exit 0
+          }
+          $bad = 0
+          $subject = ""
+          Get-ChildItem -Path "src-tauri/target/release/bundle" -Recurse -Include *.msi, *-setup.exe | ForEach-Object {
+            $sig = Get-AuthenticodeSignature -FilePath $_.FullName
+            Write-Output "$($_.Name): $($sig.Status) ($($sig.SignerCertificate.Subject))"
+            if ($sig.Status -ne "Valid") { $bad = 1 } else { $subject = $sig.SignerCertificate.Subject }
+          }
+          if ($bad -ne 0) { Write-Error "An installer is not validly signed."; exit 1 }
+          Set-Content -Path $out -Value "Valid: $subject"
+
       - name: Upload bundles
         uses: actions/upload-artifact@v7
         with:
@@ -253,6 +281,8 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v7 # for scripts/sign-release.sh
+
       - uses: actions/download-artifact@v8
         with:
           path: dist
@@ -308,6 +338,28 @@ jobs:
           find dist -type f -printf '%f  %s bytes\n' | sort
           exit $missing
 
+      # Signed with GPG once the key is added (see docs/SIGNING.md); without it the release is as before.
+      - name: Sign installers and checksums
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          if [ -z "$GPG_PRIVATE_KEY" ]; then
+            echo "No GPG_PRIVATE_KEY secret: this release is not GPG-signed."
+            exit 0
+          fi
+          export GNUPGHOME="$RUNNER_TEMP/gnupg"
+          mkdir -m 700 "$GNUPGHOME"
+          printf '%s\n' "$GPG_PRIVATE_KEY" | gpg --batch --quiet --import
+          fpr=$(gpg --batch --list-secret-keys --with-colons | awk -F: '/^fpr/ {print $10; exit}')
+          [ -n "$fpr" ] || { echo "::error::The GPG key could not be read"; exit 1; }
+          GPG_KEY_ID="$fpr" scripts/sign-release.sh dist
+          gpg --batch --armor --export "$fpr" > dist/sshvault-release.asc
+          # The check a downloader does, run here too: a release that does not verify is not published.
+          mkdir flat && find dist -type f -exec cp {} flat/ \;
+          scripts/verify-release.sh flat flat/sshvault-release.asc
+          echo "GPG_FPR=$fpr" >> "$GITHUB_ENV"
+
       - name: Write download instructions
         env:
           TAG: ${{ github.ref_name }}
@@ -325,7 +377,17 @@ jobs:
             echo "| Fedora, RHEL, openSUSE | \`$(file '*.rpm')\` |"
             echo "| Any Linux (no install, updates itself) | \`$(file '*.AppImage')\` |"
             echo
-            echo "Installers aren't code-signed yet, so Windows SmartScreen may warn on first launch: choose **More info → Run anyway**."
+            win=$(cat "$(find dist -name windows-signature.txt | head -1)" 2>/dev/null || echo unsigned)
+            rm -f dist/*/windows-signature.txt dist/windows-signature.txt
+            case "$win" in
+              Valid:*) echo "The Windows installers are signed with Authenticode (${win#Valid: })." ;;
+              *) echo "The Windows installers aren't code-signed yet, so SmartScreen may warn on first launch: choose **More info → Run anyway**." ;;
+            esac
+            if [ -n "${GPG_FPR:-}" ]; then
+              echo "Every installer also has a GPG signature (\`.asc\`), and \`SHA256SUMS\` is signed too. The key is \`sshvault-release.asc\`, fingerprint \`${GPG_FPR}\`. Check with \`scripts/verify-release.sh\` (see docs/SIGNING.md)."
+            else
+              echo "The Linux packages aren't GPG-signed yet."
+            fi
             echo "For the AppImage: \`chmod +x SSHVault_${v}_amd64.AppImage\` and run it."
             echo
             echo "\`.sig\` files and \`latest.json\` (if present) are for automatic updates; you don't need to download them."

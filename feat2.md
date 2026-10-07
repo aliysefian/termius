@@ -118,7 +118,7 @@ is started, as `feat.md` does.
 
 ### 4.1 Release and trust
 
-- **R1 Code signing** (P1, M). Windows installers trigger SmartScreen; Linux
+- **R1 Code signing** (P1, M). **Base built (see `docs/SIGNING.md`); waiting for a certificate and a GPG key.** Windows installers trigger SmartScreen; Linux
   packages are not signed. Termius, Warp, Tabby and Royal TS all ship signed.
   *Done:* an Authenticode-signed `.msi`/`.exe` (certificate or a signing
   service), signed `.deb`/`.rpm` or an apt/yum repository with a published key,
