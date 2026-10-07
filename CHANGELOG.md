@@ -4,6 +4,20 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## 0.18.0 — 2026-10-07
+
+- **A new look for the sidebar and a new logo.** The left rail has seven labelled
+  icons in groups (Hosts and Favorites; Snippets, Files and Tunnels; Databases and
+  Containers). Groups and proxies, Keys, Credentials, Known hosts and the Vault are
+  under **Manage**. The app icon, favicon and unlock screen carry the new
+  shield-and-prompt logo.
+- **Tidier forms and lists.** The host form's tabs and option cards are spaced
+  properly, the host list filters by environment with buttons instead of a
+  cut-off drop-down, and **Duplicate** on a host asks before copying it.
+- **A little motion.** Dialogs, notices and the Manage menu ease in, and empty
+  screens have small illustrations. Turning on reduced motion in your system
+  turns it all off.
+
 ## 0.17.0 — 2026-10-06
 
 - **Smart completion** (off by default; Settings → Terminal). A faint suggestion
