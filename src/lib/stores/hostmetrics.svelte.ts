@@ -8,6 +8,8 @@ import { vaultStore } from "$lib/stores/vault.svelte";
 import { METRICS_SCRIPT, parseMetricsOutput, type HostMetrics } from "$lib/hostmetrics";
 import type { HostDetail } from "$lib/hostdetail";
 import { addSample, fromDetail, fromSummary, type Sample } from "$lib/hosthistory";
+import { settings } from "$lib/stores/settings.svelte";
+import { KEEP_MS, fold, idbStore, toSamples, within, type ArchiveStore, type Bucket } from "$lib/ops/archive";
 import type { Uuid } from "$lib/types";
 
 const MONITORED_KEY = "sshvault.monitored.v1";
@@ -47,6 +49,12 @@ class HostMetricsStore {
   history = $state<Record<Uuid, Sample[]>>({});
   #timer: ReturnType<typeof setInterval> | undefined;
   #polling = false;
+  /** Whoever wants to know about each summary reading (the alerts). */
+  listeners: ((hostId: Uuid, metrics: HostMetrics, at: number) => void)[] = [];
+  /** The kept history, per host, loaded the first time it is needed and saved a minute after it changes. */
+  #archive = new Map<Uuid, Bucket[]>();
+  #saving = new Map<Uuid, ReturnType<typeof setTimeout>>();
+  store: ArchiveStore = idbStore;
 
   constructor() {
     $effect.root(() => {
@@ -57,6 +65,10 @@ class HostMetricsStore {
           this.history = {};
           this.readings = {};
         }
+      });
+      // Turning "keep history" off deletes what was kept.
+      $effect(() => {
+        if (settings.prefs.metricsKeep === "off") void this.clearArchive();
       });
       $effect(() => {
         const anyOn = vaultStore.unlocked && Object.values(this.monitored).some(Boolean);
@@ -71,9 +83,50 @@ class HostMetricsStore {
     });
   }
 
-  /** Add a reading to a host's history. */
+  /** Add a reading to a host's history, and to the kept history if the person asked for one. */
   record(id: Uuid, sample: Sample) {
     this.history[id] = addSample(this.history[id] ?? [], sample);
+    const keep = settings.prefs.metricsKeep;
+    if (keep !== "off") void this.#keep(id, sample, KEEP_MS[keep]);
+  }
+
+  async #buckets(id: Uuid): Promise<Bucket[]> {
+    let b = this.#archive.get(id);
+    if (!b) {
+      b = await this.store.load(id);
+      // A reading may have been folded in while this was loading; keep that.
+      this.#archive.set(id, this.#archive.get(id) ?? b);
+      b = this.#archive.get(id)!;
+    }
+    return b;
+  }
+
+  async #keep(id: Uuid, sample: Sample, keepMs: number) {
+    const before = await this.#buckets(id);
+    this.#archive.set(id, fold(before, sample, keepMs));
+    if (!this.#saving.has(id)) {
+      this.#saving.set(
+        id,
+        setTimeout(() => {
+          this.#saving.delete(id);
+          void this.store.save(id, this.#archive.get(id) ?? []);
+        }, 60_000),
+      );
+    }
+  }
+
+  /** What was kept for a host over the last `windowMs`, as chart samples. Empty if nothing is kept. */
+  async archived(id: Uuid, windowMs: number): Promise<Sample[]> {
+    if (settings.prefs.metricsKeep === "off") return [];
+    return toSamples(within(await this.#buckets(id), Date.now(), windowMs));
+  }
+
+  /** Delete everything kept, here and on disk. */
+  async clearArchive() {
+    for (const t of this.#saving.values()) clearTimeout(t);
+    this.#saving.clear();
+    this.#archive.clear();
+    await this.store.clear();
   }
 
   /** A reading from the detail view: CPU, memory and network throughput. */
@@ -115,6 +168,7 @@ class HostMetricsStore {
             const metrics = parseMetricsOutput(e.output.stdout);
             this.readings[e.host_id] = { metrics, error: null, at: Date.now() };
             this.record(e.host_id, fromSummary(metrics, Date.now()));
+            for (const l of this.listeners) l(e.host_id, metrics, Date.now());
           } else if (e.event === "failed") this.readings[e.host_id] = { metrics: null, error: e.message, at: Date.now() };
         },
       );

@@ -427,4 +427,10 @@ export const monitor = {
   exec: (sessionId: Uuid, script: string, timeoutSecs: number) =>
     invoke<{ stdout: string; stderr: string; code: number | null }>("monitor_exec", { sessionId, script, timeoutSecs }),
   close: (sessionId: Uuid) => invoke<void>("monitor_close", { sessionId }),
+  /** Follow a script's output (logs). Resolves to an id for `streamStop`; events arrive until an "end". */
+  streamStart(sessionId: Uuid, script: string, onEvent: (e: ContainerLogEvent) => void) {
+    const channel = new Channel<ContainerLogEvent>(onEvent);
+    return invoke<Uuid>("monitor_stream_start", { sessionId, script, onEvent: channel });
+  },
+  streamStop: (streamId: Uuid) => invoke<void>("monitor_stream_stop", { streamId }),
 };

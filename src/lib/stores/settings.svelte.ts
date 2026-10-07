@@ -71,6 +71,22 @@ export interface Prefs {
   acOptions: boolean;
   /** Look up remote file names over an extra SSH channel. */
   acRemotePaths: boolean;
+  /** Tell me when a monitored host stops answering or runs hot. Off until switched on. */
+  alerts: boolean;
+  alertDown: boolean;
+  /** Percent limits; 0 turns one off. */
+  alertCpu: number;
+  alertMem: number;
+  alertDisk: number;
+  /** Readings in a row over a limit before it counts. */
+  alertSamples: number;
+  alertQuiet: boolean;
+  alertQuietFrom: string;
+  alertQuietTo: string;
+  /** Hosts that never alert. */
+  alertMuted: string[];
+  /** Keep the monitoring charts for longer than 15 minutes, on this computer. */
+  metricsKeep: "off" | "day" | "week";
   /** System notification when a long command finishes in a background tab. */
   notifyBackground: boolean;
   /** Hide the activity bar, list panel, tab strip and pane headers. */
@@ -145,6 +161,17 @@ export const DEFAULT_PREFS: Prefs = {
   acSnippets: true,
   acOptions: true,
   acRemotePaths: true,
+  alerts: false,
+  alertDown: true,
+  alertCpu: 90,
+  alertMem: 90,
+  alertDisk: 90,
+  alertSamples: 3,
+  alertQuiet: false,
+  alertQuietFrom: "22:00",
+  alertQuietTo: "07:00",
+  alertMuted: [],
+  metricsKeep: "off",
   notifyBackground: true,
   focusMode: false,
   density: "comfortable",

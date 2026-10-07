@@ -10,6 +10,7 @@
     FolderTree,
     KeyRound,
     LayoutGrid,
+    Wrench,
     Lock,
     PanelLeftClose,
     PanelLeftOpen,
@@ -25,6 +26,7 @@
   import { vaultStore } from "$lib/stores/vault.svelte";
   import { settings } from "$lib/stores/settings.svelte";
   import { updates } from "$lib/stores/updates.svelte";
+  import { alerts } from "$lib/stores/alerts.svelte";
 
   type Item = { view: View; label: string; icon: typeof Server; hint?: string };
 
@@ -43,6 +45,7 @@
     [
       { view: "databases", label: "Databases", icon: Database },
       { view: "containers", label: "Containers", icon: Container },
+      { view: "ops", label: "Ops", icon: Wrench },
     ],
   ];
 
@@ -124,6 +127,9 @@
         {/if}
         <item.icon size={19} />
         <span class="text-[10px] font-medium leading-none">{item.label}</span>
+        {#if item.view === "ops" && alerts.unread > 0}
+          <span class="absolute right-2 top-1.5 h-2 w-2 rounded-full bg-danger" title="{alerts.unread} new alert{alerts.unread === 1 ? '' : 's'}"></span>
+        {/if}
       </button>
     {/each}
   {/each}

@@ -7,9 +7,10 @@
   import * as api from "$lib/api";
   import { ask } from "$lib/dialogs.svelte";
   import { DETAIL_SCRIPT, formatBytes, formatRate, killScript, parseDetailOutput, parseKillOutput, sortProcesses, type HostDetail, type ProcessInfo, type ProcessSort } from "$lib/hostdetail";
-  import { clock } from "$lib/hosthistory";
+  import { GAP_MS, HISTORY_MS, clock, type Sample } from "$lib/hosthistory";
   import { formatUptime } from "$lib/hostmetrics";
   import { hostMetrics } from "$lib/stores/hostmetrics.svelte";
+  import { settings } from "$lib/stores/settings.svelte";
   import { ui } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
   import { errorMessage, isApiError, type Uuid } from "$lib/types";
@@ -40,7 +41,31 @@
   let signalling = $state<Record<number, boolean>>({});
   let closed = false;
 
-  const samples = $derived(hostMetrics.history[id] ?? []);
+  // How far back the charts reach: the live 15 minutes, or what was kept (Settings → Alerts and monitoring history).
+  const RANGES = [
+    { id: "live", label: "15 min", ms: HISTORY_MS },
+    { id: "day", label: "24 h", ms: 24 * 3600_000 },
+    { id: "week", label: "7 days", ms: 7 * 24 * 3600_000 },
+  ] as const;
+  let range = $state<(typeof RANGES)[number]["id"]>("live");
+  const keep = $derived(settings.prefs.metricsKeep);
+  const rangeOk = (r: (typeof RANGES)[number]["id"]) => r === "live" || (keep === "week") || (keep === "day" && r === "day");
+  const windowMs = $derived(RANGES.find((r) => r.id === range)!.ms);
+  let kept = $state<Sample[]>([]);
+  $effect(() => {
+    if (range === "live" || !rangeOk(range)) {
+      kept = [];
+      return;
+    }
+    // Reload as the live readings come in; the archive takes a few seconds to fold a new one in.
+    hostMetrics.history[id]?.length;
+    void hostMetrics.archived(id, windowMs).then((s) => (kept = s));
+  });
+  $effect(() => {
+    if (!rangeOk(range)) range = "live";
+  });
+  const samples = $derived(range === "live" ? (hostMetrics.history[id] ?? []) : kept);
+  const gapMs = $derived(range === "live" ? GAP_MS : 5 * 60_000);
   const monitored = $derived(hostMetrics.isMonitored(id));
 
   async function connect() {
@@ -226,11 +251,19 @@
               </tbody>
             </table>
           {:else}
+            <div class="mb-2 flex items-center gap-2 text-xs">
+              <div class="flex gap-0.5 rounded-md border border-line bg-base p-0.5" role="group" aria-label="Time range">
+                {#each RANGES as r (r.id)}
+                  <button class="rounded px-2 py-0.5 {range === r.id ? 'bg-accent text-white' : rangeOk(r.id) ? 'text-fg-muted hover:text-fg' : 'cursor-not-allowed text-fg-muted/40'}" disabled={!rangeOk(r.id)} aria-pressed={range === r.id} onclick={() => (range = r.id)}>{r.label}</button>
+                {/each}
+              </div>
+              {#if keep === "off"}<span class="text-fg-muted">Longer ranges: Settings → Alerts and monitoring history.</span>{/if}
+            </div>
             <div class="grid gap-3 lg:grid-cols-2">
-              <HostChart title="CPU" {samples} {now} unit="percent" series={[{ key: "cpu", label: "CPU", slot: 1 }]} empty={detail.cpuPct === null && !monitored ? "Turn on monitoring for this host to chart CPU" : "Collecting readings…"} />
-              <HostChart title="Memory" {samples} {now} unit="percent" series={[{ key: "mem", label: "Memory", slot: 1 }]} empty={detail.memPct === null && !monitored ? "Turn on monitoring for this host to chart memory" : "Collecting readings…"} />
+              <HostChart title="CPU" {samples} {now} {windowMs} {gapMs} unit="percent" series={[{ key: "cpu", label: "CPU", slot: 1 }]} empty={detail.cpuPct === null && !monitored ? "Turn on monitoring for this host to chart CPU" : "Collecting readings…"} />
+              <HostChart title="Memory" {samples} {now} {windowMs} {gapMs} unit="percent" series={[{ key: "mem", label: "Memory", slot: 1 }]} empty={detail.memPct === null && !monitored ? "Turn on monitoring for this host to chart memory" : "Collecting readings…"} />
               <div class="lg:col-span-2">
-                <HostChart title="Network, all interfaces except loopback" {samples} {now} unit="rate" series={[{ key: "rx", label: "Received", slot: 1 }, { key: "tx", label: "Sent", slot: 2 }]} />
+                <HostChart title="Network, all interfaces except loopback" {samples} {now} {windowMs} {gapMs} unit="rate" series={[{ key: "rx", label: "Received", slot: 1 }, { key: "tx", label: "Sent", slot: 2 }]} />
               </div>
             </div>
             {#if (detail.cpuPct === null || detail.memPct === null) && !monitored}

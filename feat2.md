@@ -297,18 +297,18 @@ Already planned in `feat.md` (F3 SMB, F4 WebDAV, F5 S3, F6 ZMODEM). New needs:
   This needs a stable, sandboxed API first; do not start until the core
   features above settle.
 
-### 4.10 Monitoring and operations
+### 4.10 Monitoring and operations (built in 0.19.0)
 
 `feat.md` M1 covers per-host charts and processes. Needs beyond it:
 
-- **O1 Alerts** (P2, M). Notify when a host goes down or a threshold is crossed,
+- **O1 Alerts** ✓ (P2, M). Notify when a host goes down or a threshold is crossed,
   while the app runs; quiet hours; per host or group.
-- **O2 Log viewer** (P2, M). `journalctl -f` and `tail -f` over several hosts at
+- **O2 Log viewer** ✓ (P2, M). `journalctl -f` and `tail -f` over several hosts at
   once, with filter, highlight (TB2) and pause. The containers view has the
   single-container version.
-- **O3 Service manager** (P2, S). List systemd units, start, stop, restart,
+- **O3 Service manager** ✓ (P2, S). List systemd units, start, stop, restart,
   with the destructive-action guard on production.
-- **O4 History that survives** (P3, S). Keep the 15-minute charts for a day or a
+- **O4 History that survives** ✓ (P3, S). Keep the 15-minute charts for a day or a
   week on disk, optionally.
 
 ### 4.11 Databases and containers

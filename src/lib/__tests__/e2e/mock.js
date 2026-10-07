@@ -4,6 +4,7 @@
 // a line on Enter, and records every byte the terminal sends it in window.__sent.
 (() => {
   let cbId = 1;
+  let monitorId = 0;
   const sent = [];
   window.__sent = sent;
   const lookups = [];
@@ -90,6 +91,30 @@
       case "plugin:event|listen":
         (listeners[args.event] ??= []).push(args.handler);
         return args.handler;
+      case "monitor_open": return "m-" + (++monitorId);
+      case "monitor_close": return null;
+      case "monitor_exec": {
+        window.__execs = [...(window.__execs ?? []), args.script];
+        if (args.script.includes("list-units")) return { stdout: window.__unitsOut ?? "", stderr: "", code: 0 };
+        if (args.script.includes("systemctl status")) return { stdout: "● nginx.service - web\n   Active: active (running)", stderr: "", code: 0 };
+        if (args.script.includes("systemctl ")) return { stdout: "", stderr: "", code: window.__actionCode ?? 0 };
+        return { stdout: "", stderr: "", code: 0 };
+      }
+      case "monitor_stream_start": {
+        window.__streams = [...(window.__streams ?? []), args.script];
+        const ch = args.onEvent;
+        let idx = 0;
+        const emit = (m) => window["_" + ch.id]({ index: idx++, message: m });
+        const id = "stream-" + (++monitorId);
+        const lines = ["Oct 07 10:00:01 web sshd[1]: Accepted publickey for ops", "Oct 07 10:00:02 web nginx[2]: [warn] slow upstream", "Oct 07 10:00:03 web app[3]: ERROR database timeout", "Oct 07 10:00:04 web app[3]: started"];
+        setTimeout(() => emit({ event: "chunk", text: lines.slice(0, 2).join("\r\n") + "\r\n" + lines[2].slice(0, 20) }), 50);
+        setTimeout(() => emit({ event: "chunk", text: lines[2].slice(20) + "\r\n" + lines[3] + "\r\n" }), 150);
+        window.__stopStream = () => emit({ event: "end", code: null, error: null });
+        return id;
+      }
+      case "monitor_stream_stop":
+        window.__stopStream?.();
+        return null;
       case "completion_lookup": {
         lookups.push(JSON.parse(JSON.stringify(args)));
         const r = args.request;

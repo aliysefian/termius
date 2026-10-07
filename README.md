@@ -84,6 +84,11 @@ Linux and Windows · Built with Rust, Tauri, Svelte and xterm.js
   separate Force kill, listening ports with their owners, and interfaces
   with addresses and state; macOS and BSD show what they can
 
+- Operations: follow logs on several hosts at once with filters and highlighting,
+  manage systemd services (with a typed-name guard on production), and optional
+  alerts for hosts that stop answering or run hot; monitoring charts can be kept
+  for a day or a week
+
 ### Databases
 - Browse and query MySQL, MariaDB and PostgreSQL from the same app: saved connections
   (password in the vault), a tree of databases, tables, columns and indexes,

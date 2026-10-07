@@ -158,6 +158,16 @@ export function timeLabel(minutesAgo: number): string {
   return minutesAgo === 0 ? "now" : `−${minutesAgo} min`;
 }
 
+/** An axis label for `ms` ago, in the unit that fits: minutes, hours or days. */
+export function agoLabel(ms: number): string {
+  if (ms <= 0) return "now";
+  const min = Math.round(ms / 60_000);
+  if (min < 90) return `−${min} min`;
+  const h = Math.round(ms / 3_600_000);
+  if (h < 48) return `−${h} h`;
+  return `−${Math.round(ms / 86_400_000)} d`;
+}
+
 /** The clock time of a sample, for a tooltip or a table row. */
 export function clock(t: number): string {
   return new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });

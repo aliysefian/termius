@@ -49,6 +49,7 @@
 
   const searching = $derived(!!searchQuery.trim());
 
+  const OPS_KEYWORDS = "alerts alert notify notification host down cpu memory disk threshold quiet hours mute monitoring history charts keep week day operations";
   const SMART_COMPLETION_KEYWORDS = "smart completion autocomplete auto complete suggestions suggest ghost inline tab history snippets options paths";
 
   // Mirrors the keyword strings each section's `visible()` guard uses, just
@@ -60,6 +61,7 @@
     "layout density compact comfortable focus mode shortcuts",
     "local terminal shell bash zsh fish powershell wsl start folder cwd",
     SMART_COMPLETION_KEYWORDS,
+    OPS_KEYWORDS,
     "connections auto-reconnect notify background command history remember restore session reopen tabs last time production paste trailing newline",
     "command line cli scripting sshvault run list connect",
     "shell integration osc 133 7 prompt directory",
@@ -591,6 +593,56 @@ sshvault run web-01 db-01 --json -- df -h /</pre>
         <strong>Remember the commands I run on each host</strong> (above) is on. Commands that look like they contain a password or token, and
         commands you start with a space, are never suggested. Production hosts use history only unless the host says otherwise.
       </p>
+    </section>
+    {/if}
+
+    {#if visible("integrations", OPS_KEYWORDS)}
+    <section class="rounded-xl border border-line bg-panel p-5">
+      <h2 class="mb-1 text-sm font-semibold">Alerts and monitoring history</h2>
+      <p class="mb-3 text-xs text-fg-muted">
+        Alerts watch the hosts you turned monitoring on for (Fleet), and only while this app is open. They show a notice, an operating-system
+        notification when the window is behind others, and a list under Operations. Nothing leaves this computer.
+      </p>
+      <label class="flex items-start gap-2 text-sm">
+        <input type="checkbox" class="mt-0.5 accent-input" bind:checked={settings.prefs.alerts} />
+        <span>Tell me when a monitored host has a problem<span class="block text-xs text-fg-muted">Off until you switch it on.</span></span>
+      </label>
+      <div class="ml-6 mt-3 space-y-3 {settings.prefs.alerts ? '' : 'opacity-50'}">
+        <label class="flex items-center gap-2 text-sm"><input type="checkbox" class="accent-input" disabled={!settings.prefs.alerts} bind:checked={settings.prefs.alertDown} /> A host stops answering (two checks in a row, a minute apart)</label>
+        <div class="grid grid-cols-3 gap-3">
+          {#each [["alertCpu", "CPU over"], ["alertMem", "Memory over"], ["alertDisk", "Disk over"]] as [key, label] (key)}
+            <div>
+              <label class="label" for="al-{key}">{label} (%)</label>
+              <input id="al-{key}" class="input" type="number" min="0" max="100" disabled={!settings.prefs.alerts} bind:value={settings.prefs[key as "alertCpu" | "alertMem" | "alertDisk"]} />
+            </div>
+          {/each}
+        </div>
+        <p class="-mt-1 text-xs text-fg-muted">0 turns a limit off. A reading must stay over it for</p>
+        <div class="flex items-center gap-2 text-sm">
+          <input class="input w-20" type="number" min="1" max="20" disabled={!settings.prefs.alerts} bind:value={settings.prefs.alertSamples} aria-label="Readings in a row" />
+          <span class="text-xs text-fg-muted">readings in a row (30 seconds apart) before it counts.</span>
+        </div>
+        <div class="flex flex-wrap items-center gap-2 text-sm">
+          <label class="flex items-center gap-2"><input type="checkbox" class="accent-input" disabled={!settings.prefs.alerts} bind:checked={settings.prefs.alertQuiet} /> Quiet hours, from</label>
+          <input class="input w-28" type="time" disabled={!settings.prefs.alerts || !settings.prefs.alertQuiet} bind:value={settings.prefs.alertQuietFrom} aria-label="Quiet from" />
+          <span>to</span>
+          <input class="input w-28" type="time" disabled={!settings.prefs.alerts || !settings.prefs.alertQuiet} bind:value={settings.prefs.alertQuietTo} aria-label="Quiet until" />
+          <span class="text-xs text-fg-muted">Alerts still reach the list, but nothing pops up.</span>
+        </div>
+      </div>
+
+      <div class="mt-5 border-t border-line pt-4">
+        <label class="label" for="keep">Keep the monitoring charts for</label>
+        <select id="keep" class="input w-64" bind:value={settings.prefs.metricsKeep}>
+          <option value="off">15 minutes (in memory only)</option>
+          <option value="day">A day, on this computer</option>
+          <option value="week">A week, on this computer</option>
+        </select>
+        <p class="mt-1 text-xs text-fg-muted">
+          Kept as one-minute averages of CPU, memory and network, in this app's storage on this computer; never synced and not encrypted.
+          Choosing 15 minutes deletes what was kept.
+        </p>
+      </div>
     </section>
     {/if}
 

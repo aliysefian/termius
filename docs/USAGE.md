@@ -384,6 +384,39 @@ Without it the app follows your keystrokes and checks them against the screen,
 and shows nothing when they disagree. PowerShell and cmd have no integration
 yet, so they get no suggestions.
 
+## Operations: logs, services and alerts
+
+**Ops** in the sidebar (or *Go to Operations* in the command palette) has three tabs. All of
+them use a second connection to each host, made with its saved credentials, so they never
+ask for a password and nothing is installed on the host.
+
+- **Logs.** Tick one or more hosts, choose the system journal (a unit, a priority and
+  above, or the kernel) or a log file, and press **Follow**. Lines from all the hosts arrive
+  in one list, tagged by host. Filter by text (or a regular expression), by level (error,
+  warning, info, debug: guessed from the words in the line) or by host; matches are
+  highlighted; **Pause** freezes the view while lines keep arriving; copy what is shown. Only the
+  newest 5,000 lines are kept. The unit and the file path reach the host as one quoted
+  word, never as part of a command. The journal needs a user who may read it.
+- **Services.** Pick a host to list its systemd services with state and whether they
+  start at boot. Start, stop, restart, reload, enable or disable one; read its status; jump
+  to its log. Anything that needs root can use **sudo**, which works only where sudo
+  asks no password (`sudo -n`), and fails at once where it does. On a production host
+  stopping, restarting or disabling asks you to type the host's name first. Hosts
+  without systemd say so.
+- **Alerts.** Off until you turn them on in **Settings → Alerts and monitoring
+  history**. They watch the hosts you turned monitoring on for (Fleet) while the app is
+  open: a host that stops answering (two checks in a row, a minute apart), and CPU, memory
+  or disk over a limit for several readings in a row, each with a message when it is back
+  to normal. They show a notice, an operating-system notification when the window isn't in
+  front, and a list on the Alerts tab. Quiet hours keep alerts off the screen (they still
+  reach the list); any host can be muted. Alerts are not saved and nothing leaves this
+  computer, and they do not run when the app is closed.
+
+**Longer charts.** The monitoring charts show the last 15 minutes. Under **Settings →
+Alerts and monitoring history** you can keep one-minute averages for a day or a week
+instead; the host's detail view then offers 24 h and 7 days. They are stored on this
+computer, not synced, and not encrypted; choosing 15 minutes again deletes them.
+
 ## Quick connect and the command palette
 
 Press **Ctrl+Shift+T**, or the **+** next to the tabs, and type

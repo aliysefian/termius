@@ -3601,6 +3601,23 @@ pub async fn monitor_exec(
     Ok(state.monitors.exec(session_id, &script, timeout).await?)
 }
 
+/// Follow a script's output on a watched host (logs). Events arrive on `on_event`; the returned id stops it.
+#[tauri::command]
+pub fn monitor_stream_start(
+    state: State<'_, AppState>,
+    session_id: Uuid,
+    script: String,
+    on_event: Channel<crate::containers::LogEvent>,
+) -> ApiResult<Uuid> {
+    let sink: Arc<dyn crate::containers::LogSink> = Arc::new(ChannelLogSink(on_event));
+    Ok(state.monitors.start_stream(session_id, &script, sink)?)
+}
+
+#[tauri::command]
+pub fn monitor_stream_stop(state: State<'_, AppState>, stream_id: Uuid) {
+    state.monitors.stop_stream(stream_id);
+}
+
 #[tauri::command]
 pub async fn monitor_close(state: State<'_, AppState>, session_id: Uuid) -> ApiResult<()> {
     state.monitors.close(session_id).await;

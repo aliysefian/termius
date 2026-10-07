@@ -1,6 +1,6 @@
 <script lang="ts">
   import { formatRate } from "$lib/hostdetail";
-  import { HISTORY_MS, areaOf, chartSegments, clock, nearestIndex, niceMax, pathOf, stepsFor, ticks, timeLabel, type Box, type Sample } from "$lib/hosthistory";
+  import { GAP_MS, HISTORY_MS, areaOf, chartSegments, clock, nearestIndex, niceMax, pathOf, stepsFor, ticks, agoLabel, type Box, type Sample } from "$lib/hosthistory";
 
   type Key = "cpu" | "mem" | "rx" | "tx";
   interface Series {
@@ -17,7 +17,9 @@
     unit,
     now,
     empty = "Collecting readings…",
-  }: { title: string; samples: Sample[]; series: Series[]; unit: "percent" | "rate"; now: number; empty?: string } = $props();
+    windowMs = HISTORY_MS,
+    gapMs = GAP_MS,
+  }: { title: string; samples: Sample[]; series: Series[]; unit: "percent" | "rate"; now: number; empty?: string; windowMs?: number; gapMs?: number } = $props();
 
   const HEIGHT = 132;
   const PAD = { left: 52, right: 10, top: 8, bottom: 22 };
@@ -31,8 +33,8 @@
   // Percent charts always run 0 to 100. Throughput scales to its own tidy maximum (never below 1 kB/s,
   // so a quiet line doesn't blow up into noise).
   const max = $derived(unit === "percent" ? 100 : niceMax(Math.max(0, ...samples.flatMap((s) => series.map((x) => s[x.key] ?? 0))), 1000));
-  const box = $derived<Box>({ width: plotW, height: plotH, from: now - HISTORY_MS, to: now, max });
-  const lines = $derived(series.map((s) => ({ ...s, segments: chartSegments(samples, pick(s.key), box) })));
+  const box = $derived<Box>({ width: plotW, height: plotH, from: now - windowMs, to: now, max });
+  const lines = $derived(series.map((s) => ({ ...s, segments: chartSegments(samples, pick(s.key), box, gapMs) })));
   const yTicks = $derived(ticks(max, unit === "percent" ? 4 : stepsFor(max)));
   const hasData = $derived(lines.some((l) => l.segments.length > 0));
   const fmt = (v: number | null) => (v === null ? "—" : unit === "percent" ? `${Math.round(v)}%` : formatRate(v));
@@ -99,9 +101,9 @@
           <line x1="0" x2={plotW} y1={y} y2={y} class="grid" />
           <text x="-8" {y} dy="0.32em" text-anchor="end" class="axis">{fmt(t)}</text>
         {/each}
-        {#each [15, 10, 5, 0] as m (m)}
-          {@const x = plotW - (m / 15) * plotW}
-          <text {x} y={plotH + 16} text-anchor={m === 0 ? "end" : m === 15 ? "start" : "middle"} class="axis">{timeLabel(m)}</text>
+        {#each [1, 2 / 3, 1 / 3, 0] as f (f)}
+          {@const x = plotW - f * plotW}
+          <text {x} y={plotH + 16} text-anchor={f === 0 ? "end" : f === 1 ? "start" : "middle"} class="axis">{agoLabel(f * windowMs)}</text>
         {/each}
 
         {#if lines.length === 1 && lines[0].segments.length}
@@ -132,7 +134,7 @@
 
     {#if cursor}
       <div class="tip" style="top: {PAD.top}px; {flip ? `right: ${width - PAD.left - cursorX + 10}px` : `left: ${PAD.left + cursorX + 10}px`}" role="status">
-        <div class="mb-1 text-[11px] text-fg-muted">{clock(cursor.t)}</div>
+        <div class="mb-1 text-[11px] text-fg-muted">{windowMs > 3_600_000 ? new Date(cursor.t).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : clock(cursor.t)}</div>
         {#each series as s (s.key)}
           <div class="flex items-center gap-2">
             <span class="key" style="background: var(--series-{s.slot})" aria-hidden="true"></span>

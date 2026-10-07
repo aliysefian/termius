@@ -182,6 +182,8 @@ pub fn run() {
             commands::monitor_open,
             commands::monitor_exec,
             commands::monitor_close,
+            commands::monitor_stream_start,
+            commands::monitor_stream_stop,
             commands::sftp_edit_start,
             commands::sftp_edit_stop,
             commands::sftp_open,

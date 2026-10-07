@@ -1,7 +1,8 @@
 <script lang="ts">
   import {
     Activity, Container, Database, FileOutput, History, Keyboard, SquareTerminal, ArrowLeftRight, ServerCog, Code, FileInput, FolderSync, KeyRound, Lock, Play, Plus, Server, Settings, ShieldAlert, SquareSplitHorizontal, SquareSplitVertical, Zap,
-  } from "lucide-svelte";
+      Wrench,
+} from "lucide-svelte";
   import * as api from "$lib/api";
   import { fuzzyScore } from "$lib/fuzzy";
   import { ask } from "$lib/dialogs.svelte";
@@ -180,6 +181,7 @@
       ["Go to Vault (backups, recovery, integrity)", Lock, go("vault")],
       ["Go to Security review", ShieldAlert, go("security-review")],
       ["Go to Fleet", Activity, go("fleet")],
+      ["Go to Operations (logs, services, alerts)", Wrench, go("ops")],
       ["Go to Databases", Database, go("databases")],
       ["Go to Containers", Container, go("containers")],
       ["Containers on this computer", Container, () => { ui.view = "containers"; void containers.open(LOCAL); }],

@@ -13,8 +13,10 @@ use std::time::Duration;
 use serde::Serialize;
 use uuid::Uuid;
 
-use crate::containers::transport::{shell_quote, SshShell};
-use crate::containers::ContainerError;
+use tokio::sync::oneshot;
+
+use crate::containers::transport::{shell_quote, SshShell, Utf8Chunker};
+use crate::containers::{ContainerError, LogEvent, LogSink};
 use crate::ssh::Target;
 
 /// The longest a script may run.
@@ -35,6 +37,8 @@ pub fn wrap(script: &str) -> String {
 #[derive(Default)]
 pub struct MonitorManager {
     sessions: Mutex<HashMap<Uuid, Arc<SshShell>>>,
+    /// Running streams (logs being followed): the session each belongs to, and how to stop it.
+    streams: Mutex<HashMap<Uuid, (Uuid, oneshot::Sender<()>)>>,
 }
 
 impl MonitorManager {
@@ -59,7 +63,59 @@ impl MonitorManager {
         Ok(ExecResult { stdout: out.stdout, stderr: out.stderr, code: out.code })
     }
 
+    /// Run a script and hand its output to `sink` as it arrives, until it ends or [`Self::stop_stream`]
+    /// is called. A terminal is requested on the channel, so stopping hangs the remote process up
+    /// (`journalctl -f` would otherwise keep running). The sink gets a final `End`.
+    pub fn start_stream(self: &Arc<Self>, id: Uuid, script: &str, sink: Arc<dyn LogSink>) -> Result<Uuid, ContainerError> {
+        let shell = self.get(id)?;
+        let command = wrap(script);
+        let stream_id = Uuid::new_v4();
+        let (stop_tx, stop_rx) = oneshot::channel();
+        self.streams.lock().unwrap_or_else(|p| p.into_inner()).insert(stream_id, (id, stop_tx));
+        let me = Arc::clone(self);
+        tokio::spawn(async move {
+            let chunker = Mutex::new(Utf8Chunker::default());
+            let result = shell
+                .stream(
+                    &command,
+                    |bytes| {
+                        let text = chunker.lock().unwrap_or_else(|p| p.into_inner()).push(bytes);
+                        if !text.is_empty() {
+                            sink.event(LogEvent::Chunk { text });
+                        }
+                    },
+                    stop_rx,
+                )
+                .await;
+            let rest = chunker.lock().unwrap_or_else(|p| p.into_inner()).finish();
+            if !rest.is_empty() {
+                sink.event(LogEvent::Chunk { text: rest });
+            }
+            me.streams.lock().unwrap_or_else(|p| p.into_inner()).remove(&stream_id);
+            sink.event(match result {
+                Ok(code) => LogEvent::End { code, error: None },
+                Err(e) => LogEvent::End { code: None, error: Some(e.to_string()) },
+            });
+        });
+        Ok(stream_id)
+    }
+
+    pub fn stop_stream(&self, stream_id: Uuid) {
+        if let Some((_, stop)) = self.streams.lock().unwrap_or_else(|p| p.into_inner()).remove(&stream_id) {
+            let _ = stop.send(());
+        }
+    }
+
+    pub fn stream_count(&self) -> usize {
+        self.streams.lock().unwrap_or_else(|p| p.into_inner()).len()
+    }
+
     pub async fn close(&self, id: Uuid) {
+        // Streams on this session end with it.
+        let mine: Vec<Uuid> = self.streams.lock().unwrap_or_else(|p| p.into_inner()).iter().filter(|(_, (s, _))| *s == id).map(|(k, _)| *k).collect();
+        for k in mine {
+            self.stop_stream(k);
+        }
         let s = self.sessions.lock().unwrap_or_else(|p| p.into_inner()).remove(&id);
         if let Some(s) = s {
             s.close().await;
@@ -67,6 +123,10 @@ impl MonitorManager {
     }
 
     pub async fn close_all(&self) {
+        let all_streams: Vec<Uuid> = self.streams.lock().unwrap_or_else(|p| p.into_inner()).keys().copied().collect();
+        for k in all_streams {
+            self.stop_stream(k);
+        }
         let all: Vec<Arc<SshShell>> = self.sessions.lock().unwrap_or_else(|p| p.into_inner()).drain().map(|(_, s)| s).collect();
         for s in all {
             s.close().await;
@@ -261,5 +321,75 @@ mod tests {
         assert!(matches!(m.exec(id, "true", Duration::from_secs(5)).await, Err(ContainerError::NoSession)));
         m.close_all().await;
     }
-}
 
+    // -- streaming ---------------------------------------------------------------------
+
+    struct Collect(Mutex<Vec<LogEvent>>);
+    impl LogSink for Collect {
+        fn event(&self, e: LogEvent) {
+            self.0.lock().unwrap().push(e);
+        }
+    }
+    impl Collect {
+        fn text(&self) -> String {
+            self.0.lock().unwrap().iter().filter_map(|e| if let LogEvent::Chunk { text } = e { Some(text.as_str()) } else { None }).collect()
+        }
+        fn ended(&self) -> Option<(Option<i32>, Option<String>)> {
+            self.0.lock().unwrap().iter().find_map(|e| if let LogEvent::End { code, error } = e { Some((*code, error.clone())) } else { None })
+        }
+    }
+
+    async fn wait_for(what: &str, mut cond: impl FnMut() -> bool) {
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while !cond() {
+            assert!(std::time::Instant::now() < deadline, "timed out waiting for {what}");
+            tokio::time::sleep(Duration::from_millis(30)).await;
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_followed_script_streams_until_it_ends_or_is_stopped() {
+        use crate::ssh::testutil::{spawn_sshd, target};
+        let dir = tempfile::TempDir::new().unwrap();
+        let Some(sshd) = spawn_sshd(dir.path()) else {
+            eprintln!("skipping: no usable sshd on this machine");
+            return;
+        };
+        let m = Arc::new(MonitorManager::new());
+        let id = m.open(target(&sshd, &sshd.client_key, dir.path().join("kh"))).await.unwrap();
+
+        // A script that ends by itself: its lines arrive, then End with its exit code.
+        let done = Arc::new(Collect(Mutex::new(Vec::new())));
+        m.start_stream(id, "printf 'one\\ntwo\\n'; sleep 0.2; printf 'it'\\''s three\\n'; exit 3", done.clone()).unwrap();
+        wait_for("the script to end", || done.ended().is_some()).await;
+        let text = done.text().replace('\r', "");
+        assert!(text.contains("one\ntwo\n") && text.contains("it's three\n"), "{text:?}");
+        assert_eq!(done.ended(), Some((Some(3), None)));
+        assert_eq!(m.stream_count(), 0);
+
+        // One that never ends: stopping it ends the stream, and the remote process goes with it.
+        let marker = dir.path().join("still-running");
+        let follow = Arc::new(Collect(Mutex::new(Vec::new())));
+        let script = format!("while true; do echo tick; touch {}; sleep 0.1; done", shell_quote(&marker.to_string_lossy()));
+        let sid = m.start_stream(id, &script, follow.clone()).unwrap();
+        wait_for("a few lines", || follow.text().matches("tick").count() >= 3).await;
+        assert_eq!(m.stream_count(), 1);
+        m.stop_stream(sid);
+        wait_for("the stream to end", || follow.ended().is_some()).await;
+        assert_eq!(follow.ended(), Some((None, None)));
+        assert_eq!(m.stream_count(), 0);
+        // The loop was hung up: the marker stops being touched.
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        let t1 = std::fs::metadata(&marker).unwrap().modified().unwrap();
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        assert_eq!(std::fs::metadata(&marker).unwrap().modified().unwrap(), t1, "the remote loop kept running after stop");
+
+        // Closing the session stops its streams.
+        let again = Arc::new(Collect(Mutex::new(Vec::new())));
+        m.start_stream(id, "while true; do echo x; sleep 0.1; done", again.clone()).unwrap();
+        wait_for("output", || !again.text().is_empty()).await;
+        m.close(id).await;
+        wait_for("the stream to end with the session", || again.ended().is_some()).await;
+        assert_eq!(m.stream_count(), 0);
+    }
+}
