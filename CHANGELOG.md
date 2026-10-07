@@ -4,6 +4,19 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## 0.18.1 — 2026-10-07
+
+- **Fixed: stray text like `35;2;16M35;6;15M` in the shell after a program that
+  uses the mouse (Claude Code, vim, tmux) quit or the connection dropped.** Mouse
+  reports are now sent only while a program has actually asked for them. A new
+  or restarted session, a dropped connection and a shell prompt each switch the
+  mouse (and bracketed paste, application keys and the alternate screen, where
+  they apply) back off, and a soft terminal reset (`ESC [ ! p`) now turns the
+  mouse off too.
+- **Fixed a test that failed on machines with `kubectl` but no cluster**, which
+  stopped the 0.17.0 and 0.18.0 release builds. The host lookups for kubectl
+  now give up after two seconds.
+
 ## 0.18.0 — 2026-10-07
 
 - **A new look for the sidebar and a new logo.** The left rail has seven labelled
