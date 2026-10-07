@@ -88,7 +88,7 @@ import**. Against the polished terminals (Warp, Tabby, WindTerm) it is
 
 ## 3. Suggested order: the next ten
 
-1. **R1 Sign the installers** (Windows code signing, Linux package signing).
+1. ◐ **R1 Sign the installers** (Windows code signing, Linux package signing). *Base built; waiting for a certificate and a GPG key.*
 2. **R2 macOS builds** (universal binary, notarised) and a macOS CI job.
 3. **R3 Run the UI tests in CI** and verify the real window (tauri-driver).
 4. **G1 Cloud and tool inventory import** (AWS, GCP, Azure, Hetzner, Proxmox,
@@ -96,8 +96,8 @@ import**. Against the polished terminals (Warp, Tabby, WindTerm) it is
 5. **K1 Hardware keys and biometric unlock** (FIDO2, PKCS#11, Windows Hello,
    Touch ID).
 6. **TS1 Team vaults** encrypted to several people's keys.
-7. **TB1 Command blocks** on top of the OSC 133 marks the app already reads.
-8. **TB2 Highlight and trigger rules.**
+7. ✅ **TB1 Command blocks** on top of the OSC 133 marks the app already reads. *Built in 0.21.0.*
+8. ✅ **TB2 Highlight and trigger rules.** *Built in 0.21.0.*
 9. **A1 Runbooks**: a saved sequence of steps with parameters, run on one or
    many hosts, with a history.
 10. **F-phase from `feat.md`**: S3, SMB and ZMODEM, then VNC.
@@ -184,7 +184,7 @@ is started, as `feat.md` does.
   chosen host set, update the vault, report failures. The Security review page
   already finds the passwords worth rotating.
 
-### 4.4 Terminal
+### 4.4 Terminal (built in 0.21.0; TB5, TB8 and TB9 deliberately not built)
 
 - ✅ **TB1 Command blocks** (P1, M). Warp's best idea, and the app already tracks
   OSC 133 prompt, input and end marks. Group a command with its output; fold,
@@ -229,7 +229,7 @@ is started, as `feat.md` does.
   renders programmer fonts and wide characters the way people expect.
   *Emoji and wide characters fixed with Unicode 11; ligatures not enabled.*
 
-### 4.5 Smart completion follow-ups
+### 4.5 Smart completion follow-ups (built in 0.22.0; AC-f partly)
 
 The first version shipped in 0.17.0 (`auto.md`). What it still lacks:
 
@@ -336,7 +336,7 @@ Already planned: D3 to D8 (SQLite, MSSQL, Redis, MongoDB, key browsers), C2 to C
   next to containers. kubectl is the common denominator; use it over the same
   transport.
 
-### 4.12 Everyday experience (built; see the notes under each item)
+### 4.12 Everyday experience (built in 0.21.0; see the notes under each item)
 
 - **UX1 First run** ✓ _tour, palette and sidebar steps, from the welcome dialog or the palette; 6 steps; keyboard, focus, 3 themes checked_. (P1, S). A guided start: create or open a vault, import from
   `~/.ssh/config`, connect to the first host, and a two-minute tour of the
