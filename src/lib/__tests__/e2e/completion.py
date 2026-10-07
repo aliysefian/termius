@@ -473,10 +473,14 @@ async def main():
         m = await menu(pg)
         check("with the switch off no question is sent and nothing from the host is listed", await pg.evaluate("window.__lookups.length") == 0 and not (m and any(g in ("Files", "Branches") for g in m["groups"])), m)
 
-        # a local tab has no connection to ask over
+        # a local tab has no connection to ask over: folders are listed on this computer, and nothing is sent to a host
         await session(pg, remote_on)
-        await pick_from_list("cat /etc/ho", None)
-        check("a local tab sends no question", await pg.evaluate("window.__lookups.length") == 0)
+        m = await pick_from_list("cat /etc/ho", None)
+        check("a local tab sends no question to a host", await pg.evaluate("window.__lookups.length") == 0)
+        check("a local tab lists file names from this computer", await pg.evaluate("(window.__localLookups ?? []).length") > 0 and bool(m) and "Files" in m["groups"], m)
+        await pg.evaluate("window.__localLookups = []")
+        await pick_from_list("git checkout ", None)
+        check("a local tab does not ask for branches", await pg.evaluate("(window.__localLookups ?? []).length") == 0)
 
         # a host that says no: quiet, and not asked again
         await session_ssh(pg, remote_on)
@@ -568,6 +572,29 @@ async def main():
         await pg.wait_for_timeout(400)
         after = await pg.evaluate("window.__sent.slice(%d)" % n1)
         check("after the session ends, moving, clicking and scrolling send no mouse bytes", not any(is_mouse(c) for c in after) and len(after) == 0, after[:3])
+
+        # ---- saved hosts after ssh, snippet abbreviations, tar's old style, new specs ----
+        await pg.add_init_script("""
+          window.__invoke = async (cmd) => {
+            const mk = (id, label, host, port) => ({ id, rev: 1, updated_at: 1, deleted: false, data: { label, hostname: host, port, group: '', tags: [], notes: '', identity_id: 'i1' } });
+            if (cmd === 'list_hosts') return [mk('h1', 'web-01', 'web-01.example.com', 22), mk('h2', 'web-02', '10.0.0.12', 2222)];
+            if (cmd === 'list_identities') return [{ id: 'i1', rev: 1, updated_at: 1, deleted: false, data: { label: 'ops', username: 'deploy', auth: { type: 'password', password: '' }, notes: '' } }];
+            return undefined;
+          };
+        """)
+        await session(pg, {"smartCompletion": True, "acMenu": True})
+        m = await pick_from_list("ssh we", None)
+        check("ssh lists the saved hosts", bool(m) and m["groups"][0] == "Hosts" and m["labels"][:2] == ["web-01", "web-02"], m)
+        await pg.keyboard.press("ArrowDown")
+        await pg.keyboard.press("Enter")
+        await pg.wait_for_timeout(300)
+        check("the host goes in as user@name, with its port when it is not 22", await pg.evaluate("window.__line") == "ssh -p 2222 deploy@10.0.0.12 ", await pg.evaluate("window.__line"))
+        m = await pick_from_list("dfh", None)
+        check("an abbreviation typed in full lists its snippet first", bool(m) and m["groups"][0] == "Snippets" and m["labels"][0] == "Disk usage", m)
+        m = await pick_from_list("journalctl --f", None)
+        check("a command that was written here is completed", bool(m) and "--follow" in m["labels"], m)
+        m = await pick_from_list("tar xzf a.tgz --str", None)
+        check("tar's old style is understood", bool(m) and "--strip-components" in m["labels"], m)
 
         check("no page errors", not errors, errors[:3])
         await b.close()

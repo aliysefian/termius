@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { completeLine, parseLine, walk, type Node, type Specs } from "../completion/command";
+import { completeLine, dashTarBundle, parseLine, walk, type Node, type Specs } from "../completion/command";
 
 // The committed specs, as the app will load them.
 const files = import.meta.glob<Node>("../completion/specs/*.json", { eager: true, import: "default" });
@@ -225,6 +225,35 @@ describe("what the host is asked about", () => {
     expect(at("docker rmi ").generator).toBe("docker-images");
     expect(at("kubectl get pods -n ").generator).toBe("kubectl-namespaces");
     expect(at("kubectl logs ").generator).toBe("kubectl-pods");
+    expect(at("kubectl get pods --context ").generator).toBe("kubectl-contexts");
+    expect(at("journalctl -u ng").generator).toBe("systemd-units");
+    expect(at("journalctl --unit ").generator).toBe("systemd-units");
+    expect(at("journalctl -n ").generator).toBeUndefined();
+  });
+
+  it("reads tar's old style, a bundle of letters without a dash", () => {
+    expect(at("tar xzf ").path).toBe("file");
+    expect(at("tar czf out.tgz ").path).toBe("file"); // what to put in it
+    expect(at("tar xzf a.tgz -C ").path).toBe("dir");
+    expect(at("sudo tar xf ").path).toBe("file");
+    expect(at("tar -xzf ").path).toBe("file");
+    expect(names("tar xzf a.tgz --str")).toContain("--strip-components");
+    // a word after tar that is not a bundle (a file name) is left alone
+    expect(dashTarBundle(["tar", "archive.tgz"])).toEqual(["tar", "archive.tgz"]);
+    expect(dashTarBundle(["ls", "xzf"])).toEqual(["ls", "xzf"]);
+  });
+
+  it("knows the commands that were written here rather than taken from the package", () => {
+    for (const c of ["journalctl", "apt-get", "dnf", "ip", "ss", "awk"]) expect(specs.known(c), c).toBe(true);
+    expect(names("journalctl --f")).toContain("--follow");
+    expect(names("apt-get ins")).toContain("install");
+    expect(names("dnf rep")).toContain("repolist");
+    expect(names("ip ad")).toContain("addr");
+    expect(names("ip addr ")).toContain("show");
+    expect(names("ss -")).toContain("--listening");
+    expect(names("awk -")).toContain("-F");
+    expect(names("kubectl get pods --cont")).toContain("--context");
+    expect(names("journalctl -p ")).toEqual(expect.arrayContaining(["err", "warning"]));
   });
 
   it("has no lookup where a name is not what goes", () => {

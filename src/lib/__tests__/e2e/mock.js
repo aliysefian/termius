@@ -159,7 +159,10 @@
       case "monitor_stream_stop":
         window.__stopStream?.();
         return null;
+      case "completion_lookup_local":
       case "completion_lookup": {
+        if (cmd === "completion_lookup_local") (window.__localLookups = window.__localLookups ?? []).push(JSON.parse(JSON.stringify(args)));
+        else
         lookups.push(JSON.parse(JSON.stringify(args)));
         const r = args.request;
         if (window.__lookupMode === "refuse") return Promise.reject({ code: "completion_refused", message: "the host does not allow lookups on this connection" });
@@ -208,7 +211,7 @@
       }
       case "local_shells": return [];
       case "list_snippets": return [
-        { id: "sn1", rev: 1, updated_at: 1, deleted: false, data: { label: "Disk usage", command: "df -h", description: "Free space" } },
+        { id: "sn1", rev: 1, updated_at: 1, deleted: false, data: { label: "Disk usage", command: "df -h", description: "Free space", abbreviation: "dfh" } },
         { id: "sn2", rev: 1, updated_at: 1, deleted: false, data: { label: "Tail log", command: "tail -f /var/log/{{file}}.log", description: "" } },
         { id: "sn3", rev: 1, updated_at: 1, deleted: false, data: { label: "Two lines", command: "cd /srv\nls", description: "" } },
       ];

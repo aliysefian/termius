@@ -148,3 +148,20 @@ describe("command suggestions in the list", () => {
     expect(gs.map((g) => g.title)).toEqual(["Commands", "History"]);
   });
 });
+
+describe("snippet abbreviations", () => {
+  const sn = [
+    { id: "a", label: "Checkout", command: "git checkout {{branch}}", abbreviation: "gco" },
+    { id: "b", label: "Go to config", command: "cd ~/.config" },
+  ];
+  it("typing the abbreviation in full lists its snippet first, saying what it expands", () => {
+    const r = snippetItems("gco", sn);
+    expect(r[0].id).toBe("s:a");
+    expect(r[0].detail).toContain("gco → git checkout {{branch}}");
+    expect(r[0].variables).toBe(true);
+  });
+  it("a part of it is only an ordinary match, and the whole line must be the word", () => {
+    expect(snippetItems("gc", sn).some((i) => i.detail.startsWith("gco →"))).toBe(false);
+    expect(snippetItems("git gco", sn).some((i) => i.detail.startsWith("gco →"))).toBe(false);
+  });
+});

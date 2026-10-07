@@ -4,6 +4,15 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## Unreleased
+
+- **Smart completion, next steps.** `ssh`, `scp`, `sftp` and `mosh` offer your saved hosts (with the port when it
+  isn't 22). Snippets can have an abbreviation (`gco`) that puts the snippet first when typed in full. Local
+  tabs now complete file and folder names from this computer. New command knowledge: `journalctl` (with unit
+  names from the host after `-u`), `apt-get`, `dnf`, `ip`, `ss`, `awk` and kubectl's `--context`; old-style
+  `tar xzf` is understood. Optionally (off by default, never on production hosts) it can learn from the host's own
+  shell history once per host. Settings shows which version of the command data is bundled.
+
 ## 0.21.0 — 2026-10-07
 
 - **Terminal.** *Command blocks:* with shell integration, a thin bar in the margin beside each command, green

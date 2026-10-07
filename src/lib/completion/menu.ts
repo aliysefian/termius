@@ -10,6 +10,8 @@ export interface SnippetLike {
   label: string;
   command: string;
   description?: string;
+  /** Typing exactly this offers the snippet first. */
+  abbreviation?: string;
 }
 
 export interface MenuItem {
@@ -89,6 +91,25 @@ export function snippetItems(text: string, snippets: SnippetLike[]): MenuItem[] 
   const scored: { item: MenuItem; s: number }[] = [];
   for (const sn of snippets) {
     if (sn.command.includes("\n") || !sn.command.trim()) continue;
+    const names0 = promptedVariables(sn.command);
+    // The abbreviation typed in full comes before everything else.
+    if (sn.abbreviation && text.trim() === sn.abbreviation) {
+      scored.push({
+        s: 10_000,
+        item: {
+          id: `s:${sn.id}`,
+          kind: "snippet",
+          group: "Snippets",
+          label: sn.label,
+          labelHit: [],
+          detail: `${sn.abbreviation} → ${names0.length ? `${firstLine(sn.command)} · asks for ${names0.join(", ")}` : firstLine(sn.command)}`,
+          detailHit: [],
+          insert: sn.command,
+          variables: names0.length > 0,
+        },
+      });
+      continue;
+    }
     const byLabel = fuzzyScore(text, sn.label);
     const byCommand = fuzzyScore(text, sn.command);
     if (byLabel === null && byCommand === null) continue;

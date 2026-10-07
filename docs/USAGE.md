@@ -385,9 +385,35 @@ a command, so a file named `$(rm -rf ~)` is just a name. A lookup is capped at
 500 names and three seconds, and a listing that was cut says so. If the host
 won't open another channel (`MaxSessions 1`, exec turned off) the app stops
 asking for that session and nothing else is affected. Relative paths need the
-shell to report its folder (see shell integration below). Local tabs, Mosh,
-Telnet and serial consoles have no connection to ask over, so they get history,
-snippets and command options but not file names.
+shell to report its folder (see shell integration below). Local tabs list file
+and folder names on this computer (nothing is sent anywhere, and the named
+lists such as branches and units are not offered there). Mosh, Telnet and
+serial consoles have no connection to ask over, so they get history, snippets
+and command options but not file names.
+
+**Your saved hosts.** After `ssh`, `scp`, `sftp` or `mosh`, the list offers the
+hosts in your vault whose name matches, and puts `user@host` on the line (with
+`-p 2222` in front when the port isn't 22; for `scp`, `user@host:`). Only SSH
+hosts, and only names that are safe to type, are offered. Nothing is asked of
+any host for this.
+
+**Abbreviations.** Give a snippet an *Abbreviation* (one word, such as `gco`).
+Typing it in full and opening the list puts that snippet first. Nothing is
+expanded until you accept it.
+
+**Learning from the host's own history.** Under Settings → Smart completion,
+*Learn from the host's own shell history* (off by default, and never on
+production hosts) reads the last few hundred lines of `.bash_history`,
+`.zsh_history` or fish's history once per host per run, over the same extra
+channel, so a new computer isn't empty. The lines go through the same filter as
+commands you type: anything that looks like a password or token is skipped.
+
+**Which commands it knows.** The bundled specs come from the MIT-licensed
+`@withfig/autocomplete` package; Settings shows the version. A few commands the
+package lacks (`journalctl`, `apt-get`, `dnf`, `ip`, `ss`, `awk`, and kubectl's
+`--context`) were written for this app in `scripts/completion-extra.mjs`.
+`node scripts/build-completion-specs.mjs --check` says whether a newer package
+exists. Old-style `tar xzf archive.tgz` is understood too.
 
 **When nothing appears.** In full-screen programs (vim, tmux, top, less), while
 a command runs, at password prompts (including `sudo`'s), while the mouse is

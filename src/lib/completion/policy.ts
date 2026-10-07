@@ -11,6 +11,7 @@ export interface CompletionPrefs {
   acSnippets: boolean;
   acOptions: boolean;
   acRemotePaths: boolean;
+  acSeedHistory: boolean;
 }
 
 export interface Policy {
@@ -24,10 +25,12 @@ export interface Policy {
   options: boolean;
   /** Asking the host for file names over an extra SSH channel. */
   remotePaths: boolean;
+  /** Read the host's own shell history once, to start from something. Needs the person's consent and the lookup channel. */
+  seedHistory: boolean;
 }
 
 /** Nothing runs. */
-export const OFF: Policy = Object.freeze({ enabled: false, history: false, inline: false, menu: false, snippets: false, options: false, remotePaths: false });
+export const OFF: Policy = Object.freeze({ enabled: false, history: false, inline: false, menu: false, snippets: false, options: false, remotePaths: false, seedHistory: false });
 
 const MODES: readonly string[] = ["on", "off", "history"];
 
@@ -53,6 +56,7 @@ export function policyFor(prefs: CompletionPrefs, host?: { completion?: string }
     snippets: !historyOnly && prefs.acSnippets,
     options: !historyOnly && prefs.acOptions,
     remotePaths: !historyOnly && prefs.acRemotePaths,
+    seedHistory: !historyOnly && prefs.acRemotePaths && prefs.acSeedHistory,
   };
   // With neither the inline suggestion nor the popup there is nothing to show.
   p.enabled = p.inline || p.menu;

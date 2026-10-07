@@ -165,6 +165,8 @@ export interface Snippet {
   /** Slash-separated folder, e.g. "Kubernetes/Debug". */
   folder?: string;
   tags?: string[];
+  /** A short word smart completion expands to this snippet, e.g. "gco". */
+  abbreviation?: string;
 }
 
 export type Collection =

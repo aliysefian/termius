@@ -233,19 +233,25 @@ is started, as `feat.md` does.
 
 The first version shipped in 0.17.0 (`auto.md`). What it still lacks:
 
-- **AC-a Local tabs** (P2, S). File names and generators for local shells; today
+- ✅ **AC-a Local tabs** (P2, S). File names and generators for local shells; today
   only SSH panes get host lookups.
-- **AC-b More lookups and specs** (P2, S each). `kubectl --context`, `journalctl
+  *Built: file and folder names from this computer on Unix; not the named lists, and not on Windows.*
+- ✅ **AC-b More lookups and specs** (P2, S each). `kubectl --context`, `journalctl
   -u`, `apt-get`, `dnf`, `ip`, `ss`, `awk` have no spec in the source package;
   write them. Automate refreshing the specs, and tell the person which version
   they have.
-- **AC-c Seed from the host's own history** (P3, S). Optionally read
+  *Built: hand-written specs in `scripts/completion-extra.mjs`, `--check` for a newer package, version shown in Settings. Refresh is a command, not a scheduled job.*
+- ✅ **AC-c Seed from the host's own history** (P3, S). Optionally read
   `~/.bash_history` over the lookup channel, with consent, so a new machine is
   not empty.
-- **AC-d `ssh ` completes your vault hosts** (P2, S). The app knows every host
+  *Built: bash, zsh and fish history files, once per host per run, filtered like typed commands.*
+- ✅ **AC-d `ssh ` completes your vault hosts** (P2, S). The app knows every host
   name; `ssh we` and `scp` targets should offer them.
-- **AC-e Abbreviations** (P3, S). Type `gco` and expand to a saved snippet.
-- **AC-f Old-style `tar xzf`, multi-line editing, and PowerShell** (P3, M).
+  *Built for ssh, scp, sftp and mosh.*
+- ✅ **AC-e Abbreviations** (P3, S). Type `gco` and expand to a saved snippet.
+  *Built: a snippet abbreviation, offered first when typed in full and accepted from the list.*
+- ◐ **AC-f Old-style `tar xzf`, multi-line editing, and PowerShell** (P3, M).
+  *Built: old-style tar. Not built: multi-line editing and PowerShell (no integration to read the line from).*
 
 ### 4.6 Files and protocols
 

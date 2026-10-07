@@ -101,6 +101,12 @@ fn generator(id: &str) -> Option<&'static str> {
         "kubectl-contexts" => r#"kubectl --request-timeout=2s config get-contexts -o name 2>/dev/null | head -n "$2""#,
         "kubectl-namespaces" => r#"kubectl --request-timeout=2s get namespaces -o name 2>/dev/null | sed 's|^namespace/||' | head -n "$2""#,
         "kubectl-pods" => r#"kubectl --request-timeout=2s get pods -o name 2>/dev/null | sed 's|^pod/||' | head -n "$2""#,
+        // The commands typed on this host before, newest last. Only ever asked for with the person's consent
+        // ("Learn from the host's own history"), and every line goes through the same filter as typed commands.
+        "shell-history" => concat!(
+            r#"{ for f in "$HOME/.bash_history" "$HOME/.zsh_history"; do [ -r "$f" ] && tail -n "$2" "$f"; done 2>/dev/null | sed -e 's/^: [0-9]*:[0-9]*;//'; "#,
+            r#"[ -r "$HOME/.local/share/fish/fish_history" ] && grep '^- cmd: ' "$HOME/.local/share/fish/fish_history" 2>/dev/null | tail -n "$2" | sed 's/^- cmd: //'; } | head -n "$2""#,
+        ),
         _ => return None,
     })
 }
@@ -115,6 +121,7 @@ pub const GENERATORS: &[&str] = &[
     "kubectl-contexts",
     "kubectl-namespaces",
     "kubectl-pods",
+    "shell-history",
 ];
 
 fn command(script: &str, args: &[&str]) -> String {
@@ -153,6 +160,41 @@ fn build(req: &Request) -> Result<(String, usize, bool), LookupError> {
             Ok((command(script, &[dir, &stop]), MAX_ENTRIES, false))
         }
     }
+}
+
+/// The same answer as a lookup over SSH, for a tab running a shell on this computer: the entries of `dir`
+/// (absolute, or starting with `~`) whose names start with `prefix`. A folder that can't be read is an empty
+/// answer, as over SSH. Only listings, never a command.
+pub fn list_local(dir: &str, prefix: &str, limit: Option<usize>) -> Result<Reply, LookupError> {
+    check_arg("the folder", dir)?;
+    check_arg("the prefix", prefix)?;
+    let path = if dir == "~" || dir.starts_with("~/") {
+        let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).ok_or_else(|| LookupError::Invalid("no home folder".into()))?;
+        std::path::PathBuf::from(home).join(dir.trim_start_matches('~').trim_start_matches('/'))
+    } else if dir.starts_with('/') {
+        std::path::PathBuf::from(dir)
+    } else {
+        return Err(LookupError::Invalid("the folder must be absolute or start with ~".into()));
+    };
+    let keep = limit.unwrap_or(MAX_ENTRIES).clamp(1, MAX_ENTRIES);
+    let Ok(read) = std::fs::read_dir(&path) else {
+        return Ok(Reply { entries: Vec::new(), truncated: false });
+    };
+    let mut entries = Vec::new();
+    let mut truncated = false;
+    for e in read.flatten() {
+        let name = e.file_name().to_string_lossy().to_string();
+        if !name.starts_with(prefix) || name.is_empty() || name.len() > MAX_NAME || name.contains('\n') {
+            continue;
+        }
+        if entries.len() >= keep {
+            truncated = true;
+            break;
+        }
+        // A link to a folder counts as a folder, as `[ -d ]` does over SSH.
+        entries.push(Entry { name, dir: e.path().is_dir() });
+    }
+    Ok(Reply { entries, truncated })
 }
 
 fn parse(out: &[u8], capped: bool, keep: usize, nul_separated: bool) -> Reply {
@@ -552,6 +594,44 @@ mod tests {
         touch(work.path(), "via-jump.txt");
         let r = Lookups::new().lookup(&client, &dir_req(&work.path().to_string_lossy(), "")).await.unwrap();
         assert_eq!(names(&r), ["via-jump.txt"]);
+    }
+
+    #[test]
+    fn a_local_listing_matches_the_prefix_marks_folders_and_refuses_odd_folders() {
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::write(dir.path().join("alpha.txt"), "").unwrap();
+        std::fs::write(dir.path().join("alps"), "").unwrap();
+        std::fs::create_dir(dir.path().join("alpine")).unwrap();
+        std::fs::write(dir.path().join("beta"), "").unwrap();
+        let d = dir.path().to_string_lossy().to_string();
+        let mut r = list_local(&d, "alp", None).unwrap();
+        r.entries.sort_by(|a, b| a.name.cmp(&b.name));
+        assert_eq!(r.entries, [Entry { name: "alpha.txt".into(), dir: false }, Entry { name: "alpine".into(), dir: true }, Entry { name: "alps".into(), dir: false }]);
+        assert!(!r.truncated);
+        let cut = list_local(&d, "", Some(2)).unwrap();
+        assert_eq!((cut.entries.len(), cut.truncated), (2, true));
+        assert!(list_local(&format!("{d}/missing"), "", None).unwrap().entries.is_empty());
+        assert!(matches!(list_local("relative/dir", "", None), Err(LookupError::Invalid(_))));
+        assert!(matches!(list_local("/tmp\0x", "", None), Err(LookupError::Invalid(_))));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_shell_history_lookup_reads_bash_zsh_and_fish_files() {
+        let home = tempfile::TempDir::new().unwrap();
+        std::fs::write(home.path().join(".bash_history"), "ls -la\ncd /srv\n").unwrap();
+        std::fs::write(home.path().join(".zsh_history"), ": 1700000000:0;git status\n: 1700000001:0;make test\n").unwrap();
+        std::fs::create_dir_all(home.path().join(".local/share/fish")).unwrap();
+        std::fs::write(home.path().join(".local/share/fish/fish_history"), "- cmd: echo hi\n  when: 1700000002\n- cmd: uptime\n  when: 1700000003\n").unwrap();
+        let (cmd, _, _) = build(&Request::Generator { id: "shell-history".into(), dir: None }).unwrap();
+        let out = std::process::Command::new("sh").arg("-c").arg(&cmd).env("HOME", home.path()).output().unwrap();
+        let text = String::from_utf8_lossy(&out.stdout).to_string();
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines, ["ls -la", "cd /srv", "git status", "make test", "echo hi", "uptime"], "{text}");
+        // No history files: an empty answer, quietly.
+        let empty = tempfile::TempDir::new().unwrap();
+        let out = std::process::Command::new("sh").arg("-c").arg(&cmd).env("HOME", empty.path()).output().unwrap();
+        assert!(out.stdout.is_empty());
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

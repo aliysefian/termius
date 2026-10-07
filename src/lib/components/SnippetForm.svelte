@@ -11,6 +11,7 @@
   const existing = existingRec?.data;
   const baseRev = existingRec?.rev ?? null;
   let form = $state<Snippet>(existing ? structuredClone($state.snapshot(existing)) : emptySnippet());
+  const ABBREVIATION = /^[A-Za-z0-9._-]{1,20}$/;
   let tags = $state((form.tags ?? []).join(", "));
   const folders = $derived([...new Set(vaultStore.snippets.map((s) => s.data?.folder).filter(Boolean))].sort());
   let error = $state<string | null>(null);
@@ -26,6 +27,10 @@
     busy = true;
     try {
       form.tags = tags.split(",").map((t) => t.trim()).filter(Boolean);
+      form.abbreviation = form.abbreviation?.trim() || undefined;
+      if (form.abbreviation && !ABBREVIATION.test(form.abbreviation)) throw new Error("An abbreviation is one short word: letters, digits, dots, dashes or underscores.");
+      const taken = form.abbreviation ? vaultStore.snippets.find((s) => s.id !== id && s.data?.abbreviation === form.abbreviation) : undefined;
+      if (taken) throw new Error(`"${form.abbreviation}" already expands "${taken.data?.label}".`);
       form.folder = form.folder?.split("/").map((p) => p.trim()).filter(Boolean).join("/") || undefined;
       await vaultStore.saveSnippet(id, $state.snapshot(form), baseRev);
       ui.modal = null;
@@ -51,6 +56,11 @@
     <div>
       <label class="label" for="s-desc">Description</label>
       <input id="s-desc" class="input" bind:value={form.description} />
+    </div>
+    <div>
+      <label class="label" for="s-abbr">Abbreviation</label>
+      <input id="s-abbr" class="input font-mono" bind:value={form.abbreviation} placeholder="gco" maxlength="20" spellcheck="false" autocomplete="off" />
+      <p class="mt-1 text-xs text-fg-muted">Type it at a prompt and open the suggestion list (Ctrl+Space) to put this command on the line. One word; nothing is typed until you accept.</p>
     </div>
     <div class="grid grid-cols-2 gap-3">
       <div>

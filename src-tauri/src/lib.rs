@@ -130,6 +130,7 @@ pub fn run() {
             commands::ssh_connect,
             commands::ssh_write,
             commands::completion_lookup,
+            commands::completion_lookup_local,
             commands::ssh_resize,
             commands::ssh_disconnect,
             commands::local_spawn,

@@ -6,14 +6,19 @@ import { hostMode } from "../completion/policy";
 import { LineTracker } from "../guard";
 import { parseOsc133 } from "../shellintegration";
 
-const ON = { smartCompletion: true, acInline: true, acMenu: true, acSnippets: true, acOptions: true, acRemotePaths: true };
-const EVERYTHING: Policy = { enabled: true, history: true, inline: true, menu: true, snippets: true, options: true, remotePaths: true };
+const ON = { smartCompletion: true, acInline: true, acMenu: true, acSnippets: true, acOptions: true, acRemotePaths: true, acSeedHistory: false };
+const EVERYTHING: Policy = { enabled: true, history: true, inline: true, menu: true, snippets: true, options: true, remotePaths: true, seedHistory: false };
 
 describe("policy", () => {
   it("follows the settings when the host has no say", () => {
     expect(policyFor(ON)).toEqual(EVERYTHING);
     expect(policyFor(ON, {})).toEqual(EVERYTHING);
     expect(policyFor(ON, null, "staging")).toEqual(EVERYTHING);
+    expect(policyFor(ON).seedHistory).toBe(false);
+    expect(policyFor({ ...ON, acSeedHistory: true }).seedHistory).toBe(true);
+    expect(policyFor({ ...ON, acSeedHistory: true, acRemotePaths: false }).seedHistory).toBe(false);
+    expect(policyFor({ ...ON, acSeedHistory: true }, { completion: "history" }).seedHistory).toBe(false);
+    expect(policyFor({ ...ON, acSeedHistory: true }, null, "production").seedHistory).toBe(false);
     expect(policyFor({ ...ON, acOptions: false, acRemotePaths: false })).toMatchObject({ options: false, remotePaths: false, snippets: true });
   });
 
@@ -26,7 +31,7 @@ describe("policy", () => {
 
   it("a host can switch it off, or keep it to history", () => {
     expect(policyFor(ON, { completion: "off" })).toEqual(OFF);
-    expect(policyFor(ON, { completion: "history" })).toEqual({ enabled: true, history: true, inline: true, menu: true, snippets: false, options: false, remotePaths: false });
+    expect(policyFor(ON, { completion: "history" })).toEqual({ enabled: true, history: true, inline: true, menu: true, snippets: false, options: false, remotePaths: false, seedHistory: false });
   });
 
   it("production hosts get history only unless the host says otherwise", () => {

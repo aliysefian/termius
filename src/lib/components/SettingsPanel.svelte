@@ -1,5 +1,6 @@
 <script lang="ts">
   import HighlightRules from "./HighlightRules.svelte";
+  import specSource from "$lib/completion/specs/SOURCE.json";
   import { ChevronDown, ChevronUp, Copy, Download, ExternalLink, Loader2, Lock, Palette, RefreshCw, RotateCcw, Search, ShieldAlert, SquareTerminal, TerminalSquare, X } from "lucide-svelte";
   import { onMount } from "svelte";
     import { RELEASES_URL, formatSize, installHint, installUpdate, updates } from "$lib/stores/updates.svelte";
@@ -644,13 +645,23 @@ sshvault run web-01 db-01 --json -- df -h /</pre>
         </label>
         <label class="ml-6 flex items-start gap-2 text-sm">
           <input type="checkbox" class="mt-0.5 accent-input" disabled={!settings.prefs.smartCompletion || !settings.prefs.acMenu} bind:checked={settings.prefs.acOptions} />
-          <span>Include command options and subcommands (git, docker, systemctl, …)</span>
+          <span>
+            Include command options and subcommands (git, docker, systemctl, …)
+            <span class="block text-xs text-fg-muted" data-testid="spec-source">{specSource.commands} commands, from {specSource.package} {specSource.version} (MIT){specSource.handwritten?.length ? `, plus ${specSource.handwritten.length} written for this app` : ""}.</span>
+          </span>
         </label>
         <label class="ml-6 flex items-start gap-2 text-sm">
           <input type="checkbox" class="mt-0.5 accent-input" disabled={!settings.prefs.smartCompletion || !settings.prefs.acMenu} bind:checked={settings.prefs.acRemotePaths} />
           <span>
             Look up file and folder names on the host
             <span class="block text-xs text-fg-muted">Opens an extra SSH channel to the host you are already connected to. Nothing else leaves this computer.</span>
+          </span>
+        </label>
+        <label class="ml-12 flex items-start gap-2 text-sm">
+          <input type="checkbox" class="mt-0.5 accent-input" disabled={!settings.prefs.smartCompletion || !settings.prefs.acMenu || !settings.prefs.acRemotePaths} bind:checked={settings.prefs.acSeedHistory} />
+          <span>
+            Learn from the host's own shell history
+            <span class="block text-xs text-fg-muted">Once per host, reads the last few hundred commands from its <code>.bash_history</code>, <code>.zsh_history</code> or fish history, so a new computer is not empty. Commands that look like they hold a password or token are skipped. Off until you turn it on; never on production hosts.</span>
           </span>
         </label>
       </div>

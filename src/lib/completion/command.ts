@@ -332,6 +332,7 @@ export function generatorFor(path: string[], positional: number, option?: string
     if (option === "--context") return "kubectl-contexts";
     if (option === "-n" || option === "--namespace") return "kubectl-namespaces";
   }
+  if (cmd === "journalctl" && (option === "-u" || option === "--unit")) return "systemd-units";
   if (option) return undefined;
   if (cmd === "git" && GIT_REF.includes(sub)) return "git-branches";
   if (cmd === "systemctl" && UNIT.includes(sub)) return "systemd-units";
@@ -366,9 +367,18 @@ export function completeLine(line: string, specs: Specs): Completion {
   return { ...inner, word, path };
 }
 
+/** tar's old style, `tar xzf a.tgz`: the first word after tar is a bundle of option letters, which is `-xzf` without the dash. */
+export function dashTarBundle(words: string[]): string[] {
+  const at = words.indexOf("tar");
+  if (at < 0 || at > 2 || words.slice(0, at).some((w) => w !== "sudo" && w !== "env" && !/^[A-Za-z_][A-Za-z0-9_]*=/.test(w))) return words;
+  const next = words[at + 1];
+  if (next === undefined || !/^[cxtruAdzjJZavfCpPkKmwOSTUhHlLoXIN]{1,14}$/.test(next)) return words;
+  return [...words.slice(0, at + 1), "-" + next, ...words.slice(at + 2)];
+}
+
 function suggest(p: Parsed, specs: Specs): Inner {
   if (p.quoted || p.redirect) return { items: [] };
-  const w = walk(p.words, specs);
+  const w = walk(dashTarBundle(p.words), specs);
   if (w.missing) return { items: [], missing: w.missing };
   if (w.unknown) return { items: [] };
   const cur = p.current;

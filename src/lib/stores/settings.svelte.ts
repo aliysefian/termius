@@ -72,6 +72,8 @@ export interface Prefs {
   acOptions: boolean;
   /** Look up remote file names over an extra SSH channel. */
   acRemotePaths: boolean;
+  /** Learn from the commands already in the host's own shell history files (asked over the lookup channel). */
+  acSeedHistory: boolean;
   /** Tell me when a monitored host stops answering or runs hot. Off until switched on. */
   alerts: boolean;
   alertDown: boolean;
@@ -176,6 +178,7 @@ export const DEFAULT_PREFS: Prefs = {
   acSnippets: true,
   acOptions: true,
   acRemotePaths: true,
+  acSeedHistory: false,
   alerts: false,
   alertDown: true,
   alertCpu: 90,

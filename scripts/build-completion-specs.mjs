@@ -17,6 +17,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { gzipSync } from "node:zlib";
+import { applyExtras } from "./completion-extra.mjs";
 
 const PACKAGE = "@withfig/autocomplete";
 const VERSION = "2.692.3";
@@ -135,7 +136,15 @@ function load(dir) {
   };
 }
 
+/** `--check`: is there a newer package than the one pinned? Exits 1 when there is, so a scheduled job can say so. */
+async function check() {
+  const latest = execFileSync("npm", ["view", PACKAGE, "version"], { encoding: "utf8" }).trim();
+  console.log(latest === VERSION ? `up to date (${VERSION})` : `pinned ${VERSION}, newest ${latest}: bump VERSION, run this script, review the diff`);
+  process.exit(latest === VERSION ? 0 : 1);
+}
+
 async function main() {
+  if (process.argv.includes("--check")) return check();
   const from = process.argv.indexOf("--from");
   let dir = from > 0 ? resolve(process.argv[from + 1]) : null;
   let temp = null;
@@ -173,8 +182,10 @@ async function main() {
     total += json.length;
     gz += gzipSync(json).length;
   }
+  // Specs written by hand for what the package lacks go on top (see completion-extra.mjs).
+  const { added } = applyExtras(OUT, index);
   writeFileSync(join(OUT, "index.json"), JSON.stringify(index) + "\n");
-  writeFileSync(join(OUT, "SOURCE.json"), JSON.stringify({ package: PACKAGE, version: pkg.version, packageLicense: pkg.license, licenceFile: "MIT, see THIRD_PARTY.md", commands: Object.keys(index).length }, null, 2) + "\n");
+  writeFileSync(join(OUT, "SOURCE.json"), JSON.stringify({ package: PACKAGE, version: pkg.version, packageLicense: pkg.license, licenceFile: "MIT, see THIRD_PARTY.md", commands: Object.keys(index).length, handwritten: added }, null, 2) + "\n");
   console.log(`${Object.keys(index).length} commands, ${(total / 1024).toFixed(0)} KB raw, ${(gz / 1024).toFixed(0)} KB gzipped`);
   if (temp) rmSync(temp, { recursive: true, force: true });
 }

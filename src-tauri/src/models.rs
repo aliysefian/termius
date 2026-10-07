@@ -497,6 +497,9 @@ pub struct Snippet {
     pub folder: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<String>,
+    /// A short word that smart completion expands to this snippet, e.g. `gco`.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub abbreviation: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -607,6 +610,16 @@ mod tests {
         let back: Host = serde_json::from_str(&serde_json::to_string(&host).unwrap()).unwrap();
         assert_eq!(back.profile, host.profile);
         assert!(!serde_json::to_string(&host).unwrap().contains("scrollback"));
+    }
+
+    #[test]
+    fn a_snippet_abbreviation_is_optional() {
+        let old: Snippet = serde_json::from_str(r#"{"label":"a","command":"ls"}"#).unwrap();
+        assert_eq!(old.abbreviation, "");
+        assert!(!serde_json::to_string(&old).unwrap().contains("abbreviation"));
+        let s = Snippet { label: "a".into(), command: "ls".into(), description: String::new(), folder: String::new(), tags: vec![], abbreviation: "l".into() };
+        let back: Snippet = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
+        assert_eq!(back.abbreviation, "l");
     }
 
     #[test]

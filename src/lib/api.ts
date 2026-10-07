@@ -299,6 +299,9 @@ export type RdpInput =
 export const completion = {
   lookup: (paneId: string, request: import("./completion/remote").Request) =>
     invoke<import("./completion/remote").Reply>("completion_lookup", { paneId, request }),
+  /** Folder listings for a tab running a shell on this computer. */
+  lookupLocal: (request: import("./completion/remote").Request) =>
+    invoke<import("./completion/remote").Reply>("completion_lookup_local", { request }),
 };
 
 export const localTerm = {

@@ -194,3 +194,22 @@ export class HistoryIndex {
 
 /** The index the app uses. */
 export const completionHistory = new HistoryIndex();
+
+/** Hosts whose own history was read this run; once is enough. */
+export const seededHosts = new Set<string>();
+
+/**
+ * Commands read from a host's own history files, as entries for `seed`. Oldest first in `lines`; each gets
+ * a time a second apart, ending now, so the newest stay newest. Lines that are empty, very long, start
+ * with a space (the convention for "don't record") or repeat the one before are skipped; `add` then
+ * refuses anything that looks like a secret.
+ */
+export function entriesFromHistoryLines(lines: string[], now: number): Entry[] {
+  const keep: string[] = [];
+  for (const raw of lines) {
+    const line = raw.replace(/\r$/, "");
+    if (!line.trim() || /^\s/.test(line) || line.length > 500 || line === keep[keep.length - 1]) continue;
+    keep.push(line.trim());
+  }
+  return keep.map((command, i) => ({ command, at: now - (keep.length - 1 - i) * 1000, exit: null }));
+}

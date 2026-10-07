@@ -38,12 +38,13 @@
   import { InputWatch, completionLine, policyFor } from "$lib/completion";
   import { completionBridge, type InlineControls } from "$lib/completion/bridge";
   import { cursorCell, ghostBox, nextWord, type Ghost } from "$lib/completion/ghost";
+  import { hostItems } from "$lib/completion/hosts";
   import { MAX_HISTORY_ITEMS, MENU_WIDTH, flatten, groups, historyItems, menuHeight, placeMenu, snippetItems, specItems, type MenuGroup, type MenuItem, type Placement } from "$lib/completion/menu";
   import { completeLine, parseLine } from "$lib/completion/command";
   import { loadSpec, specs } from "$lib/completion/specs";
   import { arrange, escapeName, pathQuestion, RemoteLookup } from "$lib/completion/remote";
   import CompletionMenu from "./CompletionMenu.svelte";
-  import { completionHistory } from "$lib/completion/history";
+  import { completionHistory, entriesFromHistoryLines, seededHosts } from "$lib/completion/history";
   import CompletionOverlay from "./CompletionOverlay.svelte";
   import { MOUSE_OFF, RESET_INPUT_MODES, RESET_SESSION_MODES, decodeOsc52, mouseReportAllowed, redundantMouseEnable } from "$lib/termprotocol";
   import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
@@ -316,11 +317,21 @@
   // -- file names and lists from the host --------------------------------------
   /** Only a pane that is an SSH session has a connection to ask over; Mosh, Telnet, serial and local tabs don't. */
   const askable = () => (target.kind === "host" && !useMosh && !telnetHost) || target.kind === "adhoc";
+  /** A shell on this computer (not a Windows one, whose paths are not the Unix kind the lookup speaks): folders only. */
+  const localShell = target.kind === "local" && !/Windows/i.test(navigator.userAgent);
   const remote = new RemoteLookup({
-    fetch: (req) => api.completion.lookup(paneId, req),
+    fetch: (req) => (localShell ? api.completion.lookupLocal(req) : api.completion.lookup(paneId, req)),
     // The setting is read at the moment of asking, so turning it off stops a question already waiting.
-    enabled: () => policy.remotePaths && askable() && status.kind === "connected",
+    enabled: () => policy.remotePaths && (askable() || localShell) && status.kind === "connected",
   });
+  /** Once per host per run, with the person's consent: the commands already in the host's own history files. */
+  async function seedFromHost() {
+    if (!hostId || !policy.seedHistory || seededHosts.has(hostId)) return;
+    seededHosts.add(hostId);
+    const r = await remote.generator("shell-history");
+    if (!r || !policy.history) return;
+    completionHistory.seed(hostKey, entriesFromHistoryLines(r.entries.map((e) => e.name), Date.now()));
+  }
   /** The host's names for the line `text`, once they have arrived. */
   let remoteFor: { text: string; items: MenuItem[] } | null = null;
   /** The line a question to the host is out for, if any. Asking again for the same line waits for that answer. */
@@ -350,7 +361,8 @@
 
   /** Ask the host about the word being typed, and list what it says once it does. */
   function askHost(text: string, c: ReturnType<typeof completeLine>) {
-    if (!policy.remotePaths || !askable() || (!c.path && !c.generator)) return;
+    // A local tab only lists folders; the named lookups (branches, units, …) run on a host.
+    if (!policy.remotePaths || !(askable() || localShell) || (!c.path && !(c.generator && !localShell))) return;
     const cwd = ui.paneInfo[paneId]?.cwd ?? null;
     const word = c.word;
     const erase = [...word.raw].length;
@@ -370,7 +382,7 @@
         openMenu();
       }
     };
-    if (c.generator) {
+    if (c.generator && !localShell) {
       const generator = c.generator;
       void remote.generator(generator, cwd ?? undefined).then((r) => {
         if (!r) return finish();
@@ -411,7 +423,7 @@
 
   function menuGroups(text: string): MenuGroup[] {
     const history = historyItems(text, completionHistory.search(text, hostKey, MAX_HISTORY_ITEMS + 1));
-    const snippets = policy.snippets ? snippetItems(text, vaultStore.snippets.map((r) => ({ id: r.id, label: r.data?.label ?? "", command: r.data?.command ?? "", description: r.data?.description }))) : [];
+    const snippets = policy.snippets ? snippetItems(text, vaultStore.snippets.map((r) => ({ id: r.id, label: r.data?.label ?? "", command: r.data?.command ?? "", description: r.data?.description, abbreviation: r.data?.abbreviation }))) : [];
     let commands: MenuItem[] = [];
     if (policy.options || policy.remotePaths) {
       const c = completeLine(text, specs);
@@ -432,8 +444,12 @@
       }
     }
     const fromHost = remoteFor?.text === text ? remoteFor.items : [];
+    // `ssh we` offers the saved hosts; they live in the vault, so nothing is asked of any host for this.
+    const vaultHosts = policy.options
+      ? hostItems(text, vaultStore.hosts.filter((r) => !r.deleted && r.data).map((r) => ({ id: r.id, label: r.data!.label, hostname: r.data!.hostname, port: r.data!.port, protocol: r.data!.protocol, username: r.data!.identity_id ? vaultStore.identityById.get(r.data!.identity_id)?.data?.username : undefined })))
+      : [];
     // What the command's own spec says comes first, then the host's own names; both are more specific than history.
-    return groups([...commands, ...fromHost, ...history, ...snippets]);
+    return groups([...vaultHosts, ...commands, ...fromHost, ...history, ...snippets]);
   }
 
   /** Rebuild the list for the line as it is now; the choice stays on the same entry if that is still listed. */
@@ -1136,6 +1152,8 @@
         safeFit();
         term.focus();
         logId = connectionLog.start(hostId, label, logKind);
+        // After the shell has started, and its prompt is up.
+        setTimeout(() => void seedFromHost(), 1500);
         if (target.kind === "host") {
           settings.markRecent(target.hostId);
           const startup = [host?.startup_command?.trim(), target.command?.trim()].filter(Boolean).join(" && ");

@@ -230,3 +230,19 @@ describe("what Remember commands saves", () => {
     settings.prefs.rememberCommands = false;
   });
 });
+
+describe("learning from a host's own history files", () => {
+  it("turns lines into entries a second apart, newest last, skipping what should not be kept", async () => {
+    const { entriesFromHistoryLines } = await import("../completion/history");
+    const e = entriesFromHistoryLines(["ls", "", " secret-looking", "ls", "git status", "x".repeat(600), "make test\r"], 10_000);
+    expect(e.map((x) => x.command)).toEqual(["ls", "git status", "make test"]);
+    expect(e.map((x) => x.at)).toEqual([8000, 9000, 10_000]);
+    expect(e.every((x) => x.exit === null)).toBe(true);
+  });
+  it("seeding goes through the same refusal as typed commands", async () => {
+    const { HistoryIndex, entriesFromHistoryLines } = await import("../completion/history");
+    const h = new HistoryIndex();
+    h.seed("web", entriesFromHistoryLines(["mysql -u root -pHunter2", "export API_TOKEN=abcdef123456", "docker ps"], 5000));
+    expect(h.search("", "web", 10).map((x) => x.command)).toEqual(["docker ps"]);
+  });
+});

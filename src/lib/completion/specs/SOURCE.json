@@ -3,5 +3,13 @@
   "version": "2.692.3",
   "packageLicense": "ISC",
   "licenceFile": "MIT, see THIRD_PARTY.md",
-  "commands": 63
+  "commands": 69,
+  "handwritten": [
+    "journalctl",
+    "apt-get",
+    "dnf",
+    "ip",
+    "ss",
+    "awk"
+  ]
 }

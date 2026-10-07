@@ -2346,6 +2346,19 @@ pub async fn completion_lookup(
     })
 }
 
+/// Smart completion in a tab running a shell on this computer: a folder listing, nothing else.
+#[tauri::command]
+pub async fn completion_lookup_local(request: crate::completion::Request) -> ApiResult<crate::completion::Reply> {
+    use crate::completion::{LookupError, Request};
+    match request {
+        Request::Dir { dir, prefix, limit } => tokio::task::spawn_blocking(move || crate::completion::list_local(&dir, &prefix, limit))
+            .await
+            .map_err(|e| ApiError::new("invalid", e.to_string()))?
+            .map_err(|e: LookupError| ApiError::new("invalid", e.to_string())),
+        Request::Generator { .. } => Err(ApiError::new("invalid", "only folder listings are available in a local tab")),
+    }
+}
+
 #[tauri::command]
 pub async fn ssh_resize(
     state: State<'_, AppState>,
