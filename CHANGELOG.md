@@ -4,6 +4,15 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## 0.20.0 — 2026-10-07
+
+- **Kubernetes.** A new tab next to Containers lists a cluster's pods through the
+  `kubectl` on this computer or on a saved host: contexts, namespaces, coloured
+  status, restarts and age, followed logs (per container, previous run), describe,
+  a shell in a pod in a terminal tab, delete (typed name on production hosts), and
+  port-forwards to this computer. Names are checked and passed as separate
+  arguments; every call has a time limit.
+
 ## 0.19.0 — 2026-10-07
 
 - **Operations.** A new **Ops** page with three tabs. **Logs** follows the system
