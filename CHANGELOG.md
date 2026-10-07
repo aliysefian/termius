@@ -4,7 +4,7 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
-## Unreleased
+## 0.23.0 — 2026-10-07
 
 - **VNC and Wake-on-LAN.** A new **VNC** host type opens a desktop in a tab like RDP does: through SSH to the
   same machine by default (credentials, jump host and proxy as for SSH), asking for the VNC password when the
