@@ -91,16 +91,16 @@ import**. Against the polished terminals (Warp, Tabby, WindTerm) it is
 1. ◐ **R1 Sign the installers** (Windows code signing, Linux package signing). *Base built; waiting for a certificate and a GPG key.*
 2. **R2 macOS builds** (universal binary, notarised) and a macOS CI job.
 3. **R3 Run the UI tests in CI** and verify the real window (tauri-driver).
-4. **G1 Cloud and tool inventory import** (AWS, GCP, Azure, Hetzner, Proxmox,
-   Tailscale, `kubectl` contexts) with refresh.
+4. ◐ **G1 Cloud and tool inventory import** (AWS, GCP, Azure, Hetzner, Proxmox,
+   Tailscale, `kubectl` contexts) with refresh. *Built in 0.24.0 through each product's CLI, without Proxmox.*
 5. **K1 Hardware keys and biometric unlock** (FIDO2, PKCS#11, Windows Hello,
    Touch ID).
 6. **TS1 Team vaults** encrypted to several people's keys.
 7. ✅ **TB1 Command blocks** on top of the OSC 133 marks the app already reads. *Built in 0.21.0.*
 8. ✅ **TB2 Highlight and trigger rules.** *Built in 0.21.0.*
-9. **A1 Runbooks**: a saved sequence of steps with parameters, run on one or
-   many hosts, with a history.
-10. **F-phase from `feat.md`**: S3, SMB and ZMODEM, then VNC.
+9. ✅ **A1 Runbooks**: a saved sequence of steps with parameters, run on one or
+   many hosts, with a history. *Built in 0.25.0.*
+10. ◐ **F-phase from `feat.md`**: S3, SMB and ZMODEM, then VNC. *VNC built in 0.23.0; S3, SMB and ZMODEM still open.*
 
 Reasoning: 1 to 3 are what a stranger hits before they ever see a feature (a
 SmartScreen warning, no macOS build, an update that cannot be trusted). 4 and 5
@@ -277,7 +277,7 @@ Already planned in `feat.md` (F3 SMB, F4 WebDAV, F5 S3, F6 ZMODEM). New needs:
 - ⏸ **RD2 RDP depth** (P2, L). Drive and printer redirection, audio, multi-monitor,
   image clipboard, dynamic resize, NLA with smart cards.
   *Not built: each needs a real Windows or xrdp server to test against (xrdp is the only one used so far).*
-- ✅ **RD3 Wake-on-LAN** (P3, S). A button and a scheduled wake.
+- ◐ **RD3 Wake-on-LAN** (P3, S). A button and a scheduled wake.
   *Built: MAC and broadcast per host, a test button, and "Wake it up" on a failed connection. A scheduled wake waits for A2.*
 
 ### 4.8 Inventory and discovery (built in 0.24.0; Proxmox and a scheduled refresh not built)
