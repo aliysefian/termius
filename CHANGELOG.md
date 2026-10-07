@@ -4,7 +4,7 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
-## Unreleased
+## 0.25.0 — 2026-10-07
 
 - **Runbooks and automation.** A new Runbooks page: saved JSON runbooks with parameters, steps that run a command,
   wait for it to succeed, or upload a file you pick, and simple conditions on an earlier step's exit code. Checked
