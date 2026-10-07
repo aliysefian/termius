@@ -1,6 +1,6 @@
 {
   "name": "sshvault",
-  "version": "0.23.0",
+  "version": "0.24.0",
   "description": "",
   "type": "module",
   "packageManager": "pnpm@12.4.1",

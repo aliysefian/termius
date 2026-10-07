@@ -4,7 +4,7 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
-## Unreleased
+## 0.24.0 — 2026-10-07
 
 - **Inventory.** Import hosts from AWS EC2, Google Cloud, Azure, DigitalOcean, Hetzner, Tailscale, Kubernetes
   nodes or Terraform by running that product's own CLI (shown first; nothing is stored of its sign-in). A refresh
