@@ -9,7 +9,7 @@ changes stay at TESTING until CI compiles and passes them.
 | SSHV-004 | Diagnosable crashes, shutdown, spawn safety | P0 | TESTING (spawn fixes only; hook/logging TODO) | - | P0 |
 | SSHV-023 | CSP + hook approval | P0 | TODO | - | P0 |
 | SSHV-024 | ProxyCommand quoting + per-device approval | P0 | IN_PROGRESS (quoting done, TESTING; approval TODO) | - | P0 |
-| SSHV-025 | Download path safety, read cap | P0 | TODO | - | P0 |
+| SSHV-025 | Download path safety, read cap | P0 | TESTING (branch fix/ssh-025-file-name-safety) | - | P0 |
 | SSHV-016 | Runbooks (part a: quote by default) | P0 | TODO | - | P1_OPERATIONS |
 | SSHV-026 | CI gates and supply chain | P0 | TODO | - | P0 |
 | SSHV-001 | Vault hardening | P0 | TODO | 004 | P0 |
@@ -38,7 +38,7 @@ changes stay at TESTING until CI compiles and passes them.
 ## Checkpoint (2026-10-08)
 
 - **Last completed:** repository audit and backlog (docs/engineering/*, docs/tasks/*).
-- **Current:** SSHV-024 part 2 (per-device approval) not started.
+- **Current:** SSHV-025 on branch `fix/ssh-025-file-name-safety`, awaiting CI. SSHV-024 part 2 not started.
 - **Modified files, uncommitted:** `src-tauri/src/monitor.rs:76` (`tokio::spawn` -> `tauri::async_runtime::spawn`), `src-tauri/src/dial.rs` (ProxyCommand tokens quoted/refused, SSHV-024 part 1),
   all of `docs/engineering/` and `docs/tasks/`. `feat.md`, `feat2.md`, `feat3.md` are deleted in the working tree and were
   not touched by this work.

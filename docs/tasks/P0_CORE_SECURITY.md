@@ -94,7 +94,7 @@ id: SSHV-025
 title: Reject hostile remote file names; cap remote-edit reads
 module: files
 priority: P0
-status: TODO
+status: TESTING
 dependencies: []
 risk: low
 ```
@@ -106,7 +106,16 @@ chosen directory; `read_file` has a configurable cap (default 64 MiB) with a cle
 **Acceptance.** A fake server returning `../../evil` produces an error entry and no file outside the destination.
 **Tests.** Extend `files/memory.rs` fake backend with hostile names; engine-level test that the local path is contained.
 **Rollback.** Revert; no format change.
-**Evidence.** Pending.
+**Progress.** `files::is_plain_name` rejects empty, `.`, `..` and names containing `/`, `\` or NUL. `files/engine.rs` `plan()` skips
+such entries (counted as skipped) before joining them onto the destination, which covers SFTP, SCP, FTP and local sources
+because they all go through the engine. `SftpConn::read_file` now reads at most `MAX_EDIT_BYTES` (64 MiB) and errors above it.
+Not done: the listing parsers still show hostile names in the pane; they are only prevented from being copied.
+**Evidence.** Tests `plain_names_are_one_path_part` and `a_server_listing_a_hostile_name_cannot_write_outside_the_destination`
+(memory backend gained `list_also` to inject hostile entries). Run in a scratch crate that symlinks the real `engine.rs` and
+`memory.rs` and a trimmed `mod.rs`: 15 passed; the hostile-name test fails with the `engine.rs` change stashed and passes
+with it. The `read_file` cap composes the existing `read_head` and was not compiled or tested here. The full crate has not
+been built; CI must pass before DONE.
+
 
 ---
 ## SSHV-001 Vault architecture hardening
