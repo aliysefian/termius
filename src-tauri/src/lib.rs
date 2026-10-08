@@ -10,6 +10,7 @@ pub mod completion;
 pub mod config;
 pub mod containers;
 pub mod control;
+pub mod crashlog;
 pub mod crypto;
 pub mod exportfile;
 pub mod csvimport;

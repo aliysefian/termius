@@ -4607,6 +4607,8 @@ pub fn forward_statuses(
 /// Resolve the per-machine config dir and register [`AppState`].
 pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let config_dir = app.path().app_config_dir()?;
+    // Before anything else can fail: a release build aborts on a panic, so record why in `crash.log` first.
+    crate::crashlog::install(config_dir.clone());
     // Leftovers from a run that didn't exit cleanly are plaintext copies of
     // remote files; remove them before anything else.
     // Per-user cache folder (not the shared system temp directory, where

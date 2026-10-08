@@ -32,7 +32,14 @@ lint test fails on a deliberately bad sync command.
 **Tests.** Rust unit test for the redaction formatter; test for the lint; manual: open container, kube and monitor logs
 on a release build.
 **Rollback.** Revert the commit; no data format change.
-**Completion evidence.** *Pending.* The `monitor.rs` one-line change is verified only by reading (cannot compile
+**Progress (panic hook).** New `crashlog.rs`, installed first in `commands::setup`: a std-only `panic::set_hook` appends
+`[unix-time] vX.Y.Z panic in thread 'name' at file:line: message` to `<config dir>/crash.log` (0600, kept under 128 KiB) and then
+lets the previous hook run. The message is cut where an `Err` value would be printed, so error values never reach the log.
+Tests (4, scratch crate on the real file): value scrubbing, one-line/length cap, bounded append, and a real panicking thread
+whose error value `hunter2` does not appear. Not done: `tracing`/structured logging, `RunEvent::Exit` cleanup, the lint for
+sync commands reaching `tokio::spawn`; the hook cannot report a crash in a thread that dies before `setup` runs.
+**Completion evidence.** Pending.* The wiring in `lib.rs` and `commands.rs` was not compiled (two lines); CI must pass; the
+`monitor.rs` spawn fix is verified only by reading. The `monitor.rs` one-line change is verified only by reading (cannot compile
 here); CI must pass before DONE.
 
 ---

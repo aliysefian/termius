@@ -6,7 +6,7 @@ changes stay at TESTING until CI compiles and passes them.
 
 | ID | Title | Pri | Status | Depends | File |
 |---|---|---|---|---|---|
-| SSHV-004 | Diagnosable crashes, shutdown, spawn safety | P0 | TESTING (spawn fixes only; hook/logging TODO) | - | P0 |
+| SSHV-004 | Diagnosable crashes, shutdown, spawn safety | P0 | TESTING (spawn fixes + panic hook; tracing, exit handler, lint TODO) | - | P0 |
 | SSHV-023 | CSP + hook approval | P0 | TODO | - | P0 |
 | SSHV-024 | ProxyCommand quoting + per-device approval | P0 | IN_PROGRESS (quoting done, TESTING; approval TODO) | - | P0 |
 | SSHV-025 | Download path safety, read cap | P0 | TESTING (branch fix/ssh-025-file-name-safety) | - | P0 |
