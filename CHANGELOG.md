@@ -4,6 +4,10 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## 0.26.3 - 2026-10-08
+
+- Fixed the app closing suddenly, with no message, when opening a container's logs (and the same for Kubernetes pod logs and image pulls). The log reader was started from a thread with no async runtime, which crashed release builds.
+
 ## 0.26.2 - 2026-10-08
 
 - Fixed a Redis test that failed on Windows: its stand-in server closed the connection with unread data, which Windows reports as a reset. No change to the app itself.

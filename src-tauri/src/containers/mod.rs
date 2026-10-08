@@ -531,7 +531,7 @@ impl ContainerManager {
         let (stop_tx, stop_rx) = oneshot::channel();
         self.streams.lock().unwrap_or_else(|p| p.into_inner()).insert(stream_id, (session, stop_tx));
         let me = Arc::clone(self);
-        tokio::spawn(async move {
+        tauri::async_runtime::spawn(async move {
             let chunker = Mutex::new(Utf8Chunker::default());
             let result = s
                 .transport
