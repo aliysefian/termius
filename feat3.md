@@ -1,10 +1,10 @@
 # What SSHVault needs next (feat3)
 
-Written 2026-10-08, after release 0.25.0. `feat.md` planned the file protocols,
+Written 2026-10-08, updated the same day after release 0.26.0. `feat.md` planned the file protocols,
 remote desktops, databases, containers and monitoring; `feat2.md` compared the
 app with other clients and planned the terminal, completion, inventory and
 automation work. Most of that is built now (see the changelog from 0.9.0 to
-0.25.0). This file lists what is **still** missing: what is left open from the
+0.26.0). This file lists what is **still** missing: what is left open from the
 two earlier files, in one place, and the new needs that come from how
 developers and operations people use a tool like this every day.
 
@@ -23,7 +23,8 @@ across terminals, per-host looks, one-click shell integration, images and safe
 links (0.21.0); smart completion for saved hosts, abbreviations, local tabs,
 host history and more specs (0.22.0); VNC and Wake-on-LAN (0.23.0); cloud and
 tool inventory import, network scan, command hosts and Ansible export (0.24.0);
-runbooks, schedules, wait-and-send and hooks (0.25.0). Before that: Ops
+runbooks, schedules, wait-and-send and hooks (0.25.0); SQL Server, Oracle,
+rqlite, Redis, MongoDB and Elasticsearch in the Databases view (0.26.0). Before that: Ops
 (logs, services, alerts), Kubernetes, the tour, languages, accessibility and
 big-fleet performance.
 
@@ -77,9 +78,11 @@ schedule.
 
 **Automation (feat2 4.9).** A5 plugins (not before the core settles).
 
-**Containers and databases (feat.md).** C2 Podman (needs a real Podman), C3
-nerdctl, C4's kubeconfig paste and more Kubernetes, C5 WSL containers; D3 SQL
-Server, D4 Oracle, D5 rqlite, D6 Redis, D7 MongoDB, D8 Elasticsearch.
+**Containers (feat.md).** C2 Podman (needs a real Podman), C3 nerdctl, C4's
+kubeconfig paste and more Kubernetes, C5 WSL containers.
+
+**Databases (feat.md Phase 3).** D3–D8 are built (0.26.0) but only partly
+proven; see DB1 in section 4.8.
 
 **Monitoring (feat.md M1).** A recording from real BSD.
 
@@ -299,6 +302,31 @@ the features that decide whether a team or a power user switches.
   settings beside the executable; verify what the portable-vault work already
   gives.
 
+### 4.8 Databases, after D3–D8
+
+- **DB1 Prove the new engines on real servers** (P2, S each). SQL Server and
+  Oracle were never run against a real server, Redis TLS and MongoDB's SCRAM
+  and TLS never against a real one, and rqlite, MongoDB and Elasticsearch only
+  against stand-in servers. Run each in CI as a service container (CI has the
+  disk the owner's machine lacks) and keep the live tests behind an
+  environment variable like `SSHVAULT_REDIS_SERVER`. *Done:* every engine has a
+  live test that passes in CI; the "Not verified" notes in `feat.md` D3–D8 are
+  removed or narrowed.
+- **DB2 A key browser for Redis, a filter bar for MongoDB** (P3, M). They use
+  the console and grid for now. A Redis key detail pane (type, TTL, size, edit
+  in place) and a MongoDB filter bar (the original D7 wording) would suit
+  people who do not type commands.
+- **DB3 Larger results from Elasticsearch and Redis** (P3, S). Scroll or
+  point-in-time paging past a search's size; cursor-style paging of huge
+  keys; Redis cluster and Sentinel; Redis 7 functions and streams groups.
+- **DB4 Export, import and schema tools for all engines** (P3, M). Export a
+  result as CSV, JSON or INSERTs, import a CSV, and a schema diff, now that
+  there are eight engines to cover. Verify what D1/D2 already export.
+- **DB5 SQL Server named instances and Azure SQL; Oracle wallets** (P3, S).
+  Named instances are reached only by port, and `oracle-rs` is a young crate;
+  decide whether to keep it or add an OCI-backed option if it falls short in
+  real use.
+
 ---
 
 ## 5. Quality debts, updated
@@ -306,9 +334,9 @@ the features that decide whether a team or a power user switches.
 Carried from `feat2.md` section 5, with what changed:
 
 1. **Nothing has run in the real Tauri window here** (still true; R3).
-2. **Browser test scripts are not in CI.** There are now nine of them
+2. **Browser test scripts are not in CI.** There are now thirteen of them
    (`completion`, `shells`, `perf`, `ops`, `kube`, `a11y`, `bigfleet`,
-   `everyday`, `terminal`, `remote`, `inventory`, `automation`). Putting them in
+   `everyday`, `terminal`, `remote`, `inventory`, `automation`, `databases`). Putting them in
    CI is a day's work and would have caught the 0.22.0 Windows failure's class
    of bug earlier.
 3. **Platform assumptions.** 0.22.0's Windows build failed on a Unix-only path
@@ -323,7 +351,8 @@ Carried from `feat2.md` section 5, with what changed:
 6. **No fuzzing** on untrusted-text parsers: OSC and VNC framing, ssh config
    and PuTTY/MobaXterm/CSV imports, the completion line parser, runbook
    documents, inventory JSON.
-7. **Unproven corners** from before: MySQL TLS, Podman and nerdctl parsers,
+7. **Unproven corners** from before and from 0.26.0: SQL Server, Oracle, Redis
+   TLS, MongoDB SCRAM/TLS (DB1), MySQL TLS, Podman and nerdctl parsers,
    BSD monitoring, Compose on other versions, smart completion on
    Windows and with zsh-autosuggestions.
 8. **Release builds are not observed** from here; check the Actions tab after
@@ -352,3 +381,6 @@ still open. Signing and macOS were dropped by the owner and are not planned. New
     command host already covers the simple case.
 12. **Session recordings (OP4).** Playable recordings are also a surveillance
     tool. If built, decide whether they are per-person only, and never synced.
+13. **Service containers in CI (DB1).** Running real SQL Server, Oracle,
+    MongoDB and the rest in CI makes the database work trustworthy, at the
+    cost of slower, larger CI runs. Worth it, or keep them manual?

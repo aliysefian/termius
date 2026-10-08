@@ -4,6 +4,10 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## 0.26.1 - 2026-10-08
+
+- Documentation only: the roadmap in `feat3.md` is brought up to date with the new database engines.
+
 ## 0.26.0 - 2026-10-08
 
 - **Six more database types.** The Databases view now also browses and queries **SQL Server**, **Oracle** (no
