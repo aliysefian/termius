@@ -201,7 +201,7 @@ id: SSHV-026
 title: Quality gates, dependency audit, pinned actions, component tests
 module: ci
 priority: P0
-status: TODO
+status: IN_PROGRESS
 dependencies: []
 risk: low
 ```
@@ -212,4 +212,12 @@ fail tagged builds when signing secrets are absent (or print a loud notice), dec
 `ssh.rs` tests run.
 **Acceptance.** A deliberate unformatted file or a known-vulnerable pin fails CI.
 **Rollback.** Revert workflow.
-**Evidence.** Pending.
+**Progress.** Added `.github/dependabot.yml` (cargo, npm, actions; weekly) and `.github/workflows/audit.yml` (`cargo audit`
+and `pnpm audit --prod`, weekly and on lockfile changes, non-blocking via `continue-on-error` until findings are triaged).
+Both files parse as YAML; neither has run. **Findings that changed the plan:** (1) `cargo fmt --check` reports 1679 diffs, so
+the code is not in default rustfmt style; a fmt gate would fail CI at once and a mass reformat would bury real changes, so it
+is deliberately not added (needs a rustfmt.toml decision or a one-off reformat commit). (2) CI already installs
+`openssh-server` on Linux and Windows jobs (`build.yml:57,154`), so the sshd-based tests do run; the earlier concern that
+they pass vacuously is withdrawn. **Not done:** pinning actions by SHA and `rust-toolchain.toml` (need current SHAs and a
+toolchain decision), component tests, ESLint/Prettier, macOS decision, failing tagged builds without signing secrets.
+**Evidence.** Pending first workflow runs.
