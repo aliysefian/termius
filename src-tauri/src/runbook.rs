@@ -170,7 +170,8 @@ pub fn placeholders(template: &str) -> Result<Vec<(String, bool)>, String> {
         let quoted = match filter {
             None => false,
             Some("q") => true,
-            Some(other) => return Err(format!("the filter |{other} doesn't exist (the only one is |q, which quotes the value for the shell)")),
+            Some("raw") => false,
+            Some(other) => return Err(format!("the filter |{other} doesn't exist (|q quotes the value for the shell, |raw puts it in as it is)")),
         };
         if !valid_name(name) {
             return Err(format!("{{{{{inner}}}}} isn't a valid name (lowercase letters, digits and _)"));
@@ -364,7 +365,9 @@ pub fn resolve_params(rb: &Runbook, given: &HashMap<String, String>) -> Result<H
     }
 }
 
-/// Fill in a template. `{{name|q}}` is quoted for the shell, `{{name}}` is put in as it is.
+/// Fill in a template. `{{name|q}}` is quoted for the shell and `{{name|raw}}` is put in as it is. A bare `{{name}}` is
+/// put in as it is for a parameter (the person who runs the runbook typed it), but the app's own `{{host}}` and
+/// `{{label}}` come from host records that an import or a synced vault can fill, so they are quoted unless `|raw`.
 pub fn render(template: &str, values: &HashMap<String, String>) -> Result<String, String> {
     let mut out = String::new();
     let mut rest = template;
@@ -373,9 +376,14 @@ pub fn render(template: &str, values: &HashMap<String, String>) -> Result<String
         let after = &rest[start + 2..];
         let end = after.find("}}").ok_or("a {{ is never closed")?;
         let inner = after[..end].trim();
-        let (name, quoted) = match inner.split_once('|') {
-            Some((n, _)) => (n.trim(), true),
-            None => (inner, false),
+        let (name, filter) = match inner.split_once('|') {
+            Some((n, f)) => (n.trim(), Some(f.trim())),
+            None => (inner, None),
+        };
+        let quoted = match filter {
+            Some("raw") => false,
+            Some(_) => true,
+            None => BUILTINS.contains(&name),
         };
         let value = values.get(name).ok_or_else(|| format!("no value for {name}"))?;
         out.push_str(&if quoted { shell_quote(value) } else { value.clone() });

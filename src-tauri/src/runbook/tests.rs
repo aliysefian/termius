@@ -124,6 +124,19 @@ fn rendering_quotes_only_when_asked() {
 }
 
 #[test]
+fn the_apps_own_values_are_quoted_because_records_can_hold_anything() {
+    let v = values(&[("host", "db$(id);x"), ("label", "web 1"), ("service", "a b")]);
+    assert_eq!(render("ping {{host}}", &v).unwrap(), "ping 'db$(id);x'");
+    assert_eq!(render("echo {{label}}", &v).unwrap(), "echo 'web 1'");
+    assert_eq!(render("ping {{host|raw}}", &v).unwrap(), "ping db$(id);x", "|raw is the explicit way to ask for it as it is");
+    assert_eq!(render("echo {{service|raw}}", &v).unwrap(), "echo a b");
+    // A sane host name is untouched, so existing runbooks read the same.
+    let ok = values(&[("host", "h.example"), ("label", "h")]);
+    assert_eq!(render("echo {{label}} {{host}}", &ok).unwrap(), "echo h h.example");
+    assert_eq!(placeholders("{{x|raw}} {{y|q}}").unwrap(), vec![("x".into(), false), ("y".into(), true)]);
+}
+
+#[test]
 fn a_dry_run_shows_each_step_filled_in() {
     let rb = parse(&doc(r#"{"name":"Check","id":"c","run":"systemctl is-active {{service|q}}"},{"run":"restart {{service}} on {{host}}","when":{"step":"c","exit":0},"on_error":"continue"},{"wait":{"run":"curl x","contains":"ok"}},{"upload":{"local":"{{conf}}","remote":"/etc/{{service}}.conf"}}"#)).unwrap();
     let p = plan(&rb, &values(&[("service", "nginx"), ("mode", "safe")]), &values(&[("host", "web-01.example"), ("label", "web-01")])).unwrap();

@@ -23,7 +23,7 @@ review agent read them and the claim was not re-opened. IDs map to tasks in `doc
 | S8 | Med | **Lock is bypassable on a remembered device.** `lock_vault` leaves the keychain entry; `unlock_with_device` reopens without a password. Documented trade-off, but "Lock" does not mean locked. | `commands.rs:661`, `keychain.rs` | SSHV-001 |
 | S9 | Med | **VMK is never rotated.** A leaked old password/recovery key plus an old `vault.json` still opens everything. | `vault/mod.rs:581` | SSHV-001 |
 | S10 | Med | **Keyboard-interactive sends the saved password to every prompt**, including OTP prompts. | `ssh.rs:1068-1090` | SSHV-003 |
-| S11 | Med | **Runbook templating is unquoted by default** (`{{x}}` raw, `{{x|q}}` quoted). Free-text parameters in a scheduled or shared runbook become shell injection. | `runbook.rs:367-381` | SSHV-016 |
+| S11 | Low (was Med; built-ins `{{host}}`/`{{label}}` now quoted, SSHV-016a) | **Runbook templating is unquoted by default** (`{{x}}` raw, `{{x|q}}` quoted). Free-text parameters in a scheduled or shared runbook become shell injection. | `runbook.rs:367-381` | SSHV-016 |
 | S12 | Med | **Run output stored unmasked** (16 KiB per step) in local history; code comment admits secrets may appear. | `runbookrun.rs:1-3`, `runbookhistory.rs` | SSHV-016 |
 | S13 | Med | **`run_hook` backend does not check approval.** The UI approves, the command trusts the caller. With S1 this widens. | `commands.rs:~2692`, `hooks.rs` | SSHV-023 |
 | S14 | Med | **No auth/session timeouts** after TCP connect; a stalling server holds a pane and a task indefinitely. | `ssh.rs:900-940` | SSHV-003 |

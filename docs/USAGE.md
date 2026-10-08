@@ -540,8 +540,11 @@ files from the page), not a program:
   on. Each step may have a `timeout_secs`.
 - **Parameters** are asked for when you run it. `{{name}}` puts the value in as
   typed; `{{name|q}}` quotes it for the shell, which you should use for
-  anything a person types. `{{host}}` and `{{label}}` are the host's own
-  address and name. A parameter can have `choices`, `optional`, or `"kind":
+  anything a person types; `{{name|raw}}` says outright that you want it as
+  typed. `{{host}}` and `{{label}}` are the host's own address and name. They
+  come from host records, which an import or a synced vault can fill, so they
+  are quoted for you (a plain name looks the same); use `{{host|raw}}` only if
+  you mean shell syntax. A parameter can have `choices`, `optional`, or `"kind":
   "file"`.
 - **Conditions.** A step runs `when` an earlier step (by its `id`) exited with
   `exit` or not (`exit_not`), or a text parameter `equals` / `not_equals`

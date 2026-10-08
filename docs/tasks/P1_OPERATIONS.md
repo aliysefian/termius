@@ -76,8 +76,14 @@ status: TODO
 dependencies: []
 risk: medium
 ```
-**Part a (P0, small).** Make `{{name}}` quote by default and add explicit `{{name|raw}}` (S11); migrate stored runbooks by
-rewriting existing unquoted uses to `|raw` once, with a visible notice, so behaviour does not silently change.
+**Part a (P0, small): DONE in code, TESTING.** Original plan was to quote every bare `{{name}}`. Not done: the existing tests
+and docs define bare `{{name}}` as raw, and parameter values are typed by the person running the runbook, so making it an
+error would break stored and scheduled runbooks for little gain. Instead (`runbook.rs` `render`): the app's own `{{host}}` and
+`{{label}}`, which imports and a synced vault can fill, are now quoted unless `|raw`; a `|raw` filter was added for explicit
+pass-through. Sane host names render identically. Remaining risk: a free-text parameter used bare in a scheduled or shared
+runbook is still author-responsibility (S11 downgraded to Low). A lint for it is a possible follow-up.
+Evidence: new test `the_apps_own_values_are_quoted_because_records_can_hold_anything`; all 22 runbook tests pass in a scratch
+crate built from the real `runbook.rs` and `runbook/tests.rs`. Full crate not built; CI pending.
 **Part b (P1).** Mask output in history (S12); approval policy per runbook (required on production hosts); retry policy per
 step; optional rollback steps run on failure only after confirmation. **No dry-run label** unless a runbook marks steps as
 read-only and the engine enforces it; otherwise show a plan preview instead.

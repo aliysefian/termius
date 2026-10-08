@@ -10,7 +10,7 @@ changes stay at TESTING until CI compiles and passes them.
 | SSHV-023 | CSP + hook approval | P0 | TODO | - | P0 |
 | SSHV-024 | ProxyCommand quoting + per-device approval | P0 | IN_PROGRESS (quoting done, TESTING; approval TODO) | - | P0 |
 | SSHV-025 | Download path safety, read cap | P0 | TESTING (branch fix/ssh-025-file-name-safety) | - | P0 |
-| SSHV-016 | Runbooks (part a: quote by default) | P0 | TODO | - | P1_OPERATIONS |
+| SSHV-016 | Runbooks (part a: quote built-ins, |raw) | P0 | TESTING (part a) | - | P1_OPERATIONS |
 | SSHV-026 | CI gates and supply chain | P0 | TODO | - | P0 |
 | SSHV-001 | Vault hardening | P0 | TODO | 004 | P0 |
 | SSHV-002 | Sync rollback detection, status | P0 | TODO | 001 | P0 |
