@@ -65,7 +65,10 @@ pub async fn open(host: &str, port: u16, proxy: Option<&ProxySpec>, user: &str) 
                     reason: "this command hasn't been approved to run on this computer; review it in Proxies".into(),
                 });
             }
-            let cmd = expand_proxy_command(command, host, port, user);
+            let cmd = expand_proxy_command(command, host, port, user).map_err(|reason| SshError::Proxy {
+                proxy: "ProxyCommand".into(),
+                reason,
+            })?;
             spawn_command(&cmd).map_err(|e| SshError::Proxy {
                 proxy: "ProxyCommand".into(),
                 reason: e.to_string(),
@@ -242,7 +245,15 @@ pub async fn http_connect<S: AsyncRead + AsyncWrite + Unpin>(
 // ---------------------------------------------------------------------------
 
 /// OpenSSH tokens: `%h` host, `%p` port, `%r` user, `%%` a literal `%`.
-pub fn expand_proxy_command(cmd: &str, host: &str, port: u16, user: &str) -> String {
+///
+/// The host and user can come from imports and from a synced vault, so they are data, never shell syntax: each is
+/// checked and quoted for the shell the command will run in, or the expansion is refused. (OpenSSH pastes them raw;
+/// here the person approved the template, not whatever a later record puts into it.)
+pub fn expand_proxy_command(cmd: &str, host: &str, port: u16, user: &str) -> Result<String, String> {
+    expand_for(cmd, host, port, user, cfg!(windows))
+}
+
+fn expand_for(cmd: &str, host: &str, port: u16, user: &str, windows: bool) -> Result<String, String> {
     let mut out = String::with_capacity(cmd.len());
     let mut chars = cmd.chars();
     while let Some(c) = chars.next() {
@@ -251,9 +262,9 @@ pub fn expand_proxy_command(cmd: &str, host: &str, port: u16, user: &str) -> Str
             continue;
         }
         match chars.next() {
-            Some('h') => out.push_str(host),
+            Some('h') => out.push_str(&token("host name", host, windows)?),
             Some('p') => out.push_str(&port.to_string()),
-            Some('r') => out.push_str(user),
+            Some('r') => out.push_str(&token("user name", user, windows)?),
             Some('%') => out.push('%'),
             Some(other) => {
                 out.push('%');
@@ -262,7 +273,28 @@ pub fn expand_proxy_command(cmd: &str, host: &str, port: u16, user: &str) -> Str
             None => out.push('%'),
         }
     }
-    out
+    Ok(out)
+}
+
+/// One substituted value as a single, inert shell word.
+fn token(what: &str, value: &str, windows: bool) -> Result<String, String> {
+    let refuse = |why: &str| Err(format!("the {what} {value:?} {why}, so the ProxyCommand was not run"));
+    if value.chars().any(|c| c.is_control()) {
+        return refuse("contains a control character");
+    }
+    // A leading dash would be read as an option by the program the command starts.
+    if value.starts_with('-') {
+        return refuse("starts with '-'");
+    }
+    if windows {
+        // cmd.exe has no reliable quoting, so only plain words pass.
+        if !value.is_empty() && value.chars().all(|c| c.is_alphanumeric() || "._:@-".contains(c)) {
+            return Ok(value.to_string());
+        }
+        return refuse("has characters cmd.exe could treat as syntax");
+    }
+    let plain = !value.is_empty() && value.chars().all(|c| c.is_ascii_alphanumeric() || "_@+=:,./-".contains(c));
+    Ok(if plain { value.to_string() } else { format!("'{}'", value.replace('\'', "'\\''")) })
 }
 
 /// The command's stdin/stdout as one stream. The child is killed when the
@@ -499,9 +531,30 @@ mod tests {
     #[test]
     fn proxy_command_tokens() {
         assert_eq!(
-            expand_proxy_command("ssh -W %h:%p -l %r bastion 100%%", "db", 2222, "ops"),
+            expand_proxy_command("ssh -W %h:%p -l %r bastion 100%%", "db", 2222, "ops").unwrap(),
             "ssh -W db:2222 -l ops bastion 100%"
         );
+    }
+
+    #[test]
+    fn proxy_command_values_are_data_not_shell() {
+        for windows in [false, true] {
+            for bad in ["-oProxyCommand=x", "a\nb", "a\0b", ""] {
+                if bad.is_empty() && !windows {
+                    continue; // an empty value is quoted as '' on Unix
+                }
+                assert!(expand_for("nc %h %p", bad, 22, "u", windows).is_err(), "{bad:?} windows={windows}");
+            }
+        }
+        // Unix: metacharacters are quoted into one word.
+        let got = expand_for("nc %h %p", "a;touch /tmp/x", 22, "u", false).unwrap();
+        assert_eq!(got, "nc 'a;touch /tmp/x' 22");
+        assert_eq!(expand_for("x %r", "it's", 1, "it's", false).unwrap(), "x 'it'\\''s'");
+        assert_eq!(expand_for("x %h", "$(id)", 1, "u", false).unwrap(), "x '$(id)'");
+        // Windows: only plain words pass.
+        assert!(expand_for("nc %h", "a&calc", 22, "u", true).is_err());
+        assert!(expand_for("nc %h", "a\"b", 22, "u", true).is_err());
+        assert_eq!(expand_for("nc %h", "db.example.com", 22, "u", true).unwrap(), "nc db.example.com");
     }
 
     #[tokio::test]
