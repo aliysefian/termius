@@ -4,6 +4,12 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## 0.26.5 - 2026-10-08
+
+- Fixed the app closing suddenly when following a host's logs in the monitor view (the same cause as the 0.26.3 container-logs crash).
+- **Security:** a ProxyCommand no longer runs a host or user name as shell syntax. The names are now quoted into one word, and names with control characters or a leading `-` are refused with a message.
+- Added engineering audit notes and a task backlog under `docs/`.
+
 ## 0.26.3 - 2026-10-08
 
 - Fixed the app closing suddenly, with no message, when opening a container's logs (and the same for Kubernetes pod logs and image pulls). The log reader was started from a thread with no async runtime, which crashed release builds.
