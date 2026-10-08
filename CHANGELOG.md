@@ -4,6 +4,10 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## 0.26.2 - 2026-10-08
+
+- Fixed a Redis test that failed on Windows: its stand-in server closed the connection with unread data, which Windows reports as a reset. No change to the app itself.
+
 ## 0.26.1 - 2026-10-08
 
 - Documentation only: the roadmap in `feat3.md` is brought up to date with the new database engines.

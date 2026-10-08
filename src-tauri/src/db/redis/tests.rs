@@ -463,7 +463,15 @@ async fn something_that_is_not_redis_or_not_there_is_explained() {
     let port = listener.local_addr().unwrap().port();
     tokio::spawn(async move {
         while let Ok((mut s, _)) = listener.accept().await {
+            // Read the client's request first and keep the socket open afterwards: closing with unread
+            // data resets the connection on Windows, and the client would see that instead of the reply.
+            let mut buf = [0u8; 256];
+            let _ = tokio::io::AsyncReadExt::read(&mut s, &mut buf).await;
             let _ = tokio::io::AsyncWriteExt::write_all(&mut s, b"HTTP/1.1 400 Bad Request\r\n\r\n").await;
+            tokio::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                drop(s);
+            });
         }
     });
     assert!(matches!(RedisConn::connect(&spec_for(port)).await, Err(DbError::Server(m)) if m.contains("isn't a Redis")));
