@@ -46,6 +46,7 @@ fn spec(tls: TlsMode) -> Option<ConnectSpec> {
         database: Some(db.into()),
         tls,
         tunnel_port: None,
+        options: Default::default(),
     })
 }
 

@@ -732,6 +732,7 @@ mod tests {
             database: None,
             tls: TlsMode::Disable,
             tunnel_port: None,
+            options: Default::default(),
         };
         assert!(config_for(&spec).is_err());
         spec.host = "db".into();

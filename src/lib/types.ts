@@ -715,12 +715,11 @@ export interface DbConnection {
   group: string;
   environment?: string;
   notes: string;
+  /** Settings only some engines have (an Oracle SID, a Redis read level, a MongoDB URI, an Elasticsearch auth kind). */
+  options?: Record<string, string>;
 }
 
-export const DB_ENGINES: { value: string; label: string; port: number }[] = [
-  { value: "mysql", label: "MySQL / MariaDB", port: 3306 },
-  { value: "postgres", label: "PostgreSQL", port: 5432 },
-];
+export { DB_ENGINES } from "./dbengines";
 
 export function emptyDbConnection(): DbConnection {
   return { name: "", engine: "mysql", host: "", port: 3306, username: "", password: undefined, database: "", tls: "verify_full", group: "", notes: "" };
@@ -746,7 +745,7 @@ export interface DbQueryResult {
   elapsed_ms: number;
 }
 
-export type DbNodeKind = "database" | "schema" | "table" | "view" | "column" | "index";
+export type DbNodeKind = "database" | "schema" | "folder" | "table" | "view" | "column" | "index";
 
 export interface DbTreeNode {
   name: string;

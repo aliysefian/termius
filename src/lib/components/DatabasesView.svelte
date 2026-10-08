@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDestroy } from "svelte";
   import {
+    FolderTree,
     ChevronDown,
     ChevronRight,
     Columns3,
@@ -29,7 +30,8 @@
   import Kbd from "./Kbd.svelte";
   import ResultGrid from "./ResultGrid.svelte";
   import * as api from "$lib/api";
-  import { toCsv, toJson, toTsv, quoteName } from "$lib/dbdata";
+  import { toCsv, toJson, toTsv } from "$lib/dbdata";
+  import { browseText, engineInfo } from "$lib/dbengines";
   import { ask } from "$lib/dialogs.svelte";
   import { databases, pathKey, ROW_LIMITS, type QueryTab } from "$lib/stores/databases.svelte";
   import { ui } from "$lib/stores/ui.svelte";
@@ -55,7 +57,7 @@
   const tab = $derived(databases.active);
 
   function kindIcon(kind: DbTreeNode["kind"]) {
-    return { database: Database, schema: Layers, table: Table2, view: Eye, column: Columns3, index: KeyRound }[kind];
+    return { database: Database, schema: Layers, folder: FolderTree, table: Table2, view: Eye, column: Columns3, index: KeyRound }[kind];
   }
 
   async function connectAndShow(id: Uuid) {
@@ -75,9 +77,9 @@
     }
   }
 
-  /** `db` is the MySQL database or the PostgreSQL schema: the first level of the tree. */
+  /** `db` is the first level of the tree above the item (a MySQL database, a schema, a Redis dbN, a cluster). */
   function selectStarOf(connId: Uuid, db: string, table: string) {
-    return `SELECT * FROM ${quoteName(databases.engineOf(connId), db, table)}`;
+    return browseText(databases.engineOf(connId), db, table);
   }
 
   function newQueryFor(connId: Uuid, sql = "") {
@@ -260,8 +262,8 @@
             onkeydown={onEditorKey}
             spellcheck="false"
             autocomplete="off"
-            placeholder="SELECT * FROM … (Ctrl+Enter to run; select text to run only that)"
-            aria-label="SQL for {tab.title}"
+            placeholder={engineInfo(databases.engineOf(tab.connId)).consolePlaceholder}
+            aria-label="{engineInfo(databases.engineOf(tab.connId)).console} for {tab.title}"
           ></textarea>
           <div class="flex flex-wrap items-center gap-2 border-t border-line bg-panel px-3 py-1.5">
             {#if tab.running}

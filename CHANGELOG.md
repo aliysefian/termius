@@ -4,6 +4,18 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## 0.26.0 - 2026-10-08
+
+- **Six more database types.** The Databases view now also browses and queries **SQL Server**, **Oracle** (no
+  Oracle client library needed), **rqlite** (with a choice of read consistency), **Redis** (keys found with SCAN and
+  grouped by colon, any key shown as a grid whatever its type, a command console, TLS and ACL users),
+  **MongoDB** (databases, collections and indexes, JSON database commands, documents as rows, a connection
+  string for Atlas) and **Elasticsearch / OpenSearch** (indices, a Kibana-style request console, hits as
+  rows, basic, API-key or token sign-in). Inline edits, destructive-command questions and the production typed
+  confirmation work for each. Redis was tried against a real `redis-server` (6.2); rqlite, MongoDB and
+  Elasticsearch against stand-in servers that speak their protocols; SQL Server and Oracle were not tried against a
+  real server.
+
 ## 0.25.0 — 2026-10-07
 
 - **Runbooks and automation.** A new Runbooks page: saved JSON runbooks with parameters, steps that run a command,

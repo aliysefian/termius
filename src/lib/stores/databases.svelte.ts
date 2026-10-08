@@ -3,7 +3,8 @@
 // per window and goes away when the vault locks.
 import * as api from "$lib/api";
 import { ask } from "$lib/dialogs.svelte";
-import { buildRowEdit, cellAfterEdit, editBlock, quoteName, type SortDir } from "$lib/dbdata";
+import { buildRowEdit, cellAfterEdit, editBlock, type SortDir } from "$lib/dbdata";
+import { browseText, engineInfo } from "$lib/dbengines";
 import { addEntry, loadHistory, saveHistory, type HistoryEntry } from "$lib/dbhistory";
 import { ui } from "$lib/stores/ui.svelte";
 import { vaultStore } from "$lib/stores/vault.svelte";
@@ -182,7 +183,7 @@ class DatabasesStore {
   async openTable(connId: Uuid, database: string, table: string) {
     let tab = this.tabs.find((t) => t.connId === connId && t.table?.database === database && t.table.table === table);
     if (!tab) {
-      tab = this.newTab(connId, `SELECT * FROM ${quoteName(this.engineOf(connId), database, table)}`, table);
+      tab = this.newTab(connId, browseText(this.engineOf(connId), database, table), table);
       tab.table = { database, table };
     }
     this.activeTabId = tab.id;
@@ -298,9 +299,10 @@ class DatabasesStore {
     try {
       const sql = await api.db.previewUpdate(s.sessionId, edit);
       const prod = this.isProduction(tab.connId);
-      const ok = await ask(`${sql}\n\nThis changes one row${prod ? " on a PRODUCTION database" : ""}.`, {
-        title: "Run this UPDATE?",
-        confirm: "Run UPDATE",
+      const noun = engineInfo(this.engineOf(tab.connId)).change;
+      const ok = await ask(`${sql}\n\nThis changes one ${noun === "UPDATE" ? "row" : "document or value"}${prod ? " on a PRODUCTION database" : ""}.`, {
+        title: `Run this ${noun}?`,
+        confirm: `Run ${noun}`,
         // Always the careful kind: Cancel has the focus, so a stray Enter can't change data.
         danger: true,
         requireText: prod ? this.connName(tab.connId) : undefined,
@@ -312,7 +314,7 @@ class DatabasesStore {
         return false;
       }
       tab.result.rows[row][col] = cellAfterEdit(tab.result.columns[col].kind, value);
-      ui.notify("info", "1 row updated.");
+      ui.notify("info", engineInfo(this.engineOf(tab.connId)).sql ? "1 row updated." : "Changed.");
       return true;
     } catch (e) {
       ui.notify("error", errorMessage(e));

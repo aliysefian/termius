@@ -481,6 +481,10 @@ pub struct DbConnection {
     pub environment: String,
     #[serde(default)]
     pub notes: String,
+    /// Settings only some engines have: an Oracle `service_name`, a Redis `db`, a SQL Server `instance`, an
+    /// rqlite read `level`, an Elasticsearch `auth` ("basic", "api_key" or "bearer"). See `docs/USAGE.md`.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub options: std::collections::BTreeMap<String, String>,
 }
 
 impl DbConnection {
@@ -783,6 +787,7 @@ mod tests {
             group: String::new(),
             environment: String::new(),
             notes: String::new(),
+            options: Default::default(),
         };
         let out = redact_record(Collection::Databases, serde_json::to_value(&db).unwrap()).unwrap();
         assert!(!out.to_string().contains("dbs3cret"));

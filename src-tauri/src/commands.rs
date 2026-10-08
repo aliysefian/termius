@@ -3444,6 +3444,7 @@ fn resolve_db(
         database: Some(c.database.clone()).filter(|d| !d.is_empty()),
         tls: c.tls,
         tunnel_port: None,
+        options: c.options.clone(),
     };
     Ok((spec, via))
 }

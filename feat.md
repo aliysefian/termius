@@ -513,21 +513,71 @@ says no.
   auth variants beyond the default, and the real Tauri window (UI driven
   headless with mocked IPC, as for D0).
 
-- [ ] **D3. SQL Server.** DoD: same as D1; Windows and SQL logins; tested on a
-  container or left unticked with `Not verified:`. **M**
-- [ ] **D4. Oracle Database.** DoD: same as D1 for service name connections;
-  say clearly in the docs if a client library is needed. **M–L**
-- [ ] **D5. rqlite.** DoD: HTTP API client with basic auth and TLS; same tree
-  and grid; read-after-write consistency level selectable. **S–M**
-- [ ] **D6. Redis.** DoD: key browser with a type icon and TTL, scan-based
-  (never `KEYS *`), value viewer/editor for string, hash, list, set, zset,
-  stream; a command console; TLS and ACL user support. **M**
-- [ ] **D7. MongoDB.** DoD: databases and collections tree, a JSON filter
-  bar, a document viewer with inline edit of a field, index list, and
-  connection by URI or form. **M**
-- [ ] **D8. Elasticsearch.** DoD: indices list with doc count and size, a
-  query console (`GET/POST` with JSON body), a document viewer, and API-key
-  or basic auth. **M**
+- [x] **D3. SQL Server.** Done 2026-10-08, **Not verified:** against a real
+  server (no container was pulled: the image is 1.5 GB and the owner declined).
+  `db/mssql.rs` on `tiberius` (TDS, TLS through rustls): the tree starts at the
+  connection's database's schemas like PostgreSQL, tables and views, columns
+  with primary keys, indexes; rows are streamed and a query that stops at the
+  limit or is cancelled drops its connection instead of draining it; inline edit
+  previews the `UPDATE` (`[name]`, `N'value'`) and runs with bound parameters;
+  SQL logins everywhere, `DOMAIN\user` (SSPI) in the Windows build only (the
+  `winauth` feature is Windows-only). Tested: quoting, login kinds, TLS modes,
+  cell conversion (big integers and decimals stay exact, GUIDs, binary, dates)
+  and an unreachable or non-TDS server. Unproven: the handshake against a real
+  server, named instances (reached by port), Azure SQL.
+- [x] **D4. Oracle Database.** Done 2026-10-08, **Not verified:** against a real
+  server (the image is about 2.5 GB). `db/oracle.rs` on `oracle-rs`, a
+  pure-Rust client of Oracle's protocol, so **no client library is needed**
+  (12c+). Service name or SID; TLS (TCPS) with a CA file or wallet; the tree is
+  schemas, tables and views (materialised views marked), columns, indexes; rows
+  are fetched in batches up to the limit; data changes are committed once they
+  succeed and PL/SQL blocks run as they are (the shared "open transaction" check
+  is off for Oracle). Tested: config for service/SID/TLS/tunnel, quoting, type
+  kinds, cell conversion, DML and PL/SQL detection, error wording, an
+  unreachable or non-Oracle server. Unproven: everything over a real session;
+  `oracle-rs` is a young crate (0.1.x).
+- [x] **D5. rqlite.** Done 2026-10-08. `db/rqlite.rs` over HTTP (`db/http.rs`,
+  shared with Elasticsearch): basic auth, TLS modes, a selectable read level
+  (none, weak, linearizable, strong), reads to `/db/query` and writes to
+  `/db/execute` by the statement's first word, `main` as the one schema, tables,
+  views, columns with PK, indexes; inline edit with bound parameters. Tested
+  against a stand-in HTTP server (replies as rqlite words them): levels, rows
+  and the limit, errors, the tree, bound parameters, basic auth, a non-rqlite
+  address, cancel. **Not verified:** against a real rqlite node.
+- [x] **D6. Redis.** Done 2026-10-08, tested against a real `redis-server` 6.2.
+  `db/redis.rs` speaks RESP2 over its own socket (plain or TLS, password or ACL
+  user): the tree is databases (from `INFO keyspace`) and keys found with `SCAN`
+  and grouped by colon with type and TTL; `VIEW key` and double-click show a
+  string, hash, list, set, sorted set or stream as a grid; the console takes
+  commands with `redis-cli` quoting, `@N` picks a database, replies are laid out
+  by command (field/value, member/score, one value per line for INFO);
+  destructive commands (`FLUSHALL`, `DEL`, `CONFIG SET`, `EVAL`, `KEYS`…) ask
+  first; inline edit for string (KEEPTTL), hash, list and sorted-set score;
+  cancel closes the statement's own socket (a `BLPOP` is cancelled). The shape
+  is the console-and-grid one, not a separate key-browser tab. **Not
+  verified:** TLS against a real TLS server (this `redis-server` is built
+  without TLS), clusters, Redis 7 features beyond what 6.2 answers.
+- [x] **D7. MongoDB.** Done 2026-10-08. `db/mongo.rs` on the official driver
+  (rustls with ring): databases, collections, views, indexes; the console takes
+  database commands as JSON (`$db` picks the database), `find` and `aggregate`
+  get their cursors followed up to the limit; documents become rows with ObjectIds
+  and dates as plain values and big integers exact; inline edit is `updateOne`
+  with `$set` by `_id` (an ObjectId, text or number); a connection string for
+  Atlas/replica sets with the form's user and password added to it. Tested
+  through the **real driver** against a stand-in server that speaks the wire
+  protocol (OP_QUERY/OP_MSG): the tree, find/aggregate/count/insert, cursors,
+  the limit, errors, edit. **Not verified:** the SCRAM sign-in, TLS, a real
+  `mongod`, replica sets, the JSON filter bar the DoD named (the console takes
+  the whole command instead).
+- [x] **D8. Elasticsearch.** Done 2026-10-08. `db/elastic.rs` over HTTP with
+  basic, API-key or bearer sign-in: the tree is the cluster, indices (docs, size,
+  health; system last) and fields; the console takes `METHOD /path` and a JSON
+  body; searches are asked for one more than the limit with real totals; hits
+  become rows; `_cat` as JSON; destructive requests (`DELETE`, `_delete_by_query`,
+  `_close`, settings…) ask first; inline edit is a partial `_update` by `_id`
+  with a safely encoded path. Works for OpenSearch. Tested against a stand-in HTTP
+  server. **Not verified:** a real cluster, security-enabled clusters' TLS and
+  tokens, scroll/PIT for more than a search's size.
 
 ## Phase 4: containers
 

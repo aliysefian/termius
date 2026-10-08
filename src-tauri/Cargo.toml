@@ -1,6 +1,6 @@
 [package]
 name = "sshvault"
-version = "0.25.0"
+version = "0.26.0"
 description = "Zero-knowledge, folder-synced SSH terminal manager and SFTP client"
 authors = ["Ali Yousefian"]
 license = "MIT"
@@ -60,6 +60,15 @@ mysql_async = { version = "0.37", default-features = false, features = ["default
 # MySQL; certificates are checked against the operating system's trust store.
 tokio-postgres = "0.7"
 futures-util = { version = "0.3", default-features = false }
+# SQL Server (D3): TDS over our own socket, TLS through rustls. winauth is NTLM for DOMAIN\user logins.
+tiberius = { version = "0.13", default-features = false, features = ["rustls", "tds73", "chrono"] }
+tokio-util = { version = "0.7", features = ["compat"] }
+# MongoDB (D7). TLS through rustls + ring, like the rest.
+mongodb = { version = "3", default-features = false, features = ["compat-3-0-0", "rustls-tls", "dns-resolver"] }
+bson = "2"
+# Oracle (D4): a pure-Rust client of Oracle's network protocol, so no Instant Client is needed.
+oracle-rs = "0.1"
+chrono = { version = "0.4", default-features = false, features = ["std"] }
 bytes = "1"
 async-trait = "0.1"
 suppaftp = { version = "12", default-features = false, features = ["tokio-rustls-ring", "deprecated"] }
@@ -89,6 +98,8 @@ x509-cert = "0.2"
 libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]
+# NTLM / SSPI sign-in for SQL Server Windows logins (DOMAIN\user), which only exists on Windows.
+tiberius = { version = "0.13", default-features = false, features = ["winauth"] }
 windows-sys = { version = "0.59", features = ["Win32_System_Console"] }
 
 [dev-dependencies]

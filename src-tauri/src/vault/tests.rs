@@ -648,6 +648,7 @@ fn database_connections_are_encrypted_sync_back_up_and_old_vaults_still_open() {
         group: String::new(),
         environment: "production".into(),
         notes: String::new(),
+        options: Default::default(),
     };
     let (_d, a) = new_vault();
     let b = second_device(&a, "PC-B");

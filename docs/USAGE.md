@@ -792,8 +792,10 @@ because forwarding runs without prompting you.
 ## Databases
 
 Open **Databases** in the activity bar (or **Ctrl+Shift+P** → "Go to
-Databases"). It browses and queries MySQL, MariaDB and PostgreSQL servers.
-Other database types will follow in the same view.
+Databases"). It browses and queries MySQL, MariaDB, PostgreSQL, SQL Server,
+Oracle, rqlite, Redis, MongoDB and Elasticsearch / OpenSearch servers, all in
+the same view: one list of connections, one tree, one console, one grid. The
+sections below say what each engine adds or changes.
 
 **Add a connection** with the **+** button: name, server, port, user,
 password, and optionally a database to start in. **Test connection** tries
@@ -823,6 +825,85 @@ views, materialized views, foreign and partitioned tables are listed, with
 their columns and indexes below. A statement that can't be described ahead of
 time, such as a script of several statements, shows its values as text and
 only its first result set.
+
+### The other engines
+
+Each engine's form shows only what it has. What it opens, and how it differs:
+
+- **SQL Server.** A connection is to one database (the form's, or the
+  login's default), so the tree starts at its **schemas**, then tables and
+  views, with columns and indexes below. SQL logins work everywhere;
+  `DOMAIN\user` Windows logins work in the Windows version only (the operating
+  system signs in). A named instance is reached by its port. The TLS
+  certificate is checked against the trust the driver carries; for a private
+  CA, put its PEM file in *Certificate authority file*. Names are quoted as
+  `[name]`; an edit is shown as the `UPDATE` with the values written in and
+  runs with bound parameters. *Not yet tried against a real server.*
+- **Oracle.** No Oracle client library is needed: SSHVault speaks Oracle's own
+  protocol (12c or later). Give the **service name** (or a SID under the
+  connection's settings). The tree starts at **schemas** (users): yours first,
+  Oracle's own last. A data change you make (an `INSERT`, `UPDATE`, `DELETE`,
+  `MERGE`, or an inline edit) is committed as soon as it succeeds; a PL/SQL
+  block (`BEGIN … END;`) runs as it is. Dates in an inline edit are read in the
+  session's date format. TLS (TCPS) takes a CA file or an Oracle wallet.
+  *Not yet tried against a real server.*
+- **rqlite.** SQL over the node's HTTP API (SQLite's dialect). The tree has one
+  schema, `main`. *Read consistency* is how sure a read is to see the latest
+  write: Weak (rqlite's default), None (may be stale), Linearizable or Strong.
+  Reads go to the query endpoint and writes to the execute endpoint; the first
+  word of a statement decides which. A user and password are sent as basic
+  authentication. Most nodes run without TLS, so set Encryption to None (or use
+  an SSH host).
+- **Redis.** Keys have no rows, so the tree shows the server's databases, and
+  inside one its keys, found with `SCAN` (never `KEYS *`) and grouped into
+  folders by the part before a colon, with each key's type and time to live.
+  Double-click a key to see it as a grid whatever its type: a string (key and
+  value), a hash (fields and values), a list (index and value), a set
+  (members), a sorted set (members and scores) or a stream (ids and fields).
+  The console takes Redis commands, one per line, with `redis-cli`'s quoting
+  (`SET "my key" "a value"`). Start a line with **`@3`** to run it in database 3,
+  or use the form's database number for the rest. `VIEW key` is the console's own
+  command that does what double-clicking a key does. Inline edits: a string's
+  value (the time to live is kept), a hash field, a list item, a sorted set's
+  score; a set or a stream is changed with commands. Each command runs on a
+  connection of its own, so **Cancel** works on a blocking command such as
+  `BLPOP`. `SUBSCRIBE`, `MONITOR`, `MULTI` and `SELECT` aren't available in the
+  console (it says why). A user name is for Redis 6 ACL users.
+- **MongoDB.** The tree is the server's databases, their collections and
+  views, and a collection's indexes. Double-click a collection to run its
+  `find`. The console takes a database command as **JSON**, the way
+  `db.runCommand` does: `{"find": "users", "filter": {"age": {"$gt": 30}}}`, or
+  `{"aggregate": "users", "pipeline": [...]}`, `{"count": "users"}`,
+  `{"insert": ...}`. A key `"$db"` picks another database. Documents become rows,
+  one column per top-level field (nested values are their JSON text), with
+  ObjectIds, dates and big numbers shown as plain values. Inline edit changes one
+  top-level field of the document with that `_id` (`updateOne` with `$set`); what
+  you type is read as JSON when it is JSON (`36`, `true`, `["a"]`), else as text.
+  *Authentication database* is where the user is defined; *Connection string*
+  takes an Atlas (`mongodb+srv://…`) or replica-set string, with the form's user
+  and password added to it (leave the password out of the string). Through an
+  SSH host the driver talks to one server and doesn't check the TLS name (the SSH
+  connection identifies the server). The sign-in (SCRAM) has not been tried
+  against a real server; the commands were tried against a stand-in that speaks
+  the wire protocol.
+- **Elasticsearch / OpenSearch.** The tree is the cluster, its indices (with
+  document count, size and health; system indices last) and an index's fields.
+  Double-click an index to search it. The console takes a request the way
+  Kibana's does: a first line with the method and path, then the JSON body:
+  `GET /books/_search` and `{"query": {"match": {"title": "dune"}}}` on the lines
+  after. Search hits become rows (`_id`, `_score` and the `_source` fields as
+  columns), `_cat` calls are asked for JSON and shown as rows, anything else as one
+  row of its top-level fields. A search is limited to the row limit (and says when
+  more matched). *Sign in with* is basic (user and password), an API key or a
+  bearer token (put it in the password field). Inline edit sends a partial
+  `_update` for the document with that `_id`.
+
+For the engines that aren't SQL, the **Safety** check works on the engine's
+own commands: `FLUSHALL`, `DEL`, `CONFIG SET` and the like in Redis; `drop`,
+`delete`, an update that touches every match, or an aggregation that writes
+with `$out` in MongoDB; `DELETE`, `_delete_by_query`, `_close` and settings
+changes in Elasticsearch. They ask first and say why, and production
+connections ask for the connection's name.
 
 **Browse.** Click a connection to connect. Expand a database (a schema, for
 PostgreSQL) to see its tables and views, and a table to see its columns and

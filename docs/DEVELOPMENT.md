@@ -193,7 +193,7 @@ the release files are copied to.
   if any of the five is missing.
 
 The end-to-end SSH tests run on Linux. Windows has
-no `sshd`, so they skip themselves there. Set `SSHVAULT_SKIP_SSHD_TESTS=1` to
+no `sshd`, so they skip themselves there. The Redis engine tests start a throw-away `redis-server` on a free port (`SSHVAULT_REDIS_SERVER` names the binary; they skip when there is none); the other new engines are tested against stand-in servers inside the test files. Set `SSHVAULT_SKIP_SSHD_TESTS=1` to
 skip them anywhere else.
 
 To release, bump the version in `package.json`, `src-tauri/Cargo.toml` and

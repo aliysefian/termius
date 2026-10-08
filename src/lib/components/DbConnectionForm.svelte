@@ -6,6 +6,7 @@
   import * as api from "$lib/api";
   import { ui } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
+  import { cleanOptions, engineInfo } from "$lib/dbengines";
   import { DB_ENGINES, ENVIRONMENTS, emptyDbConnection, errorMessage, type DbConnection, type DbTls, type Uuid } from "$lib/types";
 
   let { id }: { id: Uuid | null } = $props();
@@ -30,6 +31,9 @@
   let environment = $state(base.environment ?? "");
   let group = $state(base.group);
   let notes = $state(base.notes);
+  /** Settings only this engine has (see dbengines.ts). */
+  let options = $state<Record<string, string>>({ ...(base.options ?? {}) });
+  const info = $derived(engineInfo(engine));
 
   let error = $state<string | null>(null);
   let busy = $state(false);
@@ -40,13 +44,15 @@
   const sshHost = $derived(sshHostId ? vaultStore.hostById.get(sshHostId) : undefined);
   const sshHostHasIdentity = $derived(!!vaultStore.effectiveIdentity(sshHost?.data));
 
-  const fingerprint = () => JSON.stringify([name, engine, host, port, username, password, database, tls, sshHostId, environment, group, notes]);
+  const fingerprint = () => JSON.stringify([name, engine, host, port, username, password, database, tls, sshHostId, environment, group, notes, options]);
   const initial = fingerprint();
   const dirty = $derived(fingerprint() !== initial);
 
   function changeEngine(value: string) {
     const was = DB_ENGINES.find((e) => e.value === engine);
     engine = value;
+    // Another engine's settings mean nothing here.
+    options = {};
     // Follow the default port only if the user hasn't typed their own.
     if (port === was?.port) port = DB_ENGINES.find((e) => e.value === value)?.port ?? port;
   }
@@ -60,12 +66,13 @@
       username,
       // Blank keeps the stored one (on a new connection, no password).
       password: password === "" ? (hasStoredPassword ? "" : undefined) : password,
-      database: database.trim(),
+      database: info.database ? database.trim() : "",
       tls,
       ssh_host_id: sshHostId || undefined,
       group: group.trim(),
       environment: environment || undefined,
       notes,
+      options: cleanOptions(engine, $state.snapshot(options)),
     };
   }
 
@@ -119,11 +126,11 @@
         <input id="db-port" class="input font-mono" type="number" min="1" max="65535" bind:value={port} required />
       </div>
       <div>
-        <label class="label" for="db-user">User</label>
-        <input id="db-user" class="input" bind:value={username} autocomplete="off" spellcheck="false" />
+        <label class="label" for="db-user">{info.user?.label ?? "User"}{#if !info.user?.required}<span class="font-normal text-fg-muted"> (optional)</span>{/if}</label>
+        <input id="db-user" class="input" bind:value={username} autocomplete="off" spellcheck="false" required={info.user?.required} />
       </div>
       <div>
-        <label class="label" for="db-pass">Password</label>
+        <label class="label" for="db-pass">{info.password.label}</label>
         <input
           id="db-pass"
           class="input"
@@ -133,15 +140,28 @@
           placeholder={hasStoredPassword ? "Saved. Leave blank to keep it" : ""}
         />
       </div>
-      <div class="col-span-2">
-        <label class="label" for="db-db">
-          Database <span class="font-normal text-fg-muted">{engine === "postgres" ? "(defaults to postgres)" : "(optional, the one to start in)"}</span>
-        </label>
-        <input id="db-db" class="input font-mono" bind:value={database} autocomplete="off" spellcheck="false" placeholder={engine === "postgres" ? "postgres" : ""} />
-        {#if engine === "postgres"}
-          <p class="mt-1 text-xs text-fg-muted">A PostgreSQL connection is to one database. Add a connection for each database you want to browse; its schemas appear in the tree.</p>
-        {/if}
-      </div>
+      {#if info.database}
+        <div class="col-span-2">
+          <label class="label" for="db-db">{info.database.label} <span class="font-normal text-fg-muted">{info.database.help ?? ""}</span></label>
+          <input id="db-db" class="input font-mono" bind:value={database} autocomplete="off" spellcheck="false" placeholder={info.database.placeholder ?? ""} />
+        </div>
+      {/if}
+      {#each info.options.filter((o) => !o.onlyWhenVerifying || tls === "verify_full") as o (o.key)}
+        <div class="col-span-2" data-testid="db-option-{o.key}">
+          <label class="label" for="db-opt-{o.key}">{o.label}</label>
+          {#if o.choices}
+            <select id="db-opt-{o.key}" class="input" value={options[o.key] ?? o.choices[0].value} onchange={(e) => (options[o.key] = e.currentTarget.value)}>
+              {#each o.choices as c (c.value)}<option value={c.value}>{c.label}</option>{/each}
+            </select>
+          {:else}
+            <input id="db-opt-{o.key}" class="input font-mono" value={options[o.key] ?? ""} oninput={(e) => (options[o.key] = e.currentTarget.value)} placeholder={o.placeholder ?? ""} autocomplete="off" spellcheck="false" />
+          {/if}
+          {#if o.help}<p class="mt-1 text-xs text-fg-muted">{o.help}</p>{/if}
+        </div>
+      {/each}
+      {#if info.note}
+        <p class="col-span-2 text-xs text-fg-muted" data-testid="db-engine-note">{info.note}</p>
+      {/if}
     </div>
 
     <div class="grid grid-cols-2 gap-3">
