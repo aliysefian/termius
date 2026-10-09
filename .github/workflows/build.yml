@@ -104,6 +104,30 @@ jobs:
         working-directory: src-tauri
         run: cargo test
 
+  # Loads the built app in a real browser under the content security policy from tauri.conf.json and fails on any
+  # violation (src/lib/__tests__/e2e/csp.py). Not blocking yet: it has not had a green run on this runner, and
+  # should be made blocking (remove continue-on-error) after one.
+  csp:
+    name: Content security policy
+    runs-on: ubuntu-22.04
+    continue-on-error: true
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6 # version comes from package.json "packageManager"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install playwright==1.49.1
+      - run: python -m playwright install --with-deps chromium
+      - run: python src/lib/__tests__/e2e/csp.py
+
   # Installers: for version tags, and on demand from the Actions tab
   # ("Run workflow"). Runs alongside the checks, not after them.
   bundle:

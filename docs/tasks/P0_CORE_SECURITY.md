@@ -290,6 +290,6 @@ Both files parse as YAML; neither has run. **Findings that changed the plan:** (
 the code is not in default rustfmt style; a fmt gate would fail CI at once and a mass reformat would bury real changes, so it
 is deliberately not added (needs a rustfmt.toml decision or a one-off reformat commit). (2) CI already installs
 `openssh-server` on Linux and Windows jobs (`build.yml:57,154`), so the sshd-based tests do run; the earlier concern that
-they pass vacuously is withdrawn. **Not done:** pinning actions by SHA and `rust-toolchain.toml` (need current SHAs and a
+they pass vacuously is withdrawn. **Also (2026-10-09):** a `csp` job in `build.yml` runs `csp.py` under the real policy (non-blocking until it has had a green run on the runner; not run yet). Clippy (`-D warnings`, as CI runs it) was run over every Rust file I could compile in scratch crates and is clean after one fix to my own test; `commands.rs`, `lib.rs` and the database drivers could not be linted here. **Not done:** pinning actions by SHA and `rust-toolchain.toml` (need current SHAs and a
 toolchain decision), component tests, ESLint/Prettier, macOS decision, failing tagged builds without signing secrets.
 **Evidence.** Pending first workflow runs.

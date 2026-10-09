@@ -123,7 +123,8 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         install(dir.clone());
         let r = std::thread::Builder::new().name("probe".into()).spawn(|| {
-            let e: Result<(), String> = Err("hunter2".into());
+            // black_box: the unwrap is meant to run, and its message to be formatted like a real one.
+            let e: Result<(), String> = std::hint::black_box(Err("hunter2".to_string()));
             e.unwrap();
         });
         assert!(r.unwrap().join().is_err(), "the panic still unwinds the thread");
