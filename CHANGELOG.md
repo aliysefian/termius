@@ -4,6 +4,11 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## 0.29.4 - 2026-10-09
+
+- **Fixed:** in the host form and other dialogs, search pickers such as **Jump host** opened off to the right and were partly hidden behind the dialog. They now open right under their field.
+- **Fixed:** clearing a host's **Jump host** in a group that has a default jump host still went through the group's jump. An empty field now means connect directly; to use the group's jump, pick **Group default: …** in the list.
+
 ## 0.29.3 - 2026-10-09
 
 - Engineering only: twelve more areas of the app's command code moved out of the very large `commands.rs` into their own files. No change in behavior.
