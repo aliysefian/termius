@@ -80,6 +80,7 @@ export const vault = {
   unlockWithRecovery: (recoveryKey: string, newPassword: string, remember: boolean) =>
     invoke<UnlockResult>("unlock_with_recovery", { recoveryKey, newPassword, remember }),
   forgetDevice: () => invoke<VaultStatus>("forget_device"),
+  setKeepKeyOnLock: (keep: boolean) => invoke<VaultStatus>("set_keep_key_on_lock", { keep }),
   rememberDevice: () => invoke<VaultStatus>("remember_device"),
   lock: () => invoke<VaultStatus>("lock_vault"),
   changePassword: (currentPassword: string, newPassword: string) =>

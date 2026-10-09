@@ -108,6 +108,14 @@ fn tampered_metadata_is_detected() {
     fs::write(&path, serde_json::to_vec(&m).unwrap()).unwrap();
     assert!(open().is_err());
 
+    // Absurdly strong parameters (a hostile synced manifest): refused before any key derivation is attempted.
+    for (field, value) in [("m_cost_kib", 4 * 1024 * 1024), ("t_cost", 1000), ("p_cost", 0), ("p_cost", 1000)] {
+        let mut m = original.clone();
+        m["slots"][0]["kdf"][field] = json!(value);
+        fs::write(&path, serde_json::to_vec(&m).unwrap()).unwrap();
+        assert!(matches!(open().unwrap_err(), VaultError::MalformedManifest(..)), "{field}={value}");
+    }
+
     // Different vault ID.
     let mut m = original.clone();
     m["vault_id"] = json!(uuid::Uuid::new_v4());

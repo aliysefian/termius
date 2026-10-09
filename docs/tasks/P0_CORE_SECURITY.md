@@ -139,7 +139,7 @@ id: SSHV-001
 title: Backend auto-lock, lock semantics, KDF bounds
 module: security
 priority: P0
-status: TODO
+status: IN_PROGRESS
 dependencies: [SSHV-004]
 risk: medium
 ```
@@ -157,7 +157,16 @@ accepted. Nothing in this task changes how records or backups are encrypted, so 
 locks after the idle time with the webview frozen; with the new setting on, unlock after lock asks for the password.
 **Tests.** Extend `vault/tests.rs`: KDF ceiling, idle lock with an injected clock, unlock delay.
 **Rollback.** Revert the commit; no data-format change.
-**Evidence.** Pending.
+**Progress (2026-10-09).** (a) KDF ceilings (1 GiB, 32 passes, 1-16 lanes) in `vault/format.rs`; evidence: the real vault suite
+(79 tests, `vault/*`, `crypto.rs`, `models.rs` in a scratch crate with three stub enums) passes with the new cases in
+`tampered_metadata_is_detected`, and with the ceiling stashed that test fails after running ~104 s on a hostile 4 GiB manifest,
+which is the denial of service this closes. (b) Lock now forgets the remembered-device key unless `keep_key_on_lock` is set (owner
+decision: on by default, i.e. forget). Finding: `UnlockScreen.svelte:172` unlocks with the device key as soon as the lock screen
+mounts, so on a remembered device Lock re-opened the vault at once; forgetting the key fixes that too. New `set_keep_key_on_lock`
+command, `VaultInfo.keep_key_on_lock`, checkbox in `VaultPanel.svelte`. These command/UI edits were not compiled with the full
+crate (`pnpm check` 0 errors). **Not done:** backend idle timer, `subtle`/unlock delay (S18, low; `subtle` would need a Cargo.lock
+edit I cannot verify), `mlock`.
+**Evidence.** Partial, as above.
 
 ---
 ## SSHV-002 Sync integrity and visibility

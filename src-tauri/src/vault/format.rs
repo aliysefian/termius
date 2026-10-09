@@ -112,9 +112,19 @@ impl KdfSpec {
         if self.m_cost_kib < 19 * 1024 || self.t_cost < 2 {
             return Err(malformed("KDF parameters are below the safe minimum"));
         }
+        // Ceilings, so a manifest that arrives through sync can't make unlocking allocate gigabytes or run for minutes.
+        // (The defaults are 64 MiB and 3 passes.)
+        if self.m_cost_kib > MAX_M_COST_KIB || self.t_cost > MAX_T_COST || self.p_cost == 0 || self.p_cost > MAX_P_COST {
+            return Err(malformed("KDF parameters are above the safe maximum"));
+        }
         self.salt_bytes().map(|_| ())
     }
 }
+
+/// 1 GiB of memory, 32 passes and 16 lanes: far above any real setting.
+const MAX_M_COST_KIB: u32 = 1024 * 1024;
+const MAX_T_COST: u32 = 32;
+const MAX_P_COST: u32 = 16;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct KeySlot {

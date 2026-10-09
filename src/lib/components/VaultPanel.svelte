@@ -127,6 +127,13 @@
     });
   }
 
+  async function toggleKeepKey() {
+    await act("keep-key", async () => {
+      vaultStore.status = await api.vault.setKeepKeyOnLock(!info?.keep_key_on_lock);
+      await load();
+    });
+  }
+
   // -- backups --------------------------------------------------------------
   async function backupNow() {
     await act("backup", async () => {
@@ -278,6 +285,16 @@
             {info.remembered ? "Forget on this device" : "Remember on this device"}
           </button>
         </div>
+        {#if info.remembered || info.keep_key_on_lock}
+          <label class="mt-3 flex items-start gap-2 text-xs text-fg-muted">
+            <input type="checkbox" class="mt-0.5 accent-input" checked={info.keep_key_on_lock} disabled={!!busy} onchange={toggleKeepKey} />
+            <span>
+              <span class="font-medium text-fg">Keep the stored key when locking</span><br />
+              Off (the default): locking forgets the stored key, so the master password is needed to open the vault again. On: the
+              lock screen opens the vault by itself, so locking only hides it.
+            </span>
+          </label>
+        {/if}
       </section>
 
       <section class="rounded-xl border border-line bg-panel p-5">

@@ -332,6 +332,7 @@ export interface VaultInfo {
   device_id: Uuid;
   device_name: string;
   remembered: boolean;
+  keep_key_on_lock: boolean;
   state_hash: string;
   records: number;
   last_change: number;

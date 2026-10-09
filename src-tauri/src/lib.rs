@@ -78,6 +78,7 @@ pub fn run() {
             commands::unlock_with_device,
             commands::unlock_with_recovery,
             commands::forget_device,
+            commands::set_keep_key_on_lock,
             commands::remember_device,
             commands::set_recovery_key,
             commands::remove_recovery_key,

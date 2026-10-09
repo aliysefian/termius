@@ -29,6 +29,10 @@ pub struct AppConfig {
     /// Accept `sshvault list/connect/run` from this computer's command line.
     #[serde(default)]
     pub cli_enabled: bool,
+    /// Keep the remembered-device key when the vault is locked. Off by default: locking then also forgets the key, so
+    /// the master password is needed to open the vault again (otherwise the lock screen unlocks itself at once).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub keep_key_on_lock: bool,
     /// Fingerprints of the ProxyCommands this computer may run (see `proxyapproval`). Never synced.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub approved_proxy_commands: Vec<String>,

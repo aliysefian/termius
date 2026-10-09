@@ -685,7 +685,26 @@ pub async fn lock_vault(state: State<'_, AppState>) -> ApiResult<VaultStatus> {
         .close();
     state.logs.lock().unwrap_or_else(|p| p.into_inner()).clear();
     state.session.lock();
-    let cfg = AppConfig::load(&state.config_dir)?;
+    let mut cfg = AppConfig::load(&state.config_dir)?;
+    // A locked vault that opens itself from the device key isn't locked: forget the key too, unless the person chose
+    // to keep it. The lock has happened either way, so a keychain that refuses is not an error here.
+    if !cfg.keep_key_on_lock {
+        if let Some(id) = cfg.remember_vault {
+            if state.keystore.forget(id).is_ok() {
+                cfg.remember_vault = None;
+                let _ = cfg.save(&state.config_dir);
+            }
+        }
+    }
+    Ok(status_of(&state, &cfg))
+}
+
+/// Whether locking keeps this device's stored key (see `AppConfig::keep_key_on_lock`).
+#[tauri::command]
+pub fn set_keep_key_on_lock(state: State<'_, AppState>, keep: bool) -> ApiResult<VaultStatus> {
+    let mut cfg = AppConfig::load(&state.config_dir)?;
+    cfg.keep_key_on_lock = keep;
+    cfg.save(&state.config_dir)?;
     Ok(status_of(&state, &cfg))
 }
 
@@ -764,6 +783,8 @@ pub struct VaultInfo {
     pub device_id: Uuid,
     pub device_name: String,
     pub remembered: bool,
+    /// Locking keeps the remembered key (the setting is off by default).
+    pub keep_key_on_lock: bool,
     /// Short hash of every record's ID and revision; equal on two devices
     /// means they have the same data.
     pub state_hash: String,
@@ -797,6 +818,7 @@ pub fn vault_info(state: State<'_, AppState>) -> ApiResult<VaultInfo> {
             device_id: v.device().id,
             device_name: v.device().name.clone(),
             remembered: cfg.remember_vault == Some(v.vault_id()),
+            keep_key_on_lock: cfg.keep_key_on_lock,
             state_hash,
             records,
             last_change,
