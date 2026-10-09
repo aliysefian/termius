@@ -313,8 +313,9 @@ class VaultStore {
     if (res.report.migrated) notes.push("The vault was upgraded to the new format; a backup of the old one was kept.");
     if (res.report.merged_conflicts) notes.push(`${res.report.merged_conflicts} sync conflict(s) were merged automatically.`);
     if (res.report.open_conflicts) notes.push(`${res.report.open_conflicts} sync conflict(s) need your decision (Vault screen).`);
+    if (res.report.rollbacks) notes.push(`${res.report.rollbacks} record(s) in the synced folder are older than, or missing since, what this computer last saw. Check the Vault screen before editing.`);
     if (res.keychain_error) notes.push(`Couldn't remember the vault on this device: ${res.keychain_error}`);
-    if (notes.length) ui.notify(res.report.open_conflicts || res.keychain_error ? "error" : "info", notes.join(" "));
+    if (notes.length) ui.notify(res.report.open_conflicts || res.report.rollbacks || res.keychain_error ? "error" : "info", notes.join(" "));
   }
 
   async unlock(password: string, remember: boolean) {

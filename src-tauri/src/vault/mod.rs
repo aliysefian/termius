@@ -24,6 +24,7 @@ pub mod backup;
 pub mod conflicts;
 pub mod devices;
 pub mod format;
+pub mod highwater;
 pub mod integrity;
 pub mod legacy_v1;
 pub mod merge;
@@ -366,6 +367,8 @@ pub struct Vault {
     vmk: MasterKey,
     manifest: Manifest,
     device: DeviceInfo,
+    /// What this device has seen of the folder, to notice it going backwards (see [`highwater`]). Off until attached.
+    highwater: std::sync::Mutex<Option<highwater::HighWater>>,
 }
 
 impl std::fmt::Debug for Vault {
@@ -457,6 +460,7 @@ impl Vault {
                 vmk,
                 manifest,
                 device,
+                highwater: Default::default(),
             },
             recovery,
         ))
@@ -513,6 +517,7 @@ impl Vault {
             vmk,
             manifest,
             device,
+            highwater: Default::default(),
         })
     }
 
@@ -674,7 +679,20 @@ impl Vault {
         if env.id != id || env.content_hash != content_hash(env.deleted, env.data.as_ref()) {
             return Err(VaultError::IdMismatch { collection: c, id });
         }
+        // Only the record's own file counts: a sync tool's conflict copy is meant to be older.
+        if path == self.record_path(c, id) {
+            self.observe(c, id, env.rev, env.deleted);
+        }
         Ok(env)
+    }
+
+    fn observe(&self, c: Collection, id: Uuid, rev: u64, deleted: bool) {
+        if !c.is_synced_data() {
+            return;
+        }
+        if let Some(h) = self.highwater.lock().unwrap_or_else(|p| p.into_inner()).as_mut() {
+            h.observe(&c.to_string(), id, rev, deleted);
+        }
     }
 
     pub(crate) fn read_envelope(&self, c: Collection, id: Uuid) -> Result<Option<Envelope>> {
@@ -704,7 +722,9 @@ impl Vault {
     }
 
     pub(crate) fn write_envelope(&self, c: Collection, env: &Envelope) -> Result<()> {
-        self.write_envelope_at(c, env, &self.record_path(c, env.id))
+        self.write_envelope_at(c, env, &self.record_path(c, env.id))?;
+        self.observe(c, env.id, env.rev, env.deleted);
+        Ok(())
     }
 
     pub(crate) fn new_envelope(
@@ -946,6 +966,56 @@ impl Vault {
         Ok(out)
     }
 
+    // -- rollback detection -----------------------------------------------------
+
+    /// Start remembering, in `path` (on this device, outside the folder), the newest revision seen of every record.
+    pub fn attach_highwater(&self, path: PathBuf) {
+        *self.highwater.lock().unwrap_or_else(|p| p.into_inner()) = Some(highwater::HighWater::load(path));
+    }
+
+    /// Read every record, learn the newest revisions, and report what went backwards or vanished. Saves the memory.
+    pub fn check_rollbacks(&self) -> Result<Vec<highwater::Anomaly>> {
+        let mut present = std::collections::BTreeSet::new();
+        for c in Collection::ALL.into_iter().filter(|c| c.is_synced_data()) {
+            let listing = self.list_with_tombstones::<Value>(c)?;
+            present.extend(listing.records.iter().map(|r| format!("{c}/{}", r.id)));
+            // A file that can't be read is not a missing one.
+            present.extend(listing.skipped.iter().filter_map(|s| self.parse_record_path(&s.path)).map(|(c, id)| format!("{c}/{id}")));
+        }
+        let mut guard = self.highwater.lock().unwrap_or_else(|p| p.into_inner());
+        let Some(h) = guard.as_mut() else { return Ok(Vec::new()) };
+        h.note_missing(&present);
+        let _ = h.save();
+        Ok(h.anomalies())
+    }
+
+    /// What has been noticed so far (see [`Self::check_rollbacks`]); also grows as records are read.
+    pub fn rollbacks(&self) -> Vec<highwater::Anomaly> {
+        self.highwater.lock().unwrap_or_else(|p| p.into_inner()).as_ref().map(|h| h.anomalies()).unwrap_or_default()
+    }
+
+    /// The person has looked: take the folder as it is now as the baseline.
+    pub fn accept_rollbacks(&self) -> Result<()> {
+        let mut current = Vec::new();
+        for c in Collection::ALL.into_iter().filter(|c| c.is_synced_data()) {
+            for r in self.list_with_tombstones::<Value>(c)?.records {
+                current.push((c.to_string(), r.id, r.rev, r.deleted));
+            }
+        }
+        if let Some(h) = self.highwater.lock().unwrap_or_else(|p| p.into_inner()).as_mut() {
+            h.accept(current);
+            let _ = h.save();
+        }
+        Ok(())
+    }
+
+    /// Write the memory out (called when locking).
+    pub fn save_highwater(&self) {
+        if let Some(h) = self.highwater.lock().unwrap_or_else(|p| p.into_inner()).as_ref() {
+            let _ = h.save();
+        }
+    }
+
     /// A short fingerprint of the whole vault state: every live record's ID
     /// and revision, hashed. Two devices showing the same value have the same
     /// data.
@@ -1033,17 +1103,21 @@ pub(crate) mod testutil {
             DeviceInfo::new("PC-A"),
         )
         .unwrap();
+        v.attach_highwater(dir.path().join("hw-PC-A.json"));
         (dir, v)
     }
 
     /// Open the same folder as another device.
     pub fn second_device(v: &Vault, name: &str) -> Vault {
-        Vault::open(
+        let other = Vault::open(
             v.root(),
             Unlock::Password(b"hunter2"),
             DeviceInfo::new(name),
         )
-        .unwrap()
+        .unwrap();
+        // Each device keeps its own memory, outside the shared folder.
+        other.attach_highwater(v.root().parent().unwrap().join(format!("hw-{name}.json")));
+        other
     }
 }
 

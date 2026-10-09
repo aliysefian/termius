@@ -84,6 +84,7 @@ pub fn run() {
             commands::forget_device,
             commands::set_keep_key_on_lock,
             commands::vault_activity,
+            commands::accept_rollbacks,
             commands::remember_device,
             commands::set_recovery_key,
             commands::remove_recovery_key,

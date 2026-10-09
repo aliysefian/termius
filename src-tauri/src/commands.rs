@@ -811,6 +811,14 @@ pub struct VaultInfo {
     pub active_sessions: Vec<crate::vault::devices::ActiveSession>,
     pub devices: Vec<Record<crate::vault::devices::DeviceRecord>>,
     pub open_conflicts: usize,
+    /// Records that went backwards or vanished since this device last saw them.
+    pub rollbacks: Vec<crate::vault::highwater::Anomaly>,
+}
+
+/// The person has looked at the rollback warning: take the folder as it is now as the baseline.
+#[tauri::command]
+pub fn accept_rollbacks(state: State<'_, AppState>) -> ApiResult<()> {
+    Ok(state.session.with_vault(|v| v.accept_rollbacks())?)
 }
 
 #[tauri::command]
@@ -843,6 +851,7 @@ pub fn vault_info(state: State<'_, AppState>) -> ApiResult<VaultInfo> {
             active_sessions: v.active_sessions()?,
             devices: v.devices()?,
             open_conflicts: v.conflict_copies()?.len(),
+            rollbacks: v.check_rollbacks()?,
         })
     })?)
 }
@@ -4699,7 +4708,11 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let prompts: PromptMap = Default::default();
     let sftp = Arc::new(SftpManager::new());
     app.manage(AppState {
-        session: Session::new(),
+        session: {
+            let s = Session::new();
+            s.set_highwater_dir(config_dir.join("highwater"));
+            s
+        },
         config_dir: config_dir.clone(),
         ssh: Arc::new(SshManager::new()),
         sftp: Arc::clone(&sftp),

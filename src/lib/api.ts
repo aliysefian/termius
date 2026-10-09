@@ -80,6 +80,7 @@ export const vault = {
   unlockWithRecovery: (recoveryKey: string, newPassword: string, remember: boolean) =>
     invoke<UnlockResult>("unlock_with_recovery", { recoveryKey, newPassword, remember }),
   forgetDevice: () => invoke<VaultStatus>("forget_device"),
+  acceptRollbacks: () => invoke<void>("accept_rollbacks"),
   activity: (minutes: number) => invoke<void>("vault_activity", { minutes }),
   onIdleLocked: (handler: () => void): Promise<UnlistenFn> => listen("vault:idle-locked", () => handler()),
   setKeepKeyOnLock: (keep: boolean) => invoke<VaultStatus>("set_keep_key_on_lock", { keep }),

@@ -180,7 +180,7 @@ id: SSHV-002
 title: Rollback detection, sync status, version history
 module: sync
 priority: P0
-status: TODO
+status: TESTING
 dependencies: [SSHV-001]
 risk: high
 ```
@@ -194,7 +194,18 @@ conflicts, error). Retry with backoff for transient I/O. Optionally keep N prior
 **Acceptance.** Replaying an older ciphertext is detected on next scan; legitimate deletion via tombstone is not flagged.
 **Tests.** Rollback replay, stale replica, interrupted write, corrupted file, two-device simultaneous edit.
 **Rollback.** High-water file is local; deleting it disables the check.
-**Evidence.** Pending.
+**Progress (2026-10-09).** Rollback detection built and tested (detect and report, never block): `vault/highwater.rs` keeps, on this
+device and outside the synced folder (`<config dir>/highwater/<vault id>.json`), the newest revision seen of every synced record.
+`Vault` observes every read/write of a record's own file (conflict copies are excluded on purpose); `check_rollbacks()` also
+reports live records that vanished (tombstones and purged tombstones don't count). Unlock reports the count
+(`UnlockReport.rollbacks`, a notification), the Vault screen shows a banner listing the records with "Accept the folder as it is
+now", and lock saves the memory. Tests: 4 unit tests plus 4 vault tests (older copy replayed; vanished vs deleted record;
+memory survives lock/restart; another device's ordinary edits and a reconciled sync-conflict copy raise nothing) and a session test
+(unlock reports 1, accept, next unlock reports 0). The whole vault + session + sync suite (92 tests) passes in a scratch crate.
+**Not done:** a sync-status indicator (syncing / waiting / error) beyond this and the conflict count; user-facing version
+history; retry/backoff for I/O errors; blocking writes while a rollback is unresolved (deliberately left as a warning, because an
+old copy restored on purpose looks identical); the `commands.rs` wiring (`vault_info`, `accept_rollbacks`) was not compiled.
+**Evidence.** As above.
 
 ---
 ## SSHV-003 Connection engine reliability

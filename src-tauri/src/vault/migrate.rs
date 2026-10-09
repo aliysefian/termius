@@ -198,6 +198,7 @@ pub fn migrate_v1(
         vmk: vmk.clone(),
         manifest: manifest.clone(),
         device: device.clone(),
+        highwater: Default::default(),
     };
     for c in Collection::ALL {
         let d = staging.join(c.dir_name());

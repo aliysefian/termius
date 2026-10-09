@@ -64,12 +64,16 @@ pub struct UnlockReport {
     pub open_conflicts: usize,
     /// An automatic backup was taken.
     pub backed_up: bool,
+    /// Records that went backwards or vanished since this device last saw them (see `vault::highwater`).
+    pub rollbacks: usize,
 }
 
 pub struct Session {
     vault: SharedVault,
     watcher: Mutex<Option<VaultWatcher>>,
     heartbeat_stop: Mutex<Option<Arc<AtomicBool>>>,
+    /// Where this device keeps what it has seen of each vault, for noticing a rolled-back folder.
+    highwater_dir: Mutex<Option<PathBuf>>,
     /// How many backups to keep, from the vault's synced settings.
     pub backup_retention: std::sync::atomic::AtomicUsize,
 }
@@ -86,8 +90,14 @@ impl Session {
             vault: Arc::new(Mutex::new(None)),
             watcher: Mutex::new(None),
             heartbeat_stop: Mutex::new(None),
+            highwater_dir: Mutex::new(None),
             backup_retention: backup::DEFAULT_RETENTION.into(),
         }
+    }
+
+    /// Turn on rollback detection: the per-vault memory files live in `dir`, outside the synced folder.
+    pub fn set_highwater_dir(&self, dir: PathBuf) {
+        *self.highwater_dir.lock().unwrap_or_else(|p| p.into_inner()) = Some(dir);
     }
 
     pub fn status(&self, configured_path: Option<&Path>, remembered: bool) -> VaultStatus {
@@ -200,6 +210,11 @@ impl Session {
         // Housekeeping that must not stop an unlock if it fails (for example
         // a read-only sync folder): conflicts, device registry, lock, backup.
         let mut report = UnlockReport::default();
+        // Before anything below writes: what does the folder look like compared with what this device saw last time?
+        if let Some(dir) = self.highwater_dir.lock().unwrap_or_else(|p| p.into_inner()).clone() {
+            vault.attach_highwater(dir.join(format!("{}.json", vault.vault_id())));
+            report.rollbacks = vault.check_rollbacks().map(|a| a.len()).unwrap_or(0);
+        }
         if let Ok(r) = vault.reconcile() {
             report.merged_conflicts = r.merged;
             report.open_conflicts = r.unresolved;
@@ -272,6 +287,7 @@ impl Session {
             .unwrap_or_else(|p| p.into_inner())
             .take();
         if let Some(v) = self.vault.lock().unwrap_or_else(|p| p.into_inner()).take() {
+            v.save_highwater();
             let _ = v.release_lock();
             // `v` drops here and its key is zeroized.
         }
@@ -313,6 +329,30 @@ mod tests {
     use super::*;
     use crate::vault::testutil::{kdf, opts};
     use crate::vault::Collection;
+
+    #[test]
+    fn unlocking_reports_a_folder_that_went_backwards() {
+        use crate::vault::{Base, Collection};
+        let dir = tempfile::TempDir::new().unwrap();
+        let root = dir.path().join("vault");
+        let s = Session::new();
+        s.set_highwater_dir(dir.path().join("highwater"));
+        let dev = DeviceInfo::new("PC-A");
+        s.create(root.clone(), b"pw", opts(false), dev.clone(), |_| {}).unwrap();
+        let id = s.with_vault(|v| v.insert(Collection::Snippets, &"ls".to_string()).map(|r| r.id)).unwrap();
+        let path = s.with_vault(|v| Ok(v.record_path(Collection::Snippets, id))).unwrap();
+        let old = std::fs::read(&path).unwrap();
+        s.with_vault(|v| v.put(Collection::Snippets, id, &"ls -la".to_string(), Base::Rev(1)).map(|_| ())).unwrap();
+        s.lock(); // writes down revision 2
+
+        std::fs::write(&path, &old).unwrap(); // the sync service brings revision 1 back
+        let report = s.unlock(root.clone(), Unlock::Password(b"pw"), dev.clone(), kdf(), |_| {}).unwrap();
+        assert_eq!(report.rollbacks, 1);
+        s.with_vault(|v| v.accept_rollbacks()).unwrap();
+        s.lock();
+        let report = s.unlock(root, Unlock::Password(b"pw"), dev, kdf(), |_| {}).unwrap();
+        assert_eq!(report.rollbacks, 0, "accepted: the folder as it is now is the baseline");
+    }
 
     #[test]
     fn status_transitions_and_unlock_paths() {

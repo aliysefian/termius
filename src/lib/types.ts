@@ -292,6 +292,7 @@ export interface UnlockReport {
   merged_conflicts: number;
   open_conflicts: number;
   backed_up: boolean;
+  rollbacks: number;
 }
 
 export interface UnlockResult {
@@ -340,7 +341,11 @@ export interface VaultInfo {
   active_sessions: ActiveSession[];
   devices: VaultRecord<DeviceRecord>[];
   open_conflicts: number;
+  rollbacks: RollbackAnomaly[];
 }
+
+/** A record that went backwards (an older revision than this device saw) or vanished from the synced folder. */
+export type RollbackAnomaly = { collection: string; id: Uuid } & ({ kind: "older"; seen: number; now: number } | { kind: "missing"; seen: number });
 
 export interface BackupInfo {
   file_name: string;
