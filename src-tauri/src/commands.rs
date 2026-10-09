@@ -849,6 +849,19 @@ pub struct VaultInfo {
     pub rollbacks: Vec<crate::vault::highwater::Anomaly>,
 }
 
+/// What the status bar needs to know about the synced folder, cheaply (no decrypting): how many conflict copies wait for a
+/// decision, and how many records went backwards or vanished since this computer last saw them.
+#[derive(Debug, Clone, Serialize)]
+pub struct VaultHealth {
+    pub open_conflicts: usize,
+    pub rollbacks: usize,
+}
+
+#[tauri::command]
+pub fn vault_health(state: State<'_, AppState>) -> ApiResult<VaultHealth> {
+    Ok(state.session.with_vault(|v| Ok(VaultHealth { open_conflicts: v.conflict_copies()?.len(), rollbacks: v.rollbacks().len() }))?)
+}
+
 /// The person has looked at the rollback warning: take the folder as it is now as the baseline.
 #[tauri::command]
 pub fn accept_rollbacks(state: State<'_, AppState>) -> ApiResult<()> {

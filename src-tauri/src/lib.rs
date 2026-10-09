@@ -91,6 +91,7 @@ pub fn run() {
             commands::clear_crash_log,
             commands::vault_activity,
             commands::accept_rollbacks,
+            commands::vault_health,
             commands::remember_device,
             commands::set_recovery_key,
             commands::remove_recovery_key,
