@@ -15,14 +15,16 @@ export interface AlertRules {
   cpu: number | null;
   mem: number | null;
   disk: number | null;
+  /** Tell me when a systemd service on the host enters the failed state. Off until switched on. */
+  services: boolean;
   /** How many readings in a row must be over a threshold before it counts. */
   samples: number;
   quiet: Quiet;
 }
 
-export const DEFAULT_RULES: AlertRules = { down: true, cpu: 90, mem: 90, disk: 90, samples: 3, quiet: { on: false, from: "22:00", to: "07:00" } };
+export const DEFAULT_RULES: AlertRules = { down: true, cpu: 90, mem: 90, disk: 90, services: false, samples: 3, quiet: { on: false, from: "22:00", to: "07:00" } };
 
-export type AlertKind = "down" | "up" | "cpu" | "mem" | "disk" | "cleared";
+export type AlertKind = "down" | "up" | "cpu" | "mem" | "disk" | "service" | "cleared";
 
 /** How much it matters: a recovery is information; a host that stopped answering, or a reading near the top, is critical. */
 export type Severity = "info" | "warning" | "critical";
@@ -64,7 +66,7 @@ export const open = (list: Alert[]) => list.filter((a) => a.severity !== "info" 
 /** Alerts read back from storage: anything that isn't shaped like an alert is dropped, and old ones get the new fields. */
 export function revive(raw: unknown, keep = 100): Alert[] {
   if (!Array.isArray(raw)) return [];
-  const kinds: AlertKind[] = ["down", "up", "cpu", "mem", "disk", "cleared"];
+  const kinds: AlertKind[] = ["down", "up", "cpu", "mem", "disk", "service", "cleared"];
   const out: Alert[] = [];
   for (const r of raw) {
     if (!r || typeof r !== "object") continue;
@@ -112,6 +114,8 @@ interface HostState {
   down: boolean;
   over: Record<"cpu" | "mem" | "disk", number>;
   active: Record<"cpu" | "mem" | "disk", boolean>;
+  /** Units already reported as failed, so each is announced once. */
+  failed: Set<string>;
 }
 
 const LABEL = { cpu: "CPU", mem: "Memory", disk: "Disk" } as const;
@@ -127,7 +131,7 @@ export class AlertEngine {
 
   #of(id: string): HostState {
     let s = this.#state.get(id);
-    if (!s) this.#state.set(id, (s = { failures: 0, down: false, over: { cpu: 0, mem: 0, disk: 0 }, active: { cpu: false, mem: false, disk: false } }));
+    if (!s) this.#state.set(id, (s = { failures: 0, down: false, over: { cpu: 0, mem: 0, disk: 0 }, active: { cpu: false, mem: false, disk: false }, failed: new Set() }));
     return s;
   }
 
@@ -168,7 +172,7 @@ export class AlertEngine {
   }
 
   /** A CPU, memory and disk reading came back. A value that is null (not available) changes nothing. */
-  metrics(hostId: string, host: string, m: { cpuPct: number | null; memPct: number | null; diskPct: number | null }, at: number): Alert[] {
+  metrics(hostId: string, host: string, m: { cpuPct: number | null; memPct: number | null; diskPct: number | null; failedUnits?: string[] | null }, at: number): Alert[] {
     const r = this.rules();
     if (this.muted(hostId)) return [];
     const s = this.#of(hostId);
@@ -192,6 +196,19 @@ export class AlertEngine {
         }
       }
       // Between the limit and the margin: neither over nor clear, so the state holds.
+    }
+    // Failed services: each unit is announced when it first appears, and one note when the list empties.
+    if (!r.services) s.failed = new Set();
+    else if (m.failedUnits) {
+      const now = new Set(m.failedUnits);
+      const fresh = [...now].filter((u) => !s.failed.has(u));
+      if (fresh.length) {
+        const shown = fresh.slice(0, 5).join(", ") + (fresh.length > 5 ? ` and ${fresh.length - 5} more` : "");
+        out.push(this.#alert(hostId, host, "service", `${host}: ${fresh.length === 1 ? "service" : "services"} failed: ${shown}.`, at));
+      } else if (s.failed.size && now.size === 0) {
+        out.push(this.#alert(hostId, host, "cleared", `${host}: no failed services any more.`, at));
+      }
+      s.failed = now;
     }
     return out;
   }

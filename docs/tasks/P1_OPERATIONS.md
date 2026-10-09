@@ -7,14 +7,20 @@ id: SSHV-009
 title: Missing metrics, offline cache, bounded polling
 module: monitoring
 priority: P1
-status: TODO
+status: TESTING
 dependencies: [SSHV-003]
 risk: low
 ```
 **Existing.** Fleet poll 30 s, detail 5 s, one reused SSH connection per watched host (`monitor.rs`), opt-in `monitored`,
 opt-in history (`metricsKeep`), TCP/banner reachability for 32 hosts at a time (`health.rs`).
-**Gaps.** Network throughput, load, uptime, service/container health not confirmed; history does not survive lock;
+**Gaps (as audited).** Network throughput, load, uptime, service/container health not confirmed; history does not survive lock;
 nothing runs when the app is closed.
+**Verified 2026-10-09 (the audit's "not confirmed" was too cautious).** The detail sampler (`hostdetail.sh`/`hostdetail.ts`) already
+reads per-interface throughput, load, uptime, processes, listening ports and interfaces, and the Ops view has a systemd service
+manager. **Done now:** the fleet sampler (`METRICS_SCRIPT`) also reports failed systemd units, "not available" on hosts without
+systemd, tested by running the real script on this machine and by parser tests; a new opt-in alert rule raises each failed
+service once and says when none are left (SSHV-011). **Still open:** container health as an alert; history that survives a lock
+(it is cleared on lock by design; `metricsKeep` already keeps longer history on this computer on request); Windows hosts.
 **Plan.** Extend the sampler script (read-only), keep retention opt-in, store cached history encrypted. Continuous
 monitoring is *not* a desktop feature: it belongs to the optional controller (SSHV-021). Say so in the UI.
 **Tests.** Sampler parser tests with captured outputs. Evidence pending.

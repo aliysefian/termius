@@ -694,6 +694,10 @@ sshvault run web-01 db-01 --json -- df -h /</pre>
             </div>
           {/each}
         </div>
+        <label class="flex items-start gap-2 text-sm">
+          <input type="checkbox" class="mt-0.5 accent-input" disabled={!settings.prefs.alerts} bind:checked={settings.prefs.alertServices} />
+          <span>A systemd service fails <span class="block text-xs text-fg-muted">Checked with the other readings, only on hosts that run systemd. Each failed service is announced once; the services page lists and restarts them.</span></span>
+        </label>
         <p class="-mt-1 text-xs text-fg-muted">0 turns a limit off. A reading must stay over it for</p>
         <div class="flex items-center gap-2 text-sm">
           <input class="input w-20" type="number" min="1" max="20" disabled={!settings.prefs.alerts} bind:value={settings.prefs.alertSamples} aria-label="Readings in a row" />

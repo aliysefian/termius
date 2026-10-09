@@ -51,7 +51,7 @@ by search, not by reading every file. Nothing here was exercised at runtime exce
 ## Operations
 | Capability | Status | Evidence / gap |
 |---|---|---|
-| Monitoring (CPU/mem/disk/proc/ports) | PARTIAL | `monitor.rs`, `hostmetrics.svelte.ts` (30 s fleet, 5 s detail); no network/load/uptime/service/container health confirmed; no polling when closed |
+| Monitoring (CPU/mem/disk/load/uptime/network/proc/ports/failed units) | PARTIAL (corrected: most were already there) | `monitor.rs`, `hostmetrics.svelte.ts` (30 s fleet, 5 s detail); no network/load/uptime/service/container health confirmed; no polling when closed |
 | Log explorer | PARTIAL | `ops/logs.ts` (journald + files, 5000-line buffer); no export, masking, history search; Docker/kube logs separate |
 | Alerts | PARTIAL | `alerts.svelte.ts`: down/CPU/mem/disk, quiet hours; no severity, ack, persisted history, adapters |
 | Docker / Podman | IMPLEMENTED | `containers/`; stats and health not confirmed |

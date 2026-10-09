@@ -21,6 +21,7 @@ export function rulesFromPrefs(p: typeof settings.prefs): AlertRules {
     cpu: limit(p.alertCpu),
     mem: limit(p.alertMem),
     disk: limit(p.alertDisk),
+    services: p.alertServices,
     samples: p.alertSamples,
     quiet: { on: p.alertQuiet, from: p.alertQuietFrom, to: p.alertQuietTo },
   };
@@ -115,7 +116,7 @@ class AlertsStore {
     }
   }
 
-  #metrics(id: Uuid, m: { cpuPct: number | null; memPct: number | null; diskPct: number | null }) {
+  #metrics(id: Uuid, m: { cpuPct: number | null; memPct: number | null; diskPct: number | null; failedUnits?: string[] | null }) {
     if (!settings.prefs.alerts) return;
     const name = vaultStore.hostById.get(id)?.data?.label ?? "A host";
     this.#announce(this.engine.metrics(id, name, m, Date.now()));

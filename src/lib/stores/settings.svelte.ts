@@ -83,6 +83,8 @@ export interface Prefs {
   alertCpu: number;
   alertMem: number;
   alertDisk: number;
+  /** Tell me when a systemd service on a monitored host fails. */
+  alertServices: boolean;
   /** Readings in a row over a limit before it counts. */
   alertSamples: number;
   alertQuiet: boolean;
@@ -196,6 +198,7 @@ export const DEFAULT_PREFS: Prefs = {
   alertCpu: 90,
   alertMem: 90,
   alertDisk: 90,
+  alertServices: false,
   alertSamples: 3,
   alertQuiet: false,
   alertQuietFrom: "22:00",

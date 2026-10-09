@@ -369,3 +369,42 @@ describe("alert severity, acknowledgement and kept history", () => {
     expect(atLeast("warning", "info") && !atLeast("info", "warning")).toBe(true);
   });
 });
+
+describe("failed services", () => {
+  const on: AlertRules = { ...DEFAULT_RULES, services: true, samples: 1 };
+  const reading = (failedUnits: string[] | null | undefined) => ({ cpuPct: null, memPct: null, diskPct: null, failedUnits });
+
+  it("announces each failed unit once, and says when they are all healthy again", () => {
+    const e = new AlertEngine(() => on);
+    expect(e.metrics("h", "web", reading([]), 1)).toEqual([]);
+    const first = e.metrics("h", "web", reading(["nginx.service"]), 2);
+    expect(first.map((a) => [a.kind, a.severity, a.message])).toEqual([["service", "warning", "web: service failed: nginx.service."]]);
+    expect(e.metrics("h", "web", reading(["nginx.service"]), 3)).toEqual([]);
+    expect(e.metrics("h", "web", reading(["nginx.service", "cron.service"]), 4).map((a) => a.message)).toEqual(["web: service failed: cron.service."]);
+    expect(e.metrics("h", "web", reading(["cron.service"]), 5)).toEqual([]);
+    expect(e.metrics("h", "web", reading([]), 6).map((a) => [a.kind, a.severity])).toEqual([["cleared", "info"]]);
+    expect(e.metrics("h", "web", reading([]), 7)).toEqual([]);
+  });
+
+  it("names a few and counts the rest, and treats unknown as nothing to say", () => {
+    const e = new AlertEngine(() => on);
+    const many = Array.from({ length: 8 }, (_, i) => `u${i}.service`);
+    expect(e.metrics("h", "web", reading(many), 1)[0].message).toBe("web: services failed: u0.service, u1.service, u2.service, u3.service, u4.service and 3 more.");
+    expect(e.metrics("h", "web", reading(null), 2)).toEqual([]);
+    expect(e.metrics("h", "web", reading(undefined), 3)).toEqual([]);
+    // Not available is not "recovered": the same units failing again are not announced twice.
+    expect(e.metrics("h", "web", reading(many), 4)).toEqual([]);
+  });
+
+  it("is off by default and for muted hosts, and forgets what it knew when switched off", () => {
+    expect(new AlertEngine(() => ({ ...DEFAULT_RULES, samples: 1 })).metrics("h", "web", reading(["x.service"]), 1)).toEqual([]);
+    expect(new AlertEngine(() => on, () => true).metrics("h", "web", reading(["x.service"]), 1)).toEqual([]);
+    let rules = on;
+    const e = new AlertEngine(() => rules);
+    expect(e.metrics("h", "web", reading(["x.service"]), 1)).toHaveLength(1);
+    rules = { ...on, services: false };
+    e.metrics("h", "web", reading(["x.service"]), 2);
+    rules = on;
+    expect(e.metrics("h", "web", reading(["x.service"]), 3)).toHaveLength(1);
+  });
+});
