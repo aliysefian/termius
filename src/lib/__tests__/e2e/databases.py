@@ -230,6 +230,29 @@ async def main():
         await pg.screenshot(path="/tmp/databases-engines.png")
         await pg.close()
 
+        # ---- a wide result scrolls inside its grid instead of pushing the page past the window ----
+        pg = await fresh(b)
+        await pg.set_viewport_size({"width": 1100, "height": 800})
+        await pg.evaluate("""() => {
+          const base = window.__invoke;
+          const names = Array.from({ length: 12 }, (_, i) => 'column_' + i);
+          window.__invoke = async (cmd, args) => cmd === 'db_query'
+            ? { columns: names.map((n) => ({ name: n, data_type: 'text', kind: 'text' })), rows: [names], truncated: false, affected_rows: null, last_insert_id: null, elapsed_ms: 1 }
+            : base(cmd, args);
+        }""")
+        await connect(pg, "erp")
+        await toggle(pg, "dbo")
+        await open_node(pg, "items")
+        sizes = await pg.evaluate("""() => {
+          const ws = document.querySelector("section[aria-label='Query workspace']").getBoundingClientRect();
+          const exp = [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Export');
+          const grid = document.querySelector('[role=grid][aria-label="Query result"]');
+          return { width: innerWidth, workspace: Math.round(ws.right), exportRight: Math.round(exp.getBoundingClientRect().right), gridScrolls: grid.scrollWidth > grid.clientWidth };
+        }""")
+        check("a 12-column result keeps the page inside the window", sizes["workspace"] <= sizes["width"] and sizes["exportRight"] <= sizes["width"], sizes)
+        check("and the grid scrolls sideways instead", sizes["gridScrolls"], sizes)
+        await pg.close()
+
         await b.close()
     print(f"\n{len(failures)} failed" if failures else "\nall passed")
     sys.exit(1 if failures else 0)

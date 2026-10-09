@@ -117,7 +117,7 @@
   }
 </script>
 
-<div class="flex min-h-0 flex-1 flex-col bg-base">
+<div class="flex min-h-0 min-w-0 flex-1 flex-col bg-base">
   <div class="flex flex-wrap items-center gap-2 border-b border-line bg-panel px-4 py-2.5">
     <h1 class="mr-2 text-sm font-semibold">Topology</h1>
     <input class="input h-8 w-56 text-xs" placeholder="Search name, address, tag, group…" aria-label="Search" bind:value={query} />
@@ -173,7 +173,7 @@
     <aside class="w-72 shrink-0 overflow-y-auto border-l border-line bg-panel p-4 text-sm" aria-label="Details">
       {#if chosen}
         <div class="text-[10px] font-semibold tracking-wide text-fg-muted">{word[chosen.type]}</div>
-        <h2 class="break-words text-base font-semibold text-fg">{chosen.label}</h2>
+        <h2 class="break-words text-[1rem] font-semibold text-fg">{chosen.label}</h2>
         <p class="break-words font-mono text-xs text-fg-muted">{chosen.sub}</p>
         {#if chosen.env}<p class="mt-1 text-xs capitalize">{chosen.env}</p>{/if}
         {#if chosen.group}<p class="mt-1 text-xs text-fg-muted">Group {chosen.group}</p>{/if}

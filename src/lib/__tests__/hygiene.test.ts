@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { checkKeyHygiene } from "../hygiene";
-import type { SshKey, VaultRecord } from "../types";
+import { canUseSshKey, checkKeyHygiene } from "../hygiene";
+import type { Host, SshKey, VaultRecord } from "../types";
 
 const RSA_2048 =
   "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDZSLZ9wKlucuhr9orlEmY7912YyVnqdYF/T7ztyqrbaqdiJUe5frcpWvGrjcW+8B/PuIX4e0yCso5MhEiycB40okeTfEjDYJ0R6g4JOfbCLw0N5hHzt5Cxs7+VqDYWoJ/QlA435AeFuscx3PGFLnu1xj+MurjvW8GSJBaADW3Ox7i17oZGDin+xuI/XvsqioJHnrX5q5y74vWR8qtdHW6OV4kZNkmlujUuxdUz7S0suG2UKfEkd01vGn+7se9hgNo+UTrrERCKezq4VvyS5SBpbs0HwpCKaV2x9agYvM0fdS79RJTKl6T7FQt9QQp3YdMLDOQ4k3HcZB6VsWoHZ1FF";
@@ -57,6 +57,25 @@ describe("checkKeyHygiene", () => {
     expect(hit?.message).toContain("expired");
   });
 
+  it("counts the days since expiry without adding one", () => {
+    // valid_before is 2030-06-15T00:00:00Z; three and a half days later it expired 3 days ago, not 4.
+    const now = new Date("2030-06-18T12:00:00Z").getTime();
+    const f = checkKeyHygiene([key("late", ED25519, { certificate: ED25519_CERT, created_at: now })], now);
+    expect(f.find((x) => x.id === "late:cert-expired")?.message).toBe("late: certificate expired 3 days ago.");
+  });
+
+  it("says a certificate that expired hours ago expired today", () => {
+    const now = new Date("2030-06-15T02:00:00Z").getTime();
+    const f = checkKeyHygiene([key("fresh", ED25519, { certificate: ED25519_CERT, created_at: now })], now);
+    expect(f.find((x) => x.id === "fresh:cert-expired")?.message).toBe("fresh: certificate expired today.");
+  });
+
+  it("says a certificate expiring within hours expires today", () => {
+    const now = new Date("2030-06-14T20:00:00Z").getTime();
+    const f = checkKeyHygiene([key("eod", ED25519, { certificate: ED25519_CERT, created_at: now })], now);
+    expect(f.find((x) => x.id === "eod:cert-expiring")?.message).toBe("eod: certificate expires today.");
+  });
+
   it("flags a certificate expiring within the warning window", () => {
     // 10 days before 2030-06-15T00:00:00Z.
     const now = new Date("2030-06-05T00:00:00Z").getTime();
@@ -70,5 +89,25 @@ describe("checkKeyHygiene", () => {
     const now = new Date("2025-01-01T00:00:00Z").getTime();
     const f = checkKeyHygiene([key("ok", ED25519, { certificate: ED25519_CERT, created_at: now })], now);
     expect(f.some((x) => x.id.includes("cert"))).toBe(false);
+  });
+});
+
+describe("which hosts could log in with a key", () => {
+  const host = (protocol?: string, extra: Partial<Host> = {}): Host => ({ label: "h", hostname: "h", port: 22, group: "", tags: [], notes: "", protocol, ...extra });
+
+  it("SSH hosts can (with or without Mosh)", () => {
+    expect(canUseSshKey(host())).toBe(true);
+    expect(canUseSshKey(host(""))).toBe(true);
+    expect(canUseSshKey(host(undefined, { mosh: true }))).toBe(true);
+  });
+
+  it("VNC through SSH can, plain VNC can't", () => {
+    expect(canUseSshKey(host("vnc", { vnc: { ssh_tunnel: true, ssh_port: 22 } }))).toBe(true);
+    expect(canUseSshKey(host("vnc", { vnc: { ssh_tunnel: false, ssh_port: 22 } }))).toBe(false);
+    expect(canUseSshKey(host("vnc"))).toBe(true);
+  });
+
+  it("Remote Desktop, FTP, Telnet and command hosts can't", () => {
+    for (const p of ["rdp", "ftp", "telnet", "command"]) expect(canUseSshKey(host(p))).toBe(false);
   });
 });

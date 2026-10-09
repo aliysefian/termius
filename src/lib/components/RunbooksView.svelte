@@ -242,7 +242,7 @@
 <div class="flex h-full min-h-0 flex-col" data-testid="runbooks">
   <header class="flex items-center gap-3 border-b border-line px-5 py-3">
     <ListChecks size={18} class="text-accent" />
-    <h2 class="text-base font-semibold">Runbooks</h2>
+    <h2 class="text-[1rem] font-semibold">Runbooks</h2>
     <div class="ml-4 flex gap-1" role="tablist" aria-label="Runbooks">
       {#each [["runbooks", "Runbooks"], ["history", "History"], ["schedules", "Schedules"]] as [id, label] (id)}
         <button role="tab" aria-selected={tab === id} class="rounded-md px-3 py-1 text-sm {tab === id ? 'bg-accent/15 text-accent' : 'text-fg-muted hover:text-fg'}" onclick={() => (tab = id as Tab)}>{label}</button>

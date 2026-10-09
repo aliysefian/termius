@@ -5,7 +5,7 @@
 | Tool | Version | Notes |
 |---|---|---|
 | Rust | stable | Install with [rustup](https://rustup.rs). |
-| Node.js | 22 or newer | |
+| Node.js | 24 (LTS) | Pinned in `.nvmrc`, which CI uses too; `nvm use` or `fnm use` picks it up. |
 | pnpm | 12.4.1 | Pinned in `package.json`. Run `corepack enable` and the right version is used automatically. |
 
 Plus the Tauri system dependencies for your OS.

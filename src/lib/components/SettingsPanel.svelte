@@ -278,7 +278,7 @@
         <option value="contrast">High contrast (dark)</option>
       </select>
 
-      <label class="label" for="s-language">{tr("settings.language")} / Language</label>
+      <label class="label" for="s-language">{tr("settings.language")}{#if tr("settings.language") !== "Language"}<span class="ml-1">/ Language</span>{/if}</label>
       <select id="s-language" class="input max-w-xs" bind:value={settings.prefs.language}>
         <option value="auto">{tr("settings.language.auto")}</option>
         {#each LOCALES as l (l.code)}<option value={l.code}>{l.name}</option>{/each}

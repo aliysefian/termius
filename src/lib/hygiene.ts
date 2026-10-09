@@ -4,7 +4,7 @@
 // results to "fix" actions (open the key, go to Settings, …).
 import { parseOpenSshCertificate } from "./sshcert";
 import { parseSshPublicKey } from "./sshkeyinfo";
-import type { SshKey, Uuid, VaultRecord } from "./types";
+import type { Host, SshKey, Uuid, VaultRecord } from "./types";
 
 export type Severity = "danger" | "warning";
 
@@ -42,14 +42,37 @@ export function checkKeyHygiene(keys: VaultRecord<SshKey>[], now = Date.now()): 
     if (k.certificate) {
       const cert = parseOpenSshCertificate(k.certificate);
       if (cert?.validBefore != null) {
-        const daysLeft = Math.floor((cert.validBefore * 1000 - now) / DAY_MS);
-        if (daysLeft < 0) {
-          findings.push({ id: `${rec.id}:cert-expired`, severity: "danger", subjectId: rec.id, subjectLabel: k.name, message: `${k.name}: certificate expired ${-daysLeft} day${daysLeft === -1 ? "" : "s"} ago.` });
-        } else if (daysLeft <= CERT_WARN_DAYS) {
-          findings.push({ id: `${rec.id}:cert-expiring`, severity: "warning", subjectId: rec.id, subjectLabel: k.name, message: `${k.name}: certificate expires in ${daysLeft} day${daysLeft === 1 ? "" : "s"}.` });
+        const msLeft = cert.validBefore * 1000 - now;
+        if (msLeft < 0) {
+          // Whole days since it expired: 3.5 days is "3 days ago" (flooring the negative number made it 4).
+          const daysAgo = Math.floor(-msLeft / DAY_MS);
+          const when = daysAgo === 0 ? "today" : `${daysAgo} day${daysAgo === 1 ? "" : "s"} ago`;
+          findings.push({ id: `${rec.id}:cert-expired`, severity: "danger", subjectId: rec.id, subjectLabel: k.name, message: `${k.name}: certificate expired ${when}.` });
+        } else {
+          const daysLeft = Math.floor(msLeft / DAY_MS);
+          if (daysLeft <= CERT_WARN_DAYS) {
+            const when = daysLeft === 0 ? "today" : `in ${daysLeft} day${daysLeft === 1 ? "" : "s"}`;
+            findings.push({ id: `${rec.id}:cert-expiring`, severity: "warning", subjectId: rec.id, subjectLabel: k.name, message: `${k.name}: certificate expires ${when}.` });
+          }
         }
       }
     }
   }
   return findings;
+}
+
+/**
+ * Could this host log in with an SSH key instead of a password? SSH hosts (Mosh too, it logs in over SSH) and VNC
+ * reached through SSH can; Remote Desktop, FTP, Telnet and command hosts can't, so suggesting a key there is wrong.
+ */
+export function canUseSshKey(host: Host): boolean {
+  switch (host.protocol ?? "") {
+    case "":
+    case "ssh":
+      return true;
+    case "vnc":
+      return host.vnc?.ssh_tunnel ?? true;
+    default:
+      return false;
+  }
 }

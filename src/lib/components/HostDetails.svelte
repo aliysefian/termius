@@ -10,6 +10,7 @@
   import { vaultStore } from "$lib/stores/vault.svelte";
   import { envInfo, errorMessage, type Uuid } from "$lib/types";
   import { connectionLog } from "$lib/stores/connectionlog.svelte";
+  import { outcomeParts } from "$lib/activitytext";
   import { hostMetrics } from "$lib/stores/hostmetrics.svelte";
   import { formatUptime } from "$lib/hostmetrics";
   import { Activity } from "lucide-svelte";
@@ -158,7 +159,7 @@
               <li class="flex items-center justify-between gap-2 px-2 py-1 text-xs">
                 <span>{timeAgo(s.startedAt)}</span>
                 <span class="text-fg-muted">
-                  {#if s.endedAt}{formatDuration(s.endedAt - s.startedAt)}{#if s.exitCode != null} · exit {s.exitCode}{:else if s.reason === "dropped"} · dropped{:else if s.reason === "failed"} · failed{/if}{:else}connected now{/if}
+                  {outcomeParts(s, formatDuration).join(" · ") || "connected now"}
                 </span>
               </li>
             {/each}

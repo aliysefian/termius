@@ -17,6 +17,31 @@ describe("OSC parsing", () => {
 });
 
 describe("CommandTracker", () => {
+  it("counts a command as running from its output (C) to its end (D), not while the prompt waits", () => {
+    const tr = new CommandTracker(() => "$ sleep 5");
+    tr.feed({ kind: "prompt" }, { line: 1, col: 0 });
+    // Every prompt ends with B; an idle tab sits here, and must not show "A command is running".
+    tr.feed({ kind: "command" }, { line: 1, col: 2 });
+    expect(tr.running).toBe(false);
+    tr.feed({ kind: "output" }, { line: 2, col: 0 });
+    expect(tr.running).toBe(true);
+    tr.feed({ kind: "end", exit: 0 }, { line: 3, col: 0 });
+    expect(tr.running).toBe(false);
+    tr.feed({ kind: "prompt" }, { line: 3, col: 0 });
+    tr.feed({ kind: "command" }, { line: 3, col: 2 });
+    expect(tr.running).toBe(false);
+  });
+
+  it("stops counting a command as running at the next prompt, even without an end mark", () => {
+    const tr = new CommandTracker(() => "$ vim");
+    tr.feed({ kind: "prompt" }, { line: 1, col: 0 });
+    tr.feed({ kind: "command" }, { line: 1, col: 2 });
+    tr.feed({ kind: "output" }, { line: 2, col: 0 });
+    expect(tr.running).toBe(true);
+    tr.feed({ kind: "prompt" }, { line: 5, col: 0 });
+    expect(tr.running).toBe(false);
+  });
+
   it("records what was typed, its output range and exit code", () => {
     const lines: Record<number, string> = { 10: "ops@web-01:~$ ls -la /tmp", 11: "total 0", 12: "drwx x", 13: "ops@web-01:~$ " };
     let t = 1000;

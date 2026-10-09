@@ -306,7 +306,8 @@
   }
 
   // -- the popup list --------------------------------------------------------
-  let popup = $state<{ groups: MenuGroup[]; items: MenuItem[]; selected: number; place: Placement; text: string } | null>(null);
+  /** `chosen`: the person moved the highlight, so a refresh of the same line keeps it on that entry. */
+  let popup = $state<{ groups: MenuGroup[]; items: MenuItem[]; selected: number; chosen: boolean; place: Placement; text: string } | null>(null);
 
   /** `keepWaiting`: the list is empty only until the host answers, and should open then. */
   function closeMenu(keepWaiting = false) {
@@ -464,7 +465,9 @@
       return closeMenu(true);
     }
     if (items.length === 0 || !m || !anchor) return closeMenu();
-    const kept = keep ?? (popup && popup.text === text ? popup.items[popup.selected]?.id : undefined);
+    // Only a choice the person made survives a refresh. Otherwise the first entry leads: when a command's spec
+    // arrives after the list opened, the highlight used to stay on the snippet that was listed alone at first.
+    const kept = keep ?? (popup && popup.text === text && popup.chosen ? popup.items[popup.selected]?.id : undefined);
     const at = kept ? items.findIndex((i) => i.id === kept) : -1;
     const rootBox = m.root;
     // Inside the pane and inside the window, whichever is smaller.
@@ -477,7 +480,7 @@
       { width: MENU_WIDTH, height: menuHeight(gs) },
       { left: left - rootBox.left, top: top - rootBox.top, width: right - left, height: bottom - top },
     );
-    popup = { groups: gs, items, selected: at >= 0 ? at : 0, place, text };
+    popup = { groups: gs, items, selected: at >= 0 ? at : 0, chosen: at >= 0, place, text };
     menuAnnouncement = `${items.length} suggestion${items.length === 1 ? "" : "s"}. ${items[popup.selected].label}, 1 of ${items.length}.`;
   }
 
@@ -502,6 +505,7 @@
     if (!popup) return;
     const n = popup.items.length;
     popup.selected = (popup.selected + by + n) % n;
+    popup.chosen = true;
     menuAnnouncement = `${popup.items[popup.selected].label}, ${popup.selected + 1} of ${n}.`;
   }
 

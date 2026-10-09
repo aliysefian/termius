@@ -72,6 +72,8 @@ export class CommandTracker {
   #startedAt = 0;
   #command = "";
   #leadingSpace = false;
+  /** Between C and D (or the next prompt, for a shell that skipped D). */
+  #executing = false;
 
   constructor(
     private readonly readLine: (line: number) => string,
@@ -79,9 +81,12 @@ export class CommandTracker {
     private readonly maxPrompts = 500,
   ) {}
 
-  /** A command has started (B or C mark) and its end (D) hasn't arrived. */
+  /**
+   * A command is executing: its output began (C) and its end (D) hasn't arrived. Not from B: every prompt ends with
+   * B, so counting it made each idle tab show "A command is running".
+   */
   get running(): boolean {
-    return this.#commandStart !== null || this.#outputStart !== null;
+    return this.#executing;
   }
 
   /** The shell has emitted at least one mark. */
@@ -92,6 +97,8 @@ export class CommandTracker {
   feed(mark: Osc133, cursor: Pos): CommandRecord | null {
     switch (mark.kind) {
       case "prompt":
+        // A new prompt means whatever ran is over, even if the shell never said so with D.
+        this.#executing = false;
         this.prompts.push(cursor.line);
         if (this.prompts.length > this.maxPrompts) this.prompts.shift();
         return null;
@@ -115,6 +122,7 @@ export class CommandTracker {
         }
         this.#outputStart = cursor.line;
         this.#startedAt = this.now();
+        this.#executing = true;
         return null;
       }
       case "end": {
@@ -136,6 +144,7 @@ export class CommandTracker {
         this.#outputStart = null;
         this.#command = "";
         this.#leadingSpace = false;
+        this.#executing = false;
         return rec;
       }
     }

@@ -126,7 +126,7 @@
         <input id="db-port" class="input font-mono" type="number" min="1" max="65535" bind:value={port} required />
       </div>
       <div>
-        <label class="label" for="db-user">{info.user?.label ?? "User"}{#if !info.user?.required}<span class="font-normal text-fg-muted"> (optional)</span>{/if}</label>
+        <label class="label" for="db-user">{info.user?.label ?? "User"}{#if !info.user?.required}<span class="ml-1 font-normal text-fg-muted">(optional)</span>{/if}</label>
         <input id="db-user" class="input" bind:value={username} autocomplete="off" spellcheck="false" required={info.user?.required} />
       </div>
       <div>
