@@ -36,16 +36,25 @@
 
   <div class="grid gap-4 lg:grid-cols-[1.5fr_1fr]">
     <div class="rounded-xl border border-line bg-panel">
-      <div class="flex items-center justify-between border-b border-line px-4 py-2.5"><h2 class="text-sm font-semibold">Since this app was opened</h2>
-        <button class="btn-ghost py-0.5 text-xs" disabled={!alerts.log.length} onclick={() => alerts.clear()}>Clear</button></div>
+      <div class="flex items-center justify-between border-b border-line px-4 py-2.5"><h2 class="text-sm font-semibold">{settings.prefs.alertKeepHistory ? "Kept on this computer" : "Since this app was opened"}{#if alerts.openCount} <span class="ml-1 text-xs font-normal text-danger">· {alerts.openCount} to acknowledge</span>{/if}</h2>
+        <div class="flex gap-1">
+          <button class="btn-ghost py-0.5 text-xs" disabled={!alerts.openCount} onclick={() => alerts.acknowledge("all")}>Acknowledge all</button>
+          <button class="btn-ghost py-0.5 text-xs" disabled={!alerts.log.length} onclick={() => alerts.clear()}>Clear</button>
+        </div></div>
       {#if alerts.log.length === 0}
         <div class="p-6"><EmptyState art="security" text={settings.prefs.alerts ? "Nothing to report. All quiet." : "Nothing yet."} /></div>
       {:else}
         <ul class="divide-y divide-line/60">
           {#each alerts.log as a (a.id)}
             <li class="flex items-start gap-3 px-4 py-2.5 text-sm">
-              {#if a.kind === "up" || a.kind === "cleared"}<CheckCircle2 size={16} class="mt-0.5 shrink-0 text-success" />{:else}<Siren size={16} class="mt-0.5 shrink-0 text-danger" />{/if}
-              <div class="min-w-0 flex-1"><div>{a.message}</div>{#if a.quiet}<div class="text-[11px] text-fg-muted">During quiet hours: not announced.</div>{/if}</div>
+              {#if a.severity === "info"}<CheckCircle2 size={16} class="mt-0.5 shrink-0 text-success" />{:else}<Siren size={16} class="mt-0.5 shrink-0 {a.severity === 'critical' ? 'text-danger' : 'text-warning'}" />{/if}
+              <div class="min-w-0 flex-1">
+                <div class={a.ack !== null ? "text-fg-muted" : ""}>{a.message}</div>
+                <div class="text-[11px] text-fg-muted">
+                  {a.severity}{#if a.quiet} · during quiet hours: not announced{/if}{#if a.ack !== null} · acknowledged {at(a.ack)}{/if}
+                </div>
+              </div>
+              {#if a.severity !== "info" && a.ack === null}<button class="btn-ghost shrink-0 py-0.5 text-xs" onclick={() => alerts.acknowledge(a.id)}>Acknowledge</button>{/if}
               <span class="shrink-0 text-xs text-fg-muted">{at(a.at)}</span>
             </li>
           {/each}

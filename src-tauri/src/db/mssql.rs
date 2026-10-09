@@ -100,7 +100,7 @@ pub fn config_for(spec: &ConnectSpec) -> DbResult<Config> {
             }
         }
     }
-    if spec.option("read_only").is_some_and(|v| v.eq_ignore_ascii_case("true")) {
+    if spec.read_only() {
         c.readonly(true);
     }
     Ok(c)

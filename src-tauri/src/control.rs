@@ -386,6 +386,7 @@ pub fn start_at(dir: &std::path::Path, handler: Arc<dyn Handler>) -> std::io::Re
     }
     let listener = tokio::net::UnixListener::bind(&socket)?;
     std::fs::set_permissions(&socket, std::fs::Permissions::from_mode(0o600))?;
+    // spawn-ok: started from the async unlock and cli_set_enabled commands
     let task = tokio::spawn(async move {
         while let Ok((stream, _)) = listener.accept().await {
             tokio::spawn(serve_conn(stream, Arc::clone(&handler)));
@@ -402,6 +403,7 @@ pub fn start(handler: Arc<dyn Handler>) -> std::io::Result<ControlHandle> {
         .first_pipe_instance(true)
         .reject_remote_clients(true)
         .create(&name)?;
+    // spawn-ok: started from the async unlock and cli_set_enabled commands
     let task = tokio::spawn(async move {
         loop {
             if server.connect().await.is_err() {

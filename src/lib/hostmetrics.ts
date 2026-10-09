@@ -58,11 +58,20 @@ else
   esac
 fi
 disk_pct=$(df -P / 2>/dev/null | awk 'NR==2{gsub("%","",$5); print $5}')
+# Failed systemd units, when systemd is what runs the machine (a container or another init says nothing: "not available").
+systemd=""
+failed=""
+if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
+  systemd=1
+  failed=$(systemctl --failed --no-legend --plain --no-pager 2>/dev/null | awk '{print $1}' | head -n 20 | tr '\n' ',' | sed 's/,$//')
+fi
 echo "CPU=$cpu"
 echo "MEM=$mem_used_pct"
 echo "LOAD=$load"
 echo "DISK=$disk_pct"
 echo "UPTIME=$up"
+echo "SYSTEMD=$systemd"
+echo "FAILED=$failed"
 `;
 
 export interface HostMetrics {
@@ -73,6 +82,8 @@ export interface HostMetrics {
   /** The three load-average numbers as shown by `uptime`, e.g. "0.12 0.09 0.05". */
   load: string | null;
   uptimeSecs: number | null;
+  /** Names of systemd units in the failed state: empty when none, null when the host doesn't run systemd (unknown). */
+  failedUnits: string[] | null;
 }
 
 function num(v: string | undefined): number | null {
@@ -93,6 +104,7 @@ export function parseMetricsOutput(stdout: string): HostMetrics {
     diskPct: num(fields.DISK),
     load: fields.LOAD || null,
     uptimeSecs: num(fields.UPTIME),
+    failedUnits: fields.SYSTEMD === "1" ? (fields.FAILED ?? "").split(",").map((u) => u.trim()).filter((u) => /^[A-Za-z0-9:_.@\\-]+$/.test(u)) : null,
   };
 }
 

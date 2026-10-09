@@ -124,6 +124,19 @@ fn rendering_quotes_only_when_asked() {
 }
 
 #[test]
+fn the_apps_own_values_are_quoted_because_records_can_hold_anything() {
+    let v = values(&[("host", "db$(id);x"), ("label", "web 1"), ("service", "a b")]);
+    assert_eq!(render("ping {{host}}", &v).unwrap(), "ping 'db$(id);x'");
+    assert_eq!(render("echo {{label}}", &v).unwrap(), "echo 'web 1'");
+    assert_eq!(render("ping {{host|raw}}", &v).unwrap(), "ping db$(id);x", "|raw is the explicit way to ask for it as it is");
+    assert_eq!(render("echo {{service|raw}}", &v).unwrap(), "echo a b");
+    // A sane host name is untouched, so existing runbooks read the same.
+    let ok = values(&[("host", "h.example"), ("label", "h")]);
+    assert_eq!(render("echo {{label}} {{host}}", &ok).unwrap(), "echo h h.example");
+    assert_eq!(placeholders("{{x|raw}} {{y|q}}").unwrap(), vec![("x".into(), false), ("y".into(), true)]);
+}
+
+#[test]
 fn a_dry_run_shows_each_step_filled_in() {
     let rb = parse(&doc(r#"{"name":"Check","id":"c","run":"systemctl is-active {{service|q}}"},{"run":"restart {{service}} on {{host}}","when":{"step":"c","exit":0},"on_error":"continue"},{"wait":{"run":"curl x","contains":"ok"}},{"upload":{"local":"{{conf}}","remote":"/etc/{{service}}.conf"}}"#)).unwrap();
     let p = plan(&rb, &values(&[("service", "nginx"), ("mode", "safe")]), &values(&[("host", "web-01.example"), ("label", "web-01")])).unwrap();
@@ -249,6 +262,44 @@ fn values_are_filled_in_per_host() {
     let fake = Fake::default();
     run(&doc(r#"{"run":"echo {{label}} {{host}} {{service|q}}"}"#), &[("service", "a b")], &fake);
     assert_eq!(*fake.seen.lock().unwrap(), ["echo h h.example 'a b'"]);
+}
+
+#[test]
+fn a_failed_step_is_tried_again_only_when_it_asks_to_be() {
+    // Fails twice, then works: three tries are enough for "retries": 2.
+    let fake = Fake::default().on("flaky", 1, "").on("flaky", 1, "").on("flaky", 0, "fine");
+    let (ok, r, _) = run(&doc(r#"{"run":"flaky","retries":2,"retry_delay_secs":1},{"run":"after"}"#), &[], &fake);
+    assert!(ok);
+    assert_eq!((r[0].status, r[0].note.as_str()), (StepStatus::Ok, "after 3 tries"));
+    assert_eq!(fake.seen.lock().unwrap().iter().filter(|c| *c == "flaky").count(), 3);
+
+    // Not enough tries: it ends as a failure that says how many were made, and the host stops.
+    let fake = Fake::default().on("down", 7, "");
+    let (ok, r, _) = run(&doc(r#"{"run":"down","retries":2},{"run":"never"}"#), &[], &fake);
+    assert!(!ok);
+    assert_eq!((r[0].status, r[0].note.as_str()), (StepStatus::Failed, "exited with 7, after 3 tries"));
+    assert_eq!(fake.seen.lock().unwrap().iter().filter(|c| *c == "down").count(), 3);
+    assert!(!fake.seen.lock().unwrap().contains(&"never".to_string()));
+
+    // Without "retries" a failure is tried once, as before.
+    let fake = Fake::default().on("down", 1, "");
+    run(&doc(r#"{"run":"down","on_error":"continue"}"#), &[], &fake);
+    assert_eq!(fake.seen.lock().unwrap().len(), 1);
+
+    // A dropped connection is an error, not a failed command: no retry.
+    let fake = Fake::default();
+    let (ok, r, _) = run(&doc(r#"{"run":"boom","retries":3}"#), &[], &fake);
+    assert!(!ok && r[0].status == StepStatus::Error);
+    assert_eq!(fake.seen.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn retry_settings_are_checked() {
+    let bad = |step: &str| parse(&doc(step)).unwrap_err().iter().map(|p| p.message.clone()).collect::<Vec<_>>().join("; ");
+    assert!(bad(r#"{"run":"x","retries":6}"#).contains("at most 5"));
+    assert!(bad(r#"{"run":"x","retries":1,"retry_delay_secs":0}"#).contains("retry_delay_secs"));
+    assert!(bad(r#"{"wait":{"run":"x"},"retries":1}"#).contains("wait step"));
+    assert!(parse(&doc(r#"{"run":"x","retries":5,"retry_delay_secs":300}"#)).is_ok());
 }
 
 #[test]

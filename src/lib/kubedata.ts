@@ -31,6 +31,49 @@ export interface KubeInfo {
 
 export type Scope = { scope: "all" } | { scope: "namespace"; name: string };
 
+/** The kinds besides pods that can be listed (read-only; Secrets are deliberately not among them). Backend: `kube::Kind`. */
+export const RESOURCE_KINDS = [
+  { value: "deployments", label: "Deployments" },
+  { value: "stateful_sets", label: "StatefulSets" },
+  { value: "daemon_sets", label: "DaemonSets" },
+  { value: "services", label: "Services" },
+  { value: "config_maps", label: "ConfigMaps" },
+  { value: "jobs", label: "Jobs" },
+  { value: "cron_jobs", label: "CronJobs" },
+  { value: "ingresses", label: "Ingresses" },
+  { value: "events", label: "Events" },
+  { value: "nodes", label: "Nodes" },
+] as const;
+export type ResourceKind = (typeof RESOURCE_KINDS)[number]["value"];
+
+export interface KubeResource {
+  name: string;
+  /** Empty for a node. */
+  namespace: string;
+  status: string;
+  created: string | null;
+  details: { label: string; value: string }[];
+}
+
+/** Whether a listed resource contains the search text in its name, status or any column. */
+export function matchesResource(r: KubeResource, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  return [r.name, r.namespace, r.status, ...r.details.map((d) => d.value)].some((x) => x.toLowerCase().includes(q));
+}
+
+/** A colour for a resource's status line. */
+export function resourceTone(kind: ResourceKind, r: Pick<KubeResource, "status">): Tone {
+  const s = r.status;
+  if (kind === "events") return s === "Warning" ? "warn" : "muted";
+  if (kind === "nodes") return s === "Ready" ? "good" : "bad";
+  if (kind === "jobs") return s === "Failed" ? "bad" : s === "Complete" ? "good" : "warn";
+  if (kind === "cron_jobs") return s === "Suspended" ? "muted" : "good";
+  const m = /^(\d+)\/(\d+) ready$/.exec(s);
+  if (m) return m[2] === "0" || m[1] === m[2] ? "good" : Number(m[1]) === 0 ? "bad" : "warn";
+  return "muted";
+}
+
 export type Tone = "good" | "warn" | "bad" | "muted";
 
 const BAD = /^(CrashLoopBackOff|Error|ErrImagePull|ImagePullBackOff|InvalidImageName|CreateContainerConfigError|CreateContainerError|OOMKilled|Evicted|Failed|ContainerCannotRun|DeadlineExceeded|RunContainerError)$/;

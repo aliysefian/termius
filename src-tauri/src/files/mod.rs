@@ -42,6 +42,12 @@ pub const LOCAL: &str = "local";
 
 pub type FileError = SftpError;
 
+/// Whether a name a server listed is one plain file or folder name. A hostile server can list `../x`, `/etc/x` or
+/// `a\\b`; joined onto a local folder those land outside it, so such entries are never copied.
+pub fn is_plain_name(name: &str) -> bool {
+    !name.is_empty() && name != "." && name != ".." && !name.contains(['/', '\\', '\0'])
+}
+
 /// What a backend can do. A pane offers only these.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct Caps {
@@ -279,6 +285,31 @@ mod tests {
         engine::transfer(&reg, "t".into(), src, dst, &sources.iter().map(|s| s.to_string()).collect::<Vec<_>>(), dest, resume, conflict, &sink).await;
         assert!(reg.is_empty(), "the transfer unregisters itself");
         sink
+    }
+
+    #[test]
+    fn plain_names_are_one_path_part() {
+        for ok in ["a.txt", "name with spaces", ".hidden", "..x", "x..", "é.txt"] {
+            assert!(is_plain_name(ok), "{ok:?}");
+        }
+        for bad in ["", ".", "..", "../x", "a/b", "/etc/x", "a\\b", "..\\x", "C:\\x", "a\0b"] {
+            assert!(!is_plain_name(bad), "{bad:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_server_listing_a_hostile_name_cannot_write_outside_the_destination() {
+        let (a, b) = (src_tree(), MemoryBackend::new());
+        b.mkdirs("/in");
+        a.list_also("/src", "../evil");
+        a.list_also("/src/sub", "/etc/evil");
+        a.list_also("/src", "..\\evil");
+        let sink = copy(&a, &b, &["/src"], "/in", false, Conflict::Overwrite).await;
+        assert!(matches!(sink.last(), TransferProgress::Done { files: 3, .. }), "{:?}", sink.last());
+        assert_eq!(b.get("/in/src/a.txt").unwrap(), b"alpha", "safe names still copy");
+        for escaped in ["/in/evil", "/evil", "/in/src/../evil", "/etc/evil", "/in/src/sub//etc/evil", "/in/src/..\\evil"] {
+            assert!(!b.exists(escaped), "{escaped} must not exist");
+        }
     }
 
     #[tokio::test]

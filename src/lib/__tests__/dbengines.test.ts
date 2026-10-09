@@ -8,6 +8,19 @@ describe("the engine catalogue", () => {
     expect(new Set(ENGINE_LIST.map((e) => e.label)).size).toBe(ENGINE_LIST.length);
   });
 
+  it("offers read-only sessions where the server can do them, and keeps only an explicit yes", () => {
+    for (const e of ["mysql", "postgres", "mssql"]) {
+      const o = engineInfo(e).options.find((x) => x.key === "read_only");
+      expect(o, e).toBeDefined();
+      expect(o?.choices?.[0].value, "the first choice is off").toBe("");
+      expect(cleanOptions(e, { read_only: "true" })).toEqual({ read_only: "true" });
+      expect(cleanOptions(e, { read_only: "" })).toBeUndefined();
+    }
+    for (const e of ["oracle", "redis", "mongodb", "elasticsearch", "rqlite"]) {
+      expect(engineInfo(e).options.some((x) => x.key === "read_only"), e).toBe(false);
+    }
+  });
+
   it("tells the SQL engines from the others", () => {
     for (const e of ["mysql", "postgres", "mssql", "oracle", "rqlite"]) expect(isSql(e), e).toBe(true);
     for (const e of ["redis", "mongodb", "elasticsearch"]) expect(isSql(e), e).toBe(false);

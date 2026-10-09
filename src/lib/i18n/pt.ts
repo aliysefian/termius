@@ -28,6 +28,8 @@ export const pt: Partial<Record<Key, string>> = {
   "manage.knownhosts.hint": "Impressões digitais de servidores confiáveis",
   "manage.vault": "Cofre",
   "manage.vault.hint": "Sincronização, backups, conflitos e o registro de conexões",
+  "manage.topology": "Topologia",
+  "manage.topology.hint": "Como hosts, proxies, túneis e bancos de dados se conectam",
   "manage.away": "Guardado fora da barra lateral",
   "hosts.title": "Servidores",
   "hosts.favorites": "Favoritos",

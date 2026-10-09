@@ -12,7 +12,7 @@ security gap that is reachable today.
    default).
 2. **Make failures visible (P0)** SSHV-004 (logging, panic hook, shutdown, spawn-context lint) so the next silent exit
    is diagnosable.
-3. **Vault and sync hardening (P0)** SSHV-001 (backend auto-lock, lock vs remembered key, VMK rotation, KDF ceiling),
+3. **Vault and sync hardening (P0)** SSHV-001 (backend auto-lock, lock vs remembered key, KDF ceiling),
    SSHV-002 (rollback detection, sync status, version history).
 4. **Connection engine (P0/P1)** SSHV-003 (keyboard-interactive, staged timeouts, error codes, connection pool,
    algorithm config).
@@ -23,7 +23,7 @@ security gap that is reachable today.
    resources), SSHV-014 (generic read-only DB mode, export, guard gaps), SSHV-009 (missing metrics).
 7. **New models (P1/P2)** SSHV-005 resource model -> SSHV-007 discovery -> SSHV-008 topology -> SSHV-006 host
    management polish -> SSHV-022 UI restructure.
-8. **Optional platform (P2/P3)** SSHV-018 AI assistant, SSHV-019 plugins (needs sandbox decision), SSHV-020/021
+8. **Optional platform (P2/P3)** SSHV-019 plugins (needs sandbox decision), SSHV-020/021
    teams and controller (needs product decision; large).
 
 ## Explicit non-goals unless the owner decides otherwise
@@ -32,6 +32,8 @@ security gap that is reachable today.
   encrypted; adapters add attack surface and credentials without improving confidentiality. Better: sync status and
   rollback detection.
 - A mandatory controller or any cloud dependency.
+- An AI assistant (SSHV-018 removed) and vault data-key rotation (dropped from SSHV-001; risk S9 accepted). Both removed
+  by the owner on 2026-10-09.
 - Rebuilding existing modules. Navigation restructure (SSHV-022) must not delete working views.
 
 ## Decisions needed from the owner

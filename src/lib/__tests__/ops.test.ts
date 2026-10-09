@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import { shq } from "../ops/quote";
 import { LineAssembler, LogBuffer, NO_FILTER, cleanLine, compileText, detectLevel, highlights, logScript, matches, sourceError, UNIT } from "../ops/logs";
 import { DISRUPTIVE, LIST_SCRIPT, actionScript, parseUnits, statusScript, toneOf } from "../ops/services";
-import { AlertEngine, CLEAR_MARGIN, DEFAULT_RULES, DOWN_AFTER, inQuietHours, type AlertRules } from "../ops/alerts";
+import { AlertEngine, CLEAR_MARGIN, DEFAULT_RULES, DOWN_AFTER, acknowledge, atLeast, inQuietHours, open, revive, severityOf, type AlertRules } from "../ops/alerts";
+import { Notifier } from "../ops/notify";
 import { BUCKET_MS, KEEP_MS, MemoryStore, fold, toSamples, within, type Bucket } from "../ops/archive";
 import type { Sample } from "../hosthistory";
 
@@ -298,5 +299,112 @@ describe("the kept history", () => {
     expect(await st.load("h1")).toEqual([]);
     await st.clear();
     expect(await st.load("h2")).toEqual([]);
+  });
+});
+
+describe("alert severity, acknowledgement and kept history", () => {
+  const rules: AlertRules = { ...DEFAULT_RULES, samples: 1 };
+  const eng = () => new AlertEngine(() => rules);
+
+  it("grades what it raises", () => {
+    const e = eng();
+    const down = [...e.health("h", "web", false, 1), ...e.health("h", "web", false, 2)];
+    expect(down.map((a) => [a.kind, a.severity, a.ack])).toEqual([["down", "critical", null]]);
+    expect(e.health("h", "web", true, 3).map((a) => a.severity)).toEqual(["info"]);
+    const hot = e.metrics("h", "web", { cpuPct: 91, memPct: 99, diskPct: null }, 4);
+    expect(hot.map((a) => [a.kind, a.severity])).toEqual([["cpu", "warning"], ["mem", "critical"]]);
+    expect(e.metrics("h", "web", { cpuPct: 10, memPct: 10, diskPct: null }, 5).map((a) => a.severity)).toEqual(["info", "info"]);
+    expect([severityOf("down"), severityOf("disk", 96.9), severityOf("disk", 97), severityOf("up")]).toEqual(["critical", "warning", "critical", "info"]);
+  });
+
+  it("acknowledges one alert or all open ones, and a recovery never needs it", () => {
+    const e = eng();
+    const list = [...e.metrics("h", "web", { cpuPct: 95, memPct: 95, diskPct: null }, 1), ...e.health("g", "db", true, 2)];
+    expect(open(list)).toHaveLength(2);
+    const recovery = e.metrics("h", "web", { cpuPct: 5, memPct: 5, diskPct: null }, 3);
+    expect(recovery.map((a) => a.severity)).toEqual(["info", "info"]);
+    expect(open([...recovery, ...list])).toHaveLength(2);
+    const one = acknowledge(list, list[0].id, 100);
+    expect(one.map((a) => a.ack)).toEqual([100, null]);
+    expect(open(one).map((a) => a.id)).toEqual([list[1].id]);
+    const all = acknowledge(one, "all", 200);
+    // An alert that was already acknowledged keeps its time.
+    expect(all.map((a) => a.ack)).toEqual([100, 200]);
+    expect(open(all)).toHaveLength(0);
+    expect(list.every((a) => a.ack === null), "the original list is untouched").toBe(true);
+  });
+
+  it("reads kept alerts back safely and carries on numbering after them", () => {
+    const e = eng();
+    const [a] = e.metrics("h", "web", { cpuPct: 95, memPct: null, diskPct: null }, 1);
+    const stored = JSON.parse(JSON.stringify([a, { id: "x" }, null, "junk", { ...a, id: 9, kind: "nope" }, { ...a, id: 10, severity: undefined, ack: undefined }]));
+    const back = revive(stored);
+    expect(back.map((x) => x.id)).toEqual([a.id, 10]);
+    expect(back[1]).toMatchObject({ severity: "warning", ack: null });
+    expect(revive("not a list")).toEqual([]);
+    expect(revive(Array.from({ length: 300 }, (_, i) => ({ ...a, id: i })), 100)).toHaveLength(100);
+    const later = eng();
+    later.resumeAfter(50);
+    expect(later.health("z", "z", false, 1).concat(later.health("z", "z", false, 2))[0].id).toBe(51);
+  });
+
+  it("filters announcements by severity and survives a failing adapter", async () => {
+    const e = eng();
+    const [warn] = e.metrics("h", "web", { cpuPct: 91, memPct: null, diskPct: null }, 1);
+    const [crit] = e.metrics("h", "web", { cpuPct: null, memPct: 99, diskPct: null }, 2);
+    const seen: string[] = [];
+    const n = new Notifier();
+    n.add({ id: "a", label: "A", notify: (x) => void seen.push(`a:${x.kind}`) });
+    n.add({ id: "bad", label: "Bad", notify: () => Promise.reject(new Error("no service")) });
+    n.add({ id: "b", label: "B", notify: async (x) => void seen.push(`b:${x.kind}`) });
+    expect(await n.send(warn, "critical")).toEqual([]);
+    expect(seen).toEqual([]);
+    expect(await n.send(crit, "critical")).toEqual(["bad"]);
+    expect(seen.sort()).toEqual(["a:mem", "b:mem"]);
+    expect(await n.send({ ...crit, quiet: true })).toEqual([]);
+    n.add({ id: "a", label: "A2", notify: () => void seen.push("replaced") });
+    expect(n.adapters.map((x) => x.label)).toEqual(["Bad", "B", "A2"]);
+    n.remove("bad");
+    expect(n.adapters).toHaveLength(2);
+    expect(atLeast("warning", "info") && !atLeast("info", "warning")).toBe(true);
+  });
+});
+
+describe("failed services", () => {
+  const on: AlertRules = { ...DEFAULT_RULES, services: true, samples: 1 };
+  const reading = (failedUnits: string[] | null | undefined) => ({ cpuPct: null, memPct: null, diskPct: null, failedUnits });
+
+  it("announces each failed unit once, and says when they are all healthy again", () => {
+    const e = new AlertEngine(() => on);
+    expect(e.metrics("h", "web", reading([]), 1)).toEqual([]);
+    const first = e.metrics("h", "web", reading(["nginx.service"]), 2);
+    expect(first.map((a) => [a.kind, a.severity, a.message])).toEqual([["service", "warning", "web: service failed: nginx.service."]]);
+    expect(e.metrics("h", "web", reading(["nginx.service"]), 3)).toEqual([]);
+    expect(e.metrics("h", "web", reading(["nginx.service", "cron.service"]), 4).map((a) => a.message)).toEqual(["web: service failed: cron.service."]);
+    expect(e.metrics("h", "web", reading(["cron.service"]), 5)).toEqual([]);
+    expect(e.metrics("h", "web", reading([]), 6).map((a) => [a.kind, a.severity])).toEqual([["cleared", "info"]]);
+    expect(e.metrics("h", "web", reading([]), 7)).toEqual([]);
+  });
+
+  it("names a few and counts the rest, and treats unknown as nothing to say", () => {
+    const e = new AlertEngine(() => on);
+    const many = Array.from({ length: 8 }, (_, i) => `u${i}.service`);
+    expect(e.metrics("h", "web", reading(many), 1)[0].message).toBe("web: services failed: u0.service, u1.service, u2.service, u3.service, u4.service and 3 more.");
+    expect(e.metrics("h", "web", reading(null), 2)).toEqual([]);
+    expect(e.metrics("h", "web", reading(undefined), 3)).toEqual([]);
+    // Not available is not "recovered": the same units failing again are not announced twice.
+    expect(e.metrics("h", "web", reading(many), 4)).toEqual([]);
+  });
+
+  it("is off by default and for muted hosts, and forgets what it knew when switched off", () => {
+    expect(new AlertEngine(() => ({ ...DEFAULT_RULES, samples: 1 })).metrics("h", "web", reading(["x.service"]), 1)).toEqual([]);
+    expect(new AlertEngine(() => on, () => true).metrics("h", "web", reading(["x.service"]), 1)).toEqual([]);
+    let rules = on;
+    const e = new AlertEngine(() => rules);
+    expect(e.metrics("h", "web", reading(["x.service"]), 1)).toHaveLength(1);
+    rules = { ...on, services: false };
+    e.metrics("h", "web", reading(["x.service"]), 2);
+    rules = on;
+    expect(e.metrics("h", "web", reading(["x.service"]), 3)).toHaveLength(1);
   });
 });

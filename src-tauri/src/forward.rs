@@ -101,6 +101,7 @@ impl ForwardManager {
         self.set(sink.as_ref(), rule_id, ForwardStatus::Starting);
 
         let me = Arc::clone(self);
+        // spawn-ok: only called from the async forward_start command
         tokio::spawn(async move {
             let end = match run_rule(&me, rule_id, &target, &kind, sink.as_ref(), stop_rx).await {
                 Ok(()) => ForwardStatus::Stopped,
@@ -283,6 +284,10 @@ async fn wait_until_stopped_or_closed(handle: &Client, stop: &mut oneshot::Recei
 
 /// Accept TCP clients until stopped. `fixed_dest` returns the destination for
 /// a plain forward, or `None` to run a SOCKS5 handshake per client.
+/// Connections one forward carries at once.
+const MAX_TUNNELS: usize = 256;
+const SOCKS_HANDSHAKE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
 async fn accept_loop<F>(
     listener: TcpListener,
     handle: &Arc<Client>,
@@ -302,7 +307,15 @@ where
                 }
             }
             accepted = listener.accept() => {
-                let Ok((sock, peer)) = accepted else { continue };
+                let Ok((sock, peer)) = accepted else {
+                    // A listener that keeps failing (out of file descriptors, say) must not spin the CPU.
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                    continue;
+                };
+                if tasks.len() >= MAX_TUNNELS {
+                    drop(sock); // refuse: too many connections through this one forward
+                    continue;
+                }
                 let _ = sock.set_nodelay(true);
                 let dest = fixed_dest(&sock);
                 let handle = Arc::clone(handle);
@@ -326,7 +339,10 @@ async fn tunnel(
 ) -> std::io::Result<()> {
     let (host, port) = match dest {
         Some(d) => d,
-        None => socks5_handshake(&mut sock).await?,
+        // A local program that connects and then says nothing must not hold a task for ever.
+        None => tokio::time::timeout(SOCKS_HANDSHAKE_TIMEOUT, socks5_handshake(&mut sock))
+            .await
+            .map_err(|_| std::io::Error::new(std::io::ErrorKind::TimedOut, "the SOCKS handshake timed out"))??,
     };
     let channel = handle
         .channel_open_direct_tcpip(

@@ -28,6 +28,8 @@ export const zh: Partial<Record<Key, string>> = {
   "manage.knownhosts.hint": "你信任的服务器指纹",
   "manage.vault": "保险库",
   "manage.vault.hint": "同步、备份、冲突和连接日志",
+  "manage.topology": "拓扑",
+  "manage.topology.hint": "主机、代理、隧道和数据库如何连接",
   "manage.away": "已从侧边栏收起",
   "hosts.title": "主机",
   "hosts.favorites": "收藏",

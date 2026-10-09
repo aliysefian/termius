@@ -345,6 +345,7 @@ impl RawManager {
     ) -> Result<(), RawError> {
         let mut rx = self.register(&pane_id)?;
         let me = Arc::clone(self);
+        // spawn-ok: only called from the async raw_telnet command
         tokio::spawn(async move {
             sink.status(SessionStatus::Connecting);
             let addr = format!("{host}:{port}");

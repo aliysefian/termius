@@ -210,6 +210,10 @@ async fn plan(src: &dyn FileBackend, dst: &dyn FileBackend, sources: &[String], 
                 if e.is_symlink {
                     continue; // links aren't followed in a recursive copy
                 }
+                if !super::is_plain_name(&e.name) {
+                    plan.skipped += 1; // a name that could point outside the destination folder
+                    continue;
+                }
                 let (schild, dchild) = (src.join(&sdir, &e.name), dst.join(&ddir, &e.name));
                 if e.is_dir {
                     queue.push((schild, dchild));

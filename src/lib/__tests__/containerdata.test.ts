@@ -21,6 +21,7 @@ import {
   stateTone,
   summarizePrune,
   usedByText,
+  healthOf,
 } from "../containerdata";
 import type { ContainerImage, ContainerInfo, ContainerNetwork, ContainerVolume, PortMapping, PruneItem } from "../types";
 
@@ -153,6 +154,16 @@ describe("log buffer", () => {
     expect(b.partial).toBe("");
     b.push("tail");
     expect(b.all()).toEqual(["one", "two", "three", "tail"]);
+  });
+  it("hides secrets in complete lines only when asked, and drops a key block whole", () => {
+    const off = new LogBuffer();
+    off.push("password=hunter2\n");
+    expect(off.lines).toEqual(["password=hunter2"]);
+    const on = new LogBuffer();
+    on.mask = true;
+    on.push("db password=hun");
+    on.push("ter2\nok\n-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----\ndone\n");
+    expect(on.lines).toEqual(["db password=[hidden]", "ok", "[private key hidden]", "done"]);
   });
   it("reads a terminal's CRLF as one line break", () => {
     const b = new LogBuffer();
@@ -305,5 +316,16 @@ describe("image references", () => {
     expect(imageRef(img("<none>", "<none>"))).toBe("abc123def456");
     expect(imageRef(img("", ""))).toBe("abc123def456");
     expect(imageRef(img("nginx", "<none>"))).toBe("abc123def456");
+  });
+});
+
+describe("health", () => {
+  it("reads the container's own health check from its status text", () => {
+    expect(healthOf("Up 3 hours (healthy)")).toBe("healthy");
+    expect(healthOf("Up 3 hours (unhealthy)")).toBe("unhealthy");
+    expect(healthOf("Up 5 seconds (health: starting)")).toBe("starting");
+    expect(healthOf("Up 3 hours (Paused)")).toBeNull();
+    expect(healthOf("Exited (0) 2 days ago")).toBeNull();
+    expect(healthOf("")).toBeNull();
   });
 });

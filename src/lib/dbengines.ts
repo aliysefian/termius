@@ -41,6 +41,17 @@ const verify: Pick<EngineOption, "key" | "label" | "placeholder" | "help" | "onl
   onlyWhenVerifying: true,
 };
 
+/** Sessions start read-only (MySQL, PostgreSQL, SQL Server). Backend: `ConnectSpec::read_only`. */
+const readOnly: EngineOption = {
+  key: "read_only",
+  label: "Read-only sessions",
+  help: "Starts every session in a read-only mode, so a mistaken UPDATE or DELETE is refused. It guards against accidents, not against a person who switches it off with SQL; for a hard limit, connect with a database account that can only read.",
+  choices: [
+    { value: "", label: "Off" },
+    { value: "true", label: "On (recommended for production)" },
+  ],
+};
+
 export const ENGINE_LIST: EngineInfo[] = [
   {
     value: "mysql",
@@ -53,7 +64,7 @@ export const ENGINE_LIST: EngineInfo[] = [
     user: { label: "User" },
     password: { label: "Password" },
     database: { label: "Database", help: "(optional, the one to start in)" },
-    options: [],
+    options: [readOnly],
   },
   {
     value: "postgres",
@@ -70,7 +81,7 @@ export const ENGINE_LIST: EngineInfo[] = [
       placeholder: "postgres",
       help: "(defaults to postgres)",
     },
-    options: [],
+    options: [readOnly],
     note: "A PostgreSQL connection is to one database. Add a connection for each database you want to browse; its schemas appear in the tree.",
   },
   {
@@ -84,7 +95,7 @@ export const ENGINE_LIST: EngineInfo[] = [
     user: { label: "Login", required: true },
     password: { label: "Password" },
     database: { label: "Database", help: "(optional, the login's default if empty)" },
-    options: [verify],
+    options: [verify, readOnly],
     note: "A SQL Server connection is to one database; its schemas appear in the tree. A named instance is reached by its port. DOMAIN\\user (a Windows login) works in the Windows version only; elsewhere use a SQL login. Not yet tried against a real server.",
   },
   {

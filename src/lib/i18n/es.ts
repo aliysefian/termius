@@ -28,6 +28,8 @@ export const es: Partial<Record<Key, string>> = {
   "manage.knownhosts.hint": "Huellas de servidores de confianza",
   "manage.vault": "Bóveda",
   "manage.vault.hint": "Sincronización, copias, conflictos y registro de conexiones",
+  "manage.topology": "Topología",
+  "manage.topology.hint": "Cómo se conectan hosts, proxies, túneles y bases de datos",
   "manage.away": "Guardado fuera de la barra lateral",
   "hosts.title": "Servidores",
   "hosts.favorites": "Favoritos",

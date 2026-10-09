@@ -1,5 +1,6 @@
 // Per-computer preferences. Stored in localStorage because they are
 // deliberately *not* synced: font size or auto-lock suit one machine, not all.
+import type { Alert, Severity } from "$lib/ops/alerts";
 import type { HighlightRule } from "$lib/highlight";
 import type { Schedule } from "$lib/schedule";
 import { completionHistory, rejectReason } from "$lib/completion/history";
@@ -82,6 +83,8 @@ export interface Prefs {
   alertCpu: number;
   alertMem: number;
   alertDisk: number;
+  /** Tell me when a systemd service on a monitored host fails. */
+  alertServices: boolean;
   /** Readings in a row over a limit before it counts. */
   alertSamples: number;
   alertQuiet: boolean;
@@ -89,6 +92,12 @@ export interface Prefs {
   alertQuietTo: string;
   /** Hosts that never alert. */
   alertMuted: string[];
+  /** Announce (toast, notification) only alerts at least this serious; all of them still reach the list. */
+  alertNotifyFrom: Severity;
+  /** Keep the alert list on this computer between runs. Off: it lasts until the app closes or the vault locks. */
+  alertKeepHistory: boolean;
+  /** The kept alerts, when `alertKeepHistory` is on (host names and messages, never secrets). */
+  alertHistory: Alert[];
   /** Keep the monitoring charts for longer than 15 minutes, on this computer. */
   metricsKeep: "off" | "day" | "week";
   /** The names under the sidebar icons. */
@@ -189,11 +198,15 @@ export const DEFAULT_PREFS: Prefs = {
   alertCpu: 90,
   alertMem: 90,
   alertDisk: 90,
+  alertServices: false,
   alertSamples: 3,
   alertQuiet: false,
   alertQuietFrom: "22:00",
   alertQuietTo: "07:00",
   alertMuted: [],
+  alertNotifyFrom: "info",
+  alertKeepHistory: false,
+  alertHistory: [],
   metricsKeep: "off",
   railLabels: true,
   terminalImages: true,

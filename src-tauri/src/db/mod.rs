@@ -106,6 +106,12 @@ impl ConnectSpec {
         self.options.get(key).map(|v| v.trim()).filter(|v| !v.is_empty())
     }
 
+    /// The "read-only" setting: sessions start in a read-only transaction mode. A guard against accidents, not a
+    /// security boundary (a person can switch it off with SQL); a database account that can only read is the hard limit.
+    pub fn read_only(&self) -> bool {
+        self.option("read_only").is_some_and(|v| v.eq_ignore_ascii_case("true"))
+    }
+
     /// Where to dial: the tunnel's loopback port, or the server itself.
     pub fn dial(&self) -> (String, u16) {
         match self.tunnel_port {

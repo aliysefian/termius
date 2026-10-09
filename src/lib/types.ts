@@ -292,6 +292,7 @@ export interface UnlockReport {
   merged_conflicts: number;
   open_conflicts: number;
   backed_up: boolean;
+  rollbacks: number;
 }
 
 export interface UnlockResult {
@@ -332,6 +333,7 @@ export interface VaultInfo {
   device_id: Uuid;
   device_name: string;
   remembered: boolean;
+  keep_key_on_lock: boolean;
   state_hash: string;
   records: number;
   last_change: number;
@@ -339,7 +341,11 @@ export interface VaultInfo {
   active_sessions: ActiveSession[];
   devices: VaultRecord<DeviceRecord>[];
   open_conflicts: number;
+  rollbacks: RollbackAnomaly[];
 }
+
+/** A record that went backwards (an older revision than this device saw) or vanished from the synced folder. */
+export type RollbackAnomaly = { collection: string; id: Uuid } & ({ kind: "older"; seen: number; now: number } | { kind: "missing"; seen: number });
 
 export interface BackupInfo {
   file_name: string;
@@ -645,6 +651,7 @@ export interface ExecOutput {
 }
 
 export type RunEvent =
+  | { event: "skipped"; host_id: Uuid }
   | { event: "started"; host_id: Uuid }
   | { event: "finished"; host_id: Uuid; output: ExecOutput }
   | { event: "failed"; host_id: Uuid; message: string }
@@ -804,6 +811,19 @@ export interface ContainerInfo {
   /** Volume names and bind-mount source paths. */
   mounts: string[];
   networks: string[];
+}
+
+/** One running container's resource use at one moment. */
+export interface ContainerStat {
+  id: string;
+  name: string;
+  /** Percent of one core, so it can pass 100; null when the runtime has no figure yet. */
+  cpu_pct: number | null;
+  mem_usage: string;
+  mem_pct: number | null;
+  net_io: string;
+  block_io: string;
+  pids: number | null;
 }
 
 export interface ContainerVolume {

@@ -29,6 +29,7 @@
     filterVolumes,
     formatAge,
     groupByProject,
+    healthOf,
     imageRef,
     isLive,
     portLabels,
@@ -50,6 +51,7 @@
   let collapsed = $state<Record<string, boolean>>({});
   let picker = $state("");
   let now = $state(Date.now());
+  const health = (c: { status: string }) => healthOf(c.status);
 
   // Ages tick without another round trip.
   $effect(() => {
@@ -138,8 +140,14 @@
     <td class="max-w-56 truncate px-2 py-2 font-mono" title={c.image}>{c.image}</td>
     <td class="px-2 py-2">
       <Badge tone={stateTone(c.state)}>{c.state}</Badge>
+      {#if health(c)}<Badge tone={health(c) === "healthy" ? "success" : health(c) === "unhealthy" ? "danger" : "warning"} title="The container's own health check">{health(c)}</Badge>{/if}
       <div class="mt-0.5 text-[11px] text-fg-muted">{c.status}</div>
     </td>
+    {#if src?.wantStats}
+      {@const st = src.stats[c.id] ?? src.stats[c.id.slice(0, 12)]}
+      <td class="px-2 py-2 font-mono text-[11px]">{#if st && st.cpu_pct !== null}{st.cpu_pct.toFixed(1)}%{:else}<span class="text-fg-muted">{live ? "…" : "—"}</span>{/if}</td>
+      <td class="px-2 py-2 font-mono text-[11px]" title={st ? `net ${st.net_io} · disk ${st.block_io} · ${st.pids ?? "?"} processes` : ""}>{#if st && st.mem_usage}{st.mem_usage.split(" / ")[0]}{#if st.mem_pct !== null}<span class="text-fg-muted"> · {st.mem_pct.toFixed(1)}%</span>{/if}{:else}<span class="text-fg-muted">{live ? "…" : "—"}</span>{/if}</td>
+    {/if}
     <td class="max-w-56 px-2 py-2 font-mono text-[11px]">
       {#each portLabels(c.ports).slice(0, 3) as p (p.text)}<div class="truncate {p.published ? '' : 'text-fg-muted'}" title={p.published ? "Published" : "Exposed, not published"}>{p.text}</div>{/each}
       {#if portLabels(c.ports).length > 3}<div class="text-fg-muted" title={portLabels(c.ports).map((p) => p.text).join("\n")}>+{portLabels(c.ports).length - 3} more</div>{/if}
@@ -231,6 +239,9 @@
             {#each CONTAINER_RUNTIMES as r (r)}<option value={r}>{r}{src.detected.includes(r) ? "" : " (not found)"}</option>{/each}
           </select>
         </label>
+        <label class="flex items-center gap-1.5" title="Show CPU and memory use of running containers. One more command with each refresh, about a second.">
+          <input type="checkbox" class="accent-input" checked={src.wantStats} onchange={(e) => containers.setStats(src.key, e.currentTarget.checked)} /> CPU &amp; memory
+        </label>
         <label class="flex items-center gap-1.5" title="Ask for container and volume sizes. Slower on hosts with many large containers.">
           <input type="checkbox" class="accent-input" checked={src.sizes} onchange={(e) => containers.setSizes(src.key, e.currentTarget.checked)} /> Sizes
         </label>
@@ -266,6 +277,7 @@
                 <th class="px-4 py-2 font-medium">Name</th>
                 <th class="px-2 py-2 font-medium">Image</th>
                 <th class="px-2 py-2 font-medium">State</th>
+                {#if src.wantStats}<th class="px-2 py-2 font-medium">CPU</th><th class="px-2 py-2 font-medium">Memory</th>{/if}
                 <th class="px-2 py-2 font-medium">Ports</th>
                 <th class="px-2 py-2 text-right font-medium">Age</th>
                 {#if src.sizes}<th class="px-2 py-2 font-medium">Size</th>{/if}
@@ -278,7 +290,7 @@
                   {@const key = g.project ?? "\u0000none"}
                   {@const pbusy = g.project ? !!containers.busy[`project:${g.project}`] : false}
                   <tr class="border-b border-line bg-panel/70">
-                    <td class="px-3 py-1.5" colspan={src.sizes ? 6 : 5}>
+                    <td class="px-3 py-1.5" colspan={5 + (src.sizes ? 1 : 0) + (src.wantStats ? 2 : 0)}>
                       <button class="flex items-center gap-1.5 text-left" onclick={() => (collapsed[key] = !collapsed[key])} aria-expanded={!collapsed[key]}>
                         {#if collapsed[key]}<ChevronRight size={13} />{:else}<ChevronDown size={13} />{/if}
                         {#if g.project}

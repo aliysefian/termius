@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use russh::ChannelMsg;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
 use uuid::Uuid;
@@ -29,9 +29,26 @@ pub struct ExecOutput {
     pub duration_ms: u64,
 }
 
+/// How a run takes its hosts.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Order {
+    /// All at once, up to [`CONCURRENCY`] at a time.
+    #[default]
+    Parallel,
+    /// One host after another, in the order given. With `stop_on_failure` the first host that fails (a non-zero exit,
+    /// no answer, a failed login) ends the run: the rest are reported as skipped and are never contacted. That is the
+    /// way to roll a change through a fleet without breaking all of it at once.
+    Sequential { stop_on_failure: bool },
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum RunEvent {
+    /// Not contacted, because an earlier host failed in a run that stops at the first failure.
+    Skipped {
+        host_id: Uuid,
+    },
     Started {
         host_id: Uuid,
     },
@@ -100,6 +117,22 @@ pub async fn exec(
         .map_err(|_| SshError::Timeout(label))?
 }
 
+/// Run one job and report it. True if the host counts as failed (no result, or a command that did not exit with 0).
+async fn run_job(sink: &dyn RunSink, host_id: Uuid, target: &Target, command: &str, timeout: Duration) -> bool {
+    sink.event(RunEvent::Started { host_id });
+    match exec(target, command, timeout).await {
+        Ok(output) => {
+            let failed = output.exit_code != Some(0);
+            sink.event(RunEvent::Finished { host_id, output });
+            failed
+        }
+        Err(e) => {
+            sink.event(RunEvent::Failed { host_id, message: e.to_string() });
+            true
+        }
+    }
+}
+
 /// Tracks background runs so they can be cancelled.
 #[derive(Default)]
 pub struct RunManager {
@@ -120,29 +153,50 @@ impl RunManager {
         timeout: Duration,
         sink: Arc<dyn RunSink>,
     ) {
+        self.start_ordered(run_id, jobs, timeout, Order::Parallel, sink);
+    }
+
+    /// Like [`Self::start`], with a choice of [`Order`].
+    pub fn start_ordered(
+        self: &Arc<Self>,
+        run_id: String,
+        jobs: Vec<(Uuid, Target, String)>,
+        timeout: Duration,
+        order: Order,
+        sink: Arc<dyn RunSink>,
+    ) {
         let me = Arc::clone(self);
         let id = run_id.clone();
+        // spawn-ok: run_on_hosts and the CLI handler call this inside the async runtime
         let handle = tokio::spawn(async move {
-            let limit = Arc::new(Semaphore::new(CONCURRENCY));
-            let mut set = JoinSet::new();
-            for (host_id, target, command) in jobs {
-                let limit = Arc::clone(&limit);
-                let sink = Arc::clone(&sink);
-                set.spawn(async move {
-                    let Ok(_permit) = limit.acquire_owned().await else {
-                        return;
-                    };
-                    sink.event(RunEvent::Started { host_id });
-                    match exec(&target, &command, timeout).await {
-                        Ok(output) => sink.event(RunEvent::Finished { host_id, output }),
-                        Err(e) => sink.event(RunEvent::Failed {
-                            host_id,
-                            message: e.to_string(),
-                        }),
+            match order {
+                Order::Parallel => {
+                    let limit = Arc::new(Semaphore::new(CONCURRENCY));
+                    let mut set = JoinSet::new();
+                    for (host_id, target, command) in jobs {
+                        let limit = Arc::clone(&limit);
+                        let sink = Arc::clone(&sink);
+                        set.spawn(async move {
+                            let Ok(_permit) = limit.acquire_owned().await else {
+                                return;
+                            };
+                            run_job(sink.as_ref(), host_id, &target, &command, timeout).await;
+                        });
                     }
-                });
+                    while set.join_next().await.is_some() {}
+                }
+                Order::Sequential { stop_on_failure } => {
+                    let mut stopped = false;
+                    for (host_id, target, command) in jobs {
+                        if stopped {
+                            sink.event(RunEvent::Skipped { host_id });
+                            continue;
+                        }
+                        let failed = run_job(sink.as_ref(), host_id, &target, &command, timeout).await;
+                        stopped = failed && stop_on_failure;
+                    }
+                }
             }
-            while set.join_next().await.is_some() {}
             sink.event(RunEvent::Done);
             me.runs
                 .lock()
@@ -256,7 +310,7 @@ mod tests {
                 }
                 RunEvent::Failed { host_id, message } => failed.push((host_id, message)),
                 RunEvent::Done => break,
-                RunEvent::Started { .. } => {}
+                RunEvent::Started { .. } | RunEvent::Skipped { .. } => {}
             }
         }
         assert_eq!(finished[&ids[0]], "one\n");
@@ -282,5 +336,53 @@ mod tests {
         assert!(!mgr.cancel("r2"));
         tokio::time::sleep(Duration::from_millis(300)).await;
         assert!(rx.try_iter().all(|e| !matches!(e, RunEvent::Done)));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_rolling_run_goes_one_host_at_a_time_and_can_stop_at_the_first_failure() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let Some(sshd) = spawn_sshd(dir.path()) else {
+            eprintln!("skipping: no usable sshd on this machine");
+            return;
+        };
+        let t = target(&sshd, &sshd.client_key, dir.path().join("kh"));
+        let mgr = Arc::new(RunManager::new());
+        let ids: Vec<Uuid> = (0..4).map(|_| Uuid::new_v4()).collect();
+        let jobs = |cmds: [&str; 4]| ids.iter().zip(cmds).map(|(id, c)| (*id, t.clone(), c.to_string())).collect::<Vec<_>>();
+        // Each event as "<index> <what>" until Done.
+        let collect = |rx: &std::sync::mpsc::Receiver<RunEvent>| {
+            let mut seen = Vec::new();
+            loop {
+                let (id, what) = match rx.recv_timeout(Duration::from_secs(30)).expect("run event") {
+                    RunEvent::Started { host_id } => (host_id, "started"),
+                    RunEvent::Finished { host_id, output } => (host_id, if output.exit_code == Some(0) { "ok" } else { "failed" }),
+                    RunEvent::Failed { host_id, .. } => (host_id, "error"),
+                    RunEvent::Skipped { host_id } => (host_id, "skipped"),
+                    RunEvent::Done => break,
+                };
+                seen.push(format!("{} {what}", ids.iter().position(|i| *i == id).unwrap()));
+            }
+            seen
+        };
+
+        // The third host fails: the fourth is skipped, never started, and nothing overlaps.
+        let (tx, rx) = std::sync::mpsc::channel();
+        mgr.start_ordered("r1".into(), jobs(["true", "true", "exit 7", "echo never > /tmp/never-rolled"]), Duration::from_secs(15), Order::Sequential { stop_on_failure: true }, Arc::new(Collect(tx)));
+        assert_eq!(collect(&rx), ["0 started", "0 ok", "1 started", "1 ok", "2 started", "2 failed", "3 skipped"]);
+
+        // Without stop_on_failure every host still runs, in order.
+        let (tx, rx) = std::sync::mpsc::channel();
+        mgr.start_ordered("r2".into(), jobs(["true", "exit 1", "true", "true"]), Duration::from_secs(15), Order::Sequential { stop_on_failure: false }, Arc::new(Collect(tx)));
+        assert_eq!(collect(&rx), ["0 started", "0 ok", "1 started", "1 failed", "2 started", "2 ok", "3 started", "3 ok"]);
+
+        // The default is the old behaviour: all hosts, none skipped.
+        let (tx, rx) = std::sync::mpsc::channel();
+        mgr.start("r3".into(), jobs(["true", "exit 1", "true", "true"]), Duration::from_secs(15), Arc::new(Collect(tx)));
+        let seen = collect(&rx);
+        assert_eq!(seen.iter().filter(|e| e.ends_with("started")).count(), 4);
+        assert!(!seen.iter().any(|e| e.ends_with("skipped")));
+        assert_eq!(Order::default(), Order::Parallel);
+        assert_eq!(serde_json::from_str::<Order>(r#"{"sequential":{"stop_on_failure":true}}"#).unwrap(), Order::Sequential { stop_on_failure: true });
+        assert_eq!(serde_json::from_str::<Order>(r#""parallel""#).unwrap(), Order::Parallel);
     }
 }

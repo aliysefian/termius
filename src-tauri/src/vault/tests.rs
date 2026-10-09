@@ -108,6 +108,14 @@ fn tampered_metadata_is_detected() {
     fs::write(&path, serde_json::to_vec(&m).unwrap()).unwrap();
     assert!(open().is_err());
 
+    // Absurdly strong parameters (a hostile synced manifest): refused before any key derivation is attempted.
+    for (field, value) in [("m_cost_kib", 4 * 1024 * 1024), ("t_cost", 1000), ("p_cost", 0), ("p_cost", 1000)] {
+        let mut m = original.clone();
+        m["slots"][0]["kdf"][field] = json!(value);
+        fs::write(&path, serde_json::to_vec(&m).unwrap()).unwrap();
+        assert!(matches!(open().unwrap_err(), VaultError::MalformedManifest(..)), "{field}={value}");
+    }
+
     // Different vault ID.
     let mut m = original.clone();
     m["vault_id"] = json!(uuid::Uuid::new_v4());
@@ -355,6 +363,95 @@ fn revisions_and_basic_crud() {
     // Tombstones keep no data.
     let raw = v.read_envelope(Collection::Hosts, r.id).unwrap().unwrap();
     assert!(raw.data.is_none() && raw.prev.as_ref().unwrap().data.is_none());
+}
+
+// ---------------------------------------------------------------------------
+// Rollback detection
+// ---------------------------------------------------------------------------
+
+fn anomaly_kinds(v: &Vault) -> Vec<highwater::AnomalyKind> {
+    v.check_rollbacks().unwrap().into_iter().map(|a| a.kind).collect()
+}
+
+#[test]
+fn an_older_copy_of_a_record_put_back_in_the_folder_is_noticed() {
+    let (_d, v) = new_vault();
+    let r = v.insert(Collection::Hosts, &host("web")).unwrap();
+    let path = v.record_path(Collection::Hosts, r.id);
+    let rev1 = fs::read(&path).unwrap();
+    v.put(Collection::Hosts, r.id, &host("web-renamed"), Base::Rev(1)).unwrap();
+    assert!(anomaly_kinds(&v).is_empty(), "normal use raises nothing");
+
+    // A sync tool (or anyone with the folder) puts the first version back: valid, authentic, and old.
+    fs::write(&path, &rev1).unwrap();
+    assert_eq!(anomaly_kinds(&v), vec![highwater::AnomalyKind::Older { seen: 2, now: 1 }]);
+    // The app still reads it (nothing is blocked) and keeps reporting until the person accepts.
+    assert_eq!(v.get::<Host>(Collection::Hosts, r.id).unwrap().rev, 1);
+    assert_eq!(v.rollbacks().len(), 1);
+    v.accept_rollbacks().unwrap();
+    assert!(v.rollbacks().is_empty());
+    assert!(anomaly_kinds(&v).is_empty(), "revision 1 is the baseline after accepting");
+}
+
+#[test]
+fn a_live_record_that_disappears_is_noticed_but_a_deleted_one_is_not() {
+    let (_d, v) = new_vault();
+    let gone = v.insert(Collection::Hosts, &host("gone")).unwrap();
+    let deleted = v.insert(Collection::Hosts, &host("deleted")).unwrap();
+    v.insert(Collection::Hosts, &host("kept")).unwrap();
+    v.delete(Collection::Hosts, deleted.id, Base::Rev(1)).unwrap();
+    assert!(anomaly_kinds(&v).is_empty());
+
+    fs::remove_file(v.record_path(Collection::Hosts, gone.id)).unwrap();
+    assert_eq!(anomaly_kinds(&v), vec![highwater::AnomalyKind::Missing { seen: 1 }]);
+
+    // Tombstones are cleaned up after a while on purpose; that is not a loss.
+    v.purge_tombstones(Collection::Hosts, 0).unwrap();
+    v.accept_rollbacks().unwrap();
+    assert!(anomaly_kinds(&v).is_empty());
+}
+
+#[test]
+fn the_memory_outlives_a_lock_and_a_restart() {
+    let (d, v) = new_vault();
+    let r = v.insert(Collection::Hosts, &host("web")).unwrap();
+    let path = v.record_path(Collection::Hosts, r.id);
+    let rev1 = fs::read(&path).unwrap();
+    v.put(Collection::Hosts, r.id, &host("web2"), Base::Rev(1)).unwrap();
+    v.check_rollbacks().unwrap();
+    v.save_highwater();
+    let root = v.root().to_path_buf();
+    drop(v);
+
+    fs::write(&path, &rev1).unwrap();
+    let again = Vault::open(&root, Unlock::Password(b"hunter2"), DeviceInfo::new("PC-A")).unwrap();
+    again.attach_highwater(d.path().join("hw-PC-A.json"));
+    assert_eq!(anomaly_kinds(&again), vec![highwater::AnomalyKind::Older { seen: 2, now: 1 }]);
+}
+
+#[test]
+fn another_devices_ordinary_edits_and_sync_conflict_copies_are_not_rollbacks() {
+    let (_d, a) = new_vault();
+    let b = second_device(&a, "PC-B");
+    let r = a.insert(Collection::Hosts, &host("web")).unwrap();
+    b.check_rollbacks().unwrap();
+    // B edits, A reads B's newer revision, A edits again.
+    b.put(Collection::Hosts, r.id, &host("web-b"), Base::Rev(1)).unwrap();
+    a.check_rollbacks().unwrap();
+    a.put(Collection::Hosts, r.id, &host("web-a"), Base::Rev(2)).unwrap();
+    assert!(anomaly_kinds(&a).is_empty() && anomaly_kinds(&b).is_empty());
+
+    // A conflict copy is older than the record by design; reconciling it must not look like a rollback.
+    let c = a.insert(Collection::Hosts, &host("db")).unwrap();
+    b.check_rollbacks().unwrap();
+    let mut a_side = host("db");
+    a_side.port = 2222;
+    let mut b_side = host("db");
+    b_side.tags = vec!["prod".into()];
+    make_sync_conflict(&a, &b, c.id, &a_side, &b_side, &format!("{} (PC-B's conflicted copy 2026-09-26).enc", c.id));
+    assert_eq!(a.reconcile().unwrap().merged, 1, "the copy really was merged");
+    assert!(anomaly_kinds(&a).is_empty(), "{:?}", a.rollbacks());
+    assert!(anomaly_kinds(&b).is_empty(), "{:?}", b.rollbacks());
 }
 
 // ---------------------------------------------------------------------------

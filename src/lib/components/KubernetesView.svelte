@@ -7,7 +7,7 @@
   import KubeLogs from "./KubeLogs.svelte";
   import * as api from "$lib/api";
   import { ask } from "$lib/dialogs.svelte";
-  import { ageOf, isName, matches, portProblem, shellLine, toneOf, type KubeInfo, type KubePod, type Scope } from "$lib/kubedata";
+  import { RESOURCE_KINDS, ageOf, isName, matches, matchesResource, portProblem, resourceTone, shellLine, toneOf, type KubeInfo, type KubePod, type KubeResource, type ResourceKind, type Scope } from "$lib/kubedata";
   import { ui } from "$lib/stores/ui.svelte";
   import { kubeState as k, type Forward } from "$lib/stores/kube.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
@@ -65,6 +65,14 @@
   let loadedAt = $state(0);
   let generation = 0;
 
+  /** What is listed: pods, or one of the other read-only kinds. */
+  let kind = $state<"pods" | ResourceKind>("pods");
+  let resources = $state<KubeResource[]>([]);
+  const kindLabel = $derived(RESOURCE_KINDS.find((x) => x.value === kind)?.label ?? "Pods");
+  const shownResources = $derived(resources.filter((r) => matchesResource(r, query)));
+  /** Columns for the other kinds come from the first row's details. */
+  const columns = $derived(resources[0]?.details.map((d) => d.label) ?? []);
+
   const scope = $derived<Scope>(k.namespace ? { scope: "namespace", name: k.namespace } : { scope: "all" });
   const shown = $derived(pods.filter((p) => matches(p, query)));
   const unhealthy = $derived(pods.filter((p) => toneOf(p) === "bad").length);
@@ -74,9 +82,15 @@
     const mine = ++generation;
     if (!quiet) loading = true;
     try {
-      const [list, ns] = await Promise.all([api.kube.pods(k.source.session, k.context, scope), namespaces.length && quiet ? Promise.resolve(namespaces) : api.kube.namespaces(k.source.session, k.context)]);
+      const wanted = kind;
+      const [list, ns] = await Promise.all([
+        wanted === "pods" ? api.kube.pods(k.source.session, k.context, scope) : Promise.resolve([] as KubePod[]),
+        namespaces.length && quiet ? Promise.resolve(namespaces) : api.kube.namespaces(k.source.session, k.context),
+      ]);
+      const others = wanted === "pods" ? [] : await api.kube.resources(k.source.session, k.context, scope, wanted);
       if (mine !== generation) return;
       pods = list;
+      resources = others;
       namespaces = ns;
       loadedAt = Date.now();
       error = null;
@@ -92,9 +106,11 @@
     k.source;
     k.context;
     k.namespace;
-    // The load reads and writes other state; only the three above should make it run again.
+    kind;
+    // The load reads and writes other state; only the four above should make it run again.
     untrack(() => {
       pods = [];
+      resources = [];
       if (k.source && k.context) void load();
     });
   });
@@ -118,6 +134,18 @@
     busy = `describe:${p.name}`;
     try {
       describe = { pod: p.name, text: await api.kube.describe(k.source.session, k.context, p.namespace, p.name) };
+    } catch (e) {
+      ui.notify("error", errorMessage(e));
+    } finally {
+      busy = null;
+    }
+  }
+
+  async function showResource(r: KubeResource) {
+    if (!k.source || kind === "pods") return;
+    busy = `describe:${r.name}`;
+    try {
+      describe = { pod: `${kindLabel.replace(/s$/, "")} ${r.name}`, text: await api.kube.describeResource(k.source.session, k.context, r.namespace, kind, r.name) };
     } catch (e) {
       ui.notify("error", errorMessage(e));
     } finally {
@@ -243,10 +271,16 @@
           {#each namespaces as n (n)}<option value={n}>{n}</option>{/each}
         </select>
       </label>
-      <input class="input w-52 py-1 text-xs" bind:value={query} placeholder="Search pods…" aria-label="Search pods" />
+      <label class="flex items-center gap-1.5 text-xs text-fg-muted">Show
+        <select class="input w-36 py-1 text-xs" bind:value={kind} aria-label="Kind">
+          <option value="pods">Pods</option>
+          {#each RESOURCE_KINDS as r (r.value)}<option value={r.value}>{r.label}</option>{/each}
+        </select>
+      </label>
+      <input class="input w-52 py-1 text-xs" bind:value={query} placeholder="Search {kind === 'pods' ? 'pods' : kindLabel.toLowerCase()}…" aria-label="Search {kind === 'pods' ? 'pods' : kindLabel.toLowerCase()}" />
       <span class="ml-auto flex items-center gap-2">
-        {#if unhealthy}<span class="text-xs text-danger">{unhealthy} unhealthy</span>{/if}
-        <span class="text-[11px] text-fg-muted">{shown.length} of {pods.length} pods{loadedAt ? ` · ${new Date(loadedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}` : ""}</span>
+        {#if unhealthy && kind === "pods"}<span class="text-xs text-danger">{unhealthy} unhealthy</span>{/if}
+        <span class="text-[11px] text-fg-muted">{kind === "pods" ? `${shown.length} of ${pods.length} pods` : `${shownResources.length} of ${resources.length} ${kindLabel.toLowerCase()}`}{loadedAt ? ` · ${new Date(loadedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}` : ""}</span>
         <button class="icon-btn" title={auto ? "Pause refreshing (every 10 s)" : "Refresh every 10 s"} aria-pressed={auto} onclick={() => (auto = !auto)}>{#if auto}<Pause size={15} />{:else}<Play size={15} />{/if}</button>
         <button class="btn-secondary py-1 text-xs" disabled={loading} onclick={() => void load()}>
           {#if loading}<Loader2 size={13} class="animate-spin" />{:else}<RefreshCw size={13} />{/if} Refresh
@@ -260,8 +294,39 @@
       {/if}
       {#if !k.source.info.contexts.length}
         <div class="p-10"><EmptyState art="security" text="kubectl has no contexts here. Set up a kubeconfig on this machine first." /></div>
-      {:else if loading && !pods.length}
+      {:else if loading && !pods.length && !resources.length}
         <div class="flex items-center gap-2 p-8 text-sm text-fg-muted"><Loader2 size={15} class="animate-spin" /> Asking the cluster…</div>
+      {:else if kind !== "pods"}
+        {#if !resources.length && !error}
+          <div class="p-10"><EmptyState art="containers" text={k.namespace && kind !== "nodes" ? `No ${kindLabel.toLowerCase()} in ${k.namespace}.` : `No ${kindLabel.toLowerCase()} found.`} /></div>
+        {:else if resources.length}
+          <table class="w-full text-left text-xs">
+            <thead class="sticky top-0 z-10 bg-base text-fg-muted">
+              <tr>
+                <th class="px-4 py-1.5 font-medium">{kindLabel.replace(/s$/, "")}</th><th class="font-medium">Status</th>
+                {#each columns as c (c)}<th class="font-medium">{c}</th>{/each}
+                <th class="font-medium">Age</th><th class="pr-4 text-right font-medium">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {#each shownResources as r (`${r.namespace}/${r.name}`)}
+                {@const tone = resourceTone(kind, r)}
+                <tr class="border-t border-line/60 hover:bg-panel-hover/50">
+                  <td class="max-w-80 px-4 py-1.5">
+                    <div class="truncate font-medium" title={r.name}>{r.name}</div>
+                    {#if r.namespace && !k.namespace}<div class="truncate text-[11px] text-fg-muted">{r.namespace}</div>{/if}
+                  </td>
+                  <td class="whitespace-nowrap {text[tone]}"><span class="mr-1.5 inline-block h-2 w-2 rounded-full align-middle {dot[tone]}"></span>{r.status}</td>
+                  {#each r.details as dt (dt.label)}<td class="max-w-72 truncate text-fg-muted" title={dt.value}>{dt.value || "—"}</td>{/each}
+                  <td class="font-mono text-fg-muted">{ageOf(r.created)}</td>
+                  <td class="pr-4 text-right whitespace-nowrap">
+                    <button class="icon-btn h-7 w-7" title="Describe" aria-label="Describe {r.name}" disabled={busy === `describe:${r.name}`} onclick={() => void showResource(r)}><FileText size={14} /></button>
+                  </td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        {/if}
       {:else if !pods.length && !error}
         <div class="p-10"><EmptyState art="containers" text={k.namespace ? `No pods in ${k.namespace}.` : "No pods in this cluster."} /></div>
       {:else if pods.length}

@@ -163,6 +163,9 @@ fn config_for(spec: &ConnectSpec) -> DbResult<Config> {
     if spec.tunnel_port.is_some() {
         c.hostaddr(IpAddr::V4(Ipv4Addr::LOCALHOST));
     }
+    if spec.read_only() {
+        c.options("-c default_transaction_read_only=on");
+    }
     if let Some(pw) = spec.password.as_deref().filter(|p| !p.is_empty()) {
         c.password(pw);
     }

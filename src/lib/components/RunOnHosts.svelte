@@ -19,6 +19,8 @@
   let picked = $state<Set<Uuid>>(new Set());
   let filter = $state("");
   let timeoutSecs = $state(60);
+  /** "all": every host at once. "rolling": one at a time. "rolling-stop": one at a time, and stop at the first failure. */
+  let pace = $state<"all" | "rolling" | "rolling-stop">("all");
   let values = $state<Record<string, string>>({});
 
   type Result =
@@ -26,6 +28,7 @@
     | { state: "running" }
     | { state: "done"; output: ExecOutput }
     | { state: "failed"; message: string }
+    | { state: "skipped" }
     | { state: "cancelled" };
   let runId = $state<string | null>(null);
   let running = $state(false);
@@ -74,8 +77,9 @@
         if (e.event === "started") results[e.host_id] = { state: "running" };
         else if (e.event === "finished") results[e.host_id] = { state: "done", output: e.output };
         else if (e.event === "failed") results[e.host_id] = { state: "failed", message: e.message };
+        else if (e.event === "skipped") results[e.host_id] = { state: "skipped" };
         else running = false;
-      });
+      }, pace === "all" ? "parallel" : { sequential: { stop_on_failure: pace === "rolling-stop" } });
     } catch (err) {
       running = false;
       ui.notify("error", errorMessage(err));
@@ -180,6 +184,8 @@
                   </span>
                 {:else if r.state === "failed"}
                   <span class="text-xs text-danger">Failed</span>
+                {:else if r.state === "skipped"}
+                  <span class="text-xs text-fg-muted">Skipped: an earlier host failed</span>
                 {:else}
                   <span class="text-xs text-fg-muted">Cancelled</span>
                 {/if}
@@ -224,6 +230,14 @@
           <p class="px-2 py-4 text-center text-xs text-fg-muted">No hosts.</p>
         {/each}
       </div>
+      <label class="mt-2 flex items-center justify-between gap-2 text-xs text-fg-muted">
+        Hosts
+        <select class="input w-44 py-1 text-xs" bind:value={pace} disabled={running} aria-label="How to take the hosts">
+          <option value="all">All at once</option>
+          <option value="rolling">One at a time</option>
+          <option value="rolling-stop">One at a time, stop at the first failure</option>
+        </select>
+      </label>
       <label class="mt-2 flex items-center justify-between text-xs text-fg-muted">
         Timeout per host
         <select class="input w-24 py-1 text-xs" bind:value={timeoutSecs} disabled={running}>

@@ -10,6 +10,7 @@
     FolderTree,
     KeyRound,
     LayoutGrid,
+    Network,
     Wrench,
     Lock,
     PanelLeftClose,
@@ -44,6 +45,7 @@
     { view: "keychain", label: "Credentials", icon: UserRound, hint: "Usernames and passwords" },
     { view: "knownhosts", label: "Known hosts", icon: ShieldCheck, hint: "Server fingerprints you trust" },
     { view: "vault", label: "Vault", icon: Vault, hint: "Sync, backups, conflicts and the connection log" },
+    { view: "topology", label: "Topology", icon: Network, hint: "How hosts, proxies, tunnels and databases connect" },
   ];
 
   /** A rail entry's name in the chosen language. */

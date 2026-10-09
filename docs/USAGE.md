@@ -537,11 +537,18 @@ files from the page), not a program:
   until it exits with `until_exit`, default 0, and prints `contains` if given,
   or give up after `timeout_secs`), or `upload` (see below). A failed step
   stops that host unless the step has `"on_error": "continue"`; other hosts go
-  on. Each step may have a `timeout_secs`.
+  on. Each step may have a `timeout_secs`. A `run` or `upload` step may also
+  say `"retries": 2` (up to 5) to be tried again when the command ran and failed,
+  waiting `retry_delay_secs` (default 5) between tries; only use it for commands
+  that are safe to repeat. A lost connection is never retried. The kept record of
+  a run hides passwords, tokens, private keys and similar in the output.
 - **Parameters** are asked for when you run it. `{{name}}` puts the value in as
   typed; `{{name|q}}` quotes it for the shell, which you should use for
-  anything a person types. `{{host}}` and `{{label}}` are the host's own
-  address and name. A parameter can have `choices`, `optional`, or `"kind":
+  anything a person types; `{{name|raw}}` says outright that you want it as
+  typed. `{{host}}` and `{{label}}` are the host's own address and name. They
+  come from host records, which an import or a synced vault can fill, so they
+  are quoted for you (a plain name looks the same); use `{{host|raw}}` only if
+  you mean shell syntax. A parameter can have `choices`, `optional`, or `"kind":
   "file"`.
 - **Conditions.** A step runs `when` an earlier step (by its `id`) exited with
   `exit` or not (`exit_not`), or a text parameter `equals` / `not_equals`
@@ -562,13 +569,18 @@ files from the page), not a program:
 - **History** keeps the last 100 runs on this computer only (never synced or
   backed up, because outputs can hold secrets), each with its values, per-host
   steps and output. Each output is cut at 16 KB.
-- **Schedules** run a runbook by themselves (every N minutes, daily, or on
-  chosen days), **only while SSHVault is open** and the vault is unlocked. A
-  time that passes while the app is closed or the computer sleeps is skipped,
-  not caught up. Schedules are kept on this computer. A schedule that includes
-  a production host is skipped unless you allowed that, with a typed
-  confirmation, when you made it; runbooks that need a file chosen each time
-  can't be scheduled. Failures are reported and recorded.
+- **Schedules** run a runbook by themselves (every N minutes, daily, on chosen
+  days, or once), **only while SSHVault is open** and the vault is unlocked;
+  there is no background service. Daily and weekly times are read on this
+  computer's clock, or in a time zone you choose (daylight-saving changes are
+  followed). A time that passes while the app is closed or the computer sleeps
+  is skipped, unless the schedule says to run once when the app opens. A
+  schedule can try hosts that failed again, up to three times, while the app
+  stays open. A one-time schedule switches itself off after it starts.
+  Schedules are kept on this computer. A schedule that includes a production
+  host is skipped unless you allowed that, with a typed confirmation, when you
+  made it; runbooks that need a file chosen each time can't be scheduled.
+  Failures are reported and recorded.
 
 **Wait for this, send that.** Under a host's **Automation** tab, add steps that
 wait for some text in the output after connecting and send an answer (for a

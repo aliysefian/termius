@@ -127,6 +127,20 @@
     });
   }
 
+  async function acceptRollbacks() {
+    await act("rollbacks", async () => {
+      await api.vault.acceptRollbacks();
+      await load();
+    });
+  }
+
+  async function toggleKeepKey() {
+    await act("keep-key", async () => {
+      vaultStore.status = await api.vault.setKeepKeyOnLock(!info?.keep_key_on_lock);
+      await load();
+    });
+  }
+
   // -- backups --------------------------------------------------------------
   async function backupNow() {
     await act("backup", async () => {
@@ -191,6 +205,24 @@
     </div>
 
     {#if info}
+      {#if info.rollbacks.length}
+        <section class="rounded-xl border border-danger/40 bg-danger/10 p-5" role="alert">
+          <h3 class="mb-1 flex items-center gap-2 text-sm font-semibold text-danger"><ShieldAlert size={14} /> The synced folder went backwards</h3>
+          <p class="mb-2 text-xs text-fg-muted">
+            {info.rollbacks.length} record(s) are older than, or missing since, what this computer saw last time. A sync service restoring
+            an old copy can do this, and so can someone with access to the folder. Until you decide, edits to these records may overwrite
+            newer changes made elsewhere. If you restored an old copy on purpose, accept it; otherwise look at the other devices and the
+            backups below before changing anything.
+          </p>
+          <ul class="mb-3 list-disc pl-5 font-mono text-xs">
+            {#each info.rollbacks.slice(0, 10) as a (a.collection + a.id)}
+              <li>{a.collection}/{a.id.slice(0, 8)}… {a.kind === "older" ? `is at revision ${a.now}, was ${a.seen}` : `is missing (was at revision ${a.seen})`}</li>
+            {/each}
+            {#if info.rollbacks.length > 10}<li>and {info.rollbacks.length - 10} more</li>{/if}
+          </ul>
+          <button class="btn-secondary" disabled={!!busy} onclick={acceptRollbacks}>Accept the folder as it is now</button>
+        </section>
+      {/if}
       <section class="rounded-xl border border-line bg-panel p-5">
         <dl class="grid grid-cols-[10rem_1fr] gap-x-4 gap-y-1.5 text-sm">
           <dt class="text-fg-muted">Name</dt><dd>{folderName}</dd>
@@ -278,6 +310,16 @@
             {info.remembered ? "Forget on this device" : "Remember on this device"}
           </button>
         </div>
+        {#if info.remembered || info.keep_key_on_lock}
+          <label class="mt-3 flex items-start gap-2 text-xs text-fg-muted">
+            <input type="checkbox" class="mt-0.5 accent-input" checked={info.keep_key_on_lock} disabled={!!busy} onchange={toggleKeepKey} />
+            <span>
+              <span class="font-medium text-fg">Keep the stored key when locking</span><br />
+              Off (the default): locking forgets the stored key, so the master password is needed to open the vault again. On: the
+              lock screen opens the vault by itself, so locking only hides it.
+            </span>
+          </label>
+        {/if}
       </section>
 
       <section class="rounded-xl border border-line bg-panel p-5">

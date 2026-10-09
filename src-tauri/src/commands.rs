@@ -93,6 +93,8 @@ pub struct AppState {
     /// `run` from the CLI is pre-approved until this time.
     cli_trusted_until: std::sync::Mutex<Option<std::time::Instant>>,
     logs: std::sync::Mutex<std::collections::HashMap<String, LogSlot>>,
+    /// When the window last reported activity, for locking an idle vault even if the window can't.
+    idle: crate::idle::IdleClock,
 }
 
 impl AppState {
@@ -202,7 +204,9 @@ impl From<SshError> for ApiError {
             SshError::Jump { .. } | SshError::JumpChainTooLong => "jump",
             SshError::AlreadyConnected => "already_connected",
             SshError::NotConnected => "not_connected",
-            SshError::Timeout(_) | SshError::Connect { .. } => "unreachable",
+            SshError::Connect { source, .. } => crate::neterr::kind(source).code(),
+            SshError::Timeout(_) => "timeout",
+            SshError::Proxy { .. } => "proxy",
             _ => "ssh",
         };
         Self::new(code, e.to_string())
@@ -659,6 +663,19 @@ pub fn forget_device(state: State<'_, AppState>) -> ApiResult<VaultStatus> {
 
 #[tauri::command]
 pub async fn lock_vault(state: State<'_, AppState>) -> ApiResult<VaultStatus> {
+    lock_everything(&state).await
+}
+
+/// The window reports that someone is there (and how long an idle vault may wait, in minutes; 0 for never). If these
+/// reports stop for that long the backend locks the vault itself.
+#[tauri::command]
+pub fn vault_activity(state: State<'_, AppState>, minutes: u32) {
+    state.idle.touch(minutes);
+}
+
+/// Everything a lock does: close what the vault's keys opened, then lock.
+pub async fn lock_everything(state: &AppState) -> ApiResult<VaultStatus> {
+    state.idle.reset();
     state.ssh.disconnect_all().await;
     state.sftp.close_all().await;
     state.files.close_all().await;
@@ -685,7 +702,26 @@ pub async fn lock_vault(state: State<'_, AppState>) -> ApiResult<VaultStatus> {
         .close();
     state.logs.lock().unwrap_or_else(|p| p.into_inner()).clear();
     state.session.lock();
-    let cfg = AppConfig::load(&state.config_dir)?;
+    let mut cfg = AppConfig::load(&state.config_dir)?;
+    // A locked vault that opens itself from the device key isn't locked: forget the key too, unless the person chose
+    // to keep it. The lock has happened either way, so a keychain that refuses is not an error here.
+    if !cfg.keep_key_on_lock {
+        if let Some(id) = cfg.remember_vault {
+            if state.keystore.forget(id).is_ok() {
+                cfg.remember_vault = None;
+                let _ = cfg.save(&state.config_dir);
+            }
+        }
+    }
+    Ok(status_of(state, &cfg))
+}
+
+/// Whether locking keeps this device's stored key (see `AppConfig::keep_key_on_lock`).
+#[tauri::command]
+pub fn set_keep_key_on_lock(state: State<'_, AppState>, keep: bool) -> ApiResult<VaultStatus> {
+    let mut cfg = AppConfig::load(&state.config_dir)?;
+    cfg.keep_key_on_lock = keep;
+    cfg.save(&state.config_dir)?;
     Ok(status_of(&state, &cfg))
 }
 
@@ -764,6 +800,8 @@ pub struct VaultInfo {
     pub device_id: Uuid,
     pub device_name: String,
     pub remembered: bool,
+    /// Locking keeps the remembered key (the setting is off by default).
+    pub keep_key_on_lock: bool,
     /// Short hash of every record's ID and revision; equal on two devices
     /// means they have the same data.
     pub state_hash: String,
@@ -773,6 +811,14 @@ pub struct VaultInfo {
     pub active_sessions: Vec<crate::vault::devices::ActiveSession>,
     pub devices: Vec<Record<crate::vault::devices::DeviceRecord>>,
     pub open_conflicts: usize,
+    /// Records that went backwards or vanished since this device last saw them.
+    pub rollbacks: Vec<crate::vault::highwater::Anomaly>,
+}
+
+/// The person has looked at the rollback warning: take the folder as it is now as the baseline.
+#[tauri::command]
+pub fn accept_rollbacks(state: State<'_, AppState>) -> ApiResult<()> {
+    Ok(state.session.with_vault(|v| v.accept_rollbacks())?)
 }
 
 #[tauri::command]
@@ -797,6 +843,7 @@ pub fn vault_info(state: State<'_, AppState>) -> ApiResult<VaultInfo> {
             device_id: v.device().id,
             device_name: v.device().name.clone(),
             remembered: cfg.remember_vault == Some(v.vault_id()),
+            keep_key_on_lock: cfg.keep_key_on_lock,
             state_hash,
             records,
             last_change,
@@ -804,6 +851,7 @@ pub fn vault_info(state: State<'_, AppState>) -> ApiResult<VaultInfo> {
             active_sessions: v.active_sessions()?,
             devices: v.devices()?,
             open_conflicts: v.conflict_copies()?.len(),
+            rollbacks: v.check_rollbacks()?,
         })
     })?)
 }
@@ -1406,6 +1454,7 @@ impl crate::runner::RunSink for CliRunSink {
                 duration_ms: output.duration_ms,
             },
             E::Failed { host_id, message } => R::Failed { host: name(&host_id), message },
+            E::Skipped { host_id } => R::Failed { host: name(&host_id), message: "skipped because an earlier host failed".into() },
             E::Done => R::Done { ok: true },
         };
         let _ = self.0.send(resp);
@@ -2689,9 +2738,36 @@ pub async fn inventory_scan(range: String, port: u16) -> ApiResult<Vec<crate::in
     crate::inventory::scan_ssh(&range, port, std::time::Duration::from_millis(800)).await.map_err(|e| ApiError::new("scan", e.to_string()))
 }
 
-/// Run a hook command on this computer (after the window has shown it to the person and had it approved).
+/// Run a hook command on this computer. The window asks first, but the window is not who decides: a command that
+/// this computer hasn't approved is put to the person in a native dialog the page can't click, and the answer is
+/// remembered for that exact text. Without it, anything running in the page could run commands as the user.
 #[tauri::command]
-pub async fn run_hook(command: String, timeout_secs: u64) -> ApiResult<crate::hooks::HookResult> {
+pub async fn run_hook(app: AppHandle, state: State<'_, AppState>, command: String, timeout_secs: u64) -> ApiResult<crate::hooks::HookResult> {
+    crate::hooks::check(&command).map_err(|e| ApiError::new("hook", e))?;
+    // A separate namespace from ProxyCommands: approving one text as a proxy doesn't approve it as a hook.
+    let key = format!("hook:{}", command.trim());
+    if !crate::proxyapproval::is_approved(&key) {
+        let text = format!("SSHVault wants to run this command on this computer:\n\n{}\n\nOnly allow commands you wrote or have read.", command.trim());
+        let asker = app.clone();
+        let allowed = tauri::async_runtime::spawn_blocking(move || {
+            use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
+            asker
+                .dialog()
+                .message(text)
+                .title("Allow this command?")
+                .buttons(MessageDialogButtons::OkCancelCustom("Allow".to_string(), "Don't allow".to_string()))
+                .blocking_show()
+        })
+        .await
+        .unwrap_or(false);
+        if !allowed {
+            return Err(ApiError::new("hook", "the command was not allowed to run on this computer"));
+        }
+        let all = crate::proxyapproval::set(&key, true);
+        let mut cfg = AppConfig::load(&state.config_dir)?;
+        cfg.approved_commands = all;
+        cfg.save(&state.config_dir)?;
+    }
     crate::hooks::run(&command, std::time::Duration::from_secs(timeout_secs.clamp(1, crate::hooks::MAX_TIMEOUT_SECS))).await.map_err(|e| ApiError::new("hook", e))
 }
 
@@ -2851,7 +2927,20 @@ pub async fn test_proxy(
     }
     let (host, port) = crate::health::parse_target(target.as_deref().unwrap_or("").trim())
         .ok_or_else(|| ApiError::new("validation", "test destination must look like host or host:port"))?;
-    Ok(crate::health::probe(&host, port, Some(&spec)).await)
+    // Testing a command from the form with "approved" ticked runs it for this test, in memory only: nothing is
+    // saved, and a command that was not approved before is not approved afterwards.
+    let mut undo_approval = None;
+    if let ProxySpec::Command { command, approved: true } = &spec {
+        if !crate::proxyapproval::is_approved(command) {
+            crate::proxyapproval::set(command, true);
+            undo_approval = Some(command.clone());
+        }
+    }
+    let health = crate::health::probe(&host, port, Some(&spec)).await;
+    if let Some(command) = undo_approval {
+        crate::proxyapproval::set(&command, false);
+    }
+    Ok(health)
 }
 
 /// Read an Ansible INI inventory for the import preview.
@@ -2960,6 +3049,7 @@ pub fn run_on_hosts(
     jobs: Vec<RunJob>,
     timeout_secs: u64,
     on_event: Channel<crate::runner::RunEvent>,
+    order: Option<crate::runner::Order>,
 ) -> ApiResult<()> {
     use crate::runner::{RunEvent, RunSink};
     let sink: Arc<dyn RunSink> = Arc::new(ChannelRunSink(on_event));
@@ -2977,7 +3067,7 @@ pub fn run_on_hosts(
     // Spawned inside Tauri's runtime; RunManager needs a tokio context.
     let runs = Arc::clone(&state.runs);
     tauri::async_runtime::spawn(async move {
-        runs.start(run_id, ready, timeout, sink);
+        runs.start_ordered(run_id, ready, timeout, order.unwrap_or_default(), sink);
     });
     Ok(())
 }
@@ -3278,6 +3368,10 @@ pub fn list_proxies(state: State<'_, AppState>) -> ApiResult<Vec<Record<crate::m
     let mut list: Vec<Record<crate::models::Proxy>> = list_records(&state, Collection::Proxies)?;
     for r in &mut list {
         r.data = r.data.as_ref().map(crate::models::Proxy::redacted);
+        // Whether a command is approved is this computer's own answer, whatever the synced record says.
+        if let Some(crate::models::Proxy { spec: crate::models::ProxySpec::Command { command, approved }, .. }) = r.data.as_mut() {
+            *approved = crate::proxyapproval::is_approved(command);
+        }
     }
     Ok(list)
 }
@@ -3328,8 +3422,24 @@ pub fn save_proxy(
             }
         }
     }
+    // Approving a command is something this computer does, so it is recorded here, and the synced record never says
+    // "approved": a copy of it on another device starts out unapproved.
+    let mut approval = None;
+    if let ProxySpec::Command { command, approved } = &mut proxy.spec {
+        approval = Some((command.clone(), *approved));
+        *approved = false;
+    }
     let mut rec = save_record(&state, Collection::Proxies, id, base_rev, proxy)?;
+    if let Some((command, allow)) = approval {
+        let all = crate::proxyapproval::set(&command, allow);
+        let mut cfg = AppConfig::load(&state.config_dir)?;
+        cfg.approved_commands = all;
+        cfg.save(&state.config_dir)?;
+    }
     rec.data = rec.data.as_ref().map(crate::models::Proxy::redacted);
+    if let Some(crate::models::Proxy { spec: ProxySpec::Command { command, approved }, .. }) = rec.data.as_mut() {
+        *approved = crate::proxyapproval::is_approved(command);
+    }
     Ok(rec)
 }
 
@@ -3602,6 +3712,17 @@ pub async fn kube_pods(state: State<'_, AppState>, session_id: Uuid, context: St
     Ok(state.kube.pods(session_id, &context, &scope).await?)
 }
 
+/// Deployments, services, events and the other read-only kinds (see `kube::Kind`; Secrets are not among them).
+#[tauri::command]
+pub async fn kube_resources(state: State<'_, AppState>, session_id: Uuid, context: String, scope: crate::kube::Scope, kind: crate::kube::Kind) -> ApiResult<Vec<crate::kube::Resource>> {
+    Ok(state.kube.resources(session_id, &context, &scope, kind).await?)
+}
+
+#[tauri::command]
+pub async fn kube_describe_resource(state: State<'_, AppState>, session_id: Uuid, context: String, namespace: String, kind: crate::kube::Kind, name: String) -> ApiResult<String> {
+    Ok(state.kube.describe_resource(session_id, &context, &namespace, kind, &name).await?)
+}
+
 #[tauri::command]
 pub async fn kube_namespaces(state: State<'_, AppState>, session_id: Uuid, context: String) -> ApiResult<Vec<String>> {
     Ok(state.kube.namespaces(session_id, &context).await?)
@@ -3715,6 +3836,12 @@ pub fn containers_logs_start(
 }
 
 /// Volumes and networks of a Docker source, with the containers using each.
+/// CPU, memory, network and disk use of the running containers, one reading.
+#[tauri::command]
+pub async fn containers_stats(state: State<'_, AppState>, session_id: Uuid, runtime: crate::containers::Runtime) -> ApiResult<Vec<crate::containers::parse::Stat>> {
+    Ok(state.containers.stats(session_id, runtime).await?)
+}
+
 #[tauri::command]
 pub async fn containers_resources(
     state: State<'_, AppState>,
@@ -4412,8 +4539,8 @@ pub fn read_text_file(path: String) -> ApiResult<String> {
     String::from_utf8(bytes).map_err(|_| ApiError::new("io", "the file is not UTF-8 text"))
 }
 
-/// Write a text file the person chose in the Save dialog, for exports such as a snippet pack. Only `.json`, and
-/// at most 2 MB, so it can't be used to put anything else anywhere; written beside the target and renamed into
+/// Write a text file the person chose in the Save dialog, for exports such as a snippet pack or a log. Only `.json`
+/// or `.log`, and at most 2 MB, so it can't be used to put anything else anywhere; written beside the target and renamed into
 /// place, so a failed write never leaves half a file.
 #[tauri::command]
 pub fn export_text_file(path: String, contents: String) -> ApiResult<()> {
@@ -4607,6 +4734,10 @@ pub fn forward_statuses(
 /// Resolve the per-machine config dir and register [`AppState`].
 pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let config_dir = app.path().app_config_dir()?;
+    // Before anything else can fail: a release build aborts on a panic, so record why in `crash.log` first.
+    crate::crashlog::install(config_dir.clone());
+    // The ProxyCommands this computer has approved to run (kept here, not in the synced vault).
+    crate::proxyapproval::load(AppConfig::load(&config_dir).map(|c| c.approved_commands).unwrap_or_default());
     // Leftovers from a run that didn't exit cleanly are plaintext copies of
     // remote files; remove them before anything else.
     // Per-user cache folder (not the shared system temp directory, where
@@ -4623,7 +4754,11 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let prompts: PromptMap = Default::default();
     let sftp = Arc::new(SftpManager::new());
     app.manage(AppState {
-        session: Session::new(),
+        session: {
+            let s = Session::new();
+            s.set_highwater_dir(config_dir.join("highwater"));
+            s
+        },
         config_dir: config_dir.clone(),
         ssh: Arc::new(SshManager::new()),
         sftp: Arc::clone(&sftp),
@@ -4660,6 +4795,20 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         cli_prompts: Default::default(),
         cli_trusted_until: Default::default(),
         logs: Default::default(),
+        idle: Default::default(),
+    });
+    // Lock an idle vault even when the window can't (frozen, throttled, or its timer lost). Checks every 15 seconds;
+    // started with `tauri::async_runtime` because setup runs on a thread with no async runtime of its own.
+    let handle = app.handle().clone();
+    tauri::async_runtime::spawn(async move {
+        let mut tick = tokio::time::interval(std::time::Duration::from_secs(15));
+        loop {
+            tick.tick().await;
+            let state = handle.state::<AppState>();
+            if state.session.is_unlocked() && state.idle.due(std::time::Instant::now()) && lock_everything(&state).await.is_ok() {
+                let _ = handle.emit("vault:idle-locked", ());
+            }
+        }
     });
     Ok(())
 }

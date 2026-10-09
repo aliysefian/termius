@@ -1,14 +1,16 @@
-//! Writing an export the person chose in the Save dialog (a snippet pack). Narrow on purpose: a `.json`
-//! file, at most 2 MB, so the command that uses it can't put anything else anywhere.
+//! Writing an export the person chose in the Save dialog (a snippet pack, a log). Narrow on purpose: a `.json` or
+//! `.log` file, at most 2 MB, so the command that uses it can't put anything else anywhere.
 
 use std::path::Path;
 
 pub const MAX_BYTES: usize = 2 * 1024 * 1024;
+/// What may be written: data and plain-text logs, never anything a shell or the system would run.
+const ALLOWED: [&str; 2] = ["json", "log"];
 
 /// Written beside the target and renamed into place, so a failed write never leaves half a file.
 pub fn write_json(p: &Path, contents: &str) -> Result<(), String> {
-    if !p.extension().is_some_and(|e| e.eq_ignore_ascii_case("json")) {
-        return Err("Only a .json file can be written here.".into());
+    if !p.extension().is_some_and(|e| ALLOWED.iter().any(|a| e.eq_ignore_ascii_case(a))) {
+        return Err("Only a .json or .log file can be written here.".into());
     }
     if contents.len() > MAX_BYTES {
         return Err("That is too large to export.".into());
@@ -42,7 +44,8 @@ mod tests {
     #[test]
     fn refuses_other_kinds_of_file_and_big_ones_and_missing_folders() {
         let dir = tempfile::TempDir::new().unwrap();
-        for name in ["pack.txt", "pack", "pack.json.exe", "pack.sh", ".bashrc", "authorized_keys"] {
+        write_json(&dir.path().join("session.log"), "a line\n").unwrap();
+        for name in ["pack.txt", "pack", "pack.json.exe", "pack.sh", ".bashrc", "authorized_keys", "run.log.sh", "x.csv"] {
             assert!(write_json(&dir.path().join(name), "x").is_err(), "{name}");
             assert!(!dir.path().join(name).exists(), "{name}");
         }

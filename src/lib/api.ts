@@ -15,6 +15,7 @@ import type {
   ContainerLogEvent,
   ContainerLogOptions,
   ContainerResources,
+  ContainerStat,
   ContainerRuntime,
   DbConnection,
   DbQueryResult,
@@ -80,6 +81,10 @@ export const vault = {
   unlockWithRecovery: (recoveryKey: string, newPassword: string, remember: boolean) =>
     invoke<UnlockResult>("unlock_with_recovery", { recoveryKey, newPassword, remember }),
   forgetDevice: () => invoke<VaultStatus>("forget_device"),
+  acceptRollbacks: () => invoke<void>("accept_rollbacks"),
+  activity: (minutes: number) => invoke<void>("vault_activity", { minutes }),
+  onIdleLocked: (handler: () => void): Promise<UnlistenFn> => listen("vault:idle-locked", () => handler()),
+  setKeepKeyOnLock: (keep: boolean) => invoke<VaultStatus>("set_keep_key_on_lock", { keep }),
   rememberDevice: () => invoke<VaultStatus>("remember_device"),
   lock: () => invoke<VaultStatus>("lock_vault"),
   changePassword: (currentPassword: string, newPassword: string) =>
@@ -269,10 +274,13 @@ export const forwards = {
     listen<{ rule_id: Uuid; status: ForwardStatus }>("forward:status", (e) => handler(e.payload)),
 };
 
+export type RunOrder = "parallel" | { sequential: { stop_on_failure: boolean } };
+
 export const runs = {
-  start(runId: string, jobs: { host_id: Uuid; command: string }[], timeoutSecs: number, onEvent: (e: RunEvent) => void) {
+  /** `order`: all hosts at once (the default), or one after another, optionally stopping at the first failure. */
+  start(runId: string, jobs: { host_id: Uuid; command: string }[], timeoutSecs: number, onEvent: (e: RunEvent) => void, order: RunOrder = "parallel") {
     const channel = new Channel<RunEvent>(onEvent);
-    return invoke<void>("run_on_hosts", { runId, jobs, timeoutSecs, onEvent: channel });
+    return invoke<void>("run_on_hosts", { runId, jobs, timeoutSecs, onEvent: channel, order });
   },
   cancel: (runId: string) => invoke<boolean>("run_cancel", { runId }),
 };
@@ -455,6 +463,8 @@ export const containers = {
     invoke<ContainerListing>("containers_list", { sessionId, runtime, sizes }),
   act: (sessionId: Uuid, runtime: ContainerRuntime, action: ContainerAction, id: string) =>
     invoke<void>("containers_act", { sessionId, runtime, action, id }),
+  /** CPU, memory, network and disk use of the running containers: one reading, taking a second or two. */
+  stats: (sessionId: Uuid, runtime: ContainerRuntime) => invoke<ContainerStat[]>("containers_stats", { sessionId, runtime }),
   /** The runtime's `inspect` output as JSON text. */
   inspect: (sessionId: Uuid, runtime: ContainerRuntime, id: string) => invoke<string>("containers_inspect", { sessionId, runtime, id }),
   /** Resolves to a stream id for `logsStop`; events arrive on `onEvent` until an "end". */
@@ -487,6 +497,8 @@ export const kube = {
   open: (hostId: Uuid | null) => invoke<{ session_id: Uuid; info: import("./kubedata").KubeInfo }>("kube_open", { hostId }),
   close: (sessionId: Uuid) => invoke<void>("kube_close", { sessionId }),
   pods: (sessionId: Uuid, context: string, scope: import("./kubedata").Scope) => invoke<import("./kubedata").KubePod[]>("kube_pods", { sessionId, context, scope }),
+  resources: (sessionId: Uuid, context: string, scope: import("./kubedata").Scope, kind: import("./kubedata").ResourceKind) => invoke<import("./kubedata").KubeResource[]>("kube_resources", { sessionId, context, scope, kind }),
+  describeResource: (sessionId: Uuid, context: string, namespace: string, kind: import("./kubedata").ResourceKind, name: string) => invoke<string>("kube_describe_resource", { sessionId, context, namespace, kind, name }),
   namespaces: (sessionId: Uuid, context: string) => invoke<string[]>("kube_namespaces", { sessionId, context }),
   describe: (sessionId: Uuid, context: string, namespace: string, pod: string) => invoke<string>("kube_describe", { sessionId, context, namespace, pod }),
   deletePod: (sessionId: Uuid, context: string, namespace: string, pod: string) => invoke<void>("kube_delete_pod", { sessionId, context, namespace, pod }),

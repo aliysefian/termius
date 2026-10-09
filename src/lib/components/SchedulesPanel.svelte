@@ -1,7 +1,7 @@
 <script lang="ts">
   import { CalendarClock, Play, Plus, Trash2 } from "lucide-svelte";
   import { ask } from "$lib/dialogs.svelte";
-  import { DAYS, MIN_EVERY, describe, nextRun, problem, type Schedule, type When } from "$lib/schedule";
+  import { DAYS, MAX_RETRIES, MIN_EVERY, describe, nextRun, problem, scheduleProblem, validZone, type Schedule, type When } from "$lib/schedule";
   import { blocker, runSchedule } from "$lib/stores/scheduler.svelte";
   import { settings } from "$lib/stores/settings.svelte";
   import { ui } from "$lib/stores/ui.svelte";
@@ -23,8 +23,15 @@
   let days = $state<number[]>([1, 2, 3, 4, 5]);
   let allowProduction = $state(false);
   let error = $state<string | null>(null);
+  /** For "once": a local date and time, as the browser's date field gives it. */
+  let onceAt = $state("");
+  let tz = $state("");
+  let missed = $state<"skip" | "run_once">("skip");
+  let retries = $state(0);
+  let retryMinutes = $state(15);
+  const zones = typeof Intl.supportedValuesOf === "function" ? Intl.supportedValuesOf("timeZone") : [];
 
-  const when = $derived<When>(kind === "every" ? { kind, minutes } : kind === "daily" ? { kind, at } : { kind, days, at });
+  const when = $derived<When>(kind === "every" ? { kind, minutes } : kind === "once" ? { kind, at: onceAt ? new Date(onceAt).getTime() : NaN } : kind === "daily" ? { kind, at } : { kind, days, at });
 
   async function chooseRunbook(id: string) {
     runbookId = id;
@@ -43,11 +50,14 @@
     if (check.problems.length) return (error = "That runbook has problems; fix them first.");
     if (check.params.some((p) => p.kind === "file" && !p.optional)) return (error = "That runbook needs a file chosen each time it runs, which a schedule can't give.");
     if (picked.size === 0) return (error = "Choose at least one host.");
-    const bad = problem(when);
+    const bad = problem(when) ?? (tz.trim() && !validZone(tz.trim()) ? `"${tz.trim()}" is not a time zone this computer knows.` : null);
     if (bad) return (error = bad);
+    if (when.kind === "once" && when.at <= Date.now()) return (error = "Choose a time in the future.");
     const prod = [...picked].filter((h) => vaultStore.effectiveEnv(vaultStore.hostById.get(h)?.data) === "production");
     if (prod.length && allowProduction && !(await ask(`This schedule will run "${rb.name}" by itself on ${prod.length} production host${prod.length === 1 ? "" : "s"}, without anyone watching.`, { title: "Production hosts", confirm: "Allow it", danger: true, requireText: "production" }))) return;
-    const s: Schedule = { id: crypto.randomUUID(), runbookId, params: Object.fromEntries(Object.entries($state.snapshot(params)).filter(([, v]) => v !== "")), hostIds: [...picked], when: $state.snapshot(when) as When, enabled: true, allowProduction: allowProduction && prod.length > 0, lastRun: Date.now() };
+    const s: Schedule = { id: crypto.randomUUID(), runbookId, params: Object.fromEntries(Object.entries($state.snapshot(params)).filter(([, v]) => v !== "")), hostIds: [...picked], when: $state.snapshot(when) as When, enabled: true, allowProduction: allowProduction && prod.length > 0, lastRun: Date.now(), ...(tz.trim() && when.kind !== "every" && when.kind !== "once" ? { tz: tz.trim() } : {}), ...(missed === "run_once" && when.kind !== "every" ? { missed } : {}), ...(retries > 0 ? { retries, retryMinutes } : {}) };
+    const slip = scheduleProblem(s);
+    if (slip) return (error = slip);
     settings.prefs.schedules = [...settings.prefs.schedules, s];
     adding = false;
     picked = new Set();
@@ -74,8 +84,8 @@
     <button class="btn-secondary ml-auto py-1 text-xs" onclick={() => (adding = !adding)} data-testid="schedule-new"><Plus size={13} /> New schedule</button>
   </div>
   <p class="rounded-md border border-line bg-base/40 p-3 text-xs text-fg-muted">
-    Schedules run <strong>only while SSHVault is open</strong>, with the vault unlocked. A time that passes while the app is closed (or the computer
-    sleeps for more than ten minutes) is skipped, not caught up. They are kept on this computer and not synced. A run that includes a production host
+    Schedules run <strong>only while SSHVault is open</strong>, with the vault unlocked; there is no background service. A time that passes while
+    the app is closed (or the computer sleeps for more than ten minutes) is skipped, unless the schedule says to run once when it opens. They are kept on this computer and not synced. A run that includes a production host
     is skipped unless you allowed it when you made the schedule. Failures are reported here and in Runbooks → History.
   </p>
 
@@ -110,9 +120,15 @@
             <option value="every">Every so often</option>
             <option value="daily">Every day</option>
             <option value="weekly">On some days</option>
+            <option value="once">Once</option>
           </select>
         </div>
-        {#if kind === "every"}
+        {#if kind === "once"}
+          <div class="col-span-2">
+            <label class="label" for="sc-once">Date and time (this computer's clock)</label>
+            <input id="sc-once" class="input" type="datetime-local" bind:value={onceAt} />
+          </div>
+        {:else if kind === "every"}
           <div>
             <label class="label" for="sc-min">Minutes</label>
             <input id="sc-min" class="input" type="number" min={MIN_EVERY} bind:value={minutes} />
@@ -131,6 +147,23 @@
           {/each}
         </div>
       {/if}
+      {#if kind === "daily" || kind === "weekly"}
+        <div>
+          <label class="label" for="sc-tz">Time zone <span class="font-normal text-fg-muted">(empty: this computer's)</span></label>
+          <input id="sc-tz" class="input font-mono text-xs" list="sc-zones" bind:value={tz} placeholder="Europe/Berlin" />
+          <datalist id="sc-zones">{#each zones as z (z)}<option value={z}></option>{/each}</datalist>
+        </div>
+      {/if}
+      {#if kind !== "every"}
+        <label class="flex items-start gap-2 text-xs text-fg-muted"><input type="checkbox" class="mt-0.5 accent-input" checked={missed === "run_once"} onchange={(e) => (missed = e.currentTarget.checked ? "run_once" : "skip")} /> If the time passes while SSHVault is closed, run once when it opens (instead of skipping it)</label>
+      {/if}
+      <div class="flex flex-wrap items-center gap-2 text-xs text-fg-muted">
+        <label for="sc-retries">If hosts fail, try those again up to</label>
+        <input id="sc-retries" class="input w-16" type="number" min="0" max={MAX_RETRIES} bind:value={retries} />
+        <span>times, every</span>
+        <input id="sc-retry-min" class="input w-20" type="number" min="1" bind:value={retryMinutes} aria-label="Minutes between retries" />
+        <span>minutes. Only for commands that are safe to repeat; retries stop if SSHVault is closed.</span>
+      </div>
       <label class="flex items-start gap-2 text-xs text-fg-muted"><input type="checkbox" class="mt-0.5 accent-input" bind:checked={allowProduction} /> Allow this schedule to run on production hosts, unattended</label>
       {#if error}<p class="text-xs text-danger" role="alert">{error}</p>{/if}
       <div class="flex gap-2">
@@ -148,7 +181,7 @@
         <input type="checkbox" class="accent-input" checked={s.enabled} aria-label="Enabled" onchange={() => (s.enabled = !s.enabled)} />
         <div class="min-w-0 flex-1">
           <div class="truncate font-medium">{name(s)} <span class="font-normal text-fg-muted">on {s.hostIds.length} host{s.hostIds.length === 1 ? "" : "s"}</span></div>
-          <div class="text-xs text-fg-muted">{describe(s.when)}{s.enabled && next ? ` · next ${stamp(next)}` : ""}{s.lastRun ? ` · last started ${stamp(s.lastRun)}` : ""}</div>
+          <div class="text-xs text-fg-muted">{describe(s.when, s.tz)}{s.missed === "run_once" ? " · catches up once" : ""}{s.retries ? ` · retries ${s.retries}×` : ""}{s.enabled && next ? ` · next ${stamp(next)}` : s.when.kind === "once" && !s.enabled ? " · done" : ""}{s.lastRun ? ` · last started ${stamp(s.lastRun)}` : ""}</div>
           {#if why}<div class="text-xs text-warning">Won't run: {why}.</div>{/if}
         </div>
         <button class="btn-ghost py-1 text-xs" title="Run it now" disabled={!!why} onclick={() => runSchedule(s.id)}><Play size={13} /></button>

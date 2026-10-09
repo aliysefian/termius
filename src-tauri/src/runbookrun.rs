@@ -183,6 +183,7 @@ impl RunbookManager {
         let me = Arc::clone(self);
         let id = run_id.clone();
         let (rec, flag, sink_for_task, hist) = (Arc::clone(&record), Arc::clone(&cancelled), Arc::clone(&sink), history.clone());
+        // spawn-ok: runbook_start calls this inside tauri::async_runtime::spawn
         let handle = tokio::spawn(async move {
             let runbook = Arc::new(runbook);
             let values = Arc::new(values);

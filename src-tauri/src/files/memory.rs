@@ -34,6 +34,8 @@ pub struct MemoryBackend {
     /// Paths that refuse to be written.
     pub refuse: Mutex<Vec<String>>,
     reads: Mutex<Vec<(String, u64)>>,
+    /// Entries a listing reports that the tree can't hold, such as names with a `/` (a hostile server).
+    extra: Mutex<Vec<(String, String)>>,
 }
 
 impl Default for MemoryBackend {
@@ -45,7 +47,12 @@ impl Default for MemoryBackend {
 impl MemoryBackend {
     pub fn new() -> Self {
         let tree = Tree { nodes: BTreeMap::from([("/".to_string(), Node::Dir)]) };
-        Self { tree: Arc::new(Mutex::new(tree)), caps: Caps::files(), open_delay: Duration::ZERO, refuse: Mutex::new(Vec::new()), reads: Mutex::new(Vec::new()) }
+        Self { tree: Arc::new(Mutex::new(tree)), caps: Caps::files(), open_delay: Duration::ZERO, refuse: Mutex::new(Vec::new()), reads: Mutex::new(Vec::new()), extra: Mutex::new(Vec::new()) }
+    }
+
+    /// Make `list(dir)` also report a file called `name`, whatever the name looks like.
+    pub fn list_also(&self, dir: &str, name: &str) {
+        self.extra.lock().unwrap().push((dir.to_string(), name.to_string()));
     }
 
     pub fn with_caps(mut self, caps: Caps) -> Self {
@@ -159,6 +166,9 @@ impl FileBackend for MemoryBackend {
                 })
             })
             .collect();
+        for (d, name) in self.extra.lock().unwrap().iter().filter(|(d, _)| d == dir) {
+            out.push(FileEntry { name: name.clone(), path: format!("{d}/{name}"), is_dir: false, is_symlink: false, size: 3, modified: None, permissions: None });
+        }
         out.sort_by(|a, b| b.is_dir.cmp(&a.is_dir).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())));
         Ok(out)
     }

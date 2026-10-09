@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { formatUptime, parseMetricsOutput } from "../hostmetrics";
+// The app's type setup has no Node types; vitest runs on Node, so these built-ins are there at run time.
+// @ts-expect-error Node built-in
+import { execFileSync } from "node:child_process";
+// @ts-expect-error Node built-in
+import { platform } from "node:os";
+import { METRICS_SCRIPT, formatUptime, parseMetricsOutput } from "../hostmetrics";
 
 describe("parseMetricsOutput", () => {
   it("reads real output captured from running the script locally (Linux, /proc)", () => {
@@ -12,6 +17,7 @@ describe("parseMetricsOutput", () => {
       diskPct: 55,
       load: "4.29 5.50 4.48",
       uptimeSecs: 592914,
+      failedUnits: null,
     });
   });
 
@@ -42,8 +48,30 @@ describe("parseMetricsOutput", () => {
       diskPct: null,
       load: null,
       uptimeSecs: null,
+      failedUnits: null,
     });
   });
+
+  it("reads failed systemd units, tells none from not available, and ignores odd names", () => {
+    const base = "CPU=1\nMEM=2\nLOAD=0 0 0\nDISK=3\nUPTIME=4\n";
+    expect(parseMetricsOutput(base + "SYSTEMD=1\nFAILED=nginx.service,cron.service\n").failedUnits).toEqual(["nginx.service", "cron.service"]);
+    expect(parseMetricsOutput(base + "SYSTEMD=1\nFAILED=\n").failedUnits).toEqual([]);
+    expect(parseMetricsOutput(base + "SYSTEMD=\nFAILED=\n").failedUnits).toBeNull();
+    expect(parseMetricsOutput(base).failedUnits).toBeNull();
+    expect(parseMetricsOutput(base + "SYSTEMD=1\nFAILED=a.service,$(rm -rf /),b b,c@x.service\n").failedUnits).toEqual(["a.service", "c@x.service"]);
+  });
+
+  // Runs the real script with the system shell (Linux only: it samples /proc for a second).
+  it.runIf(platform() === "linux")("the script itself prints every field, whatever this machine runs", () => {
+    const out = execFileSync("sh", ["-c", METRICS_SCRIPT], { encoding: "utf8", timeout: 20_000 });
+    const keys = out.split("\n").map((l: string) => l.split("=")[0]).filter(Boolean);
+    expect(keys).toEqual(["CPU", "MEM", "LOAD", "DISK", "UPTIME", "SYSTEMD", "FAILED"]);
+    const m = parseMetricsOutput(out);
+    expect(m.cpuPct).not.toBeNull();
+    expect(m.uptimeSecs).toBeGreaterThan(0);
+    // null on a machine without systemd, an array (maybe empty) on one with it.
+    expect(m.failedUnits === null || Array.isArray(m.failedUnits)).toBe(true);
+  }, 30_000);
 });
 
 describe("formatUptime", () => {

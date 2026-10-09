@@ -4,6 +4,7 @@
   import Spinner from "$lib/components/Spinner.svelte";
   import { writeText } from "@tauri-apps/plugin-clipboard-manager";
   import { getCurrentWindow } from "@tauri-apps/api/window";
+  import * as api from "$lib/api";
   import ActivityBar from "$lib/components/ActivityBar.svelte";
   import ForwardForm from "$lib/components/ForwardForm.svelte";
   import ForwardingPanel from "$lib/components/ForwardingPanel.svelte";
@@ -19,6 +20,7 @@
   import VaultPanel from "$lib/components/VaultPanel.svelte";
   import SecurityReview from "$lib/components/SecurityReview.svelte";
   import FleetView from "$lib/components/FleetView.svelte";
+  import TopologyView from "$lib/components/TopologyView.svelte";
   import OpsView from "$lib/components/OpsView.svelte";
   import { startScheduler } from "$lib/stores/scheduler.svelte";
   import RunbooksView from "$lib/components/RunbooksView.svelte";
@@ -125,8 +127,17 @@
 
   // -- auto-lock after inactivity -----------------------------------------
   let lastActivity = Date.now();
+  let lastReport = 0;
+  /** Tell the backend someone is here, so it can lock an idle vault even if this window's timer never fires. */
+  function report() {
+    lastReport = Date.now();
+    if (vaultStore.unlocked) void api.vault.activity(settings.prefs.autoLockMinutes || 0).catch(() => {});
+  }
   onMount(() => {
-    const bump = () => (lastActivity = Date.now());
+    const bump = () => {
+      lastActivity = Date.now();
+      if (Date.now() - lastReport > 10_000) report();
+    };
     const events = ["keydown", "mousedown", "mousemove", "wheel", "touchstart"] as const;
     for (const ev of events) window.addEventListener(ev, bump, { capture: true, passive: true });
     const timer = setInterval(() => {
@@ -141,10 +152,21 @@
       for (const ev of events) window.removeEventListener(ev, bump, { capture: true });
     };
   });
+  // The backend locked an idle vault itself: show the lock screen.
+  onMount(() => {
+    const un = api.vault.onIdleLocked(() => {
+      void vaultStore.refreshStatus();
+      ui.notify("info", "Vault locked after inactivity.");
+    });
+    return () => void un.then((f) => f());
+  });
   // Unlocking counts as activity; locking abandons any pending reveal.
   $effect(() => {
-    if (vaultStore.unlocked) lastActivity = Date.now();
-    else secrets.cancel();
+    if (vaultStore.unlocked) {
+      lastActivity = Date.now();
+      void settings.prefs.autoLockMinutes;
+      report();
+    } else secrets.cancel();
   });
   $effect(() => {
     if (ui.view === "sftp") ui.sftpVisited = true;
@@ -239,6 +261,8 @@
       <SecurityReview />
     {:else if ui.view === "fleet"}
       <FleetView />
+    {:else if ui.view === "topology"}
+      <TopologyView />
     {:else if ui.view === "runbooks"}
       <RunbooksView />
     {:else if ui.view === "ops"}

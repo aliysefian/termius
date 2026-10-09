@@ -10,8 +10,11 @@ pub mod completion;
 pub mod config;
 pub mod containers;
 pub mod control;
+pub mod crashlog;
 pub mod crypto;
+pub mod deadline;
 pub mod exportfile;
+pub mod idle;
 pub mod csvimport;
 pub mod db;
 pub mod display;
@@ -24,7 +27,11 @@ pub mod hostkeys;
 pub mod inventory;
 pub mod hostcreds;
 pub mod keychain;
+pub mod kbdint;
+pub mod mask;
+pub mod neterr;
 pub mod keymanager;
+pub mod proxyapproval;
 pub mod kube;
 pub mod keys;
 pub mod knownhosts;
@@ -48,6 +55,7 @@ pub mod selfupdate;
 pub mod session;
 pub mod sessionlog;
 pub mod sftp;
+pub mod spawnlint;
 pub mod ssh;
 pub mod sshconfig;
 pub mod sync;
@@ -76,6 +84,9 @@ pub fn run() {
             commands::unlock_with_device,
             commands::unlock_with_recovery,
             commands::forget_device,
+            commands::set_keep_key_on_lock,
+            commands::vault_activity,
+            commands::accept_rollbacks,
             commands::remember_device,
             commands::set_recovery_key,
             commands::remove_recovery_key,
@@ -200,6 +211,8 @@ pub fn run() {
             commands::kube_open,
             commands::kube_close,
             commands::kube_pods,
+            commands::kube_resources,
+            commands::kube_describe_resource,
             commands::kube_namespaces,
             commands::kube_describe,
             commands::kube_delete_pod,
@@ -212,6 +225,7 @@ pub fn run() {
             commands::containers_inspect,
             commands::containers_logs_start,
             commands::containers_logs_stop,
+            commands::containers_stats,
             commands::containers_resources,
             commands::containers_remove,
             commands::containers_prune_preview,
@@ -259,6 +273,15 @@ pub fn run() {
             commands::forward_stop,
             commands::forward_statuses,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            // Quitting is a lock too: it releases this device's "open here" marker in the synced folder (otherwise other
+            // devices show a session that is gone), writes down what this device has seen of it, and drops the key.
+            if let tauri::RunEvent::Exit = event {
+                if let Some(state) = tauri::Manager::try_state::<commands::AppState>(app) {
+                    state.session.lock();
+                }
+            }
+        });
 }

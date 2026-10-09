@@ -1,6 +1,7 @@
 // Pure helpers for the Containers view: how things are shown, filtered and
 // split into log lines. Nothing here talks to the backend.
 import type { BadgeTone, ContainerImage, ContainerInfo, ContainerNetwork, ContainerRuntime, ContainerState, ContainerVolume, PortMapping, PruneItem, PruneResult } from "./types";
+import { SecretMasker } from "./ops/mask";
 
 // -- state ------------------------------------------------------------------
 
@@ -19,6 +20,14 @@ export function stateTone(s: ContainerState): BadgeTone {
 }
 
 /** Running, paused and restarting containers hold resources; the rest are stopped. */
+/** What the runtime's own health check says, read from the status text ("Up 3 hours (healthy)"); null when there is none. */
+export function healthOf(status: string): "healthy" | "unhealthy" | "starting" | null {
+  const m = /\((healthy|unhealthy|health: starting)\)/i.exec(status);
+  if (!m) return null;
+  const v = m[1].toLowerCase();
+  return v === "healthy" ? "healthy" : v === "unhealthy" ? "unhealthy" : "starting";
+}
+
 export const isLive = (s: ContainerState) => s === "running" || s === "paused" || s === "restarting";
 
 export type StateFilter = "all" | "running" | "stopped";
@@ -142,6 +151,9 @@ export class LogBuffer {
   /** Lines dropped from the top to stay within `max`. */
   dropped = 0;
   #partial = "";
+  #masker = new SecretMasker();
+  /** Hide passwords, tokens and keys in lines as they complete (new lines only). Off unless a view asks for it. */
+  mask = false;
 
   constructor(readonly max = 20_000) {}
 
@@ -149,7 +161,10 @@ export class LogBuffer {
   push(text: string): number {
     const parts = (this.#partial + text.replace(/\r\n/g, "\n")).split("\n");
     this.#partial = parts.pop() ?? "";
-    for (const raw of parts) this.lines.push(clean(raw));
+    for (const raw of parts) {
+      const line = this.mask ? this.#masker.line(clean(raw)) : clean(raw);
+      if (line !== null) this.lines.push(line);
+    }
     const over = this.lines.length - this.max;
     if (over > 0) {
       this.lines.splice(0, over);
@@ -172,6 +187,7 @@ export class LogBuffer {
     this.lines = [];
     this.#partial = "";
     this.dropped = 0;
+    this.#masker = new SecretMasker();
   }
 }
 

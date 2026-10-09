@@ -64,6 +64,24 @@ impl RunRecord {
     }
 }
 
+/// A copy of the record that is safe to keep: command output, notes, errors and secret-looking parameters are masked.
+pub fn masked(r: &RunRecord) -> RunRecord {
+    use crate::mask::{is_secret_name, secrets, HIDDEN};
+    let mut m = r.clone();
+    for (name, value) in m.params.iter_mut() {
+        *value = if is_secret_name(name) && !value.is_empty() { HIDDEN.to_string() } else { secrets(value) };
+    }
+    for h in &mut m.hosts {
+        h.error = h.error.as_deref().map(secrets);
+        for step in &mut h.steps {
+            step.output.stdout = secrets(&step.output.stdout);
+            step.output.stderr = secrets(&step.output.stderr);
+            step.note = secrets(&step.note);
+        }
+    }
+    m
+}
+
 pub fn now() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
 }
@@ -87,7 +105,8 @@ impl History {
         std::fs::create_dir_all(&self.dir)?;
         let path = self.path(r);
         let tmp = path.with_extension("tmp");
-        std::fs::write(&tmp, serde_json::to_vec(r).map_err(std::io::Error::other)?)?;
+        // What is kept on disk has secrets in the output hidden (the run view the person watched is unchanged).
+        std::fs::write(&tmp, serde_json::to_vec(&masked(r)).map_err(std::io::Error::other)?)?;
         std::fs::rename(&tmp, &path)?;
         self.prune();
         Ok(())
@@ -161,6 +180,32 @@ mod tests {
                 .map(|o| HostRecord { host_id: Uuid::new_v4(), label: "h".into(), ok: *o, error: None, steps: vec![StepResult { index: 0, name: "s".into(), status: StepStatus::Ok, output: Output::default(), note: String::new() }] })
                 .collect(),
         }
+    }
+
+    #[test]
+    fn secrets_in_output_are_hidden_in_what_is_kept() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let h = History::new(dir.path().join("history"));
+        let mut r = record(1, &[Some(true)]);
+        r.params.insert("db_password".into(), "hunter2".into());
+        r.params.insert("note".into(), "uses token=abc123".into());
+        r.hosts[0].error = Some("fetch failed: https://bob:pa55@db/x".into());
+        let step = &mut r.hosts[0].steps[0];
+        step.output.stdout = "DB_PASSWORD=hunter2\nok\n-----BEGIN RSA PRIVATE KEY-----\nAAAA\n-----END RSA PRIVATE KEY-----\n".into();
+        step.output.stderr = "curl: Authorization: Bearer abc.def".into();
+        step.note = "token=zzz".into();
+        h.save(&r).unwrap();
+
+        let kept = h.get(&r.id).unwrap();
+        let text = serde_json::to_string(&kept).unwrap();
+        for leaked in ["hunter2", "pa55", "abc123", "abc.def", "AAAA", "zzz"] {
+            assert!(!text.contains(leaked), "{leaked} was kept: {text}");
+        }
+        assert!(kept.hosts[0].steps[0].output.stdout.contains("DB_PASSWORD=[hidden]\nok\n"));
+        assert_eq!(kept.params["db_password"], "[hidden]");
+        assert_eq!(kept.params["service"], "nginx", "ordinary values stay");
+        // The record the caller holds, which the live view was drawn from, is not changed.
+        assert!(r.hosts[0].steps[0].output.stdout.contains("hunter2"));
     }
 
     #[test]

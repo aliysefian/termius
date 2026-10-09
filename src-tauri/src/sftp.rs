@@ -104,6 +104,9 @@ fn remote_basename(path: &str) -> Result<&str, SftpError> {
         .ok_or_else(|| SftpError::InvalidPath(path.to_string()))
 }
 
+/// The biggest file the remote editor will open.
+pub const MAX_EDIT_BYTES: usize = 64 << 20;
+
 fn validate_name(name: &str) -> Result<(), SftpError> {
     if name.is_empty() || name == "." || name == ".." || name.contains('/') || name.contains('\\') {
         return Err(SftpError::InvalidPath(name.to_string()));
@@ -327,9 +330,14 @@ impl SftpConn {
         Ok((buf, truncated))
     }
 
-    /// Whole-file read, for editing.
+    /// Whole-file read, for editing. Refuses a file over [`MAX_EDIT_BYTES`] rather than reading all of it into memory
+    /// (a multi-gigabyte file, or a server that never stops sending, would otherwise exhaust it).
     pub async fn read_file(&self, path: &str) -> Result<Vec<u8>, SftpError> {
-        Ok(self.sftp.read(path.to_string()).await?)
+        let (data, truncated) = self.read_head(path, MAX_EDIT_BYTES).await?;
+        if truncated {
+            return Err(SftpError::Backend(format!("{path} is larger than {} MiB, which is too big to edit here", MAX_EDIT_BYTES >> 20)));
+        }
+        Ok(data)
     }
 
     /// Whole-file write. Uses `create`, which truncates: `SftpSession::write`

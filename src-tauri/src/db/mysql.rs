@@ -52,7 +52,7 @@ fn opts(spec: &ConnectSpec) -> Opts {
         Some(p) => ("127.0.0.1".to_string(), p),
         None => (spec.host.clone(), spec.port),
     };
-    OptsBuilder::default()
+    let builder = OptsBuilder::default()
         .ip_or_hostname(host)
         .tcp_port(port)
         .user(Some(spec.user.clone()))
@@ -61,8 +61,10 @@ fn opts(spec: &ConnectSpec) -> Opts {
         .ssl_opts(ssl)
         .prefer_socket(false)
         // Keep a spare connection so Cancel can always get through.
-        .pool_opts(PoolOpts::default().with_constraints(PoolConstraints::new(1, 6).expect("1 <= 6")))
-        .into()
+        .pool_opts(PoolOpts::default().with_constraints(PoolConstraints::new(1, 6).expect("1 <= 6")));
+    // Runs on every new connection in the pool, so no session of this connection starts able to write.
+    let builder = if spec.read_only() { builder.init(vec!["SET SESSION TRANSACTION READ ONLY"]) } else { builder };
+    builder.into()
 }
 
 impl MysqlConn {

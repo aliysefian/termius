@@ -39,7 +39,7 @@ describe("keeping fifteen minutes", () => {
     expect(addSample([s(9000), s(10_000)], s(2000)).map((x) => x.t)).toEqual([2000]);
   });
   it("turns a summary or a detail reading into a sample", () => {
-    expect(fromSummary({ cpuPct: 12, memPct: 34, diskPct: 50, load: null, uptimeSecs: 9 }, 7)).toEqual({ t: 7, cpu: 12, mem: 34, rx: null, tx: null });
+    expect(fromSummary({ cpuPct: 12, memPct: 34, diskPct: 50, load: null, uptimeSecs: 9, failedUnits: null }, 7)).toEqual({ t: 7, cpu: 12, mem: 34, rx: null, tx: null });
     const d = {
       cpuPct: 5,
       memPct: 6,
