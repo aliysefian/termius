@@ -4,6 +4,13 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## 0.28.0 - 2026-10-09
+
+- **Runbooks can undo a failed run.** A runbook may list rollback steps. If you tick the box, they run on a host where the run fails (and only there); the host still counts as failed.
+- **Runbooks can go one host at a time**, stopping at the first failure or carrying on. Hosts that were not reached are shown as skipped and are never contacted.
+- **A badge in the status bar** when the synced folder has conflicts or went backwards.
+- Engineering: CI now builds working branches and every GitHub Action is pinned to a commit.
+
 ## 0.27.0 - 2026-10-09
 
 **Things that behave differently now**
