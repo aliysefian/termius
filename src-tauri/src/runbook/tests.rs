@@ -265,6 +265,44 @@ fn values_are_filled_in_per_host() {
 }
 
 #[test]
+fn a_failed_step_is_tried_again_only_when_it_asks_to_be() {
+    // Fails twice, then works: three tries are enough for "retries": 2.
+    let fake = Fake::default().on("flaky", 1, "").on("flaky", 1, "").on("flaky", 0, "fine");
+    let (ok, r, _) = run(&doc(r#"{"run":"flaky","retries":2,"retry_delay_secs":1},{"run":"after"}"#), &[], &fake);
+    assert!(ok);
+    assert_eq!((r[0].status, r[0].note.as_str()), (StepStatus::Ok, "after 3 tries"));
+    assert_eq!(fake.seen.lock().unwrap().iter().filter(|c| *c == "flaky").count(), 3);
+
+    // Not enough tries: it ends as a failure that says how many were made, and the host stops.
+    let fake = Fake::default().on("down", 7, "");
+    let (ok, r, _) = run(&doc(r#"{"run":"down","retries":2},{"run":"never"}"#), &[], &fake);
+    assert!(!ok);
+    assert_eq!((r[0].status, r[0].note.as_str()), (StepStatus::Failed, "exited with 7, after 3 tries"));
+    assert_eq!(fake.seen.lock().unwrap().iter().filter(|c| *c == "down").count(), 3);
+    assert!(!fake.seen.lock().unwrap().contains(&"never".to_string()));
+
+    // Without "retries" a failure is tried once, as before.
+    let fake = Fake::default().on("down", 1, "");
+    run(&doc(r#"{"run":"down","on_error":"continue"}"#), &[], &fake);
+    assert_eq!(fake.seen.lock().unwrap().len(), 1);
+
+    // A dropped connection is an error, not a failed command: no retry.
+    let fake = Fake::default();
+    let (ok, r, _) = run(&doc(r#"{"run":"boom","retries":3}"#), &[], &fake);
+    assert!(!ok && r[0].status == StepStatus::Error);
+    assert_eq!(fake.seen.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn retry_settings_are_checked() {
+    let bad = |step: &str| parse(&doc(step)).unwrap_err().iter().map(|p| p.message.clone()).collect::<Vec<_>>().join("; ");
+    assert!(bad(r#"{"run":"x","retries":6}"#).contains("at most 5"));
+    assert!(bad(r#"{"run":"x","retries":1,"retry_delay_secs":0}"#).contains("retry_delay_secs"));
+    assert!(bad(r#"{"wait":{"run":"x"},"retries":1}"#).contains("wait step"));
+    assert!(parse(&doc(r#"{"run":"x","retries":5,"retry_delay_secs":300}"#)).is_ok());
+}
+
+#[test]
 fn waiting_polls_until_the_command_succeeds() {
     let fake = Fake::default().on("check", 1, "").on("check", 1, "").on("check", 0, "ready");
     let (ok, r, _) = run(&doc(r#"{"wait":{"run":"check","every_secs":1,"timeout_secs":30}},{"run":"after"}"#), &[], &fake);

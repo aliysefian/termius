@@ -19,7 +19,7 @@ Code references are relative to `src-tauri/src/`.
 - **A compromised device while the vault is unlocked.** Malware running as the user on an unlocked device can read memory, keystrokes and the screen, and can use the SSH sessions. Encryption at rest can't prevent that, and SSHVault doesn't claim to.
 - **Hiding activity.** An observer with access to the folder sees how many records of each type exist, their sizes, and when they change. It does not see their contents.
 - **Rollback of the whole folder.** Someone who controls the sync service can restore an older complete, validly encrypted copy of the folder. Revisions make a rollback of *individual* records visible to devices that already saw newer ones (their writes are refused as conflicts), but an old complete snapshot is still a valid vault.
-  Since 0.27 each device also keeps its own record of the newest revision it has seen of every record (`vault/highwater.rs`, stored outside the synced folder). A record that later shows an older revision, or a live record that disappears, is reported on unlock and on the Vault screen. This detects a rollback of anything this device has already seen; it does not stop it, and a device that has never seen the newer data can't tell.
+  Each device now also keeps its own record of the newest revision it has seen of every record (`vault/highwater.rs`, stored outside the synced folder). A record that later shows an older revision, or a live record that disappears, is reported on unlock and on the Vault screen. This detects a rollback of anything this device has already seen; it does not stop it, and a device that has never seen the newer data can't tell.
 
 ## 2. Keys
 

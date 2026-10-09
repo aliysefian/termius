@@ -87,7 +87,16 @@ crate built from the real `runbook.rs` and `runbook/tests.rs`. Full crate not bu
 **Part b (P1).** Mask output in history (S12); approval policy per runbook (required on production hosts); retry policy per
 step; optional rollback steps run on failure only after confirmation. **No dry-run label** unless a runbook marks steps as
 read-only and the engine enforces it; otherwise show a plan preview instead.
-**Tests.** Extend `runbook/tests.rs`, `runbookrun/tests.rs`. Evidence pending.
+**Part b progress (2026-10-09).** Done: (1) output masking in the kept run record (`mask.rs`, used by `runbookhistory::masked`):
+private key blocks, `name=value`/`name: value` for password, token, secret, api key, authorization and similar names,
+`Bearer`/`Basic` values, `user:pass@` in URLs, and well-known token prefixes; parameters with secret-looking names are hidden
+too. The live view is not masked, only what is saved. It recognises common shapes and is not a guarantee. (2) Opt-in retries:
+`retries` (0-5) and `retry_delay_secs` on `run`/`upload` steps, checked by `parse`; only a command that ran and failed is retried
+(not a lost connection), and the note says how many tries it took. Tests: 6 in `mask.rs`, 1 in `runbookhistory.rs`, 2 in
+`runbook/tests.rs`; the whole runbook suite (35 tests) passes in a scratch crate. **Not done:** per-runbook approval policy
+(production runs already ask for confirmation in the window; a runbook-level policy is open), rollback steps, secret-reference
+parameters, a plan preview that is honest about mutation (the existing `plan` only renders text and never runs anything).
+**Tests.** Extend `runbook/tests.rs`, `runbookrun/tests.rs`. Evidence: as above.
 
 ## SSHV-017 Scheduler
 ```yaml

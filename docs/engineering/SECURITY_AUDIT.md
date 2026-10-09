@@ -24,7 +24,7 @@ review agent read them and the claim was not re-opened. IDs map to tasks in `doc
 | S9 | Med (accepted) | **VMK is never rotated.** A leaked old password/recovery key plus an old `vault.json` still opens everything. Owner decision 2026-10-09: rotation is not planned; risk accepted. | `vault/mod.rs:581` | none |
 | S10 | Med (fixed on branch, SSHV-003) | **Keyboard-interactive sends the saved password to every prompt**, including OTP prompts. | `ssh.rs:1068-1090` | SSHV-003 |
 | S11 | Low (was Med; built-ins `{{host}}`/`{{label}}` now quoted, SSHV-016a) | **Runbook templating is unquoted by default** (`{{x}}` raw, `{{x|q}}` quoted). Free-text parameters in a scheduled or shared runbook become shell injection. | `runbook.rs:367-381` | SSHV-016 |
-| S12 | Med | **Run output stored unmasked** (16 KiB per step) in local history; code comment admits secrets may appear. | `runbookrun.rs:1-3`, `runbookhistory.rs` | SSHV-016 |
+| S12 | Med (fixed on branch, SSHV-016: kept record is masked) | **Run output stored unmasked** (16 KiB per step) in local history; code comment admits secrets may appear. | `runbookrun.rs:1-3`, `runbookhistory.rs` | SSHV-016 |
 | S13 | Med | **`run_hook` backend does not check approval.** The UI approves, the command trusts the caller. With S1 this widens. | `commands.rs:~2692`, `hooks.rs` | SSHV-023 |
 | S14 | Med (fixed on branch, SSHV-003) | **No auth/session timeouts** after TCP connect; a stalling server holds a pane and a task indefinitely. | `ssh.rs:900-940` | SSHV-003 |
 | S15 | Med (fixed on branch, SSHV-003) | **Forward listener DoS bounds:** accept-error busy loop, no tunnel cap, no SOCKS5 handshake timeout. | `forward.rs:~295, 340` | SSHV-003 |

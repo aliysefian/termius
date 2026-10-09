@@ -83,7 +83,19 @@ pub struct Step {
     pub on_error: OnError,
     #[serde(default)]
     pub timeout_secs: Option<u64>,
+    /// Try a failed `run` or `upload` again up to this many more times (at most 5). Only for steps that are safe to
+    /// repeat: nothing checks that.
+    #[serde(default)]
+    pub retries: Option<u32>,
+    /// Seconds to wait between tries (default 5, at most 300).
+    #[serde(default)]
+    pub retry_delay_secs: Option<u64>,
 }
+
+/// The most extra tries a step may ask for.
+pub const MAX_RETRIES: u32 = 5;
+pub const DEFAULT_RETRY_DELAY: u64 = 5;
+pub const MAX_RETRY_DELAY: u64 = 300;
 
 #[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -293,6 +305,15 @@ pub fn check(rb: &Runbook) -> Vec<Problem> {
         }
         if s.timeout_secs.is_some_and(|t| !(1..=MAX_STEP_TIMEOUT).contains(&t)) {
             out.push(problem(at, format!("timeout_secs must be between 1 and {MAX_STEP_TIMEOUT}")));
+        }
+        if s.retries.is_some_and(|r| r > MAX_RETRIES) {
+            out.push(problem(at, format!("retries can be at most {MAX_RETRIES}")));
+        }
+        if s.retry_delay_secs.is_some_and(|d| !(1..=MAX_RETRY_DELAY).contains(&d)) {
+            out.push(problem(at, format!("retry_delay_secs must be between 1 and {MAX_RETRY_DELAY}")));
+        }
+        if (s.retries.is_some() || s.retry_delay_secs.is_some()) && s.wait.is_some() {
+            out.push(problem(at, "retries don't apply to a wait step: it already repeats until it is ready or time runs out"));
         }
         if let Some(id) = &s.id {
             if !valid_name(id) {
@@ -554,46 +575,62 @@ pub async fn run_host<E: Executor>(rb: &Runbook, values: &HashMap<String, String
         }
         progress.started(index);
         let timeout = Duration::from_secs(s.timeout_secs.unwrap_or(DEFAULT_STEP_TIMEOUT).min(MAX_STEP_TIMEOUT));
-        let outcome: Result<(StepStatus, Output, String), String> = async {
-            if let Some(r) = &s.run {
-                let out = exec.exec(&render(r, &all)?, timeout).await?;
-                let good = out.exit_code == Some(0);
-                let note = if good { String::new() } else { format!("exited with {}", out.exit_code.map_or("no code".to_string(), |c| c.to_string())) };
-                Ok((if good { StepStatus::Ok } else { StepStatus::Failed }, out, note))
-            } else if let Some(w) = &s.wait {
-                let command = render(&w.run, &all)?;
-                let every = Duration::from_secs(w.every_secs.unwrap_or(5).clamp(1, 3600));
-                let limit = Duration::from_secs(w.timeout_secs.unwrap_or(60).min(MAX_STEP_TIMEOUT));
-                let want = w.until_exit.unwrap_or(0);
-                // How many tries fit in the time allowed, so the count, not the clock, decides when to give up.
-                let max_tries = (limit.as_secs() / every.as_secs()).max(1) as u32 + 1;
-                let mut tries = 0u32;
-                loop {
-                    tries += 1;
-                    let out = exec.exec(&command, timeout.min(limit.max(Duration::from_secs(1)))).await?;
-                    let exit_ok = out.exit_code == Some(want);
-                    let text_ok = w.contains.as_ref().is_none_or(|c| out.stdout.contains(c.as_str()));
-                    if exit_ok && text_ok {
-                        break Ok((StepStatus::Ok, out, format!("ready after {tries} {}", if tries == 1 { "try" } else { "tries" })));
+        let attempts = 1 + s.retries.unwrap_or(0).min(MAX_RETRIES);
+        let retry_delay = Duration::from_secs(s.retry_delay_secs.unwrap_or(DEFAULT_RETRY_DELAY).clamp(1, MAX_RETRY_DELAY));
+        let mut attempt = 1u32;
+        let outcome = loop {
+            let outcome: Result<(StepStatus, Output, String), String> = async {
+                if let Some(r) = &s.run {
+                    let out = exec.exec(&render(r, &all)?, timeout).await?;
+                    let good = out.exit_code == Some(0);
+                    let note = if good { String::new() } else { format!("exited with {}", out.exit_code.map_or("no code".to_string(), |c| c.to_string())) };
+                    Ok((if good { StepStatus::Ok } else { StepStatus::Failed }, out, note))
+                } else if let Some(w) = &s.wait {
+                    let command = render(&w.run, &all)?;
+                    let every = Duration::from_secs(w.every_secs.unwrap_or(5).clamp(1, 3600));
+                    let limit = Duration::from_secs(w.timeout_secs.unwrap_or(60).min(MAX_STEP_TIMEOUT));
+                    let want = w.until_exit.unwrap_or(0);
+                    // How many tries fit in the time allowed, so the count, not the clock, decides when to give up.
+                    let max_tries = (limit.as_secs() / every.as_secs()).max(1) as u32 + 1;
+                    let mut tries = 0u32;
+                    loop {
+                        tries += 1;
+                        let out = exec.exec(&command, timeout.min(limit.max(Duration::from_secs(1)))).await?;
+                        let exit_ok = out.exit_code == Some(want);
+                        let text_ok = w.contains.as_ref().is_none_or(|c| out.stdout.contains(c.as_str()));
+                        if exit_ok && text_ok {
+                            break Ok((StepStatus::Ok, out, format!("ready after {tries} {}", if tries == 1 { "try" } else { "tries" })));
+                        }
+                        if progress.cancelled() || tries >= max_tries {
+                            break Ok((StepStatus::TimedOut, out, format!("not ready after about {} s ({tries} tries)", u64::from(tries - 1) * every.as_secs())));
+                        }
+                        exec.pause(every).await;
                     }
-                    if progress.cancelled() || tries >= max_tries {
-                        break Ok((StepStatus::TimedOut, out, format!("not ready after about {} s ({tries} tries)", u64::from(tries - 1) * every.as_secs())));
-                    }
-                    exec.pause(every).await;
+                } else if let Some(u) = &s.upload {
+                    let param = placeholders(&u.local)?.into_iter().next().map(|p| p.0).unwrap_or_default();
+                    let data = files.get(&param).ok_or_else(|| format!("no file was chosen for {param}"))?;
+                    let remote = render(&u.remote, &all)?;
+                    let out = exec.upload(data, &remote, u.mode.as_deref()).await?;
+                    let good = out.exit_code == Some(0);
+                    Ok((if good { StepStatus::Ok } else { StepStatus::Failed }, out, if good { format!("{} bytes", data.len()) } else { "the upload failed".into() }))
+                } else {
+                    Err("an empty step".into())
                 }
-            } else if let Some(u) = &s.upload {
-                let param = placeholders(&u.local)?.into_iter().next().map(|p| p.0).unwrap_or_default();
-                let data = files.get(&param).ok_or_else(|| format!("no file was chosen for {param}"))?;
-                let remote = render(&u.remote, &all)?;
-                let out = exec.upload(data, &remote, u.mode.as_deref()).await?;
-                let good = out.exit_code == Some(0);
-                Ok((if good { StepStatus::Ok } else { StepStatus::Failed }, out, if good { format!("{} bytes", data.len()) } else { "the upload failed".into() }))
-            } else {
-                Err("an empty step".into())
             }
-        }
-        .await;
+            .await;
+            // Only a command that ran and failed is tried again; a dropped connection or a bad template would fail the same way.
+            let failed = matches!(&outcome, Ok((StepStatus::Failed | StepStatus::TimedOut, ..)));
+            if !failed || attempt >= attempts || progress.cancelled() {
+                break outcome;
+            }
+            exec.pause(retry_delay).await;
+            attempt += 1;
+        };
         let r = match outcome {
+            Ok((status, output, note)) if attempt > 1 => {
+                let note = if note.is_empty() { format!("after {attempt} tries") } else { format!("{note}, after {attempt} tries") };
+                finish(status, clip(output), note)
+            }
             Ok((status, output, note)) => finish(status, clip(output), note),
             Err(e) => finish(StepStatus::Error, Output::default(), e),
         };

@@ -28,6 +28,7 @@ pub mod inventory;
 pub mod hostcreds;
 pub mod keychain;
 pub mod kbdint;
+pub mod mask;
 pub mod neterr;
 pub mod keymanager;
 pub mod proxyapproval;

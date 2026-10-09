@@ -537,7 +537,11 @@ files from the page), not a program:
   until it exits with `until_exit`, default 0, and prints `contains` if given,
   or give up after `timeout_secs`), or `upload` (see below). A failed step
   stops that host unless the step has `"on_error": "continue"`; other hosts go
-  on. Each step may have a `timeout_secs`.
+  on. Each step may have a `timeout_secs`. A `run` or `upload` step may also
+  say `"retries": 2` (up to 5) to be tried again when the command ran and failed,
+  waiting `retry_delay_secs` (default 5) between tries; only use it for commands
+  that are safe to repeat. A lost connection is never retried. The kept record of
+  a run hides passwords, tokens, private keys and similar in the output.
 - **Parameters** are asked for when you run it. `{{name}}` puts the value in as
   typed; `{{name|q}}` quotes it for the shell, which you should use for
   anything a person types; `{{name|raw}}` says outright that you want it as
