@@ -20,6 +20,14 @@ export function stateTone(s: ContainerState): BadgeTone {
 }
 
 /** Running, paused and restarting containers hold resources; the rest are stopped. */
+/** What the runtime's own health check says, read from the status text ("Up 3 hours (healthy)"); null when there is none. */
+export function healthOf(status: string): "healthy" | "unhealthy" | "starting" | null {
+  const m = /\((healthy|unhealthy|health: starting)\)/i.exec(status);
+  if (!m) return null;
+  const v = m[1].toLowerCase();
+  return v === "healthy" ? "healthy" : v === "unhealthy" ? "unhealthy" : "starting";
+}
+
 export const isLive = (s: ContainerState) => s === "running" || s === "paused" || s === "restarting";
 
 export type StateFilter = "all" | "running" | "stopped";

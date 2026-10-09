@@ -3836,6 +3836,12 @@ pub fn containers_logs_start(
 }
 
 /// Volumes and networks of a Docker source, with the containers using each.
+/// CPU, memory, network and disk use of the running containers, one reading.
+#[tauri::command]
+pub async fn containers_stats(state: State<'_, AppState>, session_id: Uuid, runtime: crate::containers::Runtime) -> ApiResult<Vec<crate::containers::parse::Stat>> {
+    Ok(state.containers.stats(session_id, runtime).await?)
+}
+
 #[tauri::command]
 pub async fn containers_resources(
     state: State<'_, AppState>,

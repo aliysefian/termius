@@ -139,6 +139,50 @@ pub fn parse_containers(stdout: &str) -> Result<Vec<Container>, String> {
     Ok(objects(stdout)?.iter().filter_map(container_from).collect())
 }
 
+/// One container's current resource use, as `stats` reports it.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Stat {
+    pub id: String,
+    pub name: String,
+    /// Percent of one CPU core times the cores in use (so it can pass 100); None when the runtime says "--".
+    pub cpu_pct: Option<f64>,
+    /// "20.5MiB / 3.8GiB", as the runtime prints it.
+    pub mem_usage: String,
+    pub mem_pct: Option<f64>,
+    pub net_io: String,
+    pub block_io: String,
+    pub pids: Option<u64>,
+}
+
+/// "12.34%" -> 12.34; "--" or anything else -> None.
+fn percent(s: &str) -> Option<f64> {
+    s.trim().strip_suffix('%')?.trim().parse::<f64>().ok().filter(|p| p.is_finite() && *p >= 0.0)
+}
+
+/// The lines (or the array) `stats --no-stream --format '{{json .}}'` prints. A container that is not running has
+/// no row; one that has just started may say "--" for a figure it does not have yet.
+pub fn parse_stats(stdout: &str) -> Result<Vec<Stat>, String> {
+    Ok(objects(stdout)?
+        .iter()
+        .filter_map(|v| {
+            let id = text(v, &["ID", "Id", "id", "Container", "container_id"]);
+            if id.is_empty() {
+                return None;
+            }
+            Some(Stat {
+                name: text(v, &["Name", "name"]),
+                cpu_pct: percent(&text(v, &["CPUPerc", "cpu_percent", "CPU"])),
+                mem_usage: text(v, &["MemUsage", "mem_usage"]),
+                mem_pct: percent(&text(v, &["MemPerc", "mem_percent"])),
+                net_io: text(v, &["NetIO", "net_io"]),
+                block_io: text(v, &["BlockIO", "block_io"]),
+                pids: text(v, &["PIDs", "pids", "PIDS"]).parse::<u64>().ok(),
+                id,
+            })
+        })
+        .collect())
+}
+
 pub fn parse_images(stdout: &str) -> Result<Vec<Image>, String> {
     Ok(objects(stdout)?.iter().flat_map(images_from).collect())
 }
@@ -771,5 +815,28 @@ mod tests {
         for (s, want) in [("running", State::Running), ("Exited", State::Exited), ("stopped", State::Exited), ("paused", State::Paused), ("restarting", State::Restarting), ("created", State::Created), ("dead", State::Dead), ("???", State::Unknown), ("", State::Unknown)] {
             assert_eq!(state_from(s), want, "{s}");
         }
+    }
+
+    #[test]
+    fn stats_are_read_from_lines_or_an_array_and_dashes_are_not_numbers() {
+        let docker = r#"{"BlockIO":"0B / 0B","CPUPerc":"0.07%","Container":"abc123def456","ID":"abc123def456","MemPerc":"0.52%","MemUsage":"20.5MiB / 3.8GiB","Name":"web","NetIO":"1.2kB / 0B","PIDs":"3"}
+{"BlockIO":"--","CPUPerc":"--","Container":"fff000","ID":"fff000","MemPerc":"--","MemUsage":"-- / --","Name":"fresh","NetIO":"--","PIDs":"--"}
+"#;
+        let got = parse_stats(docker).unwrap();
+        assert_eq!(got.len(), 2);
+        assert_eq!((got[0].name.as_str(), got[0].cpu_pct, got[0].mem_pct, got[0].pids), ("web", Some(0.07), Some(0.52), Some(3)));
+        assert_eq!((got[0].mem_usage.as_str(), got[0].net_io.as_str(), got[0].block_io.as_str()), ("20.5MiB / 3.8GiB", "1.2kB / 0B", "0B / 0B"));
+        assert_eq!((got[1].cpu_pct, got[1].mem_pct, got[1].pids), (None, None, None));
+        // CPU can pass 100 with several cores; nonsense is not a number.
+        assert_eq!(parse_stats(r#"[{"ID":"x","Name":"n","CPUPerc":"312.50%"},{"ID":"y","CPUPerc":"-5%"},{"Name":"no id"}]"#).unwrap().iter().map(|s| s.cpu_pct).collect::<Vec<_>>(), [Some(312.5), None]);
+        assert!(parse_stats("").unwrap().is_empty());
+        assert!(parse_stats("not json").is_err());
+    }
+
+    #[test]
+    fn the_stats_command_takes_one_reading_and_never_follows() {
+        let a = super::super::stats_args(Runtime::Docker);
+        assert_eq!(a, ["stats", "--no-stream", "--format", "{{json .}}"]);
+        assert_eq!(super::super::stats_args(Runtime::Podman), a);
     }
 }

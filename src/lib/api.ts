@@ -15,6 +15,7 @@ import type {
   ContainerLogEvent,
   ContainerLogOptions,
   ContainerResources,
+  ContainerStat,
   ContainerRuntime,
   DbConnection,
   DbQueryResult,
@@ -462,6 +463,8 @@ export const containers = {
     invoke<ContainerListing>("containers_list", { sessionId, runtime, sizes }),
   act: (sessionId: Uuid, runtime: ContainerRuntime, action: ContainerAction, id: string) =>
     invoke<void>("containers_act", { sessionId, runtime, action, id }),
+  /** CPU, memory, network and disk use of the running containers: one reading, taking a second or two. */
+  stats: (sessionId: Uuid, runtime: ContainerRuntime) => invoke<ContainerStat[]>("containers_stats", { sessionId, runtime }),
   /** The runtime's `inspect` output as JSON text. */
   inspect: (sessionId: Uuid, runtime: ContainerRuntime, id: string) => invoke<string>("containers_inspect", { sessionId, runtime, id }),
   /** Resolves to a stream id for `logsStop`; events arrive on `onEvent` until an "end". */

@@ -75,13 +75,22 @@ id: SSHV-012
 title: Close Docker gaps found by audit
 module: containers
 priority: P1
-status: TODO
+status: TESTING
 dependencies: [SSHV-004]
 risk: low
 ```
 Docker/Podman list, actions, logs, inspect, volumes, networks, prune, pull, compose verbs and shell tab exist. Unverified:
 `stats`, health column, compose `up`. Verify, then add only what is missing. Destructive actions already confirm via
 `prune_preview`/`prune_run`; keep that. Tests: `containers/live_tests.rs` need a Docker host (NOT VERIFIED here).
+
+**Progress (2026-10-09).** Checked against the code: stats, a health indicator and Compose `up` were the real gaps. Done: (1) a health
+badge on each container, read from the runtime's status text ("(healthy)", "(unhealthy)", "(health: starting)"), no new command;
+(2) a "CPU & memory" switch that adds one `stats --no-stream --format '{{json .}}'` reading to each refresh and shows CPU, memory
+(used and percent) and, on hover, network, disk and process count; a failure shows nothing rather than breaking the list. Tests:
+2 parser/command tests in `containers/parse.rs` (scratch crate with the real `containers/`), 1 in `containerdata.test.ts`; the
+`containers_stats` command in `commands.rs` was not compiled. Not tried against a real Docker or Podman (none here): the Docker
+field names are as documented; Podman's `{{json .}}` form is accepted by the parser but unconfirmed. **Not done:** Compose `up`
+(needs the project's file path, which the runtime does not always know; stop, start, restart and down exist), health as an alert.
 
 ## SSHV-013 Kubernetes workspace
 ```yaml

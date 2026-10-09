@@ -15,6 +15,7 @@ import {
   type ContainerListing,
   type ContainerResources,
   type ContainerRuntime,
+  type ContainerStat,
   type ResourceKind,
   type Uuid,
 } from "$lib/types";
@@ -41,6 +42,11 @@ export interface Source {
   resources: ContainerResources | null;
   resourcesError: string | null;
   wantResources: boolean;
+  /** Read CPU and memory use with each refresh (one more command, about a second). */
+  wantStats: boolean;
+  /** By container id (full and the 12-character form the runtime may print). */
+  stats: Record<string, ContainerStat>;
+  statsError: string | null;
 }
 
 class ContainersStore {
@@ -110,6 +116,9 @@ class ContainersStore {
         resources: null,
         resourcesError: null,
         wantResources: false,
+        wantStats: false,
+        stats: {},
+        statsError: null,
       };
       if (detected.length) await this.refresh(key);
       return this.sources[key];
@@ -138,6 +147,17 @@ class ContainersStore {
     void this.refresh(key);
   }
 
+  setStats(key: string, on: boolean) {
+    const s = this.sources[key];
+    if (!s) return;
+    s.wantStats = on;
+    if (!on) {
+      s.stats = {};
+      s.statsError = null;
+    }
+    void this.refresh(key);
+  }
+
   setSizes(key: string, on: boolean) {
     const s = this.sources[key];
     if (!s) return;
@@ -159,6 +179,17 @@ class ContainersStore {
       s.listing = await api.containers.list(s.sessionId, s.runtime, s.sizes);
       s.updatedAt = Date.now();
       s.error = null;
+      // Resource use only while someone asked for it: it is one more command and takes about a second.
+      if (s.wantStats) {
+        try {
+          const list = await api.containers.stats(s.sessionId, s.runtime);
+          s.stats = Object.fromEntries(list.flatMap((x) => [[x.id, x], [x.id.slice(0, 12), x]]));
+          s.statsError = null;
+        } catch (e) {
+          s.stats = {};
+          s.statsError = errorMessage(e);
+        }
+      }
       // Volumes and networks only while someone is looking at them: it is two more commands.
       if (s.wantResources && s.runtime === "docker") {
         try {

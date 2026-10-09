@@ -21,6 +21,7 @@ import {
   stateTone,
   summarizePrune,
   usedByText,
+  healthOf,
 } from "../containerdata";
 import type { ContainerImage, ContainerInfo, ContainerNetwork, ContainerVolume, PortMapping, PruneItem } from "../types";
 
@@ -315,5 +316,16 @@ describe("image references", () => {
     expect(imageRef(img("<none>", "<none>"))).toBe("abc123def456");
     expect(imageRef(img("", ""))).toBe("abc123def456");
     expect(imageRef(img("nginx", "<none>"))).toBe("abc123def456");
+  });
+});
+
+describe("health", () => {
+  it("reads the container's own health check from its status text", () => {
+    expect(healthOf("Up 3 hours (healthy)")).toBe("healthy");
+    expect(healthOf("Up 3 hours (unhealthy)")).toBe("unhealthy");
+    expect(healthOf("Up 5 seconds (health: starting)")).toBe("starting");
+    expect(healthOf("Up 3 hours (Paused)")).toBeNull();
+    expect(healthOf("Exited (0) 2 days ago")).toBeNull();
+    expect(healthOf("")).toBeNull();
   });
 });

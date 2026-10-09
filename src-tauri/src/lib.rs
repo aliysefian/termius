@@ -225,6 +225,7 @@ pub fn run() {
             commands::containers_inspect,
             commands::containers_logs_start,
             commands::containers_logs_stop,
+            commands::containers_stats,
             commands::containers_resources,
             commands::containers_remove,
             commands::containers_prune_preview,

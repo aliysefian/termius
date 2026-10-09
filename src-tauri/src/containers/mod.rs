@@ -28,6 +28,8 @@ use transport::{SshShell, Transport, Utf8Chunker};
 
 /// A listing or an inspect should be quick; this only stops a hung host.
 pub const LIST_TIMEOUT: Duration = Duration::from_secs(40);
+/// `stats` samples for about a second per run, longer with many containers.
+const STATS_TIMEOUT: Duration = Duration::from_secs(40);
 /// Stopping waits for the container's grace period, 10 s by default.
 pub const ACTION_TIMEOUT: Duration = Duration::from_secs(120);
 /// Lines of log shown at once, at most.
@@ -105,6 +107,11 @@ pub enum Action {
     Restart,
     /// `force` also removes a running container.
     Remove { force: bool },
+}
+
+/// One reading of every running container's CPU, memory, network and disk use. Takes a second or two.
+pub fn stats_args(_rt: Runtime) -> Vec<String> {
+    ["stats", "--no-stream", "--format", "{{json .}}"].map(String::from).into()
 }
 
 pub fn list_containers_args(rt: Runtime, sizes: bool) -> Vec<String> {
@@ -399,6 +406,12 @@ impl ContainerManager {
         } else {
             Err(failure(rt, &out))
         }
+    }
+
+    /// CPU, memory, network and disk use of the running containers.
+    pub async fn stats(&self, session: Uuid, rt: Runtime) -> ContainerResult<Vec<parse::Stat>> {
+        let out = self.run(session, rt, &stats_args(rt), STATS_TIMEOUT).await?;
+        parse::parse_stats(&out.stdout).map_err(ContainerError::Parse)
     }
 
     async fn fetch_containers(&self, session: Uuid, rt: Runtime) -> ContainerResult<Vec<Container>> {

@@ -813,6 +813,19 @@ export interface ContainerInfo {
   networks: string[];
 }
 
+/** One running container's resource use at one moment. */
+export interface ContainerStat {
+  id: string;
+  name: string;
+  /** Percent of one core, so it can pass 100; null when the runtime has no figure yet. */
+  cpu_pct: number | null;
+  mem_usage: string;
+  mem_pct: number | null;
+  net_io: string;
+  block_io: string;
+  pids: number | null;
+}
+
 export interface ContainerVolume {
   name: string;
   driver: string;
