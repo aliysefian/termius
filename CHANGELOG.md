@@ -4,6 +4,11 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## 0.29.0 - 2026-10-09
+
+- **Runbooks can ask for a secret.** A parameter of kind `secret` is typed when the runbook runs, never saved in a schedule, and shown as `[hidden]` in the record of the run, including wherever the value turns up in a command's output.
+- Engineering: vault key comparison now uses the audited `subtle` crate.
+
 ## 0.28.0 - 2026-10-09
 
 - **Runbooks can undo a failed run.** A runbook may list rollback steps. If you tick the box, they run on a host where the run fails (and only there); the host still counts as failed.
