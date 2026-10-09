@@ -29,8 +29,7 @@ use crate::ssh::{
 use crate::sync::RecordChange;
 use crate::vault::{Collection, Record, VaultError};
 
-mod runbooks;
-pub use runbooks::*;
+pub mod runbooks;
 
 /// Event name for record changes detected on disk. Payload: [`RecordChange`].
 pub const EVENT_VAULT_CHANGED: &str = "vault:changed";
