@@ -26,6 +26,8 @@ export const en = {
   "manage.knownhosts.hint": "Server fingerprints you trust",
   "manage.vault": "Vault",
   "manage.vault.hint": "Sync, backups, conflicts and the connection log",
+  "manage.topology": "Topology",
+  "manage.topology.hint": "How hosts, proxies, tunnels and databases connect",
   "manage.away": "Put away from the sidebar",
   "hosts.title": "Hosts",
   "hosts.favorites": "Favorites",

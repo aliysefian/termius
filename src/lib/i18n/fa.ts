@@ -28,6 +28,8 @@ export const fa: Partial<Record<Key, string>> = {
   "manage.knownhosts.hint": "اثر انگشت سرورهای مورد اعتماد",
   "manage.vault": "گاوصندوق",
   "manage.vault.hint": "همگام‌سازی، پشتیبان‌ها، تعارض‌ها و گزارش اتصال‌ها",
+  "manage.topology": "توپولوژی",
+  "manage.topology.hint": "نحوه اتصال میزبان‌ها، پراکسی‌ها، تونل‌ها و پایگاه‌داده‌ها",
   "manage.away": "کنار گذاشته‌شده از نوار کناری",
   "hosts.title": "میزبان‌ها",
   "hosts.favorites": "علاقه‌مندی‌ها",

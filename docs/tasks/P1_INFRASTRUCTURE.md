@@ -10,7 +10,7 @@ id: SSHV-005
 title: Shared resource model referencing vault credentials
 module: model
 priority: P1
-status: TODO
+status: TESTING
 dependencies: [SSHV-001]
 risk: medium
 ```
@@ -25,6 +25,15 @@ tags, environment, last-observed state and a credential *reference*.
 **Security.** Graph carries ids, never secrets.
 **Acceptance.** Graph built from a fixture vault has every jump/forward/db-tunnel edge and no invented edges.
 **Tests.** Vitest on the builder with fixtures. **Rollback.** Pure addition. **Evidence.** Pending.
+
+**Progress (2026-10-09).** Built as a derived, read-only graph (`src/lib/resources/graph.ts`), nothing new stored: hosts, proxies, tunnel
+rules and databases become nodes with a stable id, label, environment, tags, group and address; the only edges are links the data
+holds (a host's jump host after group defaults, the proxy a host or the start of its jump chain uses, a tunnel rule and its host,
+a database and the SSH host it is reached through). A reference to something that no longer exists makes no line and no dangling
+end; a jump loop cannot hang it. Credentials appear nowhere in it. Tests: `graph.test.ts` (6). **Not done:** containers and
+Kubernetes resources as nodes (they exist only while a source is open, not in the vault), last observed state beyond a host's
+reachability dot, the decision on where alert history, query history and runbook history should live (D12).
+
 
 ## SSHV-006 Host management polish
 ```yaml
@@ -62,12 +71,22 @@ id: SSHV-008
 title: Interactive topology from real relationships
 module: ui
 priority: P1
-status: TODO
+status: TESTING
 dependencies: [SSHV-005]
 risk: low
 ```
 Zoom/pan/filter/search, open terminal/monitor from node. Edges only from the SSHV-005 graph; no inference. Blocked until
 the graph exists. Evidence pending.
+
+**Progress (2026-10-09).** Done: a Topology page (Manage menu and command palette) that draws the SSHV-005 graph: columns left to
+right from where traffic enters (proxy, jump hosts, host, then the tunnels and databases that ride it), pan, zoom and fit, search
+and environment filter (a match is shown with its neighbours), hosts with no links hidden unless asked for (with a count), a
+reachability dot on each host from the last check, a details panel with the links in words and "Open a terminal" and "Monitor"
+for a host, and the same links listed as text for screen readers. Checked in headless Chromium against the built app with a
+mocked fleet (`e2e/topology.py`: 7 items, 6 links, the search and the actions); translations of the menu entry in all eight
+languages. **Not done:** drawing containers and Kubernetes (see SSHV-005), live health beyond the last reachability check,
+dragging nodes, saving a layout, very large graphs (everything is drawn; with hundreds of linked hosts it needs clustering).
+
 
 ## SSHV-012 Docker gaps
 ```yaml

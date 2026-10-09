@@ -20,6 +20,7 @@
   import VaultPanel from "$lib/components/VaultPanel.svelte";
   import SecurityReview from "$lib/components/SecurityReview.svelte";
   import FleetView from "$lib/components/FleetView.svelte";
+  import TopologyView from "$lib/components/TopologyView.svelte";
   import OpsView from "$lib/components/OpsView.svelte";
   import { startScheduler } from "$lib/stores/scheduler.svelte";
   import RunbooksView from "$lib/components/RunbooksView.svelte";
@@ -260,6 +261,8 @@
       <SecurityReview />
     {:else if ui.view === "fleet"}
       <FleetView />
+    {:else if ui.view === "topology"}
+      <TopologyView />
     {:else if ui.view === "runbooks"}
       <RunbooksView />
     {:else if ui.view === "ops"}

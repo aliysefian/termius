@@ -28,6 +28,8 @@ export const ja: Partial<Record<Key, string>> = {
   "manage.knownhosts.hint": "信頼するサーバーのフィンガープリント",
   "manage.vault": "保管庫",
   "manage.vault.hint": "同期、バックアップ、競合、接続ログ",
+  "manage.topology": "トポロジー",
+  "manage.topology.hint": "ホスト、プロキシ、トンネル、データベースのつながり",
   "manage.away": "サイドバーから外したもの",
   "hosts.title": "ホスト",
   "hosts.favorites": "お気に入り",

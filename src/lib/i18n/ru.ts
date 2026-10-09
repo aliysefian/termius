@@ -28,6 +28,8 @@ export const ru: Partial<Record<Key, string>> = {
   "manage.knownhosts.hint": "Отпечатки доверенных серверов",
   "manage.vault": "Хранилище",
   "manage.vault.hint": "Синхронизация, резервные копии, конфликты и журнал подключений",
+  "manage.topology": "Топология",
+  "manage.topology.hint": "Как связаны хосты, прокси, туннели и базы данных",
   "manage.away": "Убрано с боковой панели",
   "hosts.title": "Хосты",
   "hosts.favorites": "Избранное",

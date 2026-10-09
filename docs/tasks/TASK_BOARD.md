@@ -20,10 +20,10 @@ changes stay at TESTING until CI compiles and passes them.
 | SSHV-011 | Alerts | P1 | TESTING (partial) | 005 | P1_OPERATIONS |
 | SSHV-015 | Automation engine | P1 | TESTING (rolling mode for commands) | 003 | P1_OPERATIONS |
 | SSHV-017 | Scheduler | P1 | TESTING | 016 | P1_OPERATIONS |
-| SSHV-005 | Resource model | P1 | TODO | 001 | P1_INFRASTRUCTURE |
+| SSHV-005 | Resource model | P1 | TESTING (derived graph) | 001 | P1_INFRASTRUCTURE |
 | SSHV-006 | Host management audit | P1 | TODO | - | P1_INFRASTRUCTURE |
 | SSHV-007 | Host facts | P1 | TODO | 005, 003 | P1_INFRASTRUCTURE |
-| SSHV-008 | Topology | P1 | TODO | 005 | P1_INFRASTRUCTURE |
+| SSHV-008 | Topology | P1 | TESTING | 005 | P1_INFRASTRUCTURE |
 | SSHV-012 | Docker gaps | P1 | TESTING (stats, health) | 004 | P1_INFRASTRUCTURE |
 | SSHV-013 | Kubernetes resources | P1 | TESTING (read-only kinds; exec/scale open) | 004 | P1_INFRASTRUCTURE |
 | SSHV-014 | Database gaps | P1 | TESTING (partial) | - | P1_INFRASTRUCTURE |
