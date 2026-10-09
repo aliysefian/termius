@@ -42,7 +42,7 @@ pub const MAX_JUMPS: usize = 8;
 
 #[derive(Debug, thiserror::Error)]
 pub enum SshError {
-    #[error("{0}")]
+    #[error("{}", crate::algorithms::explain(.0))]
     Ssh(#[from] russh::Error),
 
     #[error("key error: {0}")]
@@ -197,6 +197,8 @@ pub struct Target {
     pub proxy: Option<crate::models::ProxySpec>,
     /// Keep-alive interval (OpenSSH `ServerAliveInterval`); default 30 s.
     pub keepalive_secs: Option<u32>,
+    /// Also offer older algorithms to this host (see `algorithms`). Off unless the host asks for it.
+    pub legacy_algorithms: bool,
 }
 
 /// A host key recorded for the first time during a connection.
@@ -902,6 +904,7 @@ fn client_config(target: &Target) -> Arc<client::Config> {
         keepalive_interval: keepalive,
         keepalive_max: 3,
         nodelay: true,
+        preferred: crate::algorithms::preferred(target.legacy_algorithms),
         ..Default::default()
     })
 }
@@ -1235,7 +1238,7 @@ pub(crate) mod testutil {
         spawn_sshd_with(dir, false, "")
     }
 
-    fn spawn_sshd_with(dir: &std::path::Path, with_sftp: bool, extra: &str) -> Option<Sshd> {
+    pub fn spawn_sshd_with(dir: &std::path::Path, with_sftp: bool, extra: &str) -> Option<Sshd> {
         // CI sets the variable on every OS, empty where tests should run.
         if std::env::var_os("SSHVAULT_SKIP_SSHD_TESTS").is_some_and(|v| !v.is_empty()) {
             return None;
@@ -1342,6 +1345,7 @@ pub(crate) mod testutil {
             forward_x11: false,
             proxy: None,
             keepalive_secs: None,
+            legacy_algorithms: false,
         }
     }
 }
@@ -1361,6 +1365,7 @@ pub fn testutil_target() -> Target {
         forward_x11: false,
         proxy: None,
         keepalive_secs: None,
+        legacy_algorithms: false,
     }
 }
 
@@ -2049,5 +2054,40 @@ mod tests {
         let out = wait_output(&rx, "A_EARLY_B");
         assert!(out.contains("A_EARLY_B"), "{out}");
         manager.disconnect("early").await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn an_old_device_needs_the_older_algorithms_and_the_error_says_so() {
+        let dir = tempfile::TempDir::new().unwrap();
+        // A server that offers only what an old appliance would: SHA-1 key exchange, a CBC cipher, a SHA-1 MAC.
+        let Some(sshd) = spawn_sshd_config(dir.path(), "KexAlgorithms diffie-hellman-group14-sha1\nCiphers aes128-cbc\nMACs hmac-sha1\n") else {
+            eprintln!("skipping: no usable sshd on this machine");
+            return;
+        };
+        let known_hosts = dir.path().join("app").join("known_hosts");
+        let manager = Arc::new(SshManager::new());
+
+        // As it is by default, it cannot connect, and the message says what to do.
+        let (tx, rx) = std_mpsc::channel();
+        manager.connect("old1".into(), params(&sshd, &sshd.client_key, known_hosts.clone()), Arc::new(TestSink(tx))).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(15);
+        let message = loop {
+            match rx.recv_timeout(deadline.saturating_duration_since(Instant::now())).expect("an error status") {
+                Ev::Status(SessionStatus::Error { message }) => break message,
+                Ev::Status(SessionStatus::Connected) => panic!("connected without the older algorithms"),
+                _ => {}
+            }
+        };
+        assert!(message.contains("no key exchange method in common") && message.contains("diffie-hellman-group14-sha1") && message.contains("Allow older algorithms"), "{message}");
+
+        // With the host's opt-in it connects, and the shell works.
+        let (tx, rx) = std_mpsc::channel();
+        let mut p = params(&sshd, &sshd.client_key, known_hosts);
+        p.target.legacy_algorithms = true;
+        manager.connect("old2".into(), p, Arc::new(TestSink(tx))).unwrap();
+        wait_status(&rx, |s| matches!(s, SessionStatus::Connected));
+        manager.write("old2", b"printf 'A%sB\\n' _OLD_\n".to_vec()).await.unwrap();
+        assert!(wait_output(&rx, "A_OLD_B").contains("A_OLD_B"));
+        manager.disconnect("old2").await;
     }
 }

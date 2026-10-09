@@ -241,6 +241,10 @@ pub struct Host {
     /// Send a keep-alive every N seconds (OpenSSH `ServerAliveInterval`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub keepalive_secs: Option<u32>,
+    /// Also offer older algorithms (SHA-1 key exchange, AES-CBC ciphers, SHA-1 MACs) to this host, after the modern ones, for old
+    /// network devices that offer nothing newer. Each is weaker, so it is a choice for one host, off by default.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub legacy_algorithms: bool,
     /// Connect with Mosh (`mosh-client` on this computer, `mosh-server` on the
     /// host) instead of a plain SSH session.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]

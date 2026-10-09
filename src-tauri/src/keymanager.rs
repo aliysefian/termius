@@ -357,6 +357,7 @@ pub fn resolve_target(
             forward_x11: false,
             proxy,
             keepalive_secs: jh.keepalive_secs,
+            legacy_algorithms: jh.legacy_algorithms,
         }));
     }
 
@@ -378,6 +379,7 @@ pub fn resolve_target(
         forward_x11: host.forward_x11,
         proxy,
         keepalive_secs: host.keepalive_secs,
+        legacy_algorithms: host.legacy_algorithms,
     })
 }
 

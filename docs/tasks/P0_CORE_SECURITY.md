@@ -261,7 +261,11 @@ lost the decision although the prompt allows 300 s. (4) New limits: sign-in 60 s
 (`SETUP_TIMEOUT`) (S14). (5) Forwards: accept errors back off 100 ms, at most 256 tunnels per forward, SOCKS handshake 10 s (S15).
 (2026-10-09, later) Cancel while connecting: Close now ends a pane that is still connecting (a server that accepts and never answers
 used to hold it for the full 20 s), and what was typed meanwhile is kept and sent once the shell is up; test with a silent server and a
-real `sshd` (fails when the fix is removed). **Not done:** pooling (D6), per-host algorithm lists, host-key per algorithm (S19), UI use of the new error
+real `sshd` (fails when the fix is removed). (2026-10-09, later) Older algorithms: a per-host "Allow older algorithms" switch (host form, `Host.legacy_algorithms`, `Target.legacy_algorithms`) adds SHA-1
+key exchange, AES-CBC ciphers and SHA-1 MACs after the modern ones (`algorithms.rs`; 3DES is not available in this build and was left out), and a
+failed negotiation now says what each side offered and, for key exchange, ciphers and MACs, to try the switch. Tested against a real
+`sshd` that offers only old algorithms: default fails with the message, the opt-in connects and runs a command. **Not done:** pooling (D6),
+free-form per-host algorithm lists, host-key per algorithm (S19), UI use of the new error
 codes (the window shows the message), a server-stall test (the 20 s limit makes it slow).
 **Evidence.** The real `ssh.rs`, `dial.rs`, `forward.rs`, `agent.rs`, `x11.rs`, `hostkeys.rs`, `knownhosts.rs`, `health.rs` and
 the vault compile in a scratch crate with stubs for the tauri-only parts, and 142 tests pass, including the live-`sshd` tests (shell

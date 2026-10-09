@@ -91,6 +91,8 @@ export interface Host {
   no_group_proxy?: boolean;
   /** Keep-alive interval in seconds (ServerAliveInterval); 0 disables. */
   keepalive_secs?: number;
+  /** Also offer older algorithms (SHA-1 key exchange, AES-CBC, SHA-1 MACs) to this host, for old devices. */
+  legacy_algorithms?: boolean;
   /** Free-form metadata, e.g. owner or ticket. */
   custom?: Record<string, string>;
   /** "telnet" for Telnet hosts; absent or empty means SSH. */

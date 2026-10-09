@@ -807,6 +807,13 @@
           <input id="h-keepalive" class="input font-mono" type="number" min="0" max="3600" bind:value={form.keepalive_secs} placeholder="30 (0 = off)" />
         </div>
         <label class="col-span-2 flex cursor-pointer items-start gap-3 rounded-lg border border-line bg-base/40 p-3 text-sm">
+          <input type="checkbox" class="mt-1 shrink-0 accent-input" bind:checked={form.legacy_algorithms} />
+          <span class="min-w-0">
+            <span class="font-medium">Allow older algorithms</span>
+            <span class="block text-xs text-fg-muted">For old network devices that fail with "no key exchange method in common". Also offers SHA-1 key exchange, AES-CBC ciphers and SHA-1 MACs to this host, after the modern ones. They are weaker: turn it on only for a device you trust, on a network you trust.</span>
+          </span>
+        </label>
+        <label class="col-span-2 flex cursor-pointer items-start gap-3 rounded-lg border border-line bg-base/40 p-3 text-sm">
           <input type="checkbox" class="mt-1 shrink-0 accent-input" bind:checked={form.forward_x11} />
           <span class="min-w-0">
             <span class="font-medium">Forward X11</span>
