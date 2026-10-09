@@ -1,0 +1,13 @@
+# Settings for `cargo audit` (run from this folder; see .github/workflows/audit.yml).
+#
+# What is ignored, and why. Anything not listed here fails the audit, so a new advisory is a signal.
+
+[advisories]
+ignore = [
+  # rsa 0.10.0-rc.18, "Marvin Attack": a timing side channel in RSA private-key operations. The advisory says no fixed
+  # version exists. The app reaches it only through the SSH library's support for RSA keys: signing to log in with an RSA
+  # key. Exploiting it needs many precise timing measurements of those signatures by someone who can observe the
+  # connection, which a desktop SSH client does not offer in practice; Ed25519 and ECDSA keys are not affected. Reviewed
+  # 2026-10-09; look again when the `rsa` crate publishes a fixed release or the SSH library moves off it.
+  "RUSTSEC-2023-0071",
+]

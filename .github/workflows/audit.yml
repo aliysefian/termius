@@ -1,7 +1,8 @@
 name: Dependency audit
 
-# Reports known vulnerabilities in the Rust and JavaScript dependencies. It does not block builds: a finding
-# opens a failing run to look at, and it is made blocking once the current findings are triaged.
+# Reports known vulnerabilities in the Rust and JavaScript dependencies. This workflow is separate from the build, so a
+# failing run never blocks a release; it is the signal that a dependency has a new advisory. The one known Rust finding
+# is recorded with its reason in src-tauri/.cargo/audit.toml, so a failure here means something new.
 on:
   schedule:
     - cron: "17 5 * * 1"
@@ -16,7 +17,6 @@ jobs:
   rust:
     name: cargo audit
     runs-on: ubuntu-22.04
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v7
       - name: Install cargo-audit
@@ -28,7 +28,6 @@ jobs:
   js:
     name: pnpm audit
     runs-on: ubuntu-22.04
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6 # version comes from package.json "packageManager"
