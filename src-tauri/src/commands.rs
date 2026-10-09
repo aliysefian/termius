@@ -2851,7 +2851,20 @@ pub async fn test_proxy(
     }
     let (host, port) = crate::health::parse_target(target.as_deref().unwrap_or("").trim())
         .ok_or_else(|| ApiError::new("validation", "test destination must look like host or host:port"))?;
-    Ok(crate::health::probe(&host, port, Some(&spec)).await)
+    // Testing a command from the form with "approved" ticked runs it for this test, in memory only: nothing is
+    // saved, and a command that was not approved before is not approved afterwards.
+    let mut undo_approval = None;
+    if let ProxySpec::Command { command, approved: true } = &spec {
+        if !crate::proxyapproval::is_approved(command) {
+            crate::proxyapproval::set(command, true);
+            undo_approval = Some(command.clone());
+        }
+    }
+    let health = crate::health::probe(&host, port, Some(&spec)).await;
+    if let Some(command) = undo_approval {
+        crate::proxyapproval::set(&command, false);
+    }
+    Ok(health)
 }
 
 /// Read an Ansible INI inventory for the import preview.
@@ -3278,6 +3291,10 @@ pub fn list_proxies(state: State<'_, AppState>) -> ApiResult<Vec<Record<crate::m
     let mut list: Vec<Record<crate::models::Proxy>> = list_records(&state, Collection::Proxies)?;
     for r in &mut list {
         r.data = r.data.as_ref().map(crate::models::Proxy::redacted);
+        // Whether a command is approved is this computer's own answer, whatever the synced record says.
+        if let Some(crate::models::Proxy { spec: crate::models::ProxySpec::Command { command, approved }, .. }) = r.data.as_mut() {
+            *approved = crate::proxyapproval::is_approved(command);
+        }
     }
     Ok(list)
 }
@@ -3328,8 +3345,24 @@ pub fn save_proxy(
             }
         }
     }
+    // Approving a command is something this computer does, so it is recorded here, and the synced record never says
+    // "approved": a copy of it on another device starts out unapproved.
+    let mut approval = None;
+    if let ProxySpec::Command { command, approved } = &mut proxy.spec {
+        approval = Some((command.clone(), *approved));
+        *approved = false;
+    }
     let mut rec = save_record(&state, Collection::Proxies, id, base_rev, proxy)?;
+    if let Some((command, allow)) = approval {
+        let all = crate::proxyapproval::set(&command, allow);
+        let mut cfg = AppConfig::load(&state.config_dir)?;
+        cfg.approved_proxy_commands = all;
+        cfg.save(&state.config_dir)?;
+    }
     rec.data = rec.data.as_ref().map(crate::models::Proxy::redacted);
+    if let Some(crate::models::Proxy { spec: ProxySpec::Command { command, approved }, .. }) = rec.data.as_mut() {
+        *approved = crate::proxyapproval::is_approved(command);
+    }
     Ok(rec)
 }
 
@@ -4609,6 +4642,8 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let config_dir = app.path().app_config_dir()?;
     // Before anything else can fail: a release build aborts on a panic, so record why in `crash.log` first.
     crate::crashlog::install(config_dir.clone());
+    // The ProxyCommands this computer has approved to run (kept here, not in the synced vault).
+    crate::proxyapproval::load(AppConfig::load(&config_dir).map(|c| c.approved_proxy_commands).unwrap_or_default());
     // Leftovers from a run that didn't exit cleanly are plaintext copies of
     // remote files; remove them before anything else.
     // Per-user cache folder (not the shared system temp directory, where

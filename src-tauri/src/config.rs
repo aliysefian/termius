@@ -29,6 +29,9 @@ pub struct AppConfig {
     /// Accept `sshvault list/connect/run` from this computer's command line.
     #[serde(default)]
     pub cli_enabled: bool,
+    /// Fingerprints of the ProxyCommands this computer may run (see `proxyapproval`). Never synced.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub approved_proxy_commands: Vec<String>,
 }
 
 /// A readable name for this computer, for "also open on …".

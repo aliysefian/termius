@@ -73,7 +73,7 @@ id: SSHV-024
 title: Quote ProxyCommand tokens; approval per device and per command text
 module: connections
 priority: P0
-status: IN_PROGRESS
+status: TESTING
 dependencies: []
 risk: medium
 ```
@@ -91,7 +91,15 @@ migration (ignore the old field on read, keep writing it as `false`).
 **Progress.** Part 1 done in `dial.rs`: `expand_proxy_command` now returns `Result`; `%h`/`%r` are refused if they contain
 control characters or start with `-`, quoted as one POSIX word on Unix, and limited to plain words on Windows. Evidence:
 new test `proxy_command_values_are_data_not_shell` passes in a scratch crate built from the extracted code (the Tauri
-crate cannot compile here); CI has not run it. Part 2 (per-device approval, `save_proxy`/`test_proxy`) is not started.
+crate cannot compile here); CI has not run it. Part 2 done (owner approved 2026-10-09): new `proxyapproval.rs` keeps approvals per computer in `config.json`
+(`approved_proxy_commands`, SHA-256 of the trimmed command), loaded at startup. `dial.rs` now ignores the synced `approved` flag
+and runs a ProxyCommand only if this computer approved that exact text, so editing the command withdraws approval and a proxy
+synced from another device starts unapproved. `save_proxy` records approval locally and always stores `approved: false` in the
+vault; `list_proxies` reports this computer's answer; `test_proxy` may approve for the duration of one test only. Existing
+approvals in the vault no longer count, so each computer asks once more. Tests: 3 in `proxyapproval.rs` pass in a scratch crate;
+`proxy_command_needs_approval` in `dial.rs` was changed to prove a record flagged approved is refused, but was not compiled (full
+crate); the command-layer edits in `commands.rs` were not compiled either. UI text in `GroupsPanel.svelte` now says "on this
+computer"; `pnpm check`: 0 errors, 0 warnings.
 **Evidence.** Partial, as above.
 
 ---

@@ -58,8 +58,9 @@ pub async fn open(host: &str, port: u16, proxy: Option<&ProxySpec>, user: &str) 
                 .map_err(|reason| SshError::Proxy { proxy: name, reason })?;
             Ok(Box::new(s))
         }
-        Some(ProxySpec::Command { command, approved }) => {
-            if !approved {
+        Some(ProxySpec::Command { command, .. }) => {
+            // The `approved` flag in the (synced) record is ignored: only this computer's own list counts.
+            if !crate::proxyapproval::is_approved(command) {
                 return Err(SshError::Proxy {
                     proxy: "ProxyCommand".into(),
                     reason: "this command hasn't been approved to run on this computer; review it in Proxies".into(),
@@ -560,15 +561,16 @@ mod tests {
     #[tokio::test]
     async fn proxy_command_needs_approval() {
         let e = echo().await;
-        let cmd = |approved| ProxySpec::Command {
-            command: format!("nc 127.0.0.1 {e}"),
-            approved,
-        };
-        let err = dial(&target(Some(cmd(false)))).await.err().unwrap();
+        let command = format!("nc 127.0.0.1 {e}");
+        // A record that says "approved" (as a synced one could) is not enough: this computer has to have approved it.
+        let cmd = |flag| ProxySpec::Command { command: command.clone(), approved: flag };
+        let err = dial(&target(Some(cmd(true)))).await.err().unwrap();
         assert!(err.to_string().contains("approved"), "{err}");
+        crate::proxyapproval::set(&command, true);
         #[cfg(unix)]
         if std::process::Command::new("nc").arg("-h").output().is_ok() {
-            roundtrip(dial(&target(Some(cmd(true)))).await.unwrap()).await;
+            roundtrip(dial(&target(Some(cmd(false)))).await.unwrap()).await;
         }
+        crate::proxyapproval::set(&command, false);
     }
 }

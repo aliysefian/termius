@@ -329,9 +329,10 @@
               <label class="col-span-2 flex items-start gap-2 rounded-md border border-warning/30 bg-warning/10 p-3 text-xs">
                 <input type="checkbox" class="mt-0.5 accent-input" bind:checked={proxyApproved} />
                 <span>
-                  <span class="flex items-center gap-1 font-semibold text-warning"><ShieldAlert size={12} /> Allow this command to run on my computers</span>
-                  It runs as you on every device that uses this vault, whenever a host using this proxy connects. Only approve
-                  commands you've read and understand, especially ones that were imported.
+                  <span class="flex items-center gap-1 font-semibold text-warning"><ShieldAlert size={12} /> Allow this command to run on this computer</span>
+                  It runs as you, whenever a host using this proxy connects from this computer. Each computer that uses this
+                  vault asks separately, and changing the command withdraws the approval. Only approve commands you've read and
+                  understand, especially ones that were imported.
                 </span>
               </label>
             {:else}

@@ -26,6 +26,7 @@ pub mod inventory;
 pub mod hostcreds;
 pub mod keychain;
 pub mod keymanager;
+pub mod proxyapproval;
 pub mod kube;
 pub mod keys;
 pub mod knownhosts;
