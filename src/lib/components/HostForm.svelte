@@ -173,14 +173,17 @@
   const groupProxy = $derived(vaultStore.groupDefault(form, "proxy_id") as Uuid | undefined);
   const groupProxyName = $derived(groupProxy ? (vaultStore.proxyById.get(groupProxy)?.data?.name ?? "(missing)") : "");
   const DIRECT = "direct";
+  // An empty jump field means "connect directly", even in a group with a jump
+  // host; using the group's one is a choice of its own in the list.
+  const GROUP_JUMP = "group";
   const jumpChoices = $derived([
-    ...(groupJump ? [{ value: DIRECT, label: "None, connect directly", detail: `ignore the group's ${groupJumpLabel}` }] : []),
+    ...(groupJump ? [{ value: GROUP_JUMP, label: `Group default: ${groupJumpLabel}`, detail: `from group "${form.group}"` }] : []),
     ...hostOptions(vaultStore.hosts, (h) => h.id !== id && !(id && reachesThis(h.id))),
   ]);
-  const jumpValue = () => form.jump_host_id ?? (form.no_group_jump && groupJump ? DIRECT : "");
+  const jumpValue = () => form.jump_host_id ?? (groupJump && !form.no_group_jump ? GROUP_JUMP : "");
   const setJump = (v: string) => {
-    form.no_group_jump = v === DIRECT;
-    form.jump_host_id = v && v !== DIRECT ? v : undefined;
+    form.no_group_jump = !v && !!groupJump;
+    form.jump_host_id = v && v !== GROUP_JUMP ? v : undefined;
   };
   const proxyValue = () => form.proxy_id ?? (form.no_group_proxy && groupProxy ? DIRECT : "");
   const setProxy = (v: string) => {
@@ -770,12 +773,12 @@
             options={jumpChoices}
             bind:value={jumpValue, setJump}
             clearable
-            placeholder={groupJump && !form.no_group_jump ? `Group default: ${groupJumpLabel}` : "None, connect directly"}
+            placeholder="None, connect directly"
             emptyText="No host matches"
           />
           {#if chainLabel}
             <p class="mt-1 text-xs text-fg-muted">
-              Route: {chainLabel}{!form.jump_host_id ? ` (jump host from group "${form.group}"; pick "None, connect directly" to skip it)` : ""}
+              Route: {chainLabel}{!form.jump_host_id ? ` (jump host from group "${form.group}"; clear the field to connect directly)` : ""}
             </p>
           {/if}
           {#if jumpMissingIdentity}

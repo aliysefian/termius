@@ -220,10 +220,13 @@ body {
   to { opacity: 0; transform: scale(1.5); }
 }
 
-.anim-fade { animation: sv-fade 0.16s ease-out both; }
-.anim-pop { animation: sv-pop 0.18s cubic-bezier(0.2, 0.9, 0.3, 1.2) both; }
-.anim-pop-left { animation: sv-pop-left 0.16s cubic-bezier(0.2, 0.9, 0.3, 1.1) both; transform-origin: left center; }
-.anim-rise { animation: sv-rise 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) both; animation-delay: calc(var(--i, 0) * 55ms); }
+/* `backwards`, not `both`: each animation ends on the element's own style, and a
+   transform kept after the end would make the element the containing block of
+   any position: fixed child, so a dropdown inside a dialog opened in the wrong place. */
+.anim-fade { animation: sv-fade 0.16s ease-out backwards; }
+.anim-pop { animation: sv-pop 0.18s cubic-bezier(0.2, 0.9, 0.3, 1.2) backwards; }
+.anim-pop-left { animation: sv-pop-left 0.16s cubic-bezier(0.2, 0.9, 0.3, 1.1) backwards; transform-origin: left center; }
+.anim-rise { animation: sv-rise 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) backwards; animation-delay: calc(var(--i, 0) * 55ms); }
 .anim-float { animation: sv-float 4.5s ease-in-out infinite; }
 
 /* Illustration parts (see Illustration.svelte). transform-box lets each shape scale around its own centre. */
