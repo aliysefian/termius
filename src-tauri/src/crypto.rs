@@ -132,11 +132,8 @@ impl MasterKey {
 
     /// Constant-time equality, so comparing keys does not leak timing.
     pub fn ct_eq(&self, other: &MasterKey) -> bool {
-        let mut diff = 0u8;
-        for (a, b) in self.0.iter().zip(other.0.iter()) {
-            diff |= a ^ b;
-        }
-        diff == 0
+        use subtle::ConstantTimeEq;
+        self.0.ct_eq(&other.0).into()
     }
 }
 

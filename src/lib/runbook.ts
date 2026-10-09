@@ -7,7 +7,7 @@ export interface RunbookParam {
   default: string | null;
   optional: boolean;
   choices: string[];
-  kind: "text" | "file";
+  kind: "text" | "file" | "secret";
 }
 
 export interface Problem {

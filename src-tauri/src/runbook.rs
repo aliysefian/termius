@@ -64,6 +64,9 @@ pub enum ParamKind {
     #[default]
     Text,
     File,
+    /// Typed when the runbook runs: shown as dots, never kept in a schedule, hidden in the record of the run and wherever
+    /// it turns up in a command's output.
+    Secret,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -263,6 +266,9 @@ fn check_steps(rb: &Runbook) -> Vec<Problem> {
         }
         if p.kind == ParamKind::File && !p.choices.is_empty() {
             out.push(problem(None, format!("a file parameter (\"{}\") can't have choices", p.name)));
+        }
+        if p.kind == ParamKind::Secret && (p.default.is_some() || !p.choices.is_empty()) {
+            out.push(problem(None, format!("a secret parameter (\"{}\") can't have a default or choices: it is typed when the runbook runs, and never written down", p.name)));
         }
     }
     let known = |name: &str| BUILTINS.contains(&name) || params.contains_key(name);
@@ -472,6 +478,9 @@ pub fn plan(rb: &Runbook, values: &HashMap<String, String>, host: &HashMap<Strin
     for p in &rb.params {
         if p.kind == ParamKind::File {
             all.entry(p.name.clone()).or_insert_with(|| format!("<{}>", p.name));
+        }
+        if p.kind == ParamKind::Secret {
+            all.insert(p.name.clone(), format!("<{}>", p.name));
         }
     }
     let n = rb.steps.len();

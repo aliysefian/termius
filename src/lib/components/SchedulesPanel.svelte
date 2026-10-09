@@ -49,6 +49,7 @@
     const rb = runbooks.find((r) => r.id === runbookId)?.data;
     if (!rb || !check) return (error = "Choose a runbook.");
     if (check.problems.length) return (error = "That runbook has problems; fix them first.");
+    if (check.params.some((p) => p.kind === "secret" && !p.optional)) return (error = "That runbook asks for a secret each time it runs, which a schedule can't give (it never keeps one).");
     if (check.params.some((p) => p.kind === "file" && !p.optional)) return (error = "That runbook needs a file chosen each time it runs, which a schedule can't give.");
     if (picked.size === 0) return (error = "Choose at least one host.");
     const bad = problem(when) ?? (tz.trim() && !validZone(tz.trim()) ? `"${tz.trim()}" is not a time zone this computer knows.` : null);
