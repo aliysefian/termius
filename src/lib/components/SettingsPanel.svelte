@@ -23,6 +23,12 @@
   import Badge from "./Badge.svelte";
   import TerminalPreview from "./TerminalPreview.svelte";
 
+  /** Whether the system has a tray for "Keep running in the tray" (null until asked). */
+  let trayAvailable = $state<boolean | null>(null);
+  onMount(() => {
+    void api.appWindow.trayAvailable().then((ok) => (trayAvailable = ok)).catch(() => (trayAvailable = false));
+  });
+
   async function resetAppearance() {
     if (await ask("Put the theme, font, cursor, scrollback and density back to their defaults? Shortcuts and imported themes stay.", { title: "Reset appearance", confirm: "Reset" })) settings.resetAppearance();
   }
@@ -550,10 +556,23 @@
     </section>
     {/if}
 
-    {#if visible("connections", "connections auto-reconnect notify background command history remember restore session reopen tabs last time production paste trailing newline")}
+    {#if visible("connections", "connections auto-reconnect notify background command history remember restore session reopen tabs last time production paste trailing newline tray system tray minimize close window keep running exit quit")}
     <section class="rounded-xl border border-line bg-panel p-5">
       <h2 class="mb-1 text-sm font-semibold">Connections</h2>
       <label class="flex items-start gap-2 text-sm">
+        <input type="checkbox" class="mt-0.5 accent-input" bind:checked={settings.prefs.closeToTray} disabled={trayAvailable === false} />
+        <span>
+          Keep running in the tray when the window is closed
+          <span class="block text-xs text-fg-muted">
+            {#if trayAvailable === false}
+              Not available: this desktop has no tray to bring the window back (on Linux it needs an AppIndicator library, such as libayatana-appindicator3). Closing the window quits.
+            {:else}
+              Sessions, tunnels, the SSH agent and schedules keep going. The tray icon opens the window again; its Exit quits. Off: closing the window quits, as before.
+            {/if}
+          </span>
+        </span>
+      </label>
+      <label class="mt-3 flex items-start gap-2 text-sm">
         <input type="checkbox" class="mt-0.5 accent-input" bind:checked={settings.prefs.autoReconnect} />
         <span>
           Reconnect automatically when a connection drops

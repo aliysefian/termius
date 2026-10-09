@@ -60,6 +60,7 @@ pub mod spawnlint;
 pub mod ssh;
 pub mod sshconfig;
 pub mod sync;
+pub mod tray;
 pub mod unlockguard;
 pub mod vault;
 pub mod vnc;
@@ -69,10 +70,19 @@ pub mod x11;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // First, so a second launch hands over to this one (and shows its window) before setting anything up. With
+        // the window closed into the tray, launching the app again is how many people will look for it.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| commands::tray::show_main(app)))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        // Everything but visibility: quitting from the tray while the window is hidden must not make the next start
+        // open hidden.
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_state_flags(tauri_plugin_window_state::StateFlags::all() & !tauri_plugin_window_state::StateFlags::VISIBLE)
+                .build(),
+        )
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_process::init())
         .setup(commands::setup)
@@ -263,6 +273,11 @@ pub fn run() {
             commands::agent_status,
             commands::cli_status,
             commands::updates::updater_info,
+            commands::tray::tray_available,
+            commands::tray::window_hide_to_tray,
+            commands::tray::window_show,
+            commands::tray::app_exit_ack,
+            commands::tray::app_exit,
             selfupdate::release_check,
             selfupdate::release_install,
             commands::cli_set_enabled,
@@ -287,6 +302,11 @@ pub fn run() {
                 if let Some(state) = tauri::Manager::try_state::<commands::AppState>(app) {
                     state.session.lock();
                 }
+            }
+            // macOS: clicking the Dock icon of an app whose window is hidden brings the window back.
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { .. } = event {
+                commands::tray::show_main(app);
             }
         });
 }

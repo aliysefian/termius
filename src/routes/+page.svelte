@@ -5,6 +5,8 @@
   import { writeText } from "@tauri-apps/plugin-clipboard-manager";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import * as api from "$lib/api";
+  import { closeAction, exitAction } from "$lib/closebehavior";
+  import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
   import ActivityBar from "$lib/components/ActivityBar.svelte";
   import ForwardForm from "$lib/components/ForwardForm.svelte";
   import ForwardingPanel from "$lib/components/ForwardingPanel.svelte";
@@ -105,24 +107,68 @@
     void getCurrentWindow().setTitle(windowTitle).catch(() => {});
   });
 
-  // -- quitting with live sessions asks first ------------------------------
+  // -- closing the window: into the tray, or quit (asking first with live sessions) --
+  /** Tell the person once that a closed window is still running, and where to find it. */
+  async function trayNotice() {
+    if (settings.prefs.trayNoticeShown) return;
+    settings.prefs.trayNoticeShown = true;
+    try {
+      let ok = await isPermissionGranted();
+      if (!ok) ok = (await requestPermission()) === "granted";
+      if (ok) sendNotification({ title: "SSHVault is still running", body: "Sessions and tunnels stay open. Use the tray icon to open the window again, or its Exit to quit." });
+    } catch {
+      // No notification service: the tray icon is there all the same.
+    }
+  }
+
   onMount(() => {
     let closing = false;
+    let trayAvailable = false;
     const win = getCurrentWindow();
+    void api.appWindow.trayAvailable().then((ok) => (trayAvailable = ok)).catch(() => {});
     const un = win.onCloseRequested(async (e) => {
       if (closing) return;
       // Save what was open so it can come back next time, unless the vault
       // was already locked (then there's nothing open worth saving over).
       if (vaultStore.unlocked) settings.saveLastSession(ui.snapshotWorkspace());
       const live = ui.liveSessions(ui.tabs);
-      if (live.connected === 0 || !settings.prefs.confirmCloseSessions) return;
+      const context = { closeToTray: settings.prefs.closeToTray, trayAvailable, connected: live.connected, confirmSessions: settings.prefs.confirmCloseSessions };
+      let action = closeAction(context);
+      if (action === "close") return;
       e.preventDefault();
-      if (await ui.confirmClose(live, "SSHVault")) {
+      if (action === "hide") {
+        try {
+          await api.appWindow.hideToTray();
+          void trayNotice();
+          return;
+        } catch {
+          // The tray went away after all: close the way it works without one.
+          trayAvailable = false;
+          action = closeAction({ ...context, trayAvailable });
+        }
+      }
+      if (action === "close" || (await ui.confirmClose(live, "SSHVault"))) {
         closing = true;
         await win.destroy();
       }
     });
-    return () => void un.then((f) => f());
+    // Exit in the tray. Answer at once (unanswered, the app quits on its own after a few seconds, so a stuck window
+    // can't stop Exit), keep the open tabs for next time, ask if live sessions would end, then quit for real.
+    const unExit = api.appWindow.onExitRequested(async () => {
+      await api.appWindow.exitAck().catch(() => false);
+      if (vaultStore.unlocked) settings.saveLastSession(ui.snapshotWorkspace());
+      const live = ui.liveSessions(ui.tabs);
+      if (exitAction({ connected: live.connected, confirmSessions: settings.prefs.confirmCloseSessions }) === "confirm") {
+        await api.appWindow.show().catch(() => {});
+        if (!(await ui.confirmClose(live, "SSHVault"))) return;
+      }
+      closing = true;
+      await api.appWindow.exit();
+    });
+    return () => {
+      void un.then((f) => f());
+      void unExit.then((f) => f());
+    };
   });
 
   // -- auto-lock after inactivity -----------------------------------------

@@ -26,6 +26,7 @@ export const SETTING_ENTRIES: SettingEntry[] = [
   { label: "Smart completion", query: "smart completion", words: "autocomplete suggestions ghost" },
   { label: "Alerts and monitoring history", query: "alerts", words: "notify cpu memory disk quiet hours charts" },
   { label: "Auto-reconnect", query: "auto-reconnect", words: "connection drop" },
+  { label: "Keep running in the tray when the window is closed", query: "tray", words: "system tray minimize close window background exit quit notification area" },
   { label: "Remember commands and history", query: "remember", words: "command history" },
   { label: "Reopen tabs from last time", query: "restore session", words: "reopen tabs" },
   { label: "Paste protection", query: "paste", words: "newline confirm multi-line" },
