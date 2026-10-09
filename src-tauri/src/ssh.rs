@@ -301,6 +301,7 @@ impl SshManager {
         }
 
         let manager = Arc::clone(self);
+        // spawn-ok: only called from the async ssh_connect and ssh_connect_adhoc commands
         tokio::spawn(async move {
             sink.status(SessionStatus::Connecting);
             let outcome = run_session(params, rx, sink.as_ref(), client_cell).await;

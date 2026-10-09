@@ -55,6 +55,7 @@ pub mod selfupdate;
 pub mod session;
 pub mod sessionlog;
 pub mod sftp;
+pub mod spawnlint;
 pub mod ssh;
 pub mod sshconfig;
 pub mod sync;
@@ -269,6 +270,15 @@ pub fn run() {
             commands::forward_stop,
             commands::forward_statuses,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            // Quitting is a lock too: it releases this device's "open here" marker in the synced folder (otherwise other
+            // devices show a session that is gone), writes down what this device has seen of it, and drops the key.
+            if let tauri::RunEvent::Exit = event {
+                if let Some(state) = tauri::Manager::try_state::<commands::AppState>(app) {
+                    state.session.lock();
+                }
+            }
+        });
 }

@@ -101,6 +101,7 @@ impl ForwardManager {
         self.set(sink.as_ref(), rule_id, ForwardStatus::Starting);
 
         let me = Arc::clone(self);
+        // spawn-ok: only called from the async forward_start command
         tokio::spawn(async move {
             let end = match run_rule(&me, rule_id, &target, &kind, sink.as_ref(), stop_rx).await {
                 Ok(()) => ForwardStatus::Stopped,

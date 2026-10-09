@@ -122,6 +122,7 @@ impl RunManager {
     ) {
         let me = Arc::clone(self);
         let id = run_id.clone();
+        // spawn-ok: run_on_hosts and the CLI handler call this inside the async runtime
         let handle = tokio::spawn(async move {
             let limit = Arc::new(Semaphore::new(CONCURRENCY));
             let mut set = JoinSet::new();

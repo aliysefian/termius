@@ -36,8 +36,14 @@ on a release build.
 `[unix-time] vX.Y.Z panic in thread 'name' at file:line: message` to `<config dir>/crash.log` (0600, kept under 128 KiB) and then
 lets the previous hook run. The message is cut where an `Err` value would be printed, so error values never reach the log.
 Tests (4, scratch crate on the real file): value scrubbing, one-line/length cap, bounded append, and a real panicking thread
-whose error value `hunter2` does not appear. Not done: `tracing`/structured logging, `RunEvent::Exit` cleanup, the lint for
-sync commands reaching `tokio::spawn`; the hook cannot report a crash in a thread that dies before `setup` runs.
+whose error value `hunter2` does not appear. Also done (2026-10-09): (1) `spawnlint.rs`, a test that reads every source file and fails when `tokio::spawn` appears in a
+function that is not `async` (the shape that closed the app three times); it passes on the current code and fails on the 0.26.2
+`monitor.rs` (checked). Nine existing spawns in plain functions were checked against their callers (each is an `async` command or is
+wrapped in `tauri::async_runtime::spawn`) and carry a `// spawn-ok: <why>` note, so a new caller that breaks the assumption is not
+trusted silently. (2) A clean exit: `RunEvent::Exit` locks the session, which releases this device's "open here" marker in the
+synced folder, saves the rollback memory and drops the key (`lib.rs`, not compiled here). Not done: `tracing`/structured logging;
+the hook cannot report a crash in a thread that dies before `setup` runs; sessions, forwards and the agent are not closed
+individually on exit (the process ends them).
 **Completion evidence.** Pending.* The wiring in `lib.rs` and `commands.rs` was not compiled (two lines); CI must pass; the
 `monitor.rs` spawn fix is verified only by reading. The `monitor.rs` one-line change is verified only by reading (cannot compile
 here); CI must pass before DONE.

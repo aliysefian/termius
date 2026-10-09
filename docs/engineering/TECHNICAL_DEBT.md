@@ -5,7 +5,7 @@ Ordered by cost of leaving it. Evidence paths as in the other audit files.
 | # | Item | Why it hurts | Fix | Task |
 |---|---|---|---|---|
 | D1 | No logging, panic hook or shutdown handler | A silent abort (the 0.26.3 bug) was undiagnosable; sessions/locks leak on quit | `tracing` + redaction layer, `panic::set_hook` writing to the app-data dir, `RunEvent::Exit` cleanup | SSHV-004 |
-| D2 | Sync-command/runtime-context bug class is untestable | Command wiring has no tests; only runtime catches it | Lint/test that no sync `#[tauri::command]` reaches `tokio::spawn`; prefer `async` commands | SSHV-004 |
+| D2 | Sync-command/runtime-context bug class | Command wiring has no tests | DONE on branch: `spawnlint.rs` fails the build on `tokio::spawn` in a non-async function | SSHV-004 |
 | D3 | `commands.rs` 4665 lines | Review and merge pain; error mapping lives in it | Split by domain behind the same `invoke_handler` | SSHV-027 |
 | D4 | `ssh.rs` 1968 lines, `TerminalPane.svelte` 1675 | Same | Split connect/auth/channels; extract reconnect, search, profile logic | SSHV-027 |
 | D5 | Error codes collapse at IPC | UI cannot branch on timeout/refused/DNS/proxy | Extend `ApiError` codes; carry code in `SessionStatus::Error` | SSHV-003 |
