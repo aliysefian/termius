@@ -48,6 +48,12 @@ individually on exit (the process ends them).
 `monitor.rs` spawn fix is verified only by reading. The `monitor.rs` one-line change is verified only by reading (cannot compile
 here); CI must pass before DONE.
 
+**Progress (2026-10-09, later).** The crash log is now findable: the next start shows "SSHVault closed unexpectedly on <time>. The reason is
+in Settings → Advanced → Diagnostics" once (the newest entry seen is remembered), and Settings → Advanced → Diagnostics lists the entries
+(time, thread, place in the code) with the file's path, Copy and Clear. It works while the vault is locked. Tests: log reading in
+`crashlog.rs` (5 in the scratch crate); browser test `e2e/crashlog.py` (announced once, shown, cleared); accessibility scan still 0 findings.
+`crash_log` and `clear_crash_log` in `commands.rs` were not compiled here.
+
 ---
 ## SSHV-023 Webview hardening
 ```yaml
@@ -190,7 +196,7 @@ crate (`pnpm check` 0 errors). (c) Backend idle lock: new `idle.rs` (`IdleClock`
 checks every 15 s and, once reports have stopped for the chosen minutes, runs the same `lock_everything` as Lock (closing sessions,
 agent, control socket, reveal gate) and emits `vault:idle-locked`, which the window answers by showing the lock screen. Nothing is
 due before the first report, 0 minutes means off, and the idle time is capped at a day. Tests: 3 in `idle.rs` pass in a scratch
-crate; the wiring in `commands.rs`/`lib.rs` was not compiled. The window's own timer still runs. **Not done:** `subtle`/unlock delay (S18, low; `subtle` would need a Cargo.lock
+crate; the wiring in `commands.rs`/`lib.rs` was not compiled. The window's own timer still runs. (d) Wrong-password throttle (`unlockguard.rs`, wired into `unlock_vault`): four free wrong passwords, then each waits 2, 4, 8 … up to 300 s, cleared by a right one; slows scripted guessing through the app only (3 tests, scratch crate; the wiring was not compiled here, CI compiles it). **Not done:** `subtle` (S18, low; `subtle` would need a Cargo.lock
 edit I cannot verify), `mlock`.
 **Evidence.** Partial, as above.
 
@@ -259,7 +265,13 @@ unsupported. (2) `neterr.rs`: DNS failure, refused, timeout and unreachable are 
 limit (20 s) no longer runs while the host-key question is open; before, a person taking over 20 s to answer got "timed out" and
 lost the decision although the prompt allows 300 s. (4) New limits: sign-in 60 s (`AUTH_TIMEOUT`), shell channel setup 30 s
 (`SETUP_TIMEOUT`) (S14). (5) Forwards: accept errors back off 100 ms, at most 256 tunnels per forward, SOCKS handshake 10 s (S15).
-**Not done:** pooling (D6), per-host algorithm lists, host-key per algorithm (S19), cancel-while-connecting, UI use of the new error
+(2026-10-09, later) Cancel while connecting: Close now ends a pane that is still connecting (a server that accepts and never answers
+used to hold it for the full 20 s), and what was typed meanwhile is kept and sent once the shell is up; test with a silent server and a
+real `sshd` (fails when the fix is removed). (2026-10-09, later) Older algorithms: a per-host "Allow older algorithms" switch (host form, `Host.legacy_algorithms`, `Target.legacy_algorithms`) adds SHA-1
+key exchange, AES-CBC ciphers and SHA-1 MACs after the modern ones (`algorithms.rs`; 3DES is not available in this build and was left out), and a
+failed negotiation now says what each side offered and, for key exchange, ciphers and MACs, to try the switch. Tested against a real
+`sshd` that offers only old algorithms: default fails with the message, the opt-in connects and runs a command. **Not done:** pooling (D6),
+free-form per-host algorithm lists, host-key per algorithm (S19), UI use of the new error
 codes (the window shows the message), a server-stall test (the 20 s limit makes it slow).
 **Evidence.** The real `ssh.rs`, `dial.rs`, `forward.rs`, `agent.rs`, `x11.rs`, `hostkeys.rs`, `knownhosts.rs`, `health.rs` and
 the vault compile in a scratch crate with stubs for the tauri-only parts, and 142 tests pass, including the live-`sshd` tests (shell
@@ -290,6 +302,6 @@ Both files parse as YAML; neither has run. **Findings that changed the plan:** (
 the code is not in default rustfmt style; a fmt gate would fail CI at once and a mass reformat would bury real changes, so it
 is deliberately not added (needs a rustfmt.toml decision or a one-off reformat commit). (2) CI already installs
 `openssh-server` on Linux and Windows jobs (`build.yml:57,154`), so the sshd-based tests do run; the earlier concern that
-they pass vacuously is withdrawn. **Also (2026-10-09):** a `csp` job in `build.yml` runs `csp.py` under the real policy (non-blocking until it has had a green run on the runner; not run yet). Clippy (`-D warnings`, as CI runs it) was run over every Rust file I could compile in scratch crates and is clean after one fix to my own test; `commands.rs`, `lib.rs` and the database drivers could not be linted here. **Not done:** pinning actions by SHA and `rust-toolchain.toml` (need current SHAs and a
+they pass vacuously is withdrawn. **Also (2026-10-09):** a `csp` job in `build.yml` runs `csp.py` under the real policy (non-blocking until it has had a green run on the runner; not run yet). Clippy (`-D warnings`, as CI runs it) was run over every Rust file I could compile in scratch crates and is clean after one fix to my own test; `commands.rs`, `lib.rs` and the database drivers could not be linted here. (2026-10-09, later) The first real `cargo audit` run (the CI job had failed): one vulnerability, `rsa` RUSTSEC-2023-0071, no fix exists, accepted with the reason written next to the ignore in `src-tauri/.cargo/audit.toml`; the audit now passes locally and the workflow is no longer marked non-blocking. **Not done:** pinning actions by SHA and `rust-toolchain.toml` (need current SHAs and a
 toolchain decision), component tests, ESLint/Prettier, macOS decision, failing tagged builds without signing secrets.
 **Evidence.** Pending first workflow runs.

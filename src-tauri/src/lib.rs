@@ -3,6 +3,7 @@
 #[cfg(test)]
 mod acceptance_tests;
 pub mod agent;
+pub mod algorithms;
 pub mod ansible;
 pub mod certs;
 pub mod commands;
@@ -59,6 +60,7 @@ pub mod spawnlint;
 pub mod ssh;
 pub mod sshconfig;
 pub mod sync;
+pub mod unlockguard;
 pub mod vault;
 pub mod vnc;
 pub mod wol;
@@ -85,6 +87,8 @@ pub fn run() {
             commands::unlock_with_recovery,
             commands::forget_device,
             commands::set_keep_key_on_lock,
+            commands::crash_log,
+            commands::clear_crash_log,
             commands::vault_activity,
             commands::accept_rollbacks,
             commands::remember_device,

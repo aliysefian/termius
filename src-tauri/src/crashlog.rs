@@ -7,6 +7,7 @@
 //! Nothing is sent anywhere.
 
 use std::io::Write;
+use serde::Serialize;
 use std::panic::PanicHookInfo;
 use std::path::{Path, PathBuf};
 
@@ -22,6 +23,39 @@ pub fn install(dir: PathBuf) {
         let _ = append(&dir, &entry(info, now()));
         previous(info);
     }));
+}
+
+/// One panic as it was written down.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Entry {
+    /// Unix seconds.
+    pub at: u64,
+    /// "v0.27.0 panic in thread 'x' at src/y.rs:12: message", exactly as logged.
+    pub text: String,
+}
+
+/// The newest `max` entries, newest first. A damaged line is skipped; a missing file is no entries.
+pub fn recent(dir: &Path, max: usize) -> Vec<Entry> {
+    let text = std::fs::read_to_string(path(dir)).unwrap_or_default();
+    let mut out: Vec<Entry> = text
+        .lines()
+        .filter_map(|line| {
+            let rest = line.strip_prefix('[')?;
+            let (at, text) = rest.split_once("] ")?;
+            Some(Entry { at: at.parse().ok()?, text: text.chars().take(MAX_MESSAGE + 120).collect() })
+        })
+        .collect();
+    out.reverse();
+    out.truncate(max);
+    out
+}
+
+/// Delete the log.
+pub fn clear(dir: &Path) -> std::io::Result<()> {
+    match std::fs::remove_file(path(dir)) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
+        _ => Ok(()),
+    }
 }
 
 pub fn path(dir: &Path) -> PathBuf {
@@ -131,6 +165,25 @@ mod tests {
         let text = std::fs::read_to_string(path(&dir)).unwrap();
         assert!(text.contains("thread 'probe'") && text.contains("crashlog.rs"), "{text}");
         assert!(!text.contains("hunter2"), "the error value must not be logged: {text}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_log_reads_back_newest_first_and_skips_damaged_lines() {
+        let dir = std::env::temp_dir().join(format!("crashlog-read-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(recent(&dir, 5).is_empty(), "no file, no entries");
+        for (at, msg) in [(10, "first"), (20, "second"), (30, "third")] {
+            append(&dir, &format_entry(at, "t", "src/a.rs:1", msg)).unwrap();
+        }
+        append(&dir, "garbage with no timestamp\n[notanumber] x\n[5]no space\n").unwrap();
+        let got = recent(&dir, 2);
+        assert_eq!(got.iter().map(|e| e.at).collect::<Vec<_>>(), [30, 20]);
+        assert!(got[0].text.contains("third") && got[0].text.contains("src/a.rs:1"), "{:?}", got[0]);
+        assert_eq!(recent(&dir, 99).len(), 3);
+        clear(&dir).unwrap();
+        assert!(recent(&dir, 5).is_empty());
+        clear(&dir).unwrap(); // clearing nothing is fine
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

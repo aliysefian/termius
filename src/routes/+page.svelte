@@ -152,6 +152,15 @@
       for (const ev of events) window.removeEventListener(ev, bump, { capture: true });
     };
   });
+  // If the app closed by itself last time, say so once, and where to read why.
+  onMount(() => {
+    void api.crash.log().then((c) => {
+      const last = c?.entries?.[0];
+      if (!last || last.at <= settings.prefs.crashSeenAt) return;
+      settings.prefs.crashSeenAt = last.at;
+      ui.notify("error", `SSHVault closed unexpectedly on ${new Date(last.at * 1000).toLocaleString()}. The reason is in Settings → Advanced → Diagnostics.`);
+    }).catch(() => {});
+  });
   // The backend locked an idle vault itself: show the lock screen.
   onMount(() => {
     const un = api.vault.onIdleLocked(() => {

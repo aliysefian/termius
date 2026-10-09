@@ -91,6 +91,8 @@ export interface Host {
   no_group_proxy?: boolean;
   /** Keep-alive interval in seconds (ServerAliveInterval); 0 disables. */
   keepalive_secs?: number;
+  /** Also offer older algorithms (SHA-1 key exchange, AES-CBC, SHA-1 MACs) to this host, for old devices. */
+  legacy_algorithms?: boolean;
   /** Free-form metadata, e.g. owner or ticket. */
   custom?: Record<string, string>;
   /** "telnet" for Telnet hosts; absent or empty means SSH. */
@@ -346,6 +348,12 @@ export interface VaultInfo {
 
 /** A record that went backwards (an older revision than this device saw) or vanished from the synced folder. */
 export type RollbackAnomaly = { collection: string; id: Uuid } & ({ kind: "older"; seen: number; now: number } | { kind: "missing"; seen: number });
+
+/** What the crash log holds: why SSHVault closed by itself, newest first. */
+export interface CrashLogView {
+  path: string;
+  entries: { at: number; text: string }[];
+}
 
 export interface BackupInfo {
   file_name: string;

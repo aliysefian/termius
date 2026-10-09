@@ -95,6 +95,8 @@ pub struct AppState {
     logs: std::sync::Mutex<std::collections::HashMap<String, LogSlot>>,
     /// When the window last reported activity, for locking an idle vault even if the window can't.
     idle: crate::idle::IdleClock,
+    /// Slows repeated wrong master passwords at the unlock command.
+    unlock_guard: crate::unlockguard::UnlockGuard,
 }
 
 impl AppState {
@@ -533,13 +535,27 @@ pub async fn unlock_vault(
     let mut cfg = AppConfig::load(&state.config_dir)?;
     let root = configured_root(&cfg)?;
     let device = cfg.device(&state.config_dir)?;
-    let report = state.session.unlock(
+    if let Err(wait) = state.unlock_guard.check(std::time::Instant::now()) {
+        return Err(ApiError::new("locked_out", format!("Too many wrong passwords. Try again in {} seconds.", wait.as_secs() + 1)));
+    }
+    let report = match state.session.unlock(
         root,
         crate::vault::Unlock::Password(password.as_bytes()),
         device,
         KdfParams::default(),
         on_change_emitter(app),
-    )?;
+    ) {
+        Ok(report) => {
+            state.unlock_guard.succeeded();
+            report
+        }
+        Err(e) => {
+            if matches!(e, crate::session::SessionError::Vault(VaultError::WrongPassword)) {
+                state.unlock_guard.failed(std::time::Instant::now());
+            }
+            return Err(e.into());
+        }
+    };
     purge_old_tombstones(&state);
     let keychain_error = apply_remember(&state, remember);
     let cfg = AppConfig::load(&state.config_dir)?;
@@ -714,6 +730,24 @@ pub async fn lock_everything(state: &AppState) -> ApiResult<VaultStatus> {
         }
     }
     Ok(status_of(state, &cfg))
+}
+
+/// What the crash log holds, for the Diagnostics section and the "closed unexpectedly" notice. Needs no unlocked vault.
+#[derive(Debug, Clone, Serialize)]
+pub struct CrashLogView {
+    pub path: PathBuf,
+    /// Newest first.
+    pub entries: Vec<crate::crashlog::Entry>,
+}
+
+#[tauri::command]
+pub fn crash_log(state: State<'_, AppState>) -> CrashLogView {
+    CrashLogView { path: crate::crashlog::path(&state.config_dir), entries: crate::crashlog::recent(&state.config_dir, 20) }
+}
+
+#[tauri::command]
+pub fn clear_crash_log(state: State<'_, AppState>) -> ApiResult<()> {
+    crate::crashlog::clear(&state.config_dir).map_err(|e| ApiError::new("io", e.to_string()))
 }
 
 /// Whether locking keeps this device's stored key (see `AppConfig::keep_key_on_lock`).
@@ -3119,6 +3153,7 @@ fn adhoc_jump_chain(state: &AppState, jumps: Vec<AdhocHop>) -> ApiResult<Option<
                     forward_x11: false,
                     proxy: None,
                     keepalive_secs: None,
+                    legacy_algorithms: false,
                 }
             }
         };
@@ -3170,6 +3205,7 @@ pub async fn ssh_connect_adhoc(
             forward_x11: false,
             proxy: None,
             keepalive_secs: None,
+            legacy_algorithms: false,
         },
         cols: cols.max(2),
         rows: rows.max(1),
@@ -4796,6 +4832,7 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         cli_trusted_until: Default::default(),
         logs: Default::default(),
         idle: Default::default(),
+        unlock_guard: Default::default(),
     });
     // Lock an idle vault even when the window can't (frozen, throttled, or its timer lost). Checks every 15 seconds;
     // started with `tauri::async_runtime` because setup runs on a thread with no async runtime of its own.

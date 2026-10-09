@@ -35,12 +35,14 @@ const AUTH_TIMEOUT: Duration = Duration::from_secs(60);
 /// Opening the shell channel, asking for a terminal and starting the shell.
 const SETUP_TIMEOUT: Duration = Duration::from_secs(30);
 const KEEPALIVE: Duration = Duration::from_secs(30);
+/// Keystrokes and resizes remembered while a connection is still being made.
+const MAX_EARLY_COMMANDS: usize = 1024;
 /// Longest jump chain we will follow (a sanity bound against misconfiguration).
 pub const MAX_JUMPS: usize = 8;
 
 #[derive(Debug, thiserror::Error)]
 pub enum SshError {
-    #[error("{0}")]
+    #[error("{}", crate::algorithms::explain(.0))]
     Ssh(#[from] russh::Error),
 
     #[error("key error: {0}")]
@@ -195,6 +197,8 @@ pub struct Target {
     pub proxy: Option<crate::models::ProxySpec>,
     /// Keep-alive interval (OpenSSH `ServerAliveInterval`); default 30 s.
     pub keepalive_secs: Option<u32>,
+    /// Also offer older algorithms to this host (see `algorithms`). Off unless the host asks for it.
+    pub legacy_algorithms: bool,
 }
 
 /// A host key recorded for the first time during a connection.
@@ -900,6 +904,7 @@ fn client_config(target: &Target) -> Arc<client::Config> {
         keepalive_interval: keepalive,
         keepalive_max: 3,
         nodelay: true,
+        preferred: crate::algorithms::preferred(target.legacy_algorithms),
         ..Default::default()
     })
 }
@@ -910,7 +915,21 @@ async fn run_session(
     sink: &dyn TermSink,
     client_cell: Arc<std::sync::OnceLock<Arc<Client>>>,
 ) -> Result<Option<u32>, SshError> {
-    let (handle, learned) = open_client(&params.target, None).await?;
+    // Close ends a connection attempt that is still waiting (a server that accepts and never answers would otherwise
+    // hold the pane until the time limit). What was typed meanwhile is kept and sent once there is a shell.
+    let mut early: Vec<Cmd> = Vec::new();
+    let connecting = open_client(&params.target, None);
+    tokio::pin!(connecting);
+    let (handle, learned) = loop {
+        tokio::select! {
+            done = &mut connecting => break done?,
+            cmd = rx.recv() => match cmd {
+                Some(Cmd::Close) | None => return Ok(None),
+                Some(other) if early.len() < MAX_EARLY_COMMANDS => early.push(other),
+                Some(_) => {}
+            },
+        }
+    };
     let handle = Arc::new(handle);
     let _ = client_cell.set(Arc::clone(&handle));
 
@@ -957,6 +976,19 @@ async fn run_session(
 
     let (mut reader, writer) = channel.split();
     let mut exit_code: Option<u32> = None;
+    for cmd in early {
+        match cmd {
+            Cmd::Write(bytes) => {
+                if writer.data_bytes(bytes).await.is_err() {
+                    break;
+                }
+            }
+            Cmd::Resize { cols, rows } => {
+                let _ = writer.window_change(cols, rows, 0, 0).await;
+            }
+            Cmd::Close => {}
+        }
+    }
 
     loop {
         tokio::select! {
@@ -1206,7 +1238,7 @@ pub(crate) mod testutil {
         spawn_sshd_with(dir, false, "")
     }
 
-    fn spawn_sshd_with(dir: &std::path::Path, with_sftp: bool, extra: &str) -> Option<Sshd> {
+    pub fn spawn_sshd_with(dir: &std::path::Path, with_sftp: bool, extra: &str) -> Option<Sshd> {
         // CI sets the variable on every OS, empty where tests should run.
         if std::env::var_os("SSHVAULT_SKIP_SSHD_TESTS").is_some_and(|v| !v.is_empty()) {
             return None;
@@ -1313,6 +1345,7 @@ pub(crate) mod testutil {
             forward_x11: false,
             proxy: None,
             keepalive_secs: None,
+            legacy_algorithms: false,
         }
     }
 }
@@ -1332,6 +1365,7 @@ pub fn testutil_target() -> Target {
         forward_x11: false,
         proxy: None,
         keepalive_secs: None,
+        legacy_algorithms: false,
     }
 }
 
@@ -1978,5 +2012,82 @@ mod tests {
             .expect("should fail");
         assert!(matches!(err, SshError::Jump { .. }), "{err}");
         assert!(err.to_string().contains("authentication failed"), "{err}");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn closing_a_pane_that_is_still_connecting_ends_it_at_once_and_early_typing_is_kept() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let Some(sshd) = spawn_sshd(dir.path()) else {
+            eprintln!("skipping: no usable sshd on this machine");
+            return;
+        };
+        let known_hosts = dir.path().join("app").join("known_hosts");
+        let manager = Arc::new(SshManager::new());
+
+        // A server that accepts the connection and never says a word.
+        let silent = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let silent_port = silent.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            let held = silent.accept().map(|(s, _)| s);
+            std::thread::sleep(Duration::from_secs(8));
+            drop(held);
+        });
+        let (tx, rx) = std_mpsc::channel();
+        let mut p = params(&sshd, &sshd.client_key, known_hosts.clone());
+        p.target.hostname = "127.0.0.1".into();
+        p.target.port = silent_port;
+        manager.connect("hung".into(), p, Arc::new(TestSink(tx))).unwrap();
+        wait_status(&rx, |s| matches!(s, SessionStatus::Connecting));
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        let started = Instant::now();
+        manager.disconnect("hung").await;
+        // wait_status gives up after 15 s; the connect limit alone is 20 s, so this proves Close cut it short.
+        wait_status(&rx, |s| matches!(s, SessionStatus::Disconnected { .. }));
+        assert!(started.elapsed() < Duration::from_secs(3), "{:?}", started.elapsed());
+        assert!(!manager.is_connected("hung"), "the pane is released");
+
+        // Typing before the shell is up is not lost.
+        let (tx, rx) = std_mpsc::channel();
+        manager.connect("early".into(), params(&sshd, &sshd.client_key, known_hosts), Arc::new(TestSink(tx))).unwrap();
+        manager.write("early", b"printf 'A%sB\\n' _EARLY_\n".to_vec()).await.unwrap();
+        wait_status(&rx, |s| matches!(s, SessionStatus::Connected));
+        let out = wait_output(&rx, "A_EARLY_B");
+        assert!(out.contains("A_EARLY_B"), "{out}");
+        manager.disconnect("early").await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn an_old_device_needs_the_older_algorithms_and_the_error_says_so() {
+        let dir = tempfile::TempDir::new().unwrap();
+        // A server that offers only what an old appliance would: SHA-1 key exchange, a CBC cipher, a SHA-1 MAC.
+        let Some(sshd) = spawn_sshd_config(dir.path(), "KexAlgorithms diffie-hellman-group14-sha1\nCiphers aes128-cbc\nMACs hmac-sha1\n") else {
+            eprintln!("skipping: no usable sshd on this machine");
+            return;
+        };
+        let known_hosts = dir.path().join("app").join("known_hosts");
+        let manager = Arc::new(SshManager::new());
+
+        // As it is by default, it cannot connect, and the message says what to do.
+        let (tx, rx) = std_mpsc::channel();
+        manager.connect("old1".into(), params(&sshd, &sshd.client_key, known_hosts.clone()), Arc::new(TestSink(tx))).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(15);
+        let message = loop {
+            match rx.recv_timeout(deadline.saturating_duration_since(Instant::now())).expect("an error status") {
+                Ev::Status(SessionStatus::Error { message }) => break message,
+                Ev::Status(SessionStatus::Connected) => panic!("connected without the older algorithms"),
+                _ => {}
+            }
+        };
+        assert!(message.contains("no key exchange method in common") && message.contains("diffie-hellman-group14-sha1") && message.contains("Allow older algorithms"), "{message}");
+
+        // With the host's opt-in it connects, and the shell works.
+        let (tx, rx) = std_mpsc::channel();
+        let mut p = params(&sshd, &sshd.client_key, known_hosts);
+        p.target.legacy_algorithms = true;
+        manager.connect("old2".into(), p, Arc::new(TestSink(tx))).unwrap();
+        wait_status(&rx, |s| matches!(s, SessionStatus::Connected));
+        manager.write("old2", b"printf 'A%sB\\n' _OLD_\n".to_vec()).await.unwrap();
+        assert!(wait_output(&rx, "A_OLD_B").contains("A_OLD_B"));
+        manager.disconnect("old2").await;
     }
 }

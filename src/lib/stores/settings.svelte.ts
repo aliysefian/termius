@@ -100,6 +100,8 @@ export interface Prefs {
   alertHistory: Alert[];
   /** Keep the monitoring charts for longer than 15 minutes, on this computer. */
   metricsKeep: "off" | "day" | "week";
+  /** The newest crash-log entry (unix seconds) the person has already been told about. */
+  crashSeenAt: number;
   /** The names under the sidebar icons. */
   railLabels: boolean;
   /** Show pictures a program draws in the terminal (Sixel, iTerm2). Takes effect in terminals opened afterwards. */
@@ -208,6 +210,7 @@ export const DEFAULT_PREFS: Prefs = {
   alertKeepHistory: false,
   alertHistory: [],
   metricsKeep: "off",
+  crashSeenAt: 0,
   railLabels: true,
   terminalImages: true,
   highlightRules: [],
