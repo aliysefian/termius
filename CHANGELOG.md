@@ -4,6 +4,13 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## 0.30.0 - 2026-10-09
+
+- **Closing the window keeps SSHVault running in the system tray.** Sessions, tunnels, transfers, the SSH agent and schedules carry on. Click the tray icon (or choose **Open** in its menu) to bring the window back. **Exit** in the menu saves the open tabs, asks first if sessions are connected, closes everything the app started and quits. To quit on close as before, untick **Settings → Connections → Keep running in the tray when the window is closed**.
+- **Only one SSHVault runs at a time.** Launching it again shows the window that is already open, instead of starting a second copy with a second tray icon.
+- On Linux the tray needs an AppIndicator library (`libayatana-appindicator3`), which the .deb and .rpm now recommend. Without it there is no icon and closing the window quits, as before. Linux trays don't report clicks, so the icon opens its menu there.
+- Quitting while the window is hidden no longer means the next start opens hidden.
+
 ## 0.29.4 - 2026-10-09
 
 - **Fixed:** in the host form and other dialogs, search pickers such as **Jump host** opened off to the right and were partly hidden behind the dialog. They now open right under their field.
