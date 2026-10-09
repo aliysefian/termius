@@ -37,8 +37,8 @@ buffers already exist; keep them. Tests: masking table tests.
 **Progress (2026-10-09).** Done: (1) `ops/mask.ts`, a port of the Rust masker (same cases; 5 + 2 tests in `opsmask.test.ts`),
 used by `LogBuffer` as lines arrive (per host, so a private key block split across chunks is dropped whole); a "hide secrets"
 switch in the log panel, on by default, applies to new lines only. (2) "Save the lines shown" writes a `.log` file through
-`export_text_file`, which now accepts `.json` and `.log` only (2 tests, scratch crate). **Not done:** one entry point for journal,
-Docker and Kubernetes logs (the Docker and Kubernetes views keep their own log windows and are not masked yet), historical search.
+`export_text_file`, which now accepts `.json` and `.log` only (2 tests, scratch crate). The Docker log window (`ContainerLogs.svelte`) has the same "Hide secrets" switch, and the Kubernetes one masks through the shared buffer. **Not done:** one
+entry point for journal, Docker and Kubernetes logs, historical search.
 Masking cannot be undone for lines already kept; switching it off stops hiding new lines only.
 
 ## SSHV-011 Alerts

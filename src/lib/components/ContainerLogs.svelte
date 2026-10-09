@@ -16,6 +16,10 @@
   const TAILS = [100, 500, 2000, 10_000] as const;
 
   const buffer = new LogBuffer(20_000);
+  let hideSecrets = $state(true);
+  $effect(() => {
+    buffer.mask = hideSecrets;
+  });
   let tail = $state<number>(500);
   let follow = $state(true);
   let timestamps = $state(false);
@@ -169,6 +173,9 @@
       </label>
       <label class="flex items-center gap-1.5 text-fg-muted">
         <input type="checkbox" class="accent-input" bind:checked={timestamps} onchange={start} /> Timestamps
+      </label>
+      <label class="flex items-center gap-1.5 text-fg-muted" title="Hides passwords, tokens, keys and credentials in lines that arrive from now on. It recognises common shapes only; it is not a guarantee.">
+        <input type="checkbox" class="accent-input" bind:checked={hideSecrets} /> Hide secrets
       </label>
       <div class="ml-auto flex items-center gap-1.5">
         <input

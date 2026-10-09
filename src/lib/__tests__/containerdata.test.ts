@@ -154,6 +154,16 @@ describe("log buffer", () => {
     b.push("tail");
     expect(b.all()).toEqual(["one", "two", "three", "tail"]);
   });
+  it("hides secrets in complete lines only when asked, and drops a key block whole", () => {
+    const off = new LogBuffer();
+    off.push("password=hunter2\n");
+    expect(off.lines).toEqual(["password=hunter2"]);
+    const on = new LogBuffer();
+    on.mask = true;
+    on.push("db password=hun");
+    on.push("ter2\nok\n-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----\ndone\n");
+    expect(on.lines).toEqual(["db password=[hidden]", "ok", "[private key hidden]", "done"]);
+  });
   it("reads a terminal's CRLF as one line break", () => {
     const b = new LogBuffer();
     b.push("a\r\nb\r\n");
