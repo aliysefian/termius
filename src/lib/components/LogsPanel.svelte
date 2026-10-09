@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy, tick } from "svelte";
-  import { Pause, Play, Square, Trash2, ClipboardCopy, Loader2 } from "lucide-svelte";
+  import { Pause, Play, Square, Trash2, ClipboardCopy, Download, Loader2 } from "lucide-svelte";
   import { writeText } from "@tauri-apps/plugin-clipboard-manager";
   import EmptyState from "./EmptyState.svelte";
   import * as api from "$lib/api";
@@ -40,6 +40,10 @@
   type Run = { hostId: Uuid; label: string; session: Uuid | null; stream: Uuid | null; state: "connecting" | "following" | "ended" | "error"; message: string; assembler: LineAssembler };
   let runs = $state<Run[]>([]);
   const buffer = new LogBuffer();
+  let hideSecrets = $state(true);
+  $effect(() => {
+    buffer.mask = hideSecrets;
+  });
   let lines = $state<LogLine[]>([]);
   let pendingFlush = false;
 
@@ -166,6 +170,19 @@
     }
   }
 
+  async function saveVisible() {
+    if (!visible.length) return;
+    try {
+      const { save } = await import("@tauri-apps/plugin-dialog");
+      const path = await save({ title: "Save the lines shown", defaultPath: "sshvault-log.log", filters: [{ name: "Log", extensions: ["log"] }] });
+      if (!path) return;
+      await api.exportTextFile(path, visible.map((l) => `${picked.length > 1 ? `[${l.host}] ` : ""}${l.text}`).join("\n") + "\n");
+      ui.notify("info", `Saved ${visible.length} lines${hideSecrets ? "" : " (secrets not hidden)"}.`);
+    } catch (e) {
+      ui.notify("error", errorMessage(e));
+    }
+  }
+
   function clear() {
     buffer.clear();
     lines = [];
@@ -283,10 +300,12 @@
       <div class="ml-auto flex items-center gap-1">
         <span class="mr-1 text-[11px] text-fg-muted">{shown.length}{shown.length !== source_lines.length ? ` of ${source_lines.length}` : ""} lines</span>
         <label class="mr-1 flex items-center gap-1 text-xs text-fg-muted"><input type="checkbox" class="accent-input" bind:checked={wrap} /> wrap</label>
+        <label class="mr-1 flex items-center gap-1 text-xs text-fg-muted" title="Hides passwords, tokens, keys and credentials in lines that arrive from now on. It recognises common shapes only; it is not a guarantee."><input type="checkbox" class="accent-input" bind:checked={hideSecrets} /> hide secrets</label>
         <button class="icon-btn" title={paused ? "Resume scrolling" : "Pause the view (lines keep arriving)"} aria-pressed={paused} onclick={togglePause}>
           {#if paused}<Play size={15} />{:else}<Pause size={15} />{/if}
         </button>
         <button class="icon-btn" title="Copy the lines shown" disabled={!visible.length} onclick={() => void copyVisible()}><ClipboardCopy size={15} /></button>
+        <button class="icon-btn" title="Save the lines shown to a .log file" disabled={!visible.length} onclick={() => void saveVisible()}><Download size={15} /></button>
         <button class="icon-btn" title="Clear" disabled={!lines.length} onclick={clear}><Trash2 size={15} /></button>
       </div>
     </div>

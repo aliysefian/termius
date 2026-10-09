@@ -1,5 +1,6 @@
 // Following logs on several hosts: what to run, and turning the output into lines that can be filtered,
 // coloured and kept to a fixed size. Pure, so it can be tested without a connection.
+import { SecretMasker } from "./mask";
 import { shq } from "./quote";
 
 export const PRIORITIES = ["emerg", "alert", "crit", "err", "warning", "notice", "info", "debug"] as const;
@@ -153,11 +154,22 @@ export function highlights(text: string, re: RegExp | null): [number, number][] 
 export class LogBuffer {
   lines: LogLine[] = [];
   #next = 1;
+  /** One per host: a private key block can span many lines of one stream. */
+  #maskers = new Map<string, SecretMasker>();
+  /** Hide passwords, tokens and keys in lines as they arrive (new lines only; what is already kept stays as it was). */
+  mask = true;
 
   constructor(readonly max = MAX_LINES) {}
 
   add(hostId: string, host: string, texts: string[], at = Date.now()): LogLine[] {
-    const added = texts.map((text) => ({ id: this.#next++, hostId, host, text, level: detectLevel(text), at }));
+    let masker = this.#maskers.get(hostId);
+    if (!masker) this.#maskers.set(hostId, (masker = new SecretMasker()));
+    const kept: string[] = [];
+    for (const raw of texts) {
+      const text = this.mask ? masker.line(raw) : raw;
+      if (text !== null) kept.push(text);
+    }
+    const added = kept.map((text) => ({ id: this.#next++, hostId, host, text, level: detectLevel(text), at }));
     this.lines = this.lines.concat(added);
     if (this.lines.length > this.max) this.lines = this.lines.slice(this.lines.length - this.max);
     return added;
@@ -165,5 +177,6 @@ export class LogBuffer {
 
   clear() {
     this.lines = [];
+    this.#maskers.clear();
   }
 }

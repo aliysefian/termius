@@ -25,7 +25,7 @@ id: SSHV-010
 title: Export, masking, and one entry point for journal/Docker/kube logs
 module: logs
 priority: P1
-status: TODO
+status: TESTING
 dependencies: [SSHV-004]
 risk: low
 ```
@@ -33,7 +33,13 @@ risk: low
 level colours, filter), `ContainerLogs.svelte`, `KubeLogs.svelte`.
 **Gaps.** Export, masking, historical search, unified entry. **Plan.** Mask common secret shapes (bearer tokens, `password=`,
 private key blocks) in the *view and export* only; keep raw buffer in memory; add export of the filtered buffer. Bounded
-buffers already exist; keep them. Tests: masking table tests. Evidence pending.
+buffers already exist; keep them. Tests: masking table tests.
+**Progress (2026-10-09).** Done: (1) `ops/mask.ts`, a port of the Rust masker (same cases; 5 + 2 tests in `opsmask.test.ts`),
+used by `LogBuffer` as lines arrive (per host, so a private key block split across chunks is dropped whole); a "hide secrets"
+switch in the log panel, on by default, applies to new lines only. (2) "Save the lines shown" writes a `.log` file through
+`export_text_file`, which now accepts `.json` and `.log` only (2 tests, scratch crate). **Not done:** one entry point for journal,
+Docker and Kubernetes logs (the Docker and Kubernetes views keep their own log windows and are not masked yet), historical search.
+Masking cannot be undone for lines already kept; switching it off stops hiding new lines only.
 
 ## SSHV-011 Alerts
 ```yaml

@@ -4493,8 +4493,8 @@ pub fn read_text_file(path: String) -> ApiResult<String> {
     String::from_utf8(bytes).map_err(|_| ApiError::new("io", "the file is not UTF-8 text"))
 }
 
-/// Write a text file the person chose in the Save dialog, for exports such as a snippet pack. Only `.json`, and
-/// at most 2 MB, so it can't be used to put anything else anywhere; written beside the target and renamed into
+/// Write a text file the person chose in the Save dialog, for exports such as a snippet pack or a log. Only `.json`
+/// or `.log`, and at most 2 MB, so it can't be used to put anything else anywhere; written beside the target and renamed into
 /// place, so a failed write never leaves half a file.
 #[tauri::command]
 pub fn export_text_file(path: String, contents: String) -> ApiResult<()> {

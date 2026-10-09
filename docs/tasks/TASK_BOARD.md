@@ -16,7 +16,7 @@ changes stay at TESTING until CI compiles and passes them.
 | SSHV-002 | Sync rollback detection, status | P0 | TESTING (detection done; status UI, history open) | 001 | P0 |
 | SSHV-003 | Connection engine | P0 | TESTING (partial) | 004 | P0 |
 | SSHV-009 | Monitoring gaps | P1 | TODO | 003 | P1_OPERATIONS |
-| SSHV-010 | Log explorer | P1 | TODO | 004 | P1_OPERATIONS |
+| SSHV-010 | Log explorer | P1 | TESTING (partial) | 004 | P1_OPERATIONS |
 | SSHV-011 | Alerts | P1 | TODO | 005 | P1_OPERATIONS |
 | SSHV-015 | Automation engine | P1 | TODO | 003 | P1_OPERATIONS |
 | SSHV-017 | Scheduler | P1 | TODO | 016 | P1_OPERATIONS |
