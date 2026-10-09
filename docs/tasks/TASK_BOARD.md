@@ -18,7 +18,7 @@ changes stay at TESTING until CI compiles and passes them.
 | SSHV-009 | Monitoring gaps | P1 | TESTING (partial) | 003 | P1_OPERATIONS |
 | SSHV-010 | Log explorer | P1 | TESTING (partial) | 004 | P1_OPERATIONS |
 | SSHV-011 | Alerts | P1 | TESTING (partial) | 005 | P1_OPERATIONS |
-| SSHV-015 | Automation engine | P1 | TESTING (rolling mode, secret parameters; remote cancel open) | 003 | P1_OPERATIONS |
+| SSHV-015 | Automation engine | P1 | TESTING (rolling mode, secret parameters) | 003 | P1_OPERATIONS |
 | SSHV-017 | Scheduler | P1 | TESTING | 016 | P1_OPERATIONS |
 | SSHV-005 | Resource model | P1 | TESTING (derived graph) | 001 | P1_INFRASTRUCTURE |
 | SSHV-006 | Host management audit | P1 | TESTING (audit: all present; 5,000-host run passes) | - | P1_INFRASTRUCTURE |
@@ -43,5 +43,5 @@ changes stay at TESTING until CI compiles and passes them.
   `docs/design/*.md`: plugins, teams, controller, connection pooling. Also: macOS builds, rust-toolchain pin, ESLint/Prettier.
 - **Not done, and why:** SSHV-027 (splitting `commands.rs`) and SSHV-028 (binary terminal input) are large changes that I judged
   too risky without a local full build; SSHV-022 already meets its list; version history for records (SSHV-002); structured
-  logging (SSHV-004); cancel that signals the remote process (SSHV-015). AI assistant and data-key rotation were removed at the
+  logging (SSHV-004). AI assistant and data-key rotation were removed at the
   owner's request.

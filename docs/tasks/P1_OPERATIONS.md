@@ -91,8 +91,11 @@ optional `order`; the CLI sink maps `Skipped`) was not compiled. **Runbooks (202
 recorded as "skipped: an earlier host failed". **Secret parameters:** a runbook parameter of kind `secret` is typed when it runs
 (password field), is not kept in schedules (a schedule refuses a required one), is `[hidden]` in the record of the run, and its
 value is replaced by `[hidden]` wherever it appears in step output, errors or notes; the preview shows `<name>`. It is typed, not
-read from the vault: reading vault secrets from Rust is a larger change left undone. **Not done:** cancel that signals the remote
-process.
+read from the vault: reading vault secrets from Rust is a larger change left undone. **Cancel:** found by a test that cancelling a run (or a step timing out) left the command running on the host, because
+a command without a terminal does not notice the connection going away. Now `HangUpOnDrop` (in `runner.rs`) sends a hang-up and closes the
+channel when a command is dropped before it finished; used by runbooks and "Run on hosts". Test: `cancelling_does_not_leave_the_remote_command_running`
+(real sshd, checks the process is gone). It relies on the server honouring the `signal` request (OpenSSH 7.9 and later); an older server
+still keeps the command running.
 
 ## SSHV-016 Runbooks
 ```yaml
