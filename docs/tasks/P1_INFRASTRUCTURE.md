@@ -213,6 +213,7 @@ dependencies: [SSHV-003]
 risk: low
 ```
 No behaviour change; one domain per commit; CI must stay green between commits.
+**Progress (2026-10-09).** First domain moved: runbooks, to `src-tauri/src/commands/runbooks.rs` (11 commands; `lib.rs` names them by the new path). CI green. The rest of `commands.rs` (about 4,700 lines) is still to do, one domain at a time.
 
 ## SSHV-028 Binary terminal input over IPC
 ```yaml

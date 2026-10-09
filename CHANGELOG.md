@@ -4,6 +4,10 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## 0.29.2 - 2026-10-09
+
+- Engineering only: the runbook commands moved out of the very large `commands.rs` into their own file. No change in behavior.
+
 ## 0.29.1 - 2026-10-09
 
 - **Fixed:** cancelling a runbook or a "Run on hosts" job, or a step running out of time, left the command running on the server. The app now tells the server to hang up on it (servers running OpenSSH 7.9 or later).
