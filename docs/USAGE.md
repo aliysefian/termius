@@ -1085,6 +1085,46 @@ kubeconfig. Nothing is installed anywhere and SSHVault never reads the kubeconfi
   that isn't answering shows an error with a hint instead of hanging. The connection stays open
   when you go to another page and closes when the vault locks.
 
+## Running in the tray
+
+Closing the window doesn't quit SSHVault: the window hides and an icon in the
+system tray (the notification area) keeps the app running. Terminals, tunnels,
+transfers, the SSH agent, the command line, alerts and schedules all carry on.
+The first time, a notification says so.
+
+- **Bring the window back:** click (or double-click) the tray icon, or choose
+  **Open** in its menu. Launching SSHVault again does the same: only one copy
+  runs, so a second launch shows the first one's window instead of opening
+  another window or adding a second icon.
+- **Quit:** **Exit** in the tray menu. It saves the open tabs for next time and,
+  if sessions are connected, shows the window and asks first (unless you
+  turned that question off with "Don't ask again"). Then every session, tunnel,
+  transfer and program the app started (local shells, Mosh, kubectl and the
+  like) is closed, the vault is locked, and the app exits. If the window can't
+  answer within a few seconds, Exit quits anyway.
+- **To quit when closing the window,** as before, untick **Settings →
+  Connections → Keep running in the tray when the window is closed**.
+- The window comes back where it was, with the same size and tabs. Quitting
+  while it is hidden doesn't make the next start hidden.
+
+**Platform notes**
+
+- **Windows:** the icon may start in the hidden icons (the ^ arrow); drag it
+  onto the taskbar to keep it in view.
+- **Linux:** the tray needs an AppIndicator library
+  (`libayatana-appindicator3-1` on Debian and Ubuntu,
+  `libayatana-appindicator-gtk3` on Fedora; the .deb and .rpm recommend it).
+  Without one there is no icon, and closing the window quits as before
+  (Settings says why). Linux trays don't report clicks, so clicking the icon
+  opens its menu; choose **Open**. GNOME shows tray icons only with the
+  AppIndicator extension (on by default in Ubuntu); where the icon can't be
+  seen, launching SSHVault again brings the window back.
+- **macOS:** clicking the Dock icon also brings the window back.
+- **Timers while hidden:** schedules and alert checks run in the window, and
+  some systems run a hidden window's timers less often, so one can come up to
+  about a minute late. Views that refresh only while visible (the detail
+  view, container lists) pause until the window is back.
+
 ## Locking
 
 The lock icon at the bottom of the sidebar, or **Ctrl+Shift+L**, closes every

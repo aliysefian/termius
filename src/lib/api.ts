@@ -289,6 +289,20 @@ export const crash = {
   clear: () => invoke<void>("clear_crash_log"),
 };
 
+/** The tray icon, and quitting from it (see commands/tray.rs). */
+export const appWindow = {
+  /** Whether there is a tray icon to bring a hidden window back. */
+  trayAvailable: () => invoke<boolean>("tray_available"),
+  /** Hide the window and keep running; refused without a tray icon. */
+  hideToTray: () => invoke<void>("window_hide_to_tray"),
+  show: () => invoke<void>("window_show"),
+  /** Exit was chosen in the tray. Answer with `exitAck` at once, then `exit` (or nothing, if the person cancels). */
+  onExitRequested: (handler: () => void): Promise<UnlistenFn> => listen("app:exit-requested", () => handler()),
+  exitAck: () => invoke<boolean>("app_exit_ack"),
+  /** End every session, tunnel and child program, and quit. */
+  exit: () => invoke<void>("app_exit"),
+};
+
 export const runs = {
   /** `order`: all hosts at once (the default), or one after another, optionally stopping at the first failure. */
   start(runId: string, jobs: { host_id: Uuid; command: string }[], timeoutSecs: number, onEvent: (e: RunEvent) => void, order: RunOrder = "parallel") {

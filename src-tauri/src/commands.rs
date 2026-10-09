@@ -53,6 +53,7 @@ pub mod sshconfig;
 pub use sshconfig::*;
 pub mod updates;
 pub use updates::*;
+pub mod tray;
 
 pub mod runbooks;
 
@@ -716,9 +717,9 @@ pub fn vault_activity(state: State<'_, AppState>, minutes: u32) {
     state.idle.touch(minutes);
 }
 
-/// Everything a lock does: close what the vault's keys opened, then lock.
-pub async fn lock_everything(state: &AppState) -> ApiResult<VaultStatus> {
-    state.idle.reset();
+/// End every session, transfer, tunnel, run and child program, and drop the agent and the command-line socket. What
+/// locking and quitting have in common; neither leaves anything running behind the vault's back.
+pub async fn close_everything(state: &AppState) {
     state.ssh.disconnect_all().await;
     state.sftp.close_all().await;
     state.files.close_all().await;
@@ -744,6 +745,12 @@ pub async fn lock_everything(state: &AppState) -> ApiResult<VaultStatus> {
         .unwrap_or_else(|p| p.into_inner())
         .close();
     state.logs.lock().unwrap_or_else(|p| p.into_inner()).clear();
+}
+
+/// Everything a lock does: close what the vault's keys opened, then lock.
+pub async fn lock_everything(state: &AppState) -> ApiResult<VaultStatus> {
+    state.idle.reset();
+    close_everything(state).await;
     state.session.lock();
     let mut cfg = AppConfig::load(&state.config_dir)?;
     // A locked vault that opens itself from the device key isn't locked: forget the key too, unless the person chose
@@ -2906,5 +2913,7 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     });
+    // The tray icon that keeps the app running when its window is closed (none where the system has no tray).
+    tray::install(app);
     Ok(())
 }

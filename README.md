@@ -155,6 +155,8 @@ Linux and Windows · Built with Rust, Tauri, Svelte and xterm.js
 - A Security review page: certificate expiry, weak or ageing keys, and
   passwords worth rotating, checked locally; a local connection log
 - Reopen the tabs that were open last time, after unlocking
+- Closing the window keeps SSHVault running in the system tray, with sessions
+  and tunnels still open; the tray icon brings it back and its Exit quits
 
 ## Install
 

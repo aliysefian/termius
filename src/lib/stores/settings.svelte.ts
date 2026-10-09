@@ -140,6 +140,10 @@ export interface Prefs {
   localCwd: string;
   /** Look for a new version at start-up (at most twice a day). */
   autoUpdateCheck: boolean;
+  /** Closing the window hides it in the tray and SSHVault keeps running (where the system has a tray). */
+  closeToTray: boolean;
+  /** The one-time notice that a closed window is still running in the tray has been shown. */
+  trayNoticeShown: boolean;
   /** The version last shown as "what's new"; empty before this existed. */
   lastSeenVersion: string;
 }
@@ -230,6 +234,8 @@ export const DEFAULT_PREFS: Prefs = {
   localShellId: "",
   localCwd: "",
   autoUpdateCheck: true,
+  closeToTray: true,
+  trayNoticeShown: false,
   lastSeenVersion: "",
 };
 
