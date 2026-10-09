@@ -277,7 +277,7 @@
           {#each RESOURCE_KINDS as r (r.value)}<option value={r.value}>{r.label}</option>{/each}
         </select>
       </label>
-      <input class="input w-52 py-1 text-xs" bind:value={query} placeholder="Search {kind === 'pods' ? 'pods' : kindLabel.toLowerCase()}…" aria-label="Search" />
+      <input class="input w-52 py-1 text-xs" bind:value={query} placeholder="Search {kind === 'pods' ? 'pods' : kindLabel.toLowerCase()}…" aria-label="Search {kind === 'pods' ? 'pods' : kindLabel.toLowerCase()}" />
       <span class="ml-auto flex items-center gap-2">
         {#if unhealthy && kind === "pods"}<span class="text-xs text-danger">{unhealthy} unhealthy</span>{/if}
         <span class="text-[11px] text-fg-muted">{kind === "pods" ? `${shown.length} of ${pods.length} pods` : `${shownResources.length} of ${resources.length} ${kindLabel.toLowerCase()}`}{loadedAt ? ` · ${new Date(loadedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}` : ""}</span>

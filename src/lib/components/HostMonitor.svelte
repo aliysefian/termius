@@ -1,12 +1,14 @@
 <script lang="ts">
   import { onDestroy, onMount } from "svelte";
-  import { ArrowDown, ArrowUp, Loader2, OctagonX, Pause, Play, RefreshCw, Skull } from "lucide-svelte";
+  import { ArrowDown, ArrowUp, Copy, Loader2, OctagonX, Pause, Play, RefreshCw, Skull } from "lucide-svelte";
+  import { writeText } from "@tauri-apps/plugin-clipboard-manager";
   import Badge from "./Badge.svelte";
   import HostChart from "./HostChart.svelte";
   import Modal from "./Modal.svelte";
   import * as api from "$lib/api";
   import { ask } from "$lib/dialogs.svelte";
   import { DETAIL_SCRIPT, formatBytes, formatRate, killScript, parseDetailOutput, parseKillOutput, sortProcesses, type HostDetail, type ProcessInfo, type ProcessSort } from "$lib/hostdetail";
+  import { FACTS_SCRIPT, factsText, parseFacts, sizeText, type HostFacts } from "$lib/hostfacts";
   import { GAP_MS, HISTORY_MS, clock, type Sample } from "$lib/hosthistory";
   import { formatUptime } from "$lib/hostmetrics";
   import { hostMetrics } from "$lib/stores/hostmetrics.svelte";
@@ -17,7 +19,7 @@
 
   let { id }: { id: Uuid } = $props();
 
-  type Tab = "overview" | "processes" | "ports" | "interfaces";
+  type Tab = "overview" | "processes" | "ports" | "interfaces" | "system";
   const INTERVALS = [3, 5, 10, 30] as const;
   const MAX_ROWS = 150;
 
@@ -40,6 +42,36 @@
   let sort = $state<{ key: ProcessSort; dir: "asc" | "desc" }>({ key: "cpu", dir: "desc" });
   let signalling = $state<Record<number, boolean>>({});
   let closed = false;
+
+  // -- facts about the host, collected only when asked ------------------------------------------------
+  let facts = $state<{ at: number; data: HostFacts } | null>(null);
+  let collecting = $state(false);
+  let factsError = $state<string | null>(null);
+
+  async function collectFacts() {
+    if (!sessionId || collecting) return;
+    collecting = true;
+    factsError = null;
+    try {
+      const r = await api.monitor.exec(sessionId, FACTS_SCRIPT, 30);
+      if (!r.stdout.trim()) throw new Error(r.stderr.trim() || `the command ended with status ${r.code ?? "?"}`);
+      facts = { at: Date.now(), data: parseFacts(r.stdout) };
+    } catch (e) {
+      factsError = errorMessage(e);
+    } finally {
+      collecting = false;
+    }
+  }
+
+  async function copyFacts() {
+    if (!facts) return;
+    try {
+      await writeText(factsText(facts.data, facts.at, label));
+      ui.notify("info", "Facts copied.");
+    } catch (e) {
+      ui.notify("error", errorMessage(e));
+    }
+  }
 
   // How far back the charts reach: the live 15 minutes, or what was kept (Settings → Alerts and monitoring history).
   const RANGES = [
@@ -220,7 +252,7 @@
 
       <div class="flex items-center gap-2">
         <div class="flex overflow-hidden rounded-md border border-line text-xs" role="tablist" aria-label="Monitor sections">
-          {#each [["overview", "Overview"], ["processes", `Processes (${detail.processes.length})`], ["ports", `Ports (${detail.ports.items.length})`], ["interfaces", `Interfaces (${detail.interfaces.length})`]] as [v, text] (v)}
+          {#each [["overview", "Overview"], ["processes", `Processes (${detail.processes.length})`], ["ports", `Ports (${detail.ports.items.length})`], ["interfaces", `Interfaces (${detail.interfaces.length})`], ["system", "System"]] as [v, text] (v)}
             <button role="tab" aria-selected={tab === v} class="px-3 py-1 {tab === v ? 'bg-accent text-white' : 'text-fg-muted hover:bg-panel-hover'}" onclick={() => (tab = v as Tab)}>{text}</button>
           {/each}
         </div>
@@ -327,7 +359,7 @@
           </table>
           {#if shownPorts.length === 0 && detail.ports.source !== "none"}<p class="py-6 text-center text-xs text-fg-muted">{detail.ports.items.length ? "No listener matches." : "Nothing is listening."}</p>{/if}
           {#if detail.ports.ownersMissing && detail.ports.source !== "proc"}<p class="mt-2 text-[11px] text-fg-muted">Some owners aren't shown: the host only tells a user about their own processes, so the rest needs root.</p>{/if}
-        {:else}
+        {:else if tab === "interfaces"}
           {#if note("interfaces")}<p class="mb-2 text-xs text-warning">{note("interfaces")}</p>{/if}
           <table class="w-full min-w-[40rem] text-left text-xs">
             <thead class="sticky top-0 bg-panel text-fg-muted"><tr><th class="px-2 py-1.5 font-medium">Name</th><th class="px-2 font-medium">State</th><th class="px-2 font-medium">Addresses</th><th class="px-2 font-medium">MAC</th><th class="px-2 text-right font-medium">MTU</th><th class="px-2 text-right font-medium">Received</th><th class="px-2 text-right font-medium">Sent</th></tr></thead>
@@ -346,6 +378,37 @@
               {/each}
             </tbody>
           </table>
+        {:else if tab === "system"}
+          <div class="space-y-3 p-1">
+            <div class="flex flex-wrap items-center gap-2">
+              <button class="btn-secondary py-1 text-xs" disabled={collecting || !sessionId} onclick={() => void collectFacts()}>
+                {#if collecting}<Loader2 size={13} class="animate-spin" />{:else}<RefreshCw size={13} />{/if} {facts ? "Collect again" : "Collect facts"}
+              </button>
+              {#if facts}<button class="btn-ghost py-1 text-xs" onclick={() => void copyFacts()}><Copy size={13} /> Copy as text</button>{/if}
+              <span class="text-xs text-fg-muted">{facts ? `Observed ${new Date(facts.at).toLocaleString()}. These are not live: collect again to refresh.` : "Reads the operating system, hardware, disks and the tools installed. Nothing is changed or installed, and nothing is collected until you press this."}</span>
+            </div>
+            {#if factsError}<p class="whitespace-pre-wrap rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning" role="alert">{factsError}</p>{/if}
+            {#if facts}
+              {@const f = facts.data}
+              <dl class="grid grid-cols-[9rem_1fr] gap-x-4 gap-y-1.5 text-sm">
+                {#each [["Hostname", f.hostname], ["Operating system", f.os], ["Kernel", f.kernel], ["Architecture", f.arch], ["Processor", f.cpu ? `${f.cpu}${f.cores ? ` · ${f.cores} cores` : ""}` : f.cores ? `${f.cores} cores` : null], ["Memory", f.memKb !== null ? `${sizeText(f.memKb)}${f.swapKb ? ` · swap ${sizeText(f.swapKb)}` : ""}` : null], ["Up for", f.uptimeSecs !== null ? formatUptime(f.uptimeSecs) : null], ["Init", f.init], ["Virtualization", f.virtualization]] as [k, v] (k)}
+                  {#if v}<dt class="text-fg-muted">{k}</dt><dd class="break-words">{v}</dd>{/if}
+                {/each}
+              </dl>
+              {#if f.disks.length}
+                <h3 class="text-xs font-semibold">Disks</h3>
+                <ul class="space-y-1 text-xs">
+                  {#each f.disks as d (d.mount)}<li class="flex gap-3"><span class="w-48 truncate font-mono" title={d.mount}>{d.mount}</span><span class="text-fg-muted">{sizeText(d.sizeKb)}</span>{#if d.usedPct !== null}<span class={d.usedPct >= 90 ? "text-danger" : "text-fg-muted"}>{d.usedPct}% used</span>{/if}</li>{/each}
+                </ul>
+              {/if}
+              <h3 class="text-xs font-semibold">Tools found</h3>
+              {#if f.tools.length}
+                <ul class="space-y-1 text-xs">
+                  {#each f.tools as t (t.name)}<li class="flex gap-3"><span class="w-20 font-mono">{t.name}</span><span class="text-fg-muted">{t.version || "present"}</span></li>{/each}
+                </ul>
+              {:else}<p class="text-xs text-fg-muted">None of docker, podman, nerdctl, kubectl, helm, git, python3 or node.</p>{/if}
+            {/if}
+          </div>
         {/if}
       </div>
     {/if}

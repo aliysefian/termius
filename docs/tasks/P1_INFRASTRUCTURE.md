@@ -41,7 +41,7 @@ id: SSHV-006
 title: Verify host management gaps (bulk edit, import/export, search at scale)
 module: hosts
 priority: P1
-status: TODO
+status: TESTING
 dependencies: []
 risk: low
 ```
@@ -49,13 +49,25 @@ Much exists already (groups, tags, favorites, ssh_config/Ansible/CSV/PuTTY/MobaX
 recent, virtual list, `bigfleet.py` e2e). **First step is an audit**, not code: list what the prompt asks for that is
 actually absent (bulk edit and nested-folder depth are unverified). Evidence pending.
 
+**Audit result (2026-10-09).** Checked each item in the prompt against the code and, for scale, ran the browser test: grouping and
+nested folders (group path, `GroupRow`/`HostTreeNode`), tags, favorites, quick search and the command palette, bulk editing
+(`BulkEditForm.svelte`, a multi-select bar in the host list), import from `~/.ssh/config`, Ansible, CSV, PuTTY and MobaXterm,
+OpenSSH config export, host duplication, jump hosts and proxies per host or per group, environment labels with production
+markers, recent hosts, and a virtualized list. **All exist.** Scale: `e2e/bigfleet.py` with 5,000 hosts draws 23 rows, keeps the
+scrollbar for the whole list, End/Home/type-ahead/search/fold all work, search takes 445 ms, heap 87 MB, no page errors (run
+here, headless Chromium, mocked backend). **No code change was needed**; the earlier "unverified" note was caution, not a gap.
+Open questions that are not defects: connection "profiles" as a named bundle apart from host defaults and group defaults (groups
+already carry shared login, jump host and proxy), and drag-and-drop between nested groups on very large lists (works, not
+measured).
+
+
 ## SSHV-007 Host facts discovery
 ```yaml
 id: SSHV-007
 title: Explicit, per-host fact collection
 module: discovery
 priority: P1
-status: TODO
+status: TESTING
 dependencies: [SSHV-005, SSHV-003]
 risk: medium
 ```
@@ -64,6 +76,16 @@ risk: medium
 stamped with time and source, labelled *observed* vs *cached*. No network scanning (the existing `inventory_scan` stays
 separate and explicit).
 **Security.** Read-only fixed scripts, quoted, no sudo. **Tests.** Parser tests with captured outputs. Evidence pending.
+
+**Progress (2026-10-09).** Done: a "System" tab in the host monitor window with a "Collect facts" button. Nothing is collected until it
+is pressed (checked: zero calls before the click). It runs one fixed, read-only script (`hostfacts.ts`: hostname, OS, kernel,
+architecture, CPU model and cores, memory and swap, uptime, mounted disks with use, systemd or container, virtualization, and the
+version of docker, podman, nerdctl, kubectl, helm, git, python3 and node where present) and shows the answer stamped "Observed
+<time>. These are not live", with Copy as text. No scanning of any network, no sudo, nothing written or installed (a test fails if
+the script ever contains a write to a file, a network tool or a package manager). The real script was run on this machine and its
+output parsed; the browser test (`e2e/hostfacts.py`) opens it from the Topology page and checks the result. **Not done:**
+Windows hosts, listening ports and services as facts (the Ports tab and the service manager already show those live), keeping
+collected facts between runs.
 
 ## SSHV-008 Topology view
 ```yaml
