@@ -190,7 +190,7 @@ crate (`pnpm check` 0 errors). (c) Backend idle lock: new `idle.rs` (`IdleClock`
 checks every 15 s and, once reports have stopped for the chosen minutes, runs the same `lock_everything` as Lock (closing sessions,
 agent, control socket, reveal gate) and emits `vault:idle-locked`, which the window answers by showing the lock screen. Nothing is
 due before the first report, 0 minutes means off, and the idle time is capped at a day. Tests: 3 in `idle.rs` pass in a scratch
-crate; the wiring in `commands.rs`/`lib.rs` was not compiled. The window's own timer still runs. **Not done:** `subtle`/unlock delay (S18, low; `subtle` would need a Cargo.lock
+crate; the wiring in `commands.rs`/`lib.rs` was not compiled. The window's own timer still runs. (d) Wrong-password throttle (`unlockguard.rs`, wired into `unlock_vault`): four free wrong passwords, then each waits 2, 4, 8 … up to 300 s, cleared by a right one; slows scripted guessing through the app only (3 tests, scratch crate; the wiring was not compiled here, CI compiles it). **Not done:** `subtle` (S18, low; `subtle` would need a Cargo.lock
 edit I cannot verify), `mlock`.
 **Evidence.** Partial, as above.
 

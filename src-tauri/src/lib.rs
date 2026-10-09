@@ -59,6 +59,7 @@ pub mod spawnlint;
 pub mod ssh;
 pub mod sshconfig;
 pub mod sync;
+pub mod unlockguard;
 pub mod vault;
 pub mod vnc;
 pub mod wol;

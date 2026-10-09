@@ -95,6 +95,8 @@ pub struct AppState {
     logs: std::sync::Mutex<std::collections::HashMap<String, LogSlot>>,
     /// When the window last reported activity, for locking an idle vault even if the window can't.
     idle: crate::idle::IdleClock,
+    /// Slows repeated wrong master passwords at the unlock command.
+    unlock_guard: crate::unlockguard::UnlockGuard,
 }
 
 impl AppState {
@@ -533,13 +535,27 @@ pub async fn unlock_vault(
     let mut cfg = AppConfig::load(&state.config_dir)?;
     let root = configured_root(&cfg)?;
     let device = cfg.device(&state.config_dir)?;
-    let report = state.session.unlock(
+    if let Err(wait) = state.unlock_guard.check(std::time::Instant::now()) {
+        return Err(ApiError::new("locked_out", format!("Too many wrong passwords. Try again in {} seconds.", wait.as_secs() + 1)));
+    }
+    let report = match state.session.unlock(
         root,
         crate::vault::Unlock::Password(password.as_bytes()),
         device,
         KdfParams::default(),
         on_change_emitter(app),
-    )?;
+    ) {
+        Ok(report) => {
+            state.unlock_guard.succeeded();
+            report
+        }
+        Err(e) => {
+            if matches!(e, crate::session::SessionError::Vault(VaultError::WrongPassword)) {
+                state.unlock_guard.failed(std::time::Instant::now());
+            }
+            return Err(e.into());
+        }
+    };
     purge_old_tombstones(&state);
     let keychain_error = apply_remember(&state, remember);
     let cfg = AppConfig::load(&state.config_dir)?;
@@ -4796,6 +4812,7 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         cli_trusted_until: Default::default(),
         logs: Default::default(),
         idle: Default::default(),
+        unlock_guard: Default::default(),
     });
     // Lock an idle vault even when the window can't (frozen, throttled, or its timer lost). Checks every 15 seconds;
     // started with `tauri::async_runtime` because setup runs on a thread with no async runtime of its own.
