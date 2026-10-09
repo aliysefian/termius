@@ -4104,6 +4104,7 @@ pub fn runbook_start(
     on_event: Channel<crate::runbookrun::RunbookEvent>,
     // Run the runbook's rollback steps on a host where the run fails. Off unless asked for.
     rollback: Option<bool>,
+    order: Option<crate::runner::Order>,
 ) -> ApiResult<()> {
     use crate::runbookrun::{HostJob, MAX_FILE, MAX_FILES_TOTAL};
     if Uuid::parse_str(&run_id).is_err() {
@@ -4148,7 +4149,7 @@ pub fn runbook_start(
     let sink: Arc<dyn crate::runbookrun::RunbookSink> = Arc::new(ChannelRunbookSink(on_event));
     // Spawned inside Tauri's runtime; the manager needs a tokio context.
     tauri::async_runtime::spawn(async move {
-        manager.start(run_id, rb, values, blobs, jobs, scheduled, rollback.unwrap_or(false), Some(history), sink);
+        manager.start(run_id, rb, values, blobs, jobs, scheduled, rollback.unwrap_or(false), order.unwrap_or_default(), Some(history), sink);
     });
     Ok(())
 }

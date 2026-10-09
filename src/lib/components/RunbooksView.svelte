@@ -110,6 +110,7 @@
   let liveSteps = $state<{ name: string; phase?: string }[]>([]);
   /** Run the runbook's rollback steps on a host where the run fails. Asked for each run, never remembered. */
   let rollbackOn = $state(false);
+  let hostOrder = $state<"parallel" | "stop" | "all">("parallel");
 
   const hosts = $derived(
     vaultStore.hosts
@@ -185,7 +186,7 @@
         if (runId !== id) return;
         live = applyEvent(live, e);
         if (e.event === "done") running = false;
-      }, rollbackOn && (checked?.rollback_steps ?? 0) > 0);
+      }, rollbackOn && (checked?.rollback_steps ?? 0) > 0, hostOrder === "parallel" ? "parallel" : { sequential: { stop_on_failure: hostOrder === "stop" } });
     } catch (e) {
       running = false;
       ui.notify("error", errorMessage(e));
@@ -342,6 +343,15 @@
                   <span class="block text-fg-muted">{checked.rollback_steps} step{checked.rollback_steps === 1 ? "" : "s"} written to undo the run. They change that host again, so look at them in the dry run first. A host that got through is left alone, and a failed host still counts as failed.</span></span>
               </label>
             {/if}
+
+            <label class="flex items-center gap-2 text-xs" data-testid="runbook-order">
+              <span class="font-medium">Hosts</span>
+              <select class="input w-auto py-1 text-xs" bind:value={hostOrder} disabled={running}>
+                <option value="parallel">All at once</option>
+                <option value="stop">One at a time, stop at the first failure</option>
+                <option value="all">One at a time, carry on after a failure</option>
+              </select>
+            </label>
 
             <div class="flex items-center gap-2">
               <button class="btn-secondary" disabled={!valid} onclick={dryRun} data-testid="runbook-dry">Dry run</button>

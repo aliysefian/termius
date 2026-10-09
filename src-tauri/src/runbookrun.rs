@@ -15,7 +15,7 @@ use uuid::Uuid;
 use crate::containers::transport::shell_quote;
 use crate::runbook::{run_host_with, Executor, Output, Progress, Runbook, StepResult};
 use crate::runbookhistory::{now, History, HostRecord, RunRecord};
-use crate::runner::{push_capped, CONCURRENCY};
+use crate::runner::{push_capped, Order, CONCURRENCY};
 use crate::ssh::{open_client, Client, Target};
 
 /// A file chosen for an upload: at most this large, and this much in all.
@@ -163,6 +163,7 @@ impl RunbookManager {
         hosts: Vec<HostJob>,
         scheduled: bool,
         rollback: bool,
+        order: Order,
         history: Option<History>,
         sink: Arc<dyn RunbookSink>,
     ) {
@@ -187,43 +188,36 @@ impl RunbookManager {
         let (rec, flag, sink_for_task, hist) = (Arc::clone(&record), Arc::clone(&cancelled), Arc::clone(&sink), history.clone());
         // spawn-ok: runbook_start calls this inside tauri::async_runtime::spawn
         let handle = tokio::spawn(async move {
-            let runbook = Arc::new(runbook);
-            let values = Arc::new(values);
-            let files = Arc::new(files);
-            let limit = Arc::new(Semaphore::new(CONCURRENCY));
-            let mut set = JoinSet::new();
-            for job in hosts {
-                let (limit, sink, record, flag) = (Arc::clone(&limit), Arc::clone(&sink_for_task), Arc::clone(&rec), Arc::clone(&flag));
-                let (runbook, values, files) = (Arc::clone(&runbook), Arc::clone(&values), Arc::clone(&files));
-                set.spawn(async move {
-                    let Ok(_permit) = limit.acquire_owned().await else { return };
-                    let host_id = job.host_id;
-                    sink.event(RunbookEvent::HostStarted { host_id });
-                    let target = match job.target {
-                        Ok(t) => t,
-                        Err(why) => {
-                            finish_host(&record, host_id, false, Some(why.clone()));
-                            return sink.event(RunbookEvent::HostDone { host_id, ok: false, error: Some(why) });
+            let (runbook, values, files) = (Arc::new(runbook), Arc::new(values), Arc::new(files));
+            let ctx = Arc::new(HostCtx { runbook, values, files, rollback, sink: Arc::clone(&sink_for_task), record: Arc::clone(&rec), cancelled: Arc::clone(&flag) });
+            match order {
+                Order::Parallel => {
+                    let limit = Arc::new(Semaphore::new(CONCURRENCY));
+                    let mut set = JoinSet::new();
+                    for job in hosts {
+                        let (limit, ctx) = (Arc::clone(&limit), Arc::clone(&ctx));
+                        set.spawn(async move {
+                            let Ok(_permit) = limit.acquire_owned().await else { return };
+                            run_job(&ctx, job).await;
+                        });
+                    }
+                    while set.join_next().await.is_some() {}
+                }
+                Order::Sequential { stop_on_failure } => {
+                    let mut stopped = false;
+                    for job in hosts {
+                        if stopped {
+                            let why = "skipped: an earlier host failed".to_string();
+                            finish_host(&ctx.record, job.host_id, false, Some(why.clone()));
+                            ctx.sink.event(RunbookEvent::HostDone { host_id: job.host_id, ok: false, error: Some(why) });
+                            continue;
                         }
-                    };
-                    let client = match open_client(&target, None).await {
-                        Ok((c, _)) => c,
-                        Err(e) => {
-                            let why = e.to_string();
-                            finish_host(&record, host_id, false, Some(why.clone()));
-                            return sink.event(RunbookEvent::HostDone { host_id, ok: false, error: Some(why) });
+                        if !run_job(&ctx, job).await && stop_on_failure {
+                            stopped = true;
                         }
-                    };
-                    let exec = SshExec::new(client);
-                    let progress = HostProgress { host_id, sink: Arc::clone(&sink), record: Arc::clone(&record), cancelled: flag };
-                    let host_values = HashMap::from([("host".to_string(), job.hostname.clone()), ("label".to_string(), job.label.clone())]);
-                    let (ok, _) = run_host_with(&runbook, &values, &files, &host_values, &exec, &progress, rollback).await;
-                    exec.client.close().await;
-                    finish_host(&record, host_id, ok, None);
-                    sink.event(RunbookEvent::HostDone { host_id, ok, error: None });
-                });
+                    }
+                }
             }
-            while set.join_next().await.is_some() {}
             {
                 let mut r = rec.lock().unwrap_or_else(|p| p.into_inner());
                 r.finished_at = Some(now());
@@ -266,6 +260,44 @@ impl RunbookManager {
     }
 }
 
+
+/// What every host of one run shares.
+struct HostCtx {
+    runbook: Arc<Runbook>,
+    values: Arc<HashMap<String, String>>,
+    files: Arc<HashMap<String, Vec<u8>>>,
+    rollback: bool,
+    sink: Arc<dyn RunbookSink>,
+    record: Arc<Mutex<RunRecord>>,
+    cancelled: Arc<AtomicBool>,
+}
+
+/// Run the runbook on one host and record how it went. True when every step went through.
+async fn run_job(ctx: &HostCtx, job: HostJob) -> bool {
+    let host_id = job.host_id;
+    ctx.sink.event(RunbookEvent::HostStarted { host_id });
+    let fail = |why: String| {
+        finish_host(&ctx.record, host_id, false, Some(why.clone()));
+        ctx.sink.event(RunbookEvent::HostDone { host_id, ok: false, error: Some(why) });
+        false
+    };
+    let target = match job.target {
+        Ok(t) => t,
+        Err(why) => return fail(why),
+    };
+    let client = match open_client(&target, None).await {
+        Ok((c, _)) => c,
+        Err(e) => return fail(e.to_string()),
+    };
+    let exec = SshExec::new(client);
+    let progress = HostProgress { host_id, sink: Arc::clone(&ctx.sink), record: Arc::clone(&ctx.record), cancelled: Arc::clone(&ctx.cancelled) };
+    let host_values = HashMap::from([("host".to_string(), job.hostname.clone()), ("label".to_string(), job.label.clone())]);
+    let (ok, _) = run_host_with(&ctx.runbook, &ctx.values, &ctx.files, &host_values, &exec, &progress, ctx.rollback).await;
+    exec.client.close().await;
+    finish_host(&ctx.record, host_id, ok, None);
+    ctx.sink.event(RunbookEvent::HostDone { host_id, ok, error: None });
+    ok
+}
 
 #[cfg(test)]
 mod tests;
