@@ -21,3 +21,7 @@ plugins over a local socket with an explicit permission manifest. Phase 1: a *de
 never credentials; install requires signature or explicit local-file trust prompt.
 **Acceptance (phase 1).** A plugin cannot read the vault or open a socket it did not declare.
 **Tests.** Permission-denied tests per capability. **Rollback.** Uninstall removes all plugin state. Evidence pending.
+
+**Progress (2026-10-09).** Design written: `docs/design/PLUGINS.md` (declarative first, sandboxed WebAssembly only if needed,
+native code not built; host API, permissions, install flow, decisions). No code, by design. Stays BLOCKED on the three decisions
+listed there.
