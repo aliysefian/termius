@@ -1454,6 +1454,7 @@ impl crate::runner::RunSink for CliRunSink {
                 duration_ms: output.duration_ms,
             },
             E::Failed { host_id, message } => R::Failed { host: name(&host_id), message },
+            E::Skipped { host_id } => R::Failed { host: name(&host_id), message: "skipped because an earlier host failed".into() },
             E::Done => R::Done { ok: true },
         };
         let _ = self.0.send(resp);
@@ -3048,6 +3049,7 @@ pub fn run_on_hosts(
     jobs: Vec<RunJob>,
     timeout_secs: u64,
     on_event: Channel<crate::runner::RunEvent>,
+    order: Option<crate::runner::Order>,
 ) -> ApiResult<()> {
     use crate::runner::{RunEvent, RunSink};
     let sink: Arc<dyn RunSink> = Arc::new(ChannelRunSink(on_event));
@@ -3065,7 +3067,7 @@ pub fn run_on_hosts(
     // Spawned inside Tauri's runtime; RunManager needs a tokio context.
     let runs = Arc::clone(&state.runs);
     tauri::async_runtime::spawn(async move {
-        runs.start(run_id, ready, timeout, sink);
+        runs.start_ordered(run_id, ready, timeout, order.unwrap_or_default(), sink);
     });
     Ok(())
 }

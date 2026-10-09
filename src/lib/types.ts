@@ -651,6 +651,7 @@ export interface ExecOutput {
 }
 
 export type RunEvent =
+  | { event: "skipped"; host_id: Uuid }
   | { event: "started"; host_id: Uuid }
   | { event: "finished"; host_id: Uuid; output: ExecOutput }
   | { event: "failed"; host_id: Uuid; message: string }

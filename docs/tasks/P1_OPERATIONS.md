@@ -75,14 +75,20 @@ id: SSHV-015
 title: Sequential/rolling mode, secret references, shared with runbooks
 module: automation
 priority: P1
-status: TODO
+status: TESTING
 dependencies: [SSHV-003]
 risk: medium
 ```
 **Existing.** `runner.rs` (8 parallel, per-run timeout, abort, 256 KiB cap), `runbookrun.rs` (parallel hosts, per-step
 timeout, cancel). **Gaps.** No sequential/rolling; params are plain strings; cancel kills the local task, not the remote
 process. **Plan.** Sequential/rolling option with stop-on-first-failure; secret parameters resolved in Rust from the vault
-and never stored in history; cancel closes the channel so the remote process receives SIGHUP. Evidence pending.
+and never stored in history; cancel closes the channel so the remote process receives SIGHUP. 
+**Progress (2026-10-09).** Done: a rolling mode for "Run on hosts" (`runner.rs` `Order`): all at once (the default, unchanged), one
+host at a time, or one at a time stopping at the first failure (a non-zero exit, no answer or a failed login); later hosts are
+reported as skipped and never contacted. The window has a "Hosts" selector for it. Tested against a real `sshd` in the scratch
+crate (event order proves nothing overlaps and the fourth host is never started); the command layer (`run_on_hosts` takes an
+optional `order`; the CLI sink maps `Skipped`) was not compiled. **Not done:** the same mode for runbooks (`runbookrun.rs` always
+takes hosts in parallel), secret-reference parameters, cancel that signals the remote process.
 
 ## SSHV-016 Runbooks
 ```yaml

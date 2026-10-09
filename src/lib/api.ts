@@ -273,10 +273,13 @@ export const forwards = {
     listen<{ rule_id: Uuid; status: ForwardStatus }>("forward:status", (e) => handler(e.payload)),
 };
 
+export type RunOrder = "parallel" | { sequential: { stop_on_failure: boolean } };
+
 export const runs = {
-  start(runId: string, jobs: { host_id: Uuid; command: string }[], timeoutSecs: number, onEvent: (e: RunEvent) => void) {
+  /** `order`: all hosts at once (the default), or one after another, optionally stopping at the first failure. */
+  start(runId: string, jobs: { host_id: Uuid; command: string }[], timeoutSecs: number, onEvent: (e: RunEvent) => void, order: RunOrder = "parallel") {
     const channel = new Channel<RunEvent>(onEvent);
-    return invoke<void>("run_on_hosts", { runId, jobs, timeoutSecs, onEvent: channel });
+    return invoke<void>("run_on_hosts", { runId, jobs, timeoutSecs, onEvent: channel, order });
   },
   cancel: (runId: string) => invoke<boolean>("run_cancel", { runId }),
 };
