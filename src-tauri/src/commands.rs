@@ -93,6 +93,8 @@ pub struct AppState {
     /// `run` from the CLI is pre-approved until this time.
     cli_trusted_until: std::sync::Mutex<Option<std::time::Instant>>,
     logs: std::sync::Mutex<std::collections::HashMap<String, LogSlot>>,
+    /// When the window last reported activity, for locking an idle vault even if the window can't.
+    idle: crate::idle::IdleClock,
 }
 
 impl AppState {
@@ -659,6 +661,19 @@ pub fn forget_device(state: State<'_, AppState>) -> ApiResult<VaultStatus> {
 
 #[tauri::command]
 pub async fn lock_vault(state: State<'_, AppState>) -> ApiResult<VaultStatus> {
+    lock_everything(&state).await
+}
+
+/// The window reports that someone is there (and how long an idle vault may wait, in minutes; 0 for never). If these
+/// reports stop for that long the backend locks the vault itself.
+#[tauri::command]
+pub fn vault_activity(state: State<'_, AppState>, minutes: u32) {
+    state.idle.touch(minutes);
+}
+
+/// Everything a lock does: close what the vault's keys opened, then lock.
+pub async fn lock_everything(state: &AppState) -> ApiResult<VaultStatus> {
+    state.idle.reset();
     state.ssh.disconnect_all().await;
     state.sftp.close_all().await;
     state.files.close_all().await;
@@ -696,7 +711,7 @@ pub async fn lock_vault(state: State<'_, AppState>) -> ApiResult<VaultStatus> {
             }
         }
     }
-    Ok(status_of(&state, &cfg))
+    Ok(status_of(state, &cfg))
 }
 
 /// Whether locking keeps this device's stored key (see `AppConfig::keep_key_on_lock`).
@@ -4719,6 +4734,22 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         cli_prompts: Default::default(),
         cli_trusted_until: Default::default(),
         logs: Default::default(),
+        idle: Default::default(),
+    });
+    // Lock an idle vault even when the window can't (frozen, throttled, or its timer lost). Checks every 15 seconds;
+    // started with `tauri::async_runtime` because setup runs on a thread with no async runtime of its own.
+    let handle = app.handle().clone();
+    tauri::async_runtime::spawn(async move {
+        let mut tick = tokio::time::interval(std::time::Duration::from_secs(15));
+        loop {
+            tick.tick().await;
+            let state = handle.state::<AppState>();
+            if state.session.is_unlocked() && state.idle.due(std::time::Instant::now()) {
+                if lock_everything(&state).await.is_ok() {
+                    let _ = handle.emit("vault:idle-locked", ());
+                }
+            }
+        }
     });
     Ok(())
 }

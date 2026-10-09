@@ -13,6 +13,7 @@ pub mod control;
 pub mod crashlog;
 pub mod crypto;
 pub mod exportfile;
+pub mod idle;
 pub mod csvimport;
 pub mod db;
 pub mod display;
@@ -79,6 +80,7 @@ pub fn run() {
             commands::unlock_with_recovery,
             commands::forget_device,
             commands::set_keep_key_on_lock,
+            commands::vault_activity,
             commands::remember_device,
             commands::set_recovery_key,
             commands::remove_recovery_key,

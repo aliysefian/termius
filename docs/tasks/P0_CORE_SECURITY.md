@@ -139,7 +139,7 @@ id: SSHV-001
 title: Backend auto-lock, lock semantics, KDF bounds
 module: security
 priority: P0
-status: IN_PROGRESS
+status: TESTING
 dependencies: [SSHV-004]
 risk: medium
 ```
@@ -164,7 +164,12 @@ which is the denial of service this closes. (b) Lock now forgets the remembered-
 decision: on by default, i.e. forget). Finding: `UnlockScreen.svelte:172` unlocks with the device key as soon as the lock screen
 mounts, so on a remembered device Lock re-opened the vault at once; forgetting the key fixes that too. New `set_keep_key_on_lock`
 command, `VaultInfo.keep_key_on_lock`, checkbox in `VaultPanel.svelte`. These command/UI edits were not compiled with the full
-crate (`pnpm check` 0 errors). **Not done:** backend idle timer, `subtle`/unlock delay (S18, low; `subtle` would need a Cargo.lock
+crate (`pnpm check` 0 errors). (c) Backend idle lock: new `idle.rs` (`IdleClock`); the window reports activity through
+`vault_activity(minutes)` (at most every 10 s, and on unlock or when the setting changes); a task started in `commands::setup`
+checks every 15 s and, once reports have stopped for the chosen minutes, runs the same `lock_everything` as Lock (closing sessions,
+agent, control socket, reveal gate) and emits `vault:idle-locked`, which the window answers by showing the lock screen. Nothing is
+due before the first report, 0 minutes means off, and the idle time is capped at a day. Tests: 3 in `idle.rs` pass in a scratch
+crate; the wiring in `commands.rs`/`lib.rs` was not compiled. The window's own timer still runs. **Not done:** `subtle`/unlock delay (S18, low; `subtle` would need a Cargo.lock
 edit I cannot verify), `mlock`.
 **Evidence.** Partial, as above.
 
