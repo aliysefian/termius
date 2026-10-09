@@ -116,11 +116,18 @@ id: SSHV-017
 title: One-time jobs, timezone, missed-job policy, retry
 module: scheduler
 priority: P1
-status: TODO
+status: TESTING
 dependencies: [SSHV-016]
 risk: low
 ```
 **Existing.** every-N/daily/weekly, 30 s tick, 10 min grace, production gating, runs only while the app is open and the
 vault unlocked. **Gaps.** One-time, timezone (uses local `Date`), per-job missed policy (skip/run-once), retry (it marks
 `lastRun` before running). Document plainly in-app that nothing runs when the app is closed. Always-on scheduling belongs to
-SSHV-021. Tests: extend `schedule.test.ts`. Evidence pending.
+SSHV-021. Tests: extend `schedule.test.ts`.
+**Progress (2026-10-09).** Done (`schedule.ts`, `scheduler.svelte.ts`, `SchedulesPanel.svelte`): one-time schedules (switch
+themselves off after starting); a time zone for daily and weekly times, read with `Intl` and tested across the New York and Berlin
+daylight-saving changes, a half-hour zone (Kolkata) and the zone's own weekday, under three different computer time zones; a
+missed-time policy (skip, the default and the old behavior, or run once on open); retry of failed hosts (0-3 times, every N
+minutes) while the app stays open, with the notice saying so. 15 new tests (19 in the file). Old schedules load unchanged (every
+new field is optional). **Not done, by design:** nothing runs while the app is closed; that is the controller (SSHV-021). The
+in-app notice and the schedule screen say so plainly.
