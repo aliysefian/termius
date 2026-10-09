@@ -82,6 +82,12 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
+      # `tauri build` refuses to run when a Tauri plugin's npm package and Rust crate differ in major/minor version,
+      # which would otherwise only show up when a tag is pushed. `tauri info` reports the same error.
+      - name: Tauri npm packages and crates match
+        if: runner.os == 'Linux'
+        run: pnpm tauri info > /dev/null
+
       # The scripts that sign releases are tried with a throw-away key on every push.
       - name: Test the release signing scripts
         if: runner.os == 'Linux'

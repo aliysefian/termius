@@ -4,6 +4,10 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## 0.30.2 - 2026-10-09
+
+- **Fixed:** 0.30.1 was never published: its installers failed to build because two Tauri plugins (clipboard and notifications) had different versions in the app and in the frontend. They match again, and CI now checks this on every push. Everything listed under 0.30.1 is in this release.
+
 ## 0.30.1 - 2026-10-09
 
 - **Fixed:** the Security review suggested switching Remote Desktop, FTP, Telnet and command hosts to an SSH key, which they can't use. It now only asks that of SSH hosts (and VNC through SSH).
