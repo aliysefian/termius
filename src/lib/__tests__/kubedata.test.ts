@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ageOf, isContext, isName, matches, portProblem, shellLine, toneOf, type KubePod } from "../kubedata";
+import { ageOf, isContext, isName, matches, portProblem, shellLine, toneOf, type KubePod, RESOURCE_KINDS, matchesResource, resourceTone } from "../kubedata";
 
 const pod = (over: Partial<KubePod> = {}): KubePod => ({ name: "web-1", namespace: "shop", status: "Running", ready: "1/1", restarts: 0, node: "n1", ip: null, created: null, containers: ["app"], owner: "ReplicaSet/web", ...over });
 
@@ -63,5 +63,27 @@ describe("the shell line", () => {
     expect(portProblem("1")).toBeNull();
     expect(portProblem("65535")).toBeNull();
     for (const bad of ["", "0", "65536", "-1", "80a", "8 0", "999999"]) expect(portProblem(bad), bad).not.toBeNull();
+  });
+});
+
+describe("the other kinds", () => {
+  it("names the kinds exactly as the backend does (kube::Kind), and never offers Secrets", () => {
+    expect(RESOURCE_KINDS.map((k) => k.value)).toEqual(["deployments", "stateful_sets", "daemon_sets", "services", "config_maps", "jobs", "cron_jobs", "ingresses", "events", "nodes"]);
+    expect(RESOURCE_KINDS.some((k) => /secret/i.test(k.value + k.label))).toBe(false);
+  });
+
+  it("searches name, namespace, status and every column", () => {
+    const r = { name: "web", namespace: "shop", status: "2/3 ready", created: null, details: [{ label: "Ports", value: "80/TCP, 443/TCP" }] };
+    for (const q of ["", "WEB", "shop", "2/3", "443"]) expect(matchesResource(r, q), q).toBe(true);
+    expect(matchesResource(r, "postgres")).toBe(false);
+  });
+
+  it("colours the status of each kind", () => {
+    const t = (kind: Parameters<typeof resourceTone>[0], status: string) => resourceTone(kind, { status });
+    expect([t("deployments", "3/3 ready"), t("deployments", "2/3 ready"), t("deployments", "0/3 ready"), t("deployments", "0/0 ready")]).toEqual(["good", "warn", "bad", "good"]);
+    expect([t("nodes", "Ready"), t("nodes", "NotReady"), t("nodes", "Unknown")]).toEqual(["good", "bad", "bad"]);
+    expect([t("jobs", "Complete"), t("jobs", "Failed"), t("jobs", "Running")]).toEqual(["good", "bad", "warn"]);
+    expect([t("events", "Warning"), t("events", "Normal")]).toEqual(["warn", "muted"]);
+    expect([t("cron_jobs", "Suspended"), t("cron_jobs", "Scheduled"), t("services", "ClusterIP")]).toEqual(["muted", "good", "muted"]);
   });
 });

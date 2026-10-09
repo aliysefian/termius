@@ -25,7 +25,7 @@ changes stay at TESTING until CI compiles and passes them.
 | SSHV-007 | Host facts | P1 | TODO | 005, 003 | P1_INFRASTRUCTURE |
 | SSHV-008 | Topology | P1 | TODO | 005 | P1_INFRASTRUCTURE |
 | SSHV-012 | Docker gaps | P1 | TODO | 004 | P1_INFRASTRUCTURE |
-| SSHV-013 | Kubernetes resources | P1 | TODO | 004 | P1_INFRASTRUCTURE |
+| SSHV-013 | Kubernetes resources | P1 | TESTING (read-only kinds; exec/scale open) | 004 | P1_INFRASTRUCTURE |
 | SSHV-014 | Database gaps | P1 | TESTING (partial) | - | P1_INFRASTRUCTURE |
 | SSHV-019 | Plugins | P2 | BLOCKED (sandbox decision) | 005, 023 | P2_PLUGIN |
 | SSHV-022 | Navigation | P2 | TODO | 005 | P1_INFRASTRUCTURE |

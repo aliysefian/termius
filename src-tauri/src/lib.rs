@@ -211,6 +211,8 @@ pub fn run() {
             commands::kube_open,
             commands::kube_close,
             commands::kube_pods,
+            commands::kube_resources,
+            commands::kube_describe_resource,
             commands::kube_namespaces,
             commands::kube_describe,
             commands::kube_delete_pod,

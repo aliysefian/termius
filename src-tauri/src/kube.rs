@@ -110,6 +110,68 @@ pub fn delete_args(context: &str, ns: &str, pod: &str) -> KubeResult<Vec<String>
     Ok(with(base(context)?, &["delete", "pod", pod, "-n", ns, "--wait=false"]))
 }
 
+/// The kinds that can be listed besides pods. Read-only, and deliberately without Secrets: nothing here asks the
+/// cluster for them, so they can't be shown, copied or logged by mistake.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Kind {
+    Deployments,
+    StatefulSets,
+    DaemonSets,
+    Services,
+    ConfigMaps,
+    Jobs,
+    CronJobs,
+    Ingresses,
+    Events,
+    Nodes,
+}
+
+impl Kind {
+    /// What `kubectl get` and `kubectl describe` call it.
+    pub fn api_name(self) -> &'static str {
+        match self {
+            Kind::Deployments => "deployments",
+            Kind::StatefulSets => "statefulsets",
+            Kind::DaemonSets => "daemonsets",
+            Kind::Services => "services",
+            Kind::ConfigMaps => "configmaps",
+            Kind::Jobs => "jobs",
+            Kind::CronJobs => "cronjobs",
+            Kind::Ingresses => "ingresses",
+            Kind::Events => "events",
+            Kind::Nodes => "nodes",
+        }
+    }
+
+    /// Nodes belong to the cluster, not to a namespace.
+    pub fn namespaced(self) -> bool {
+        self != Kind::Nodes
+    }
+}
+
+pub fn resources_args(context: &str, scope: &Scope, kind: Kind) -> KubeResult<Vec<String>> {
+    let b = base(context)?;
+    Ok(match (scope, kind.namespaced()) {
+        (Scope::Namespace(ns), true) => {
+            check_name("namespace", ns)?;
+            with(b, &["get", kind.api_name(), "-n", ns, "-o", "json"])
+        }
+        (Scope::All, true) => with(b, &["get", kind.api_name(), "-A", "-o", "json"]),
+        (_, false) => with(b, &["get", kind.api_name(), "-o", "json"]),
+    })
+}
+
+pub fn describe_resource_args(context: &str, ns: &str, kind: Kind, name: &str) -> KubeResult<Vec<String>> {
+    check_name("name", name)?;
+    if kind.namespaced() {
+        check_name("namespace", ns)?;
+        Ok(with(base(context)?, &["describe", kind.api_name(), name, "-n", ns]))
+    } else {
+        Ok(with(base(context)?, &["describe", kind.api_name(), name]))
+    }
+}
+
 #[derive(Debug, Clone, Copy, Deserialize)]
 pub struct LogOptions {
     pub tail: u32,
@@ -254,6 +316,170 @@ pub fn parse_names(out: &str) -> Vec<String> {
     v
 }
 
+/// One row of a list of something that isn't a pod.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct Resource {
+    pub name: String,
+    /// Empty for a cluster-wide thing such as a node.
+    pub namespace: String,
+    /// What a person would read first: "3/3 ready", "ClusterIP", "Warning", "Ready" ...
+    pub status: String,
+    pub created: Option<String>,
+    /// The other columns that mean something for this kind.
+    pub details: Vec<Detail>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct Detail {
+    pub label: String,
+    pub value: String,
+}
+
+fn d(label: &str, value: impl Into<String>) -> Detail {
+    Detail { label: label.into(), value: value.into() }
+}
+
+fn n(v: &Value, path: &[&str]) -> u64 {
+    let mut cur = v;
+    for p in path {
+        match cur.get(p) {
+            Some(x) => cur = x,
+            None => return 0,
+        }
+    }
+    cur.as_u64().unwrap_or(0)
+}
+
+fn list(v: &Value, path: &[&str]) -> Vec<Value> {
+    let mut cur = v;
+    for p in path {
+        match cur.get(p) {
+            Some(x) => cur = x,
+            None => return Vec::new(),
+        }
+    }
+    cur.as_array().cloned().unwrap_or_default()
+}
+
+/// Longest message kept from an event: they can be pages of text.
+const MAX_MESSAGE: usize = 300;
+/// Most events listed; the newest are kept.
+const MAX_EVENTS: usize = 500;
+
+fn clip(text: &str, max: usize) -> String {
+    let one: String = text.lines().next().unwrap_or("").chars().take(max).collect();
+    if text.lines().next().is_some_and(|l| l.chars().count() > max) {
+        format!("{one}…")
+    } else {
+        one
+    }
+}
+
+pub fn parse_resources(kind: Kind, json: &str) -> Result<Vec<Resource>, String> {
+    let v: Value = serde_json::from_str(json).map_err(|e| e.to_string())?;
+    let items = v["items"].as_array().ok_or_else(|| format!("no list of {} in the answer", kind.api_name()))?;
+    let mut out = Vec::with_capacity(items.len());
+    for it in items {
+        let Some(name) = s(it, &["metadata", "name"]) else { continue };
+        let (status, details) = match kind {
+            Kind::Deployments => {
+                let want = it["spec"].get("replicas").and_then(Value::as_u64).unwrap_or(1);
+                (
+                    format!("{}/{want} ready", n(it, &["status", "readyReplicas"])),
+                    vec![d("Up to date", n(it, &["status", "updatedReplicas"]).to_string()), d("Available", n(it, &["status", "availableReplicas"]).to_string())],
+                )
+            }
+            Kind::StatefulSets => {
+                let want = it["spec"].get("replicas").and_then(Value::as_u64).unwrap_or(1);
+                (format!("{}/{want} ready", n(it, &["status", "readyReplicas"])), vec![d("Service", s(it, &["spec", "serviceName"]).unwrap_or_default())])
+            }
+            Kind::DaemonSets => (
+                format!("{}/{} ready", n(it, &["status", "numberReady"]), n(it, &["status", "desiredNumberScheduled"])),
+                vec![d("Available", n(it, &["status", "numberAvailable"]).to_string())],
+            ),
+            Kind::Services => {
+                let ports: Vec<String> = list(it, &["spec", "ports"]).iter().map(|p| format!("{}/{}", p["port"].as_u64().unwrap_or(0), p["protocol"].as_str().unwrap_or("TCP"))).collect();
+                let mut external: Vec<String> = list(it, &["status", "loadBalancer", "ingress"]).iter().filter_map(|i| s(i, &["ip"]).or_else(|| s(i, &["hostname"]))).collect();
+                external.extend(list(it, &["spec", "externalIPs"]).iter().filter_map(|x| x.as_str().map(str::to_string)));
+                (
+                    s(it, &["spec", "type"]).unwrap_or_else(|| "ClusterIP".into()),
+                    vec![d("Cluster IP", s(it, &["spec", "clusterIP"]).unwrap_or_default()), d("External", external.join(", ")), d("Ports", ports.join(", "))],
+                )
+            }
+            Kind::ConfigMaps => {
+                // Key names only: a value is read on purpose, with describe, never in a list.
+                let mut keys: Vec<String> = it.get("data").and_then(Value::as_object).map(|o| o.keys().cloned().collect()).unwrap_or_default();
+                keys.sort();
+                let count = keys.len();
+                let shown = keys.into_iter().take(10).collect::<Vec<_>>().join(", ");
+                (format!("{count} key{}", if count == 1 { "" } else { "s" }), vec![d("Keys", if count > 10 { format!("{shown} …") } else { shown })])
+            }
+            Kind::Jobs => {
+                let done = n(it, &["status", "succeeded"]);
+                let want = it["spec"].get("completions").and_then(Value::as_u64).unwrap_or(1);
+                let conditions = list(it, &["status", "conditions"]);
+                let has = |t: &str| conditions.iter().any(|c| s(c, &["type"]).as_deref() == Some(t) && s(c, &["status"]).as_deref() == Some("True"));
+                let state = if has("Failed") {
+                    "Failed".to_string()
+                } else if has("Complete") {
+                    "Complete".to_string()
+                } else {
+                    "Running".to_string()
+                };
+                (state, vec![d("Completions", format!("{done}/{want}")), d("Failed pods", n(it, &["status", "failed"]).to_string())])
+            }
+            Kind::CronJobs => (
+                if it["spec"]["suspend"].as_bool() == Some(true) { "Suspended".into() } else { "Scheduled".into() },
+                vec![d("Schedule", s(it, &["spec", "schedule"]).unwrap_or_default()), d("Last run", s(it, &["status", "lastScheduleTime"]).unwrap_or_default())],
+            ),
+            Kind::Ingresses => {
+                let hosts: Vec<String> = list(it, &["spec", "rules"]).iter().filter_map(|r| s(r, &["host"])).collect();
+                (
+                    s(it, &["spec", "ingressClassName"]).unwrap_or_else(|| "default".into()),
+                    vec![d("Hosts", if hosts.is_empty() { "*".to_string() } else { hosts.join(", ") })],
+                )
+            }
+            Kind::Events => {
+                let when = s(it, &["lastTimestamp"]).or_else(|| s(it, &["eventTime"])).or_else(|| s(it, &["metadata", "creationTimestamp"])).unwrap_or_default();
+                (
+                    s(it, &["type"]).unwrap_or_else(|| "Normal".into()),
+                    vec![
+                        d("Reason", s(it, &["reason"]).unwrap_or_default()),
+                        d("Object", format!("{}/{}", s(it, &["involvedObject", "kind"]).unwrap_or_default(), s(it, &["involvedObject", "name"]).unwrap_or_default())),
+                        d("Message", clip(&s(it, &["message"]).unwrap_or_default(), MAX_MESSAGE)),
+                        d("Count", it.get("count").and_then(Value::as_u64).unwrap_or(1).to_string()),
+                        d("Last seen", when),
+                    ],
+                )
+            }
+            Kind::Nodes => {
+                let ready = list(it, &["status", "conditions"]).iter().find(|c| s(c, &["type"]).as_deref() == Some("Ready")).and_then(|c| s(c, &["status"]));
+                let mut roles: Vec<String> = it["metadata"]["labels"].as_object().map(|o| o.keys().filter_map(|k| k.strip_prefix("node-role.kubernetes.io/").map(str::to_string)).collect()).unwrap_or_default();
+                roles.sort();
+                let ip = list(it, &["status", "addresses"]).iter().find(|a| s(a, &["type"]).as_deref() == Some("InternalIP")).and_then(|a| s(a, &["address"])).unwrap_or_default();
+                (
+                    match ready.as_deref() {
+                        Some("True") => "Ready".into(),
+                        Some("False") => "NotReady".into(),
+                        _ => "Unknown".into(),
+                    },
+                    vec![d("Roles", if roles.is_empty() { "<none>".to_string() } else { roles.join(", ") }), d("Version", s(it, &["status", "nodeInfo", "kubeletVersion"]).unwrap_or_default()), d("Internal IP", ip)],
+                )
+            }
+        };
+        out.push(Resource { name, namespace: s(it, &["metadata", "namespace"]).unwrap_or_default(), status, created: s(it, &["metadata", "creationTimestamp"]), details });
+    }
+    if kind == Kind::Events {
+        // Newest first, and not a flood.
+        let seen = |r: &Resource| r.details.iter().find(|x| x.label == "Last seen").map(|x| x.value.clone()).unwrap_or_default();
+        out.sort_by_key(|r| std::cmp::Reverse(seen(r)));
+        out.truncate(MAX_EVENTS);
+    } else {
+        out.sort_by(|a, b| (a.namespace.as_str(), a.name.as_str()).cmp(&(b.namespace.as_str(), b.name.as_str())));
+    }
+    Ok(out)
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct KubeInfo {
     /// The client version `kubectl` reports.
@@ -361,6 +587,15 @@ impl KubeManager {
     pub async fn pods(&self, session: Uuid, context: &str, scope: &Scope) -> KubeResult<Vec<Pod>> {
         let out = self.run(session, &pods_args(context, scope)?, LIST_TIMEOUT).await?;
         parse_pods(&out.stdout).map_err(ContainerError::Parse)
+    }
+
+    pub async fn resources(&self, session: Uuid, context: &str, scope: &Scope, kind: Kind) -> KubeResult<Vec<Resource>> {
+        let out = self.run(session, &resources_args(context, scope, kind)?, LIST_TIMEOUT).await?;
+        parse_resources(kind, &out.stdout).map_err(ContainerError::Parse)
+    }
+
+    pub async fn describe_resource(&self, session: Uuid, context: &str, ns: &str, kind: Kind, name: &str) -> KubeResult<String> {
+        Ok(self.run(session, &describe_resource_args(context, ns, kind, name)?, LIST_TIMEOUT).await?.stdout)
     }
 
     pub async fn namespaces(&self, session: Uuid, context: &str) -> KubeResult<Vec<String>> {
@@ -646,5 +881,121 @@ esac
         assert!(e.contains("Unable to connect") && e.contains("cluster isn't answering"), "{e}");
         m.close(id2).await;
         std::env::set_var("PATH", old);
+    }
+
+    fn row(kind: Kind, json: &str) -> Vec<Resource> {
+        parse_resources(kind, json).unwrap()
+    }
+    fn detail<'a>(r: &'a Resource, label: &str) -> &'a str {
+        r.details.iter().find(|x| x.label == label).map(|x| x.value.as_str()).unwrap_or("<missing>")
+    }
+
+    #[test]
+    fn other_kinds_are_listed_with_the_columns_that_matter() {
+        let deployments = row(
+            Kind::Deployments,
+            r#"{"items":[{"metadata":{"name":"web","namespace":"shop","creationTimestamp":"2026-10-01T10:00:00Z"},"spec":{"replicas":3},"status":{"readyReplicas":2,"updatedReplicas":3,"availableReplicas":2}},
+                         {"metadata":{"name":"idle","namespace":"shop"},"spec":{"replicas":0},"status":{}}]}"#,
+        );
+        assert_eq!(deployments.iter().map(|r| (r.name.as_str(), r.status.as_str())).collect::<Vec<_>>(), [("idle", "0/0 ready"), ("web", "2/3 ready")]);
+        assert_eq!((detail(&deployments[1], "Up to date"), detail(&deployments[1], "Available")), ("3", "2"));
+
+        let services = row(
+            Kind::Services,
+            r#"{"items":[{"metadata":{"name":"web","namespace":"shop"},"spec":{"type":"LoadBalancer","clusterIP":"10.0.0.5","ports":[{"port":80,"protocol":"TCP"},{"port":443}]},"status":{"loadBalancer":{"ingress":[{"ip":"34.1.2.3"}]}}},
+                         {"metadata":{"name":"db","namespace":"shop"},"spec":{"clusterIP":"10.0.0.9","ports":[{"port":5432,"protocol":"TCP"}]}}]}"#,
+        );
+        assert_eq!((services[1].status.as_str(), detail(&services[1], "External"), detail(&services[1], "Ports")), ("LoadBalancer", "34.1.2.3", "80/TCP, 443/TCP"));
+        assert_eq!((services[0].status.as_str(), detail(&services[0], "External")), ("ClusterIP", ""));
+
+        let sets = row(Kind::StatefulSets, r#"{"items":[{"metadata":{"name":"pg","namespace":"d"},"spec":{"replicas":2,"serviceName":"pg-hl"},"status":{"readyReplicas":1}}]}"#);
+        assert_eq!((sets[0].status.as_str(), detail(&sets[0], "Service")), ("1/2 ready", "pg-hl"));
+        let ds = row(Kind::DaemonSets, r#"{"items":[{"metadata":{"name":"agent","namespace":"kube-system"},"status":{"numberReady":3,"desiredNumberScheduled":4,"numberAvailable":3}}]}"#);
+        assert_eq!(ds[0].status, "3/4 ready");
+    }
+
+    #[test]
+    fn config_maps_show_key_names_never_values() {
+        let maps = row(
+            Kind::ConfigMaps,
+            r#"{"items":[{"metadata":{"name":"app","namespace":"shop"},"data":{"DB_URL":"postgres://u:hunter2@db/x","FLAG":"on"}},
+                         {"metadata":{"name":"empty","namespace":"shop"}}]}"#,
+        );
+        assert_eq!((maps[0].status.as_str(), detail(&maps[0], "Keys")), ("2 keys", "DB_URL, FLAG"));
+        assert_eq!(maps[1].status, "0 keys");
+        let all = serde_json::to_string(&maps).unwrap();
+        assert!(!all.contains("hunter2") && !all.contains("postgres://"), "{all}");
+        let many: Vec<String> = (0..12).map(|i| format!("\"K{i:02}\":\"v\"")).collect();
+        let big = row(Kind::ConfigMaps, &format!(r#"{{"items":[{{"metadata":{{"name":"b","namespace":"x"}},"data":{{{}}}}}]}}"#, many.join(",")));
+        assert!(detail(&big[0], "Keys").ends_with(" …") && big[0].status == "12 keys");
+    }
+
+    #[test]
+    fn jobs_cron_jobs_ingresses_and_nodes() {
+        let jobs = row(
+            Kind::Jobs,
+            r#"{"items":[{"metadata":{"name":"ok","namespace":"j"},"spec":{"completions":1},"status":{"succeeded":1,"conditions":[{"type":"Complete","status":"True"}]}},
+                         {"metadata":{"name":"bad","namespace":"j"},"spec":{},"status":{"failed":3,"conditions":[{"type":"Failed","status":"True"}]}},
+                         {"metadata":{"name":"going","namespace":"j"},"spec":{"completions":5},"status":{"succeeded":2}}]}"#,
+        );
+        let by = |n: &str| jobs.iter().find(|j| j.name == n).unwrap();
+        assert_eq!((by("ok").status.as_str(), by("bad").status.as_str(), by("going").status.as_str()), ("Complete", "Failed", "Running"));
+        assert_eq!((detail(by("going"), "Completions"), detail(by("bad"), "Failed pods")), ("2/5", "3"));
+
+        let cron = row(Kind::CronJobs, r#"{"items":[{"metadata":{"name":"nightly","namespace":"j"},"spec":{"schedule":"0 2 * * *","suspend":true},"status":{"lastScheduleTime":"2026-10-08T02:00:00Z"}}]}"#);
+        assert_eq!((cron[0].status.as_str(), detail(&cron[0], "Schedule"), detail(&cron[0], "Last run")), ("Suspended", "0 2 * * *", "2026-10-08T02:00:00Z"));
+
+        let ing = row(Kind::Ingresses, r#"{"items":[{"metadata":{"name":"web","namespace":"shop"},"spec":{"ingressClassName":"nginx","rules":[{"host":"a.example"},{"host":"b.example"}]}}]}"#);
+        assert_eq!((ing[0].status.as_str(), detail(&ing[0], "Hosts")), ("nginx", "a.example, b.example"));
+
+        let nodes = row(
+            Kind::Nodes,
+            r#"{"items":[{"metadata":{"name":"cp-1","labels":{"node-role.kubernetes.io/control-plane":"","kubernetes.io/os":"linux"}},"status":{"conditions":[{"type":"Ready","status":"True"}],"nodeInfo":{"kubeletVersion":"v1.30.2"},"addresses":[{"type":"InternalIP","address":"10.0.0.1"}]}},
+                         {"metadata":{"name":"w-1"},"status":{"conditions":[{"type":"Ready","status":"False"}]}}]}"#,
+        );
+        assert_eq!((nodes[0].namespace.as_str(), nodes[0].status.as_str(), detail(&nodes[0], "Roles"), detail(&nodes[0], "Version"), detail(&nodes[0], "Internal IP")), ("", "Ready", "control-plane", "v1.30.2", "10.0.0.1"));
+        assert_eq!((nodes[1].status.as_str(), detail(&nodes[1], "Roles")), ("NotReady", "<none>"));
+    }
+
+    #[test]
+    fn events_come_newest_first_with_long_messages_cut() {
+        let long = "x".repeat(900);
+        let json = format!(
+            r#"{{"items":[
+              {{"metadata":{{"name":"e1","namespace":"shop"}},"type":"Normal","reason":"Pulled","involvedObject":{{"kind":"Pod","name":"web-1"}},"message":"pulled","count":1,"lastTimestamp":"2026-10-08T10:00:00Z"}},
+              {{"metadata":{{"name":"e2","namespace":"shop"}},"type":"Warning","reason":"BackOff","involvedObject":{{"kind":"Pod","name":"web-2"}},"message":"{long}\nsecond line","count":7,"lastTimestamp":"2026-10-08T12:00:00Z"}},
+              {{"metadata":{{"name":"e3","namespace":"shop","creationTimestamp":"2026-10-08T11:00:00Z"}},"type":"Normal","reason":"Scheduled","involvedObject":{{"kind":"Pod","name":"web-3"}},"message":"ok"}}
+            ]}}"#
+        );
+        let ev = row(Kind::Events, &json);
+        assert_eq!(ev.iter().map(|e| e.name.as_str()).collect::<Vec<_>>(), ["e2", "e3", "e1"]);
+        assert_eq!((ev[0].status.as_str(), detail(&ev[0], "Reason"), detail(&ev[0], "Object"), detail(&ev[0], "Count")), ("Warning", "BackOff", "Pod/web-2", "7"));
+        assert!(detail(&ev[0], "Message").chars().count() <= MAX_MESSAGE + 1 && detail(&ev[0], "Message").ends_with('…') && !detail(&ev[0], "Message").contains("second"));
+        let flood: Vec<String> = (0..700).map(|i| format!(r#"{{"metadata":{{"name":"e{i}"}},"lastTimestamp":"2026-10-08T10:{:02}:{:02}Z"}}"#, i / 60 % 60, i % 60)).collect();
+        assert_eq!(row(Kind::Events, &format!(r#"{{"items":[{}]}}"#, flood.join(","))).len(), MAX_EVENTS);
+    }
+
+    #[test]
+    fn resource_commands_are_built_from_checked_names_and_never_ask_for_secrets() {
+        let ns = Scope::Namespace("shop".into());
+        assert_eq!(resources_args("prod", &ns, Kind::Deployments).unwrap()[3..], ["get", "deployments", "-n", "shop", "-o", "json"]);
+        assert_eq!(resources_args("prod", &Scope::All, Kind::Events).unwrap()[3..], ["get", "events", "-A", "-o", "json"]);
+        // A node has no namespace, whatever scope was chosen.
+        assert_eq!(resources_args("prod", &ns, Kind::Nodes).unwrap()[3..], ["get", "nodes", "-o", "json"]);
+        assert_eq!(describe_resource_args("prod", "shop", Kind::Services, "web").unwrap()[3..], ["describe", "services", "web", "-n", "shop"]);
+        assert_eq!(describe_resource_args("prod", "", Kind::Nodes, "cp-1").unwrap()[3..], ["describe", "nodes", "cp-1"]);
+        assert!(resources_args("prod", &Scope::Namespace("a;b".into()), Kind::Jobs).is_err());
+        assert!(resources_args("$(id)", &Scope::All, Kind::Jobs).is_err());
+        assert!(describe_resource_args("prod", "shop", Kind::Services, "x y").is_err());
+        // Every kind that can be asked for, by name: Secrets are not among them, and the JSON can't name one.
+        let all = [Kind::Deployments, Kind::StatefulSets, Kind::DaemonSets, Kind::Services, Kind::ConfigMaps, Kind::Jobs, Kind::CronJobs, Kind::Ingresses, Kind::Events, Kind::Nodes];
+        assert!(all.iter().all(|k| !k.api_name().contains("secret")));
+        // The names the window sends (RESOURCE_KINDS in kubedata.ts), in the same order.
+        let wire: Vec<String> = all.iter().map(|k| serde_json::to_string(k).unwrap().trim_matches('"').to_string()).collect();
+        assert_eq!(wire, ["deployments", "stateful_sets", "daemon_sets", "services", "config_maps", "jobs", "cron_jobs", "ingresses", "events", "nodes"]);
+        assert!(serde_json::from_str::<Kind>("\"secrets\"").is_err());
+        assert_eq!(serde_json::from_str::<Kind>("\"config_maps\"").unwrap(), Kind::ConfigMaps);
+        assert!(parse_resources(Kind::Jobs, "not json").is_err());
+        assert!(parse_resources(Kind::Jobs, "{}").is_err());
     }
 }

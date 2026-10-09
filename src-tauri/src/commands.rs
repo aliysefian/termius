@@ -3710,6 +3710,17 @@ pub async fn kube_pods(state: State<'_, AppState>, session_id: Uuid, context: St
     Ok(state.kube.pods(session_id, &context, &scope).await?)
 }
 
+/// Deployments, services, events and the other read-only kinds (see `kube::Kind`; Secrets are not among them).
+#[tauri::command]
+pub async fn kube_resources(state: State<'_, AppState>, session_id: Uuid, context: String, scope: crate::kube::Scope, kind: crate::kube::Kind) -> ApiResult<Vec<crate::kube::Resource>> {
+    Ok(state.kube.resources(session_id, &context, &scope, kind).await?)
+}
+
+#[tauri::command]
+pub async fn kube_describe_resource(state: State<'_, AppState>, session_id: Uuid, context: String, namespace: String, kind: crate::kube::Kind, name: String) -> ApiResult<String> {
+    Ok(state.kube.describe_resource(session_id, &context, &namespace, kind, &name).await?)
+}
+
 #[tauri::command]
 pub async fn kube_namespaces(state: State<'_, AppState>, session_id: Uuid, context: String) -> ApiResult<Vec<String>> {
     Ok(state.kube.namespaces(session_id, &context).await?)

@@ -89,7 +89,7 @@ id: SSHV-013
 title: Kubernetes resources beyond pods
 module: kubernetes
 priority: P1
-status: TODO
+status: TESTING
 dependencies: [SSHV-004]
 risk: medium
 ```
@@ -98,7 +98,17 @@ validation, hints for expired logins.
 **Missing.** Deployments, services, configmaps, events, exec, RBAC-aware messaging.
 **Plan.** Add read-only resource kinds through the same `kubectl -o json` path; events and exec after. Destructive verbs
 need confirmation naming context+namespace. Respect kubeconfig; never read tokens into the app.
-**Tests.** Extend the fake-kubectl harness. Evidence pending.
+**Progress (2026-10-09).** Done: a "Show" selector in the Kubernetes view lists Deployments, StatefulSets, DaemonSets,
+Services, ConfigMaps, Jobs, CronJobs, Ingresses, Events and Nodes with the columns that matter for each (ready counts, service
+type and ports, job state, event reason/object/message newest first and cut at 300 characters, node roles and version), searchable,
+with Describe. Read-only on purpose. **Secrets are not in the list of kinds and cannot be asked for** (a test checks the
+backend refuses the name); ConfigMaps list key names and a count, never values (Describe, on request, shows them). RBAC: a
+refusal from the cluster comes back as `kubectl`'s own words plus the existing hint ("this account isn't allowed to do that in that
+namespace"); nothing tries another way. Tests: 5 new in `kube.rs` (run in the scratch crate with the real `containers/` and
+`kube.rs`: 204 pass), 3 in `kubedata.test.ts`; the Rust and TypeScript kind names are checked against the same list. The two new
+commands in `commands.rs` were not compiled. **Not done:** exec (the Pods view already opens a shell in a terminal tab), scale and
+rollout (they change the cluster and need their own confirmation design), editing.
+**Tests.** Extend the fake-kubectl harness. Evidence: as above.
 
 ## SSHV-014 Database workspace gaps
 ```yaml
