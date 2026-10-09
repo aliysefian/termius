@@ -2737,9 +2737,36 @@ pub async fn inventory_scan(range: String, port: u16) -> ApiResult<Vec<crate::in
     crate::inventory::scan_ssh(&range, port, std::time::Duration::from_millis(800)).await.map_err(|e| ApiError::new("scan", e.to_string()))
 }
 
-/// Run a hook command on this computer (after the window has shown it to the person and had it approved).
+/// Run a hook command on this computer. The window asks first, but the window is not who decides: a command that
+/// this computer hasn't approved is put to the person in a native dialog the page can't click, and the answer is
+/// remembered for that exact text. Without it, anything running in the page could run commands as the user.
 #[tauri::command]
-pub async fn run_hook(command: String, timeout_secs: u64) -> ApiResult<crate::hooks::HookResult> {
+pub async fn run_hook(app: AppHandle, state: State<'_, AppState>, command: String, timeout_secs: u64) -> ApiResult<crate::hooks::HookResult> {
+    crate::hooks::check(&command).map_err(|e| ApiError::new("hook", e))?;
+    // A separate namespace from ProxyCommands: approving one text as a proxy doesn't approve it as a hook.
+    let key = format!("hook:{}", command.trim());
+    if !crate::proxyapproval::is_approved(&key) {
+        let text = format!("SSHVault wants to run this command on this computer:\n\n{}\n\nOnly allow commands you wrote or have read.", command.trim());
+        let asker = app.clone();
+        let allowed = tauri::async_runtime::spawn_blocking(move || {
+            use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
+            asker
+                .dialog()
+                .message(text)
+                .title("Allow this command?")
+                .buttons(MessageDialogButtons::OkCancelCustom("Allow".to_string(), "Don't allow".to_string()))
+                .blocking_show()
+        })
+        .await
+        .unwrap_or(false);
+        if !allowed {
+            return Err(ApiError::new("hook", "the command was not allowed to run on this computer"));
+        }
+        let all = crate::proxyapproval::set(&key, true);
+        let mut cfg = AppConfig::load(&state.config_dir)?;
+        cfg.approved_commands = all;
+        cfg.save(&state.config_dir)?;
+    }
     crate::hooks::run(&command, std::time::Duration::from_secs(timeout_secs.clamp(1, crate::hooks::MAX_TIMEOUT_SECS))).await.map_err(|e| ApiError::new("hook", e))
 }
 
@@ -3404,7 +3431,7 @@ pub fn save_proxy(
     if let Some((command, allow)) = approval {
         let all = crate::proxyapproval::set(&command, allow);
         let mut cfg = AppConfig::load(&state.config_dir)?;
-        cfg.approved_proxy_commands = all;
+        cfg.approved_commands = all;
         cfg.save(&state.config_dir)?;
     }
     rec.data = rec.data.as_ref().map(crate::models::Proxy::redacted);
@@ -4691,7 +4718,7 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     // Before anything else can fail: a release build aborts on a panic, so record why in `crash.log` first.
     crate::crashlog::install(config_dir.clone());
     // The ProxyCommands this computer has approved to run (kept here, not in the synced vault).
-    crate::proxyapproval::load(AppConfig::load(&config_dir).map(|c| c.approved_proxy_commands).unwrap_or_default());
+    crate::proxyapproval::load(AppConfig::load(&config_dir).map(|c| c.approved_commands).unwrap_or_default());
     // Leftovers from a run that didn't exit cleanly are plaintext copies of
     // remote files; remove them before anything else.
     // Per-user cache folder (not the shared system temp directory, where

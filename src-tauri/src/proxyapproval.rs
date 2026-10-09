@@ -1,4 +1,4 @@
-//! Which ProxyCommands this computer has been told it may run.
+//! Which commands this computer has been told it may run: ProxyCommands (by the text) and hooks (by "hook:" and the text).
 //!
 //! A ProxyCommand runs a program on this computer, so the person has to approve it, and the approval has to be about
 //! this computer: the proxy record itself is synced, so a flag stored in it would arrive already set from any device

@@ -55,7 +55,7 @@ id: SSHV-023
 title: Content-Security-Policy and backend approval for hooks
 module: security
 priority: P0
-status: TODO
+status: TESTING
 dependencies: []
 risk: medium
 ```
@@ -70,7 +70,22 @@ a one-time approval token minted by an approval command.
 `run_hook` without a token fails.
 **Tests.** Rust test for token expiry/single use; e2e smoke (`src/lib/__tests__/e2e`) with console-error check.
 **Rollback.** Revert CSP string only (config change).
-**Evidence.** Pending. Needs a runnable build, which this machine lacks.
+**Progress (2026-10-09).** (1) CSP set in `tauri.conf.json`: `default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'
+'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost; object-src 'none';
+base-uri 'self'; form-action 'none'; frame-src 'none'; worker-src 'self' blob:`. Why each allowance: inline `style` attributes are used
+throughout (`'unsafe-inline'` for styles only, never scripts); `'wasm-unsafe-eval'` is needed by xterm's image addon (found by the
+test below: without it the page throws a WebAssembly CSP error); `ipc:`/`http://ipc.localhost` are Tauri's own channel. Tauri adds a
+hash for the page's inline start-up script when it bundles. (2) New `src/lib/__tests__/e2e/csp.py`: serves the real `build/` output
+with that header (plus the script hash, as Tauri does), mocks the backend, drives the rail views, the command palette, the host
+form, the runbook schedule form and a terminal tab, and fails on any CSP violation. Result: no violations; it fails when
+`'wasm-unsafe-eval'` is removed. It ran in headless Chromium; Tauri uses WebKitGTK on Linux, WebView2 on Windows and WKWebView on
+macOS, which this machine cannot run, so **try the installer: if the window opens blank or a terminal image fails, set `csp` back to
+`null`** and tell me what the console says. (3) `run_hook` now asks in a native dialog (the page cannot click it) the first time a
+command text runs on this computer and remembers the answer by text (`hook:` namespace in the same list as ProxyCommands, in
+`config.json`); the window's own approval dialog is unchanged and now only a first step. After this change each existing hook asks
+once more. Not compiled (dialog plugin API read from its source: `OkCancelCustom(String, String)`, `blocking_show`, called from
+`spawn_blocking`). **Not done:** `opener:default` scope check against `linksafety.ts`; Windows/macOS/Linux webview runs.
+**Evidence.** As above.
 
 ---
 ## SSHV-024 ProxyCommand safety
