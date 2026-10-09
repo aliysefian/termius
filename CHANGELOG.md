@@ -4,6 +4,51 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## 0.27.0 - 2026-10-09
+
+**Things that behave differently now**
+
+- **Lock really locks.** On a computer that remembers the vault, Lock now forgets the stored key, so the master password is needed to open it again. Before, the lock screen opened the vault by itself at once. The switch "Keep the stored key when locking" on the Vault screen brings the old behavior back.
+- **ProxyCommands and hooks ask again, once per computer.** Approval is now kept on each computer, by the exact text of the command, and never in the synced vault, so a proxy synced from another device cannot arrive already approved. A hook asks in a native dialog that the page cannot click. Existing ones will ask once.
+- **A content security policy** now limits what the app window may load. If the window ever opens blank, please report it.
+- **Runbook `{{host}}` and `{{label}}` are quoted** when they contain anything but plain characters; `{{name|raw}}` puts a value in as it is.
+- **Wrong master passwords are slowed down:** after four wrong ones, each further attempt waits twice as long, up to five minutes.
+
+**Security and safety**
+
+- The vault locks itself when idle even if the window cannot (the window reports activity, the backend watches it).
+- The vault tells you when the synced folder went backwards (an older copy of a record came back, or one vanished) and lets you accept it.
+- A hostile `vault.json` can no longer make unlock run for minutes by asking for huge Argon2 settings.
+- A ProxyCommand no longer runs a host or user name as shell syntax; names with control characters or a leading `-` are refused.
+- Hostile file names from an SFTP, SCP or FTP server (`../x`, `/etc/x`) are skipped instead of being written outside the download folder. Remote edit refuses files over 64 MiB.
+- Keyboard-interactive sign-in sends the saved password only to password questions, not to one-time-code prompts.
+- Passwords, tokens and private keys are hidden in the saved record of a runbook run and in the Logs, Docker and Kubernetes log windows (on by default; each window has a switch).
+- Read-only sessions for MySQL, PostgreSQL and SQL Server connections, and a stricter warning for `WHERE 1=1`, data-changing `WITH`, `MERGE`, `GRANT`/`REVOKE`, `EXEC`/`CALL` and `EXPLAIN ANALYZE`.
+- The one known dependency advisory (the `rsa` crate's timing side channel, which has no fix yet) is recorded with its reason, and the dependency audit now fails on anything new.
+
+**Reliability**
+
+- Fixed the app closing when following a host's logs in the monitor view (the same cause as 0.26.3). A new check fails the build if this kind of mistake is ever written again.
+- If the app closes by itself, the reason is written to `crash.log` in the settings folder (the place in the code, never passwords), and the next start tells you; Settings → Advanced → Diagnostics shows it.
+- Quitting releases the vault's "open here" marker.
+- Pressing Close on a pane that is still connecting ends it at once, instead of after 20 seconds; keys typed while connecting are kept.
+- Clearer network errors: a name that did not resolve, a refused connection, a timeout and no route are told apart. Signing in and opening the shell have time limits, and the connection time limit no longer runs while you decide whether to trust a new server key.
+- Old network devices: a per-host "Allow older algorithms" switch also offers SHA-1 key exchange, AES-CBC ciphers and SHA-1 MACs, and a failed negotiation says what each side offered and what to try.
+- Forwards back off when the system is out of file descriptors, carry at most 256 connections each, and drop a local program that never finishes the SOCKS handshake.
+
+**New**
+
+- **Topology**: a map of the links you have saved (jump hosts, proxies, tunnel rules, databases reached through a host). Under Manage.
+- **System** tab in a host's monitor: collect the operating system, hardware, disks and installed tools, only when you press the button.
+- **Kubernetes** lists deployments, StatefulSets, DaemonSets, services, ConfigMaps (key names only), jobs, CronJobs, ingresses, events and nodes, read-only. Secrets are never listed.
+- **Containers**: a health badge and an optional CPU and memory view.
+- **Run on hosts** can go one host at a time, optionally stopping at the first failure.
+- **Alerts**: severity, acknowledge, an optional list kept between runs, a choice of what pops up, and an alert when a systemd service fails.
+- **Runbooks**: optional retries per step.
+- **Schedules**: one-time schedules, time zones, an option to run once for a time missed while the app was closed, and retrying failed hosts.
+
+Also: dependency audit and update checks in the project's CI, design notes for plugins, teams and an optional always-on controller (nothing built), and an engineering audit under `docs/engineering/`.
+
 ## 0.26.5 - 2026-10-08
 
 - Fixed the app closing suddenly when following a host's logs in the monitor view (the same cause as the 0.26.3 container-logs crash).
