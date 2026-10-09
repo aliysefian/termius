@@ -4,6 +4,16 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## 0.30.1 - 2026-10-09
+
+- **Fixed:** the Security review suggested switching Remote Desktop, FTP, Telnet and command hosts to an SSH key, which they can't use. It now only asks that of SSH hosts (and VNC through SSH).
+- **Fixed:** a certificate that had expired said one day too many, and "expires in 0 days" now reads "expires today".
+- **Fixed:** idle tabs in the background showed "A command is running" as if something were executing.
+- **Fixed:** the Runbooks and Topology titles were invisible.
+- **Fixed:** a database result with many columns pushed the whole page past the window, hiding the Export button; the grid now scrolls sideways. Containers, Kubernetes and Topology had the same problem.
+- **Fixed:** the terminal preview in Settings drew its sample twice; the smart-completion list could highlight a snippet instead of the first command; missing spaces in the connection log ("25m 41s· dropped"); the "Language / Language" and "USER(OPTIONAL)" labels.
+- Engineering: CI now runs on Node 24 (the current LTS, set once in `.nvmrc`). Two Dependabot updates that don't compile here (`hmac` 0.13, `x509-cert` 0.3) were reverted, which had broken the Rust lint on `main`, and Dependabot now skips those versions.
+
 ## 0.30.0 - 2026-10-09
 
 - **Closing the window keeps SSHVault running in the system tray.** Sessions, tunnels, transfers, the SSH agent and schedules carry on. Click the tray icon (or choose **Open** in its menu) to bring the window back. **Exit** in the menu saves the open tabs, asks first if sessions are connected, closes everything the app started and quits. To quit on close as before, untick **Settings → Connections → Keep running in the tray when the window is closed**.

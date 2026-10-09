@@ -7128,7 +7128,7 @@ dependencies = [
 
 [[package]]
 name = "sshvault"
-version = "0.30.0"
+version = "0.30.1"
 dependencies = [
  "argon2 0.5.3",
  "async-trait",
