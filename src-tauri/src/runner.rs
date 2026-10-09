@@ -76,6 +76,21 @@ pub(crate) fn push_capped(buf: &mut Vec<u8>, data: &[u8], truncated: &mut bool) 
     buf.extend_from_slice(&data[..data.len().min(room)]);
 }
 
+/// Dropped before the command finished (cancelled, timed out): tell the server to hang up on the command. Closing the
+/// connection alone leaves a command that has no terminal running on the host.
+pub struct HangUpOnDrop(pub Option<russh::Channel<russh::client::Msg>>);
+
+impl Drop for HangUpOnDrop {
+    fn drop(&mut self) {
+        let (Some(channel), Ok(rt)) = (self.0.take(), tokio::runtime::Handle::try_current()) else { return };
+        // spawn-ok: a drop inside a running task; the runtime handle was checked above
+        rt.spawn(async move {
+            let _ = channel.signal(russh::Sig::HUP).await;
+            let _ = channel.close().await;
+        });
+    }
+}
+
 /// Run `command` on `target` and wait for it to finish, up to `timeout`.
 pub async fn exec(
     target: &Target,
@@ -86,7 +101,8 @@ pub async fn exec(
     let label = format!("{}:{}", target.hostname, target.port);
     let work = async {
         let (client, _) = open_client(target, None).await?;
-        let mut channel = client.channel_open_session().await?;
+        let mut guard = HangUpOnDrop(Some(client.channel_open_session().await?));
+        let channel = guard.0.as_mut().ok_or(SshError::Ssh(russh::Error::Disconnect))?;
         channel.exec(true, command.as_bytes()).await?;
 
         let (mut out, mut err) = (Vec::new(), Vec::new());
@@ -103,6 +119,7 @@ pub async fn exec(
                 _ => {}
             }
         }
+        guard.0 = None;
         client.close().await;
         Ok::<_, SshError>(ExecOutput {
             stdout: String::from_utf8_lossy(&out).into_owned(),

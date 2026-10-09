@@ -15,7 +15,7 @@ use uuid::Uuid;
 use crate::containers::transport::shell_quote;
 use crate::runbook::{run_host_with, Executor, Output, Progress, Runbook, StepResult};
 use crate::runbookhistory::{now, History, HostRecord, RunRecord};
-use crate::runner::{push_capped, Order, CONCURRENCY};
+use crate::runner::{push_capped, HangUpOnDrop, Order, CONCURRENCY};
 use crate::ssh::{open_client, Client, Target};
 
 /// A file chosen for an upload: at most this large, and this much in all.
@@ -35,7 +35,8 @@ impl SshExec {
 
     async fn run(&self, command: &str, stdin: Option<&[u8]>) -> Result<Output, String> {
         let started = Instant::now();
-        let mut channel = self.client.channel_open_session().await.map_err(|e| e.to_string())?;
+        let mut guard = HangUpOnDrop(Some(self.client.channel_open_session().await.map_err(|e| e.to_string())?));
+        let channel = guard.0.as_mut().ok_or("no channel")?;
         channel.exec(true, command.as_bytes()).await.map_err(|e| e.to_string())?;
         if let Some(data) = stdin {
             channel.data(data).await.map_err(|e| e.to_string())?;
@@ -53,6 +54,8 @@ impl SshExec {
                 _ => {}
             }
         }
+        // It finished by itself: nothing to hang up.
+        guard.0 = None;
         Ok(Output {
             stdout: String::from_utf8_lossy(&out).into_owned(),
             stderr: String::from_utf8_lossy(&err).into_owned(),

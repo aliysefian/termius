@@ -163,3 +163,40 @@ fn secret_values_are_taken_out_of_what_is_shown_and_kept() {
     let r = redacted(&r, &["hunter2".to_string()]);
     assert_eq!((r.output.stdout.as_str(), r.output.stderr.as_str(), r.note.as_str()), ("welcome [hidden]\n", "bad password [hidden]", "tried [hidden]"));
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn cancelling_does_not_leave_the_remote_command_running() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let Some(sshd) = spawn_sshd(dir.path()) else {
+        eprintln!("skipping: no usable sshd on this machine");
+        return;
+    };
+    let t = target(&sshd, &sshd.client_key, dir.path().join("kh"));
+    let pidfile = dir.path().join("pid");
+    let text = format!(r#"{{"name":"Slow","steps":[{{"name":"Slow","run":"echo $$ > {}; exec sleep 300"}}]}}"#, pidfile.display());
+    let rb = parse(&text).unwrap();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let manager = Arc::new(RunbookManager::new());
+    let id = Uuid::new_v4().to_string();
+    manager.start(id.clone(), rb, HashMap::new(), HashMap::new(), vec![HostJob { host_id: Uuid::new_v4(), label: "box".into(), hostname: "127.0.0.1".into(), target: Ok(t) }], false, false, Order::Parallel, None, Arc::new(Collect(tx)));
+    loop {
+        if matches!(rx.recv_timeout(Duration::from_secs(20)).expect("event"), RunbookEvent::StepStarted { .. }) {
+            break;
+        }
+    }
+    let pid: i32 = loop {
+        if let Some(p) = std::fs::read_to_string(&pidfile).ok().and_then(|t| t.trim().parse().ok()) {
+            break p;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    assert!(manager.cancel(&id));
+    let alive = || std::path::Path::new(&format!("/proc/{pid}")).exists();
+    for _ in 0..60 {
+        if !alive() {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    panic!("the remote command {pid} is still running six seconds after cancel");
+}
