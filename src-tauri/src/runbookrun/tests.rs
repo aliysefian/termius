@@ -46,6 +46,7 @@ async fn a_runbook_runs_over_ssh_with_conditions_a_wait_and_an_upload() {
             HostJob { host_id: bad, label: "nobody".into(), hostname: "x".into(), target: Err("credentials are needed".into()) },
         ],
         false,
+        false,
         Some(history.clone()),
         Arc::new(Collect(tx)),
     );
@@ -102,7 +103,7 @@ async fn cancelling_keeps_what_happened_and_says_so() {
     let manager = Arc::new(RunbookManager::new());
     let history = History::new(dir.path().join("history"));
     let id = Uuid::new_v4().to_string();
-    manager.start(id.clone(), rb, HashMap::new(), HashMap::new(), vec![HostJob { host_id: Uuid::new_v4(), label: "box".into(), hostname: "127.0.0.1".into(), target: Ok(t) }], false, Some(history.clone()), Arc::new(Collect(tx)));
+    manager.start(id.clone(), rb, HashMap::new(), HashMap::new(), vec![HostJob { host_id: Uuid::new_v4(), label: "box".into(), hostname: "127.0.0.1".into(), target: Ok(t) }], false, false, Some(history.clone()), Arc::new(Collect(tx)));
     // Wait for the slow step to start.
     loop {
         if matches!(rx.recv_timeout(Duration::from_secs(20)).expect("event"), RunbookEvent::StepStarted { index: 1, .. }) {

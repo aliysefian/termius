@@ -29,6 +29,9 @@ pub struct RunRecord {
     pub started_at: u64,
     pub finished_at: Option<u64>,
     pub scheduled: bool,
+    /// Rollback was turned on for this run: a host that failed was given the runbook's rollback steps.
+    #[serde(default)]
+    pub rollback: bool,
     pub cancelled: bool,
     /// The values the run was given (text parameters; a file parameter shows only that one was chosen).
     pub params: HashMap<String, String>,
@@ -173,11 +176,12 @@ mod tests {
             started_at: n,
             finished_at: Some(n + 1),
             scheduled: false,
+            rollback: false,
             cancelled: false,
             params: HashMap::from([("service".to_string(), "nginx".to_string())]),
             hosts: ok
                 .iter()
-                .map(|o| HostRecord { host_id: Uuid::new_v4(), label: "h".into(), ok: *o, error: None, steps: vec![StepResult { index: 0, name: "s".into(), status: StepStatus::Ok, output: Output::default(), note: String::new() }] })
+                .map(|o| HostRecord { host_id: Uuid::new_v4(), label: "h".into(), ok: *o, error: None, steps: vec![StepResult { phase: Default::default(), index: 0, name: "s".into(), status: StepStatus::Ok, output: Output::default(), note: String::new() }] })
                 .collect(),
         }
     }

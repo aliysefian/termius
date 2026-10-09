@@ -4031,13 +4031,15 @@ pub struct RunbookCheck {
     pub description: String,
     pub params: Vec<crate::runbook::Param>,
     pub steps: usize,
+    /// How many rollback steps it has (they run only when a run is started with rollback on).
+    pub rollback_steps: usize,
     pub problems: Vec<crate::runbook::Problem>,
 }
 
 #[tauri::command]
 pub fn runbook_check(body: String) -> RunbookCheck {
     match crate::runbook::parse(&body) {
-        Ok(rb) => RunbookCheck { name: Some(rb.name), description: rb.description, params: rb.params, steps: rb.steps.len(), problems: Vec::new() },
+        Ok(rb) => RunbookCheck { name: Some(rb.name), description: rb.description, params: rb.params, steps: rb.steps.len(), rollback_steps: rb.rollback.len(), problems: Vec::new() },
         Err(problems) => {
             // A document that doesn't fully check still shows what it can.
             let loose = serde_json::from_str::<crate::runbook::Runbook>(&body).ok();
@@ -4046,6 +4048,7 @@ pub fn runbook_check(body: String) -> RunbookCheck {
                 description: loose.as_ref().map(|r| r.description.clone()).unwrap_or_default(),
                 params: loose.as_ref().map(|r| r.params.clone()).unwrap_or_default(),
                 steps: loose.as_ref().map(|r| r.steps.len()).unwrap_or(0),
+                rollback_steps: loose.as_ref().map(|r| r.rollback.len()).unwrap_or(0),
                 problems,
             }
         }
@@ -4086,6 +4089,8 @@ pub fn runbook_start(
     host_ids: Vec<Uuid>,
     scheduled: bool,
     on_event: Channel<crate::runbookrun::RunbookEvent>,
+    // Run the runbook's rollback steps on a host where the run fails. Off unless asked for.
+    rollback: Option<bool>,
 ) -> ApiResult<()> {
     use crate::runbookrun::{HostJob, MAX_FILE, MAX_FILES_TOTAL};
     if Uuid::parse_str(&run_id).is_err() {
@@ -4130,7 +4135,7 @@ pub fn runbook_start(
     let sink: Arc<dyn crate::runbookrun::RunbookSink> = Arc::new(ChannelRunbookSink(on_event));
     // Spawned inside Tauri's runtime; the manager needs a tokio context.
     tauri::async_runtime::spawn(async move {
-        manager.start(run_id, rb, values, blobs, jobs, scheduled, Some(history), sink);
+        manager.start(run_id, rb, values, blobs, jobs, scheduled, rollback.unwrap_or(false), Some(history), sink);
     });
     Ok(())
 }

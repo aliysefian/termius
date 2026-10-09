@@ -27,6 +27,8 @@ export interface Schedule {
   /** Run the hosts that failed again, up to this many times (0 to 3), `retryMinutes` apart. The timer lives in the app: closing it ends the retries. */
   retries?: number;
   retryMinutes?: number;
+  /** On a host where a run fails, also run the runbook's rollback steps. Off unless chosen when the schedule was made. */
+  rollback?: boolean;
 }
 
 export const MAX_RETRIES = 3;

@@ -29,6 +29,7 @@
   let missed = $state<"skip" | "run_once">("skip");
   let retries = $state(0);
   let retryMinutes = $state(15);
+  let rollback = $state(false);
   const zones = typeof Intl.supportedValuesOf === "function" ? Intl.supportedValuesOf("timeZone") : [];
 
   const when = $derived<When>(kind === "every" ? { kind, minutes } : kind === "once" ? { kind, at: onceAt ? new Date(onceAt).getTime() : NaN } : kind === "daily" ? { kind, at } : { kind, days, at });
@@ -55,7 +56,7 @@
     if (when.kind === "once" && when.at <= Date.now()) return (error = "Choose a time in the future.");
     const prod = [...picked].filter((h) => vaultStore.effectiveEnv(vaultStore.hostById.get(h)?.data) === "production");
     if (prod.length && allowProduction && !(await ask(`This schedule will run "${rb.name}" by itself on ${prod.length} production host${prod.length === 1 ? "" : "s"}, without anyone watching.`, { title: "Production hosts", confirm: "Allow it", danger: true, requireText: "production" }))) return;
-    const s: Schedule = { id: crypto.randomUUID(), runbookId, params: Object.fromEntries(Object.entries($state.snapshot(params)).filter(([, v]) => v !== "")), hostIds: [...picked], when: $state.snapshot(when) as When, enabled: true, allowProduction: allowProduction && prod.length > 0, lastRun: Date.now(), ...(tz.trim() && when.kind !== "every" && when.kind !== "once" ? { tz: tz.trim() } : {}), ...(missed === "run_once" && when.kind !== "every" ? { missed } : {}), ...(retries > 0 ? { retries, retryMinutes } : {}) };
+    const s: Schedule = { id: crypto.randomUUID(), runbookId, params: Object.fromEntries(Object.entries($state.snapshot(params)).filter(([, v]) => v !== "")), hostIds: [...picked], when: $state.snapshot(when) as When, enabled: true, allowProduction: allowProduction && prod.length > 0, lastRun: Date.now(), ...(tz.trim() && when.kind !== "every" && when.kind !== "once" ? { tz: tz.trim() } : {}), ...(missed === "run_once" && when.kind !== "every" ? { missed } : {}), ...(retries > 0 ? { retries, retryMinutes } : {}), ...(rollback && (check?.rollback_steps ?? 0) > 0 ? { rollback: true } : {}) };
     const slip = scheduleProblem(s);
     if (slip) return (error = slip);
     settings.prefs.schedules = [...settings.prefs.schedules, s];
@@ -164,6 +165,9 @@
         <input id="sc-retry-min" class="input w-20" type="number" min="1" bind:value={retryMinutes} aria-label="Minutes between retries" />
         <span>minutes. Only for commands that are safe to repeat; retries stop if SSHVault is closed.</span>
       </div>
+      {#if (check?.rollback_steps ?? 0) > 0}
+        <label class="flex items-start gap-2 text-xs text-fg-muted"><input type="checkbox" class="mt-0.5 accent-input" bind:checked={rollback} /> On a host where it fails, run the runbook's {check?.rollback_steps} rollback step{check?.rollback_steps === 1 ? "" : "s"} (they change that host again, unattended)</label>
+      {/if}
       <label class="flex items-start gap-2 text-xs text-fg-muted"><input type="checkbox" class="mt-0.5 accent-input" bind:checked={allowProduction} /> Allow this schedule to run on production hosts, unattended</label>
       {#if error}<p class="text-xs text-danger" role="alert">{error}</p>{/if}
       <div class="flex gap-2">
@@ -181,7 +185,7 @@
         <input type="checkbox" class="accent-input" checked={s.enabled} aria-label="Enabled" onchange={() => (s.enabled = !s.enabled)} />
         <div class="min-w-0 flex-1">
           <div class="truncate font-medium">{name(s)} <span class="font-normal text-fg-muted">on {s.hostIds.length} host{s.hostIds.length === 1 ? "" : "s"}</span></div>
-          <div class="text-xs text-fg-muted">{describe(s.when, s.tz)}{s.missed === "run_once" ? " · catches up once" : ""}{s.retries ? ` · retries ${s.retries}×` : ""}{s.enabled && next ? ` · next ${stamp(next)}` : s.when.kind === "once" && !s.enabled ? " · done" : ""}{s.lastRun ? ` · last started ${stamp(s.lastRun)}` : ""}</div>
+          <div class="text-xs text-fg-muted">{describe(s.when, s.tz)}{s.missed === "run_once" ? " · catches up once" : ""}{s.retries ? ` · retries ${s.retries}×` : ""}{s.rollback ? " · rolls back a failed host" : ""}{s.enabled && next ? ` · next ${stamp(next)}` : s.when.kind === "once" && !s.enabled ? " · done" : ""}{s.lastRun ? ` · last started ${stamp(s.lastRun)}` : ""}</div>
           {#if why}<div class="text-xs text-warning">Won't run: {why}.</div>{/if}
         </div>
         <button class="btn-ghost py-1 text-xs" title="Run it now" disabled={!!why} onclick={() => runSchedule(s.id)}><Play size={13} /></button>

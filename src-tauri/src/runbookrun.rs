@@ -13,7 +13,7 @@ use tokio::task::JoinSet;
 use uuid::Uuid;
 
 use crate::containers::transport::shell_quote;
-use crate::runbook::{run_host, Executor, Output, Progress, Runbook, StepResult};
+use crate::runbook::{run_host_with, Executor, Output, Progress, Runbook, StepResult};
 use crate::runbookhistory::{now, History, HostRecord, RunRecord};
 use crate::runner::{push_capped, CONCURRENCY};
 use crate::ssh::{open_client, Client, Target};
@@ -162,6 +162,7 @@ impl RunbookManager {
         files: HashMap<String, Vec<u8>>,
         hosts: Vec<HostJob>,
         scheduled: bool,
+        rollback: bool,
         history: Option<History>,
         sink: Arc<dyn RunbookSink>,
     ) {
@@ -175,6 +176,7 @@ impl RunbookManager {
             started_at: now(),
             finished_at: None,
             scheduled,
+            rollback,
             cancelled: false,
             params: shown,
             hosts: hosts.iter().map(|h| HostRecord { host_id: h.host_id, label: h.label.clone(), ok: None, error: None, steps: Vec::new() }).collect(),
@@ -215,7 +217,7 @@ impl RunbookManager {
                     let exec = SshExec::new(client);
                     let progress = HostProgress { host_id, sink: Arc::clone(&sink), record: Arc::clone(&record), cancelled: flag };
                     let host_values = HashMap::from([("host".to_string(), job.hostname.clone()), ("label".to_string(), job.label.clone())]);
-                    let (ok, _) = run_host(&runbook, &values, &files, &host_values, &exec, &progress).await;
+                    let (ok, _) = run_host_with(&runbook, &values, &files, &host_values, &exec, &progress, rollback).await;
                     exec.client.close().await;
                     finish_host(&record, host_id, ok, None);
                     sink.event(RunbookEvent::HostDone { host_id, ok, error: None });

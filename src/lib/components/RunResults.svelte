@@ -3,7 +3,9 @@
   import { duration, statusLabel, type HostRun, type StepResult } from "$lib/runbook";
 
   /** The hosts of a run, live or from the record. */
-  let { hosts, steps }: { hosts: HostRun[]; steps: { name: string }[] } = $props();
+  let { hosts, steps }: { hosts: HostRun[]; steps: { name: string; phase?: string }[] } = $props();
+  /** The steps of the run itself: the rollback ones only run after a failure, so they are not part of "N of M". */
+  const runSteps = $derived(steps.filter((s) => s.phase !== "rollback"));
 
   let open = $state<Set<string>>(new Set());
   const toggle = (id: string) => {
@@ -15,8 +17,10 @@
 
   const mark = (s: StepResult["status"]) => (s === "ok" ? "text-success" : s === "skipped" ? "text-fg-muted" : "text-danger");
   const summary = (h: HostRun) => {
-    const done = h.steps.filter((s) => s.status !== "skipped").length;
-    return h.state === "waiting" ? "waiting" : h.state === "running" ? `step ${(h.current ?? done) + 1} of ${steps.length}` : h.error ? h.error : `${done} of ${steps.length} steps`;
+    const done = h.steps.filter((s) => s.status !== "skipped" && s.phase !== "rollback").length;
+    const undone = h.steps.some((s) => s.phase === "rollback");
+    const total = runSteps.length;
+    return h.state === "waiting" ? "waiting" : h.state === "running" ? (h.current !== null && (steps[h.current]?.phase === "rollback") ? "rolling back" : `step ${(h.current ?? done) + 1} of ${total}`) : h.error ? h.error : `${done} of ${total} steps${undone ? ", then rolled back" : ""}`;
   };
 </script>
 
@@ -38,7 +42,7 @@
             <li>
               <div class="flex items-baseline gap-2 text-xs">
                 {#if s.status === "ok"}<Check size={12} class="shrink-0 {mark(s.status)}" />{:else if s.status === "skipped"}<MinusCircle size={12} class="shrink-0 {mark(s.status)}" />{:else}<X size={12} class="shrink-0 {mark(s.status)}" />{/if}
-                <span class="font-medium">{s.name}</span>
+                <span class="font-medium">{s.name}</span>{#if s.phase === "rollback"}<span class="rounded bg-warning/15 px-1.5 text-[10px] text-warning">rollback</span>{/if}
                 <span class={mark(s.status)}>{statusLabel(s.status)}</span>
                 {#if s.note}<span class="text-fg-muted">{s.note}</span>{/if}
                 {#if s.output.duration_ms}<span class="ml-auto text-fg-muted">{duration(s.output.duration_ms)}</span>{/if}

@@ -33,6 +33,10 @@ pub struct Runbook {
     #[serde(default)]
     pub params: Vec<Param>,
     pub steps: Vec<Step>,
+    /// Steps to undo what the run did, tried on a host where the run failed, only when the person turned rollback on for that
+    /// run. Written like `steps` (and may look at the earlier ids); never run on their own.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rollback: Vec<Step>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -206,6 +210,27 @@ pub fn parse(text: &str) -> Result<Runbook, Vec<Problem>> {
 }
 
 pub fn check(rb: &Runbook) -> Vec<Problem> {
+    if rb.rollback.is_empty() {
+        return check_steps(rb);
+    }
+    // The rollback steps are checked as a continuation of the steps (same parameters, ids unique across both, a `when` may look
+    // at an earlier step), and what is found about them is reported against the rollback.
+    let n = rb.steps.len();
+    let combined = Runbook { steps: [rb.steps.clone(), rb.rollback.clone()].concat(), rollback: Vec::new(), ..rb.clone() };
+    let mut out = check_steps(&combined);
+    if rb.steps.is_empty() {
+        out.push(problem(None, "a runbook needs at least one step before its rollback"));
+    }
+    for p in &mut out {
+        if let Some(i) = p.step.filter(|i| *i >= n) {
+            p.message = format!("Rollback step {}: {}", i - n + 1, p.message);
+            p.step = None;
+        }
+    }
+    out
+}
+
+fn check_steps(rb: &Runbook) -> Vec<Problem> {
     let mut out = Vec::new();
     if rb.name.trim().is_empty() || rb.name.len() > 100 {
         out.push(problem(None, "the runbook needs a name of up to 100 characters"));
@@ -417,6 +442,8 @@ pub fn render(template: &str, values: &HashMap<String, String>) -> Result<String
 /// A step as it will run for one host, for a dry run.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct PlannedStep {
+    /// "run", or "rollback" for the steps that only run on a host where the run failed, when rollback is on.
+    pub phase: Phase,
     pub index: usize,
     pub name: String,
     pub kind: &'static str,
@@ -447,10 +474,13 @@ pub fn plan(rb: &Runbook, values: &HashMap<String, String>, host: &HashMap<Strin
             all.entry(p.name.clone()).or_insert_with(|| format!("<{}>", p.name));
         }
     }
+    let n = rb.steps.len();
     rb.steps
         .iter()
+        .map(|s| (Phase::Run, s))
+        .chain(rb.rollback.iter().map(|s| (Phase::Rollback, s)))
         .enumerate()
-        .map(|(index, s)| {
+        .map(|(index, (phase, s))| {
             let (kind, text) = if let Some(r) = &s.run {
                 ("run", render(r, &all)?)
             } else if let Some(w) = &s.wait {
@@ -464,8 +494,19 @@ pub fn plan(rb: &Runbook, values: &HashMap<String, String>, host: &HashMap<Strin
             } else {
                 ("", String::new())
             };
-            let name = if s.name.is_empty() { format!("Step {}", index + 1) } else { s.name.clone() };
-            Ok(PlannedStep { index, name, kind, text, condition: s.when.as_ref().map(describe_when), on_error: if s.on_error == OnError::Continue { "continue" } else { "stop" } })
+            let name = match (s.name.is_empty(), phase) {
+                (false, _) => s.name.clone(),
+                (true, Phase::Run) => format!("Step {}", index + 1),
+                (true, Phase::Rollback) => format!("Rollback step {}", index - n + 1),
+            };
+            let when = s.when.as_ref().map(describe_when);
+            // A rollback step never runs on its own: say so, ahead of whatever else it depends on.
+            let condition = match (phase, when) {
+                (Phase::Run, w) => w,
+                (Phase::Rollback, Some(w)) => Some(format!("only on a host where the run failed, with rollback on; {w}")),
+                (Phase::Rollback, None) => Some("only on a host where the run failed, with rollback on".to_string()),
+            };
+            Ok(PlannedStep { phase, index, name, kind, text, condition, on_error: if s.on_error == OnError::Continue { "continue" } else { "stop" } })
         })
         .collect()
 }
@@ -502,8 +543,19 @@ pub enum StepStatus {
     Error,
 }
 
+/// Whether a result is from the steps of the run or from the rollback after a failure.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum Phase {
+    #[default]
+    Run,
+    Rollback,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct StepResult {
+    #[serde(default)]
+    pub phase: Phase,
     pub index: usize,
     pub name: String,
     pub status: StepStatus,
@@ -553,20 +605,54 @@ fn holds(w: &When, results: &HashMap<String, Option<u32>>, values: &HashMap<Stri
 /// Run every step on one host, in order. `files` has the bytes of each file parameter. Returns whether the host
 /// got through without a step that stopped it.
 pub async fn run_host<E: Executor>(rb: &Runbook, values: &HashMap<String, String>, files: &HashMap<String, Vec<u8>>, host: &HashMap<String, String>, exec: &E, progress: &dyn Progress) -> (bool, Vec<StepResult>) {
+    run_host_with(rb, values, files, host, exec, progress, false).await
+}
+
+/// Like [`run_host`]. With `rollback` on, a host whose run failed (and was not cancelled) then gets the runbook's rollback
+/// steps, after the failure, as best effort: each is tried in order, a step's own `on_error` decides whether to go on, and the
+/// host still counts as failed. Without it, or with no rollback steps, nothing more runs.
+pub async fn run_host_with<E: Executor>(rb: &Runbook, values: &HashMap<String, String>, files: &HashMap<String, Vec<u8>>, host: &HashMap<String, String>, exec: &E, progress: &dyn Progress, rollback: bool) -> (bool, Vec<StepResult>) {
     let mut all = values.clone();
     all.extend(host.clone());
     let mut exits: HashMap<String, Option<u32>> = HashMap::new();
     let mut results = Vec::new();
+    let ok = run_steps(&rb.steps, 0, Phase::Run, values, files, &all, exec, progress, &mut exits, &mut results).await;
+    if !ok && rollback && !rb.rollback.is_empty() && !progress.cancelled() {
+        run_steps(&rb.rollback, rb.steps.len(), Phase::Rollback, values, files, &all, exec, progress, &mut exits, &mut results).await;
+    }
+    (ok, results)
+}
+
+/// Run `steps` in order on one host. `offset` is where the first one sits in the numbering of results. Returns whether the
+/// host got through without a step that stopped it.
+#[allow(clippy::too_many_arguments)]
+async fn run_steps<E: Executor>(
+    steps: &[Step],
+    offset: usize,
+    phase: Phase,
+    values: &HashMap<String, String>,
+    files: &HashMap<String, Vec<u8>>,
+    all: &HashMap<String, String>,
+    exec: &E,
+    progress: &dyn Progress,
+    exits: &mut HashMap<String, Option<u32>>,
+    results: &mut Vec<StepResult>,
+) -> bool {
     let mut ok = true;
-    for (index, s) in rb.steps.iter().enumerate() {
+    for (position, s) in steps.iter().enumerate() {
+        let index = offset + position;
         if progress.cancelled() {
             ok = false;
             break;
         }
-        let name = if s.name.is_empty() { format!("Step {}", index + 1) } else { s.name.clone() };
-        let finish = |status: StepStatus, output: Output, note: String| StepResult { index, name: name.clone(), status, output, note };
+        let name = match (s.name.is_empty(), phase) {
+            (false, _) => s.name.clone(),
+            (true, Phase::Run) => format!("Step {}", index + 1),
+            (true, Phase::Rollback) => format!("Rollback step {}", position + 1),
+        };
+        let finish = |status: StepStatus, output: Output, note: String| StepResult { phase, index, name: name.clone(), status, output, note };
         if let Some(w) = &s.when {
-            if !holds(w, &exits, values) {
+            if !holds(w, exits, values) {
                 let r = finish(StepStatus::Skipped, Output::default(), describe_when(w).replace("only if", "skipped: it runs only if"));
                 progress.finished(&r);
                 results.push(r);
@@ -581,12 +667,12 @@ pub async fn run_host<E: Executor>(rb: &Runbook, values: &HashMap<String, String
         let outcome = loop {
             let outcome: Result<(StepStatus, Output, String), String> = async {
                 if let Some(r) = &s.run {
-                    let out = exec.exec(&render(r, &all)?, timeout).await?;
+                    let out = exec.exec(&render(r, all)?, timeout).await?;
                     let good = out.exit_code == Some(0);
                     let note = if good { String::new() } else { format!("exited with {}", out.exit_code.map_or("no code".to_string(), |c| c.to_string())) };
                     Ok((if good { StepStatus::Ok } else { StepStatus::Failed }, out, note))
                 } else if let Some(w) = &s.wait {
-                    let command = render(&w.run, &all)?;
+                    let command = render(&w.run, all)?;
                     let every = Duration::from_secs(w.every_secs.unwrap_or(5).clamp(1, 3600));
                     let limit = Duration::from_secs(w.timeout_secs.unwrap_or(60).min(MAX_STEP_TIMEOUT));
                     let want = w.until_exit.unwrap_or(0);
@@ -609,7 +695,7 @@ pub async fn run_host<E: Executor>(rb: &Runbook, values: &HashMap<String, String
                 } else if let Some(u) = &s.upload {
                     let param = placeholders(&u.local)?.into_iter().next().map(|p| p.0).unwrap_or_default();
                     let data = files.get(&param).ok_or_else(|| format!("no file was chosen for {param}"))?;
-                    let remote = render(&u.remote, &all)?;
+                    let remote = render(&u.remote, all)?;
                     let out = exec.upload(data, &remote, u.mode.as_deref()).await?;
                     let good = out.exit_code == Some(0);
                     Ok((if good { StepStatus::Ok } else { StepStatus::Failed }, out, if good { format!("{} bytes", data.len()) } else { "the upload failed".into() }))
@@ -645,7 +731,7 @@ pub async fn run_host<E: Executor>(rb: &Runbook, values: &HashMap<String, String
             break;
         }
     }
-    (ok, results)
+    ok
 }
 
 #[cfg(test)]

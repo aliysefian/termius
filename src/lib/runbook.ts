@@ -20,10 +20,13 @@ export interface RunbookCheck {
   description: string;
   params: RunbookParam[];
   steps: number;
+  /** Steps that run only on a host where the run failed, when a run is started with rollback on. */
+  rollback_steps: number;
   problems: Problem[];
 }
 
 export interface PlannedStep {
+  phase: "run" | "rollback";
   index: number;
   name: string;
   kind: "run" | "wait" | "upload";
@@ -43,6 +46,8 @@ export interface Output {
 }
 
 export interface StepResult {
+  /** Missing in records made before rollback existed: those are all "run". */
+  phase?: "run" | "rollback";
   index: number;
   name: string;
   status: StepStatus;
@@ -71,6 +76,8 @@ export interface RunRecord {
   started_at: number;
   finished_at: number | null;
   scheduled: boolean;
+  /** Rollback was on for this run. */
+  rollback?: boolean;
   cancelled: boolean;
   params: Record<string, string>;
   hosts: HostRecord[];

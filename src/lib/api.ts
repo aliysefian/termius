@@ -238,9 +238,11 @@ export function runbookStart(
   hostIds: Uuid[],
   scheduled: boolean,
   onEvent: (e: import("./runbook").RunbookEvent) => void,
+  /** On a host where the run fails, also run the runbook's rollback steps. */
+  rollback = false,
 ) {
   const channel = new Channel<import("./runbook").RunbookEvent>(onEvent);
-  return invoke<void>("runbook_start", { runId, body, params, files, hostIds, scheduled, onEvent: channel });
+  return invoke<void>("runbook_start", { runId, body, params, files, hostIds, scheduled, onEvent: channel, rollback });
 }
 export const runbookCancel = (runId: string) => invoke<boolean>("runbook_cancel", { runId });
 export const runbookHistory = {
