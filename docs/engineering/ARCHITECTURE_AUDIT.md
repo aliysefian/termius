@@ -67,7 +67,7 @@ risk but should not be mixed with behaviour changes. Also large: `ssh.rs` 1968, 
 was not re-read in this audit.
 
 ### A7. Absent subsystems
-There is **no** unified resource model, topology view, discovery module, AI assistant, plugin system, teams/RBAC or
+There is **no** unified resource model, topology view, discovery module, plugin system, teams/RBAC or
 controller. (Grep for anthropic/openai/llm hit only unrelated Mongo code.) `inventory.rs` imports hosts from Tailscale,
 AWS, GCP, kube and Terraform CLIs and has an SSH port scan; that is import, not discovery of host facts.
 

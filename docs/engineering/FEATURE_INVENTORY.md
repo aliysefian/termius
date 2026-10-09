@@ -12,7 +12,7 @@ by search, not by reading every file. Nothing here was exercised at runtime exce
 | Atomic writes | IMPLEMENTED | `vault/atomic.rs:85-144`; dir fsync best-effort, no-op on Windows |
 | Backup / restore | IMPLEMENTED | `vault/backup.rs`; tests `backup_restore_verifies_first_and_keeps_a_safety_copy` |
 | Password change / recovery key | IMPLEMENTED | `vault/mod.rs:581`; test `interrupted_password_change_keeps_the_old_password` |
-| VMK (data key) rotation | MISSING | password/recovery change rewraps only the slot |
+| VMK (data key) rotation | NOT PLANNED (owner decision) | password/recovery change rewraps only the slot; risk S9 accepted |
 | Versioned format + migration | IMPLEMENTED | `format.rs:184-193`, `migrate.rs`; tests `v1_vaults_migrate_...`, `interrupted_migration_rolls_back_...` |
 | Conflict detection / 3-way merge | IMPLEMENTED | `vault/merge.rs`, `conflicts.rs`; test `concurrent_edits_merge_or_conflict_never_silently_overwrite` |
 | Rollback / replay protection | MISSING | no per-device high-water mark, no signed manifest |
@@ -66,7 +66,7 @@ by search, not by reading every file. Nothing here was exercised at runtime exce
 | Capability | Status |
 |---|---|
 | Unified resource model, topology, discovery | MISSING |
-| AI assistant | MISSING |
+| AI assistant | NOT PLANNED (owner decision) |
 | Plugin system | MISSING |
 | Teams / RBAC / controller | MISSING |
 | Command palette, shortcuts, themes, i18n, layouts, virtualized lists | IMPLEMENTED (`shortcuts.ts`, `themes.ts`, `i18n/`, `layout.ts`, `virtuallist.ts`) |

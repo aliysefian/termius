@@ -12,7 +12,7 @@ changes stay at TESTING until CI compiles and passes them.
 | SSHV-025 | Download path safety, read cap | P0 | TESTING (branch fix/ssh-025-file-name-safety) | - | P0 |
 | SSHV-016 | Runbooks (part a: quote built-ins, |raw) | P0 | TESTING (part a) | - | P1_OPERATIONS |
 | SSHV-026 | CI gates and supply chain | P0 | IN_PROGRESS (audit workflow + dependabot added) | - | P0 |
-| SSHV-001 | Vault hardening | P0 | TODO | 004 | P0 |
+| SSHV-001 | Vault hardening (no key rotation) | P0 | TODO | 004 | P0 |
 | SSHV-002 | Sync rollback detection, status | P0 | TODO | 001 | P0 |
 | SSHV-003 | Connection engine | P0 | TODO | 004 | P0 |
 | SSHV-009 | Monitoring gaps | P1 | TODO | 003 | P1_OPERATIONS |
@@ -27,7 +27,6 @@ changes stay at TESTING until CI compiles and passes them.
 | SSHV-012 | Docker gaps | P1 | TODO | 004 | P1_INFRASTRUCTURE |
 | SSHV-013 | Kubernetes resources | P1 | TODO | 004 | P1_INFRASTRUCTURE |
 | SSHV-014 | Database gaps | P1 | TODO | - | P1_INFRASTRUCTURE |
-| SSHV-018 | AI assistant | P2 | TODO | 001, 010, 016, 023 | P2_AI |
 | SSHV-019 | Plugins | P2 | BLOCKED (sandbox decision) | 005, 023 | P2_PLUGIN |
 | SSHV-022 | Navigation | P2 | TODO | 005 | P1_INFRASTRUCTURE |
 | SSHV-027 | Split large modules | P2 | TODO | 003 | P1_INFRASTRUCTURE |

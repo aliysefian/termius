@@ -125,32 +125,31 @@ been built; CI must pass before DONE.
 
 
 ---
-## SSHV-001 Vault architecture hardening
+## SSHV-001 Vault hardening
 ```yaml
 id: SSHV-001
-title: Backend auto-lock, lock semantics, data-key rotation, KDF bounds
+title: Backend auto-lock, lock semantics, KDF bounds
 module: security
 priority: P0
 status: TODO
 dependencies: [SSHV-004]
-risk: high
+risk: medium
 ```
 **Existing (do not redo).** XChaCha20-Poly1305, Argon2id, key slots, recovery key, tamper tests, atomic writes, backups,
 migrations, redacted lists (see FEATURE_INVENTORY).
-**Gaps.** S7 backend auto-lock; S8 lock vs remembered key; S9 no VMK rotation; S16 no KDF ceiling; S18 `subtle` crate,
-Windows directory flush, unlock lockout.
+**Gaps.** S7 backend auto-lock; S8 lock vs remembered key; S16 no KDF ceiling; S18 `subtle` crate, Windows directory flush,
+unlock lockout.
+**Out of scope by owner decision (2026-10-09).** Data-key (VMK) rotation is not planned; the risk is recorded as S9 and
+accepted. Nothing in this task changes how records or backups are encrypted, so no migration is involved.
 **Plan.** (1) Idle timer in `session.rs`, reset by IPC activity and by session I/O, calls the existing lock path;
-(2) setting "forget remembered key when locking" default on, with UI text; (3) `rotate_data_key`: new VMK, re-encrypt
-all records and backups with journal + safety backup like `migrate.rs`; (4) reject `m_cost` above a ceiling; (5) replace
-hand-rolled compare with `subtle`; (6) exponential unlock delay.
-**Security.** Rotation is the highest-risk step: crash tests at every journal point; never delete the old VMK-wrapped
-state until verification passes.
-**Acceptance.** Existing vaults open unchanged; interrupted rotation recovers to old or new, never mixed; hostile
-manifest with huge `m` is refused without allocating.
-**Tests.** Extend `vault/tests.rs`: rotation, interrupted rotation (fault injection like
-`disk_full_and_crash_during_save_leave_the_record_intact`), KDF ceiling, idle lock with injected clock.
-**Rollback.** Safety backup before rotation; old format version still readable.
-**Evidence.** Pending. Requires owner approval for the rotation design (irreversible migration class).
+(2) setting "forget remembered key when locking" default on, with UI text; (3) reject `m_cost` above a ceiling;
+(4) replace the hand-rolled compare with `subtle`; (5) exponential unlock delay.
+**Security.** Lock must still close sessions, agent and control socket exactly as `lock_vault` does today.
+**Acceptance.** Existing vaults open unchanged; a hostile manifest with a huge `m` is refused without allocating; the vault
+locks after the idle time with the webview frozen; with the new setting on, unlock after lock asks for the password.
+**Tests.** Extend `vault/tests.rs`: KDF ceiling, idle lock with an injected clock, unlock delay.
+**Rollback.** Revert the commit; no data-format change.
+**Evidence.** Pending.
 
 ---
 ## SSHV-002 Sync integrity and visibility
