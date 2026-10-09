@@ -34,15 +34,22 @@ changes stay at TESTING until CI compiles and passes them.
 | SSHV-020 | Teams (design) | P3 | BLOCKED (product decision) | 001, 002, 021 | P3 |
 | SSHV-021 | Controller (design) | P3 | BLOCKED (product decision) | 009, 017 | P3 |
 
-## Checkpoint (2026-10-08)
+## Checkpoint (2026-10-09, end of the second session)
 
-- **Last completed:** repository audit and backlog (docs/engineering/*, docs/tasks/*).
-- **Current:** SSHV-025 on branch `fix/ssh-025-file-name-safety`, awaiting CI. SSHV-024 part 2 not started.
-- **Modified files, uncommitted:** `src-tauri/src/monitor.rs:76` (`tokio::spawn` -> `tauri::async_runtime::spawn`), `src-tauri/src/dial.rs` (ProxyCommand tokens quoted/refused, SSHV-024 part 1),
-  all of `docs/engineering/` and `docs/tasks/`. `feat.md`, `feat2.md`, `feat3.md` are deleted in the working tree and were
-  not touched by this work.
-- **Tests:** `pnpm check` 0 errors; `pnpm test` 55 files / 695 tests passed (run by an audit agent). Rust not compiled
-  or tested here (no webkit/glib).
-- **Known problems:** see SECURITY_AUDIT S1-S22.
-- **Next recommended:** SSHV-023 (CSP) is highest impact but needs a runnable build to verify; SSHV-025 and SSHV-024 are
-  testable as pure Rust unit tests and can be developed in a scratch crate. Release the `monitor.rs` fix as 0.26.4.
+- **Branch:** `feat/backlog-hardening`, on top of `fix/ssh-025-file-name-safety`. Nothing is merged to `main`. No release was cut from it.
+- **Last completed:** every task that can be done and checked on this machine. Statuses above are TESTING, not DONE, because **CI has
+  not run on the branch**: the Tauri crate (`commands.rs`, `lib.rs`, the database drivers) cannot be compiled here, so those edits
+  are unproven until CI compiles them. Open a pull request and read the `Build` run first.
+- **Verified here:** `pnpm check` 0 errors; 740 frontend tests; the real source files of the vault, session, sync, SSH engine, runner,
+  containers, Kubernetes and runbooks compiled and tested in scratch crates (about 360 Rust tests, including live-`sshd` ones);
+  `clippy -D warnings` clean on all of it; browser tests in headless Chromium for the CSP, Topology, host facts, 5,000 hosts,
+  accessibility (0 findings in three themes), Kubernetes, Ops, Databases and Runbooks.
+- **Needs you:** try the installer from CI: the CSP (set `csp` back to `null` in `tauri.conf.json` if the window opens blank),
+  the native "Allow this command?" dialog for hooks, Lock now asking for the password on a remembered device, the idle lock.
+- **Not done, and why:** SSHV-027 (splitting `commands.rs`, a 4,700-line mechanical move that cannot be compiled here), SSHV-028
+  (binary terminal input needs a new IPC signature), SSHV-022 (the existing navigation already meets the prompt's list; nothing
+  to add that would not be a placeholder), connection pooling and per-host algorithm settings (SSHV-003), runbook approval policy
+  and rollback steps (SSHV-016), a sync status indicator and version history (SSHV-002), structured logging (SSHV-004),
+  `subtle`/unlock delay (SSHV-001), pinning actions by SHA and a rustfmt decision (SSHV-026). SSHV-019/020/021 have design
+  documents in `docs/design/` and wait for owner decisions. AI assistant and data-key rotation were removed at the owner's request.
+- **Next recommended:** open the pull request and fix whatever CI reports; then decide the questions in `docs/design/*.md`.
