@@ -349,6 +349,12 @@ export interface VaultInfo {
 /** A record that went backwards (an older revision than this device saw) or vanished from the synced folder. */
 export type RollbackAnomaly = { collection: string; id: Uuid } & ({ kind: "older"; seen: number; now: number } | { kind: "missing"; seen: number });
 
+/** What the crash log holds: why SSHVault closed by itself, newest first. */
+export interface CrashLogView {
+  path: string;
+  entries: { at: number; text: string }[];
+}
+
 export interface BackupInfo {
   file_name: string;
   created_at: number;

@@ -101,6 +101,28 @@
   // -- command line ------------------------------------------------------------
   const cli = $derived(vaultStore.cliStatus);
   onMount(() => void updates.loadInfo());
+
+  // -- diagnostics: why the app closed by itself, if it did -------------------------------------------
+  let crashLog = $state<import("$lib/types").CrashLogView | null>(null);
+  onMount(() => void api.crash.log().then((c) => (crashLog = c)).catch(() => {}));
+  const stamp = (secs: number) => new Date(secs * 1000).toLocaleString();
+  async function copyCrashLog() {
+    if (!crashLog?.entries.length) return;
+    try {
+      await writeText(crashLog.entries.map((e) => `[${stamp(e.at)}] ${e.text}`).join("\n"));
+      ui.notify("info", "Copied.");
+    } catch (e) {
+      ui.notify("error", errorMessage(e));
+    }
+  }
+  async function clearCrashLog() {
+    try {
+      await api.crash.clear();
+      crashLog = crashLog ? { ...crashLog, entries: [] } : null;
+    } catch (e) {
+      ui.notify("error", errorMessage(e));
+    }
+  }
   const isWindows = navigator.userAgent.includes("Windows");
   const aliasLine = $derived(
     cli?.executable ? (isWindows ? `Set-Alias sshvault "${cli.executable}"` : `alias sshvault='${cli.executable.replace(/'/g, "'\\''")}'`) : "",
@@ -821,6 +843,29 @@ sshvault run web-01 db-01 --json -- df -h /</pre>
         <button class="btn-secondary" onclick={exportToClipboard}>Copy to clipboard</button>
       </div>
       {@render msgBox(exportMsg)}
+    </section>
+    {/if}
+
+    {#if visible("advanced", "diagnostics crash log closed unexpectedly problem bug report")}
+    <section class="rounded-xl border border-line bg-panel p-5">
+      <h2 class="mb-1 text-sm font-semibold">Diagnostics</h2>
+      <p class="mb-3 text-xs text-fg-muted">
+        If SSHVault ever closes by itself, the reason is written to a small file on this computer: when, and the place in the
+        program that stopped. It never holds passwords or the contents of your vault, and it is never sent anywhere. Attach it
+        to a bug report if you make one.
+      </p>
+      {#if crashLog?.entries.length}
+        <ul class="mb-3 max-h-48 space-y-2 overflow-auto rounded-md border border-line bg-base p-3 font-mono text-[11px]">
+          {#each crashLog.entries as e (e.at + e.text)}<li><span class="text-fg-muted">{stamp(e.at)}</span> {e.text}</li>{/each}
+        </ul>
+        <div class="flex flex-wrap items-center gap-2">
+          <button class="btn-secondary py-1 text-xs" onclick={() => void copyCrashLog()}>Copy</button>
+          <button class="btn-ghost py-1 text-xs" onclick={() => void clearCrashLog()}>Clear</button>
+          <span class="truncate font-mono text-[11px] text-fg-muted" title={crashLog.path}>{crashLog.path}</span>
+        </div>
+      {:else}
+        <p class="text-xs text-fg-muted">Nothing recorded: it has not closed unexpectedly.</p>
+      {/if}
     </section>
     {/if}
 

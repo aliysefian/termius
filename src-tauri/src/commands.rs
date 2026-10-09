@@ -732,6 +732,24 @@ pub async fn lock_everything(state: &AppState) -> ApiResult<VaultStatus> {
     Ok(status_of(state, &cfg))
 }
 
+/// What the crash log holds, for the Diagnostics section and the "closed unexpectedly" notice. Needs no unlocked vault.
+#[derive(Debug, Clone, Serialize)]
+pub struct CrashLogView {
+    pub path: PathBuf,
+    /// Newest first.
+    pub entries: Vec<crate::crashlog::Entry>,
+}
+
+#[tauri::command]
+pub fn crash_log(state: State<'_, AppState>) -> CrashLogView {
+    CrashLogView { path: crate::crashlog::path(&state.config_dir), entries: crate::crashlog::recent(&state.config_dir, 20) }
+}
+
+#[tauri::command]
+pub fn clear_crash_log(state: State<'_, AppState>) -> ApiResult<()> {
+    crate::crashlog::clear(&state.config_dir).map_err(|e| ApiError::new("io", e.to_string()))
+}
+
 /// Whether locking keeps this device's stored key (see `AppConfig::keep_key_on_lock`).
 #[tauri::command]
 pub fn set_keep_key_on_lock(state: State<'_, AppState>, keep: bool) -> ApiResult<VaultStatus> {

@@ -48,6 +48,12 @@ individually on exit (the process ends them).
 `monitor.rs` spawn fix is verified only by reading. The `monitor.rs` one-line change is verified only by reading (cannot compile
 here); CI must pass before DONE.
 
+**Progress (2026-10-09, later).** The crash log is now findable: the next start shows "SSHVault closed unexpectedly on <time>. The reason is
+in Settings → Advanced → Diagnostics" once (the newest entry seen is remembered), and Settings → Advanced → Diagnostics lists the entries
+(time, thread, place in the code) with the file's path, Copy and Clear. It works while the vault is locked. Tests: log reading in
+`crashlog.rs` (5 in the scratch crate); browser test `e2e/crashlog.py` (announced once, shown, cleared); accessibility scan still 0 findings.
+`crash_log` and `clear_crash_log` in `commands.rs` were not compiled here.
+
 ---
 ## SSHV-023 Webview hardening
 ```yaml

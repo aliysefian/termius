@@ -16,6 +16,7 @@ import type {
   ContainerLogOptions,
   ContainerResources,
   ContainerStat,
+  CrashLogView,
   ContainerRuntime,
   DbConnection,
   DbQueryResult,
@@ -275,6 +276,12 @@ export const forwards = {
 };
 
 export type RunOrder = "parallel" | { sequential: { stop_on_failure: boolean } };
+
+/** Why SSHVault closed by itself, if it did. Works while the vault is locked. */
+export const crash = {
+  log: () => invoke<CrashLogView>("crash_log"),
+  clear: () => invoke<void>("clear_crash_log"),
+};
 
 export const runs = {
   /** `order`: all hosts at once (the default), or one after another, optionally stopping at the first failure. */

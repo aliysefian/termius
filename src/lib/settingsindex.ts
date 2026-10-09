@@ -34,5 +34,6 @@ export const SETTING_ENTRIES: SettingEntry[] = [
   { label: "Safety: destructive command patterns", query: "destructive", words: "production confirm" },
   { label: "Backups and retention", query: "backup", words: "retention" },
   { label: "Export hosts as ssh config", query: "export ssh config", words: "openssh include ansible" },
+  { label: "Diagnostics: why the app closed unexpectedly", query: "diagnostics", words: "crash log closed unexpectedly problem bug report" },
   { label: "Reset settings to defaults", query: "reset", words: "default" },
 ];
