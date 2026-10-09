@@ -17,7 +17,7 @@ pub struct HostKeyPrompt {
 }
 
 /// Host keys trusted in the unlocked vault.
-pub(super) struct VaultHostKeys(AppHandle);
+pub(super) struct VaultHostKeys(pub(super) AppHandle);
 
 impl VaultHostKeys {
     fn run<R>(
@@ -40,8 +40,8 @@ impl crate::ssh::HostKeyStore for VaultHostKeys {
 
 /// Asks the user through the webview; no answer in time means "don't trust".
 pub(super) struct UiPrompter {
-    app: AppHandle,
-    pending: PromptMap,
+    pub(super) app: AppHandle,
+    pub(super) pending: PromptMap,
 }
 
 impl crate::ssh::HostKeyPrompter for UiPrompter {

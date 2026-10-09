@@ -152,7 +152,7 @@ pub async fn containers_inspect(
     Ok(state.containers.inspect(session_id, runtime, &id).await?)
 }
 
-pub(super) struct ChannelLogSink(Channel<crate::containers::LogEvent>);
+pub(super) struct ChannelLogSink(pub(super) Channel<crate::containers::LogEvent>);
 impl crate::containers::LogSink for ChannelLogSink {
     fn event(&self, e: crate::containers::LogEvent) {
         let _ = self.0.send(e);
