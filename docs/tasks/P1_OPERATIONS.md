@@ -47,15 +47,21 @@ id: SSHV-011
 title: Severity, acknowledge, persisted history, notification adapters
 module: alerts
 priority: P1
-status: TODO
+status: TESTING
 dependencies: [SSHV-005]
 risk: low
 ```
 **Existing.** `alerts.svelte.ts`: down/CPU/memory/disk, N consecutive samples, quiet hours, mute, toast + OS notification,
 60 s check while open. **Gaps.** No severity, ack, persisted history (cleared on lock), adapters, tests for the store.
 **Plan.** Add fields to rules and events; persist history encrypted; adapter interface with local notification as the
-only built-in. Webhook/email adapters only on explicit owner approval because they send data off-device. Tests: unit tests
-for the store (none today). Evidence pending.
+only built-in. Webhook/email adapters only on explicit owner approval because they send data off-device. Tests: the engine is covered by `ops.test.ts`.
+**Progress (2026-10-09).** Done: severity (`info`/`warning`/`critical`: a host that stopped answering, or a reading at 97% or more,
+is critical), acknowledge one or all open alerts (recoveries need none), a floor for what is announced ("everything" / "warnings
+and up" / "critical only"; the list always has all), and notification adapters (`ops/notify.ts`: the in-app toast and the system
+notification are adapters now; a failing adapter doesn't stop the others). The alert list can be kept between runs on this
+computer (off by default, saved with the other settings, never in the vault; switching it off deletes it). 4 new tests in
+`ops.test.ts`. **Not done, on purpose:** webhook, email or chat adapters, because they send host names off this computer and
+need your decision first; alerts while the app is closed (needs the controller, SSHV-021); the shown list is still capped at 100.
 
 ## SSHV-015 Automation engine
 ```yaml

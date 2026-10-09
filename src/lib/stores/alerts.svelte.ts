@@ -3,7 +3,8 @@
 // computer. Nothing leaves this computer: alerts are a toast, an operating-system notification, and a list.
 import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
 import * as api from "$lib/api";
-import { AlertEngine, type Alert, type AlertRules } from "$lib/ops/alerts";
+import { AlertEngine, acknowledge, open, revive, type Alert, type AlertRules } from "$lib/ops/alerts";
+import { Notifier } from "$lib/ops/notify";
 import { settings } from "$lib/stores/settings.svelte";
 import { hostMetrics } from "$lib/stores/hostmetrics.svelte";
 import { ui } from "$lib/stores/ui.svelte";
@@ -26,9 +27,11 @@ export function rulesFromPrefs(p: typeof settings.prefs): AlertRules {
 }
 
 class AlertsStore {
-  /** Newest first. Not saved: it is what happened since the app was opened. */
+  /** Newest first. Saved only when the person chose to keep it (`alertKeepHistory`); otherwise it is what happened since the app was opened. */
   log = $state<Alert[]>([]);
   unread = $state(0);
+  /** Ways an alert reaches the person; add one with `notifier.add`. */
+  readonly notifier = new Notifier();
   checking = $state(false);
   readonly engine = new AlertEngine(
     () => rulesFromPrefs(settings.prefs),
@@ -36,7 +39,14 @@ class AlertsStore {
   );
   #timer: ReturnType<typeof setInterval> | undefined;
 
+  /** Alerts that still need a person's attention (not a recovery, not acknowledged). */
+  get openCount() {
+    return open(this.log).length;
+  }
+
   constructor() {
+    this.notifier.add({ id: "toast", label: "In the app", notify: (a) => ui.notify(a.kind === "up" || a.kind === "cleared" ? "info" : "error", a.message) });
+    this.notifier.add({ id: "system", label: "System notification", notify: (a) => this.#os(a) });
     hostMetrics.listeners.push((id, m) => this.#metrics(id, m));
     $effect.root(() => {
       $effect(() => {
@@ -49,12 +59,19 @@ class AlertsStore {
           this.#timer = undefined;
         }
       });
-      // A lock leaves nothing about the hosts behind.
+      // A lock leaves nothing about the hosts behind in memory; a list the person chose to keep comes back on unlock.
       $effect(() => {
         if (!vaultStore.unlocked) {
           this.log = [];
           this.unread = 0;
+        } else if (settings.prefs.alertKeepHistory && !this.log.length) {
+          this.log = revive(settings.prefs.alertHistory, KEEP_ALERTS);
+          this.engine.resumeAfter(Math.max(0, ...this.log.map((a) => a.id)));
         }
+      });
+      // Switching "keep" off deletes what was saved.
+      $effect(() => {
+        if (!settings.prefs.alertKeepHistory && settings.prefs.alertHistory.length) settings.prefs.alertHistory = [];
       });
     });
   }
@@ -108,10 +125,19 @@ class AlertsStore {
     for (const a of alerts) {
       this.log = [a, ...this.log].slice(0, KEEP_ALERTS);
       this.unread++;
-      if (a.quiet) continue;
-      ui.notify(a.kind === "up" || a.kind === "cleared" ? "info" : "error", a.message);
-      void this.#os(a);
+      void this.notifier.send(a, settings.prefs.alertNotifyFrom);
     }
+    this.#keep();
+  }
+
+  #keep() {
+    if (settings.prefs.alertKeepHistory) settings.prefs.alertHistory = this.log.slice(0, KEEP_ALERTS);
+  }
+
+  /** The person has seen it: one alert, or every open one. */
+  acknowledge(which: number | "all") {
+    this.log = acknowledge(this.log, which, Date.now());
+    this.#keep();
   }
 
   async #os(a: Alert) {
@@ -129,6 +155,7 @@ class AlertsStore {
   clear() {
     this.log = [];
     this.unread = 0;
+    settings.prefs.alertHistory = [];
   }
 }
 

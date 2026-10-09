@@ -706,6 +706,19 @@ sshvault run web-01 db-01 --json -- df -h /</pre>
           <input class="input w-28" type="time" disabled={!settings.prefs.alerts || !settings.prefs.alertQuiet} bind:value={settings.prefs.alertQuietTo} aria-label="Quiet until" />
           <span class="text-xs text-fg-muted">Alerts still reach the list, but nothing pops up.</span>
         </div>
+        <div class="flex flex-wrap items-center gap-2 text-sm">
+          <label for="al-from">Announce</label>
+          <select id="al-from" class="input w-52" disabled={!settings.prefs.alerts} bind:value={settings.prefs.alertNotifyFrom}>
+            <option value="info">everything, recoveries too</option>
+            <option value="warning">warnings and critical alerts</option>
+            <option value="critical">critical alerts only</option>
+          </select>
+          <span class="text-xs text-fg-muted">The list always has all of them.</span>
+        </div>
+        <label class="flex items-start gap-2 text-sm">
+          <input type="checkbox" class="mt-0.5 accent-input" disabled={!settings.prefs.alerts} bind:checked={settings.prefs.alertKeepHistory} />
+          <span>Keep the alert list on this computer between runs <span class="block text-xs text-fg-muted">Host names and messages, saved with your other settings here, never in the vault. Off by default; switching it off deletes the saved list.</span></span>
+        </label>
       </div>
 
       <div class="mt-5 border-t border-line pt-4">

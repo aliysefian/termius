@@ -24,15 +24,66 @@ export const DEFAULT_RULES: AlertRules = { down: true, cpu: 90, mem: 90, disk: 9
 
 export type AlertKind = "down" | "up" | "cpu" | "mem" | "disk" | "cleared";
 
+/** How much it matters: a recovery is information; a host that stopped answering, or a reading near the top, is critical. */
+export type Severity = "info" | "warning" | "critical";
+export const SEVERITIES: Severity[] = ["info", "warning", "critical"];
+/** A usage reading at or above this is critical, not just over its limit. */
+export const CRITICAL_AT = 97;
+
 export interface Alert {
   id: number;
   at: number;
   hostId: string;
   host: string;
   kind: AlertKind;
+  severity: Severity;
   message: string;
   /** Raised during quiet hours: kept in the list, but not announced. */
   quiet: boolean;
+  /** When the person acknowledged it, or null. Recoveries need no acknowledging. */
+  ack: number | null;
+}
+
+export function severityOf(kind: AlertKind, value?: number): Severity {
+  if (kind === "up" || kind === "cleared") return "info";
+  if (kind === "down") return "critical";
+  return value !== undefined && value >= CRITICAL_AT ? "critical" : "warning";
+}
+
+/** Whether `s` is at least as serious as `floor`. */
+export const atLeast = (s: Severity, floor: Severity) => SEVERITIES.indexOf(s) >= SEVERITIES.indexOf(floor);
+
+/** The list with one alert (or, for "all", every open one) acknowledged at `at`. Leaves the others as they were. */
+export function acknowledge(list: Alert[], which: number | "all", at: number): Alert[] {
+  return list.map((a) => ((which === "all" || a.id === which) && a.ack === null ? { ...a, ack: at } : a));
+}
+
+/** Alerts that need a person's attention: not a recovery, not yet acknowledged. */
+export const open = (list: Alert[]) => list.filter((a) => a.severity !== "info" && a.ack === null);
+
+/** Alerts read back from storage: anything that isn't shaped like an alert is dropped, and old ones get the new fields. */
+export function revive(raw: unknown, keep = 100): Alert[] {
+  if (!Array.isArray(raw)) return [];
+  const kinds: AlertKind[] = ["down", "up", "cpu", "mem", "disk", "cleared"];
+  const out: Alert[] = [];
+  for (const r of raw) {
+    if (!r || typeof r !== "object") continue;
+    const a = r as Record<string, unknown>;
+    if (typeof a.id !== "number" || typeof a.at !== "number" || typeof a.hostId !== "string" || typeof a.host !== "string" || typeof a.message !== "string" || !kinds.includes(a.kind as AlertKind)) continue;
+    const kind = a.kind as AlertKind;
+    out.push({
+      id: a.id,
+      at: a.at,
+      hostId: a.hostId,
+      host: a.host,
+      kind,
+      severity: SEVERITIES.includes(a.severity as Severity) ? (a.severity as Severity) : severityOf(kind),
+      message: a.message.slice(0, 500),
+      quiet: a.quiet === true,
+      ack: typeof a.ack === "number" ? a.ack : null,
+    });
+  }
+  return out.slice(0, keep);
 }
 
 const minutes = (hhmm: string): number => {
@@ -80,8 +131,13 @@ export class AlertEngine {
     return s;
   }
 
-  #alert(hostId: string, host: string, kind: AlertKind, message: string, at: number): Alert {
-    return { id: this.#next++, at, hostId, host, kind, message, quiet: inQuietHours(at, this.rules().quiet) };
+  #alert(hostId: string, host: string, kind: AlertKind, message: string, at: number, value?: number): Alert {
+    return { id: this.#next++, at, hostId, host, kind, severity: severityOf(kind, value), message, quiet: inQuietHours(at, this.rules().quiet), ack: null };
+  }
+
+  /** Continue numbering after alerts that were kept from an earlier run, so ids stay unique. */
+  resumeAfter(id: number) {
+    this.#next = Math.max(this.#next, id + 1);
   }
 
   forget(hostId: string) {
@@ -126,7 +182,7 @@ export class AlertEngine {
         s.over[key]++;
         if (s.over[key] >= Math.max(1, r.samples) && !s.active[key]) {
           s.active[key] = true;
-          out.push(this.#alert(hostId, host, key, `${host}: ${LABEL[key]} is at ${Math.round(value)}% (limit ${limit}%).`, at));
+          out.push(this.#alert(hostId, host, key, `${host}: ${LABEL[key]} is at ${Math.round(value)}% (limit ${limit}%).`, at, value));
         }
       } else if (value < limit - CLEAR_MARGIN) {
         s.over[key] = 0;
