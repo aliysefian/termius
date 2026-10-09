@@ -4,6 +4,10 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## 0.29.1 - 2026-10-09
+
+- **Fixed:** cancelling a runbook or a "Run on hosts" job, or a step running out of time, left the command running on the server. The app now tells the server to hang up on it (servers running OpenSSH 7.9 or later).
+
 ## 0.29.0 - 2026-10-09
 
 - **Runbooks can ask for a secret.** A parameter of kind `secret` is typed when the runbook runs, never saved in a schedule, and shown as `[hidden]` in the record of the run, including wherever the value turns up in a command's output.
