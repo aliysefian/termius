@@ -4805,10 +4805,8 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         loop {
             tick.tick().await;
             let state = handle.state::<AppState>();
-            if state.session.is_unlocked() && state.idle.due(std::time::Instant::now()) {
-                if lock_everything(&state).await.is_ok() {
-                    let _ = handle.emit("vault:idle-locked", ());
-                }
+            if state.session.is_unlocked() && state.idle.due(std::time::Instant::now()) && lock_everything(&state).await.is_ok() {
+                let _ = handle.emit("vault:idle-locked", ());
             }
         }
     });
