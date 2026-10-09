@@ -49,7 +49,7 @@ base64 = "0.22"
 uuid = { version = "1", features = ["v4", "serde"] }
 thiserror = "2"
 sha2 = "0.10"
-hmac = "0.12"
+hmac = "0.13"
 # OS RNG for ssh-key generation (RSA/ECDSA), which uses rand_core 0.10.
 getrandom = { version = "0.4", features = ["sys_rng"] }
 # OS credential store for "remember on this device". Pure Rust on Linux
