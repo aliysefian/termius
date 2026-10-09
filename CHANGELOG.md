@@ -4,6 +4,10 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## 0.29.3 - 2026-10-09
+
+- Engineering only: twelve more areas of the app's command code moved out of the very large `commands.rs` into their own files. No change in behavior.
+
 ## 0.29.2 - 2026-10-09
 
 - Engineering only: the runbook commands moved out of the very large `commands.rs` into their own file. No change in behavior.
