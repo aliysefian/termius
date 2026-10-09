@@ -11,7 +11,7 @@ changes stay at TESTING until CI compiles and passes them.
 | SSHV-024 | ProxyCommand quoting + per-device approval | P0 | TESTING (both parts; awaiting CI) | - | P0 |
 | SSHV-025 | Download path safety, read cap | P0 | TESTING (branch fix/ssh-025-file-name-safety) | - | P0 |
 | SSHV-016 | Runbooks (quoting, approval, retry, rollback) | P0 | TESTING | - | P1_OPERATIONS |
-| SSHV-026 | CI gates and supply chain | P0 | TESTING (audit, dependabot, SHA-pinned actions, branch CI; toolchain pin, lint, macOS need owner) | - | P0 |
+| SSHV-026 | CI gates and supply chain | P0 | TESTING (audit, dependabot, SHA-pinned actions, branch CI) | - | P0 |
 | SSHV-001 | Vault hardening (no key rotation) | P0 | TESTING (unlock delay, `subtle` done) | 004 | P0 |
 | SSHV-002 | Sync rollback detection, status | P0 | TESTING (detection and status badge done; version history open) | 001 | P0 |
 | SSHV-003 | Connection engine | P0 | TESTING (pooling is a design note awaiting a decision) | 004 | P0 |

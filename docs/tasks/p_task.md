@@ -5,7 +5,6 @@ Everything that could be built and checked has been built. "Needs you" means the
 ## P0: security and reliability
 | ID | Remaining | Needs |
 |---|---|---|
-| SSHV-026 | Pin the Rust toolchain (CI runs 1.99, local 1.98, which caused clippy surprises); ESLint/Prettier gate; macOS build job | Owner decision on each |
 | SSHV-003 | Connection pooling (`docs/design/CONNECTION_POOL.md`) | Owner decision: build or "won't do" |
 | SSHV-002 | Version history for records (keep N earlier revisions, encrypted) | Owner decision: changes the vault format |
 | SSHV-004 | Structured logging with `tracing` (events only, never content) | Owner decision: more written to disk |
