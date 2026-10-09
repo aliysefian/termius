@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { ArrowLeftRight, Bot, Lock, SquareTerminal } from "lucide-svelte";
+  import { AlertTriangle, ArrowLeftRight, Bot, Lock, SquareTerminal } from "lucide-svelte";
+  import { syncBadge } from "$lib/syncstatus";
   import { PAGE_VIEWS, STATUS_DOT, ui, type View } from "$lib/stores/ui.svelte";
   import { settings } from "$lib/stores/settings.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
@@ -13,6 +14,7 @@
   const agent = $derived(vaultStore.agentStatus);
   const offeredKeys = $derived(vaultStore.keys.filter((k) => k.data?.agent && k.data.agent !== "off").length);
   const cli = $derived(vaultStore.cliStatus);
+  const sync = $derived(syncBadge({ conflicts: vaultStore.openConflicts, rollbacks: vaultStore.rollbacks }));
   const activeTunnels = $derived(Object.values(vaultStore.forwardStatus).filter((s) => s.state === "active" || s.state === "starting").length);
 
   // The focused pane, kept visible across every view (not just the terminal
@@ -27,6 +29,18 @@
     <button class="icon-btn h-5 w-5" title="Lock vault" aria-label="Lock vault" onclick={() => vaultStore.lock()}>
       <Lock size={12} />
     </button>
+
+    {#if sync}
+      <button
+        class="flex h-5 items-center gap-1.5 rounded px-1.5 hover:bg-panel-hover {sync.tone === 'danger' ? 'text-danger' : 'text-warning'}"
+        title={sync.title}
+        onclick={() => goTo("vault")}
+        data-testid="sync-badge"
+      >
+        <AlertTriangle size={12} />
+        <span>{sync.text}</span>
+      </button>
+    {/if}
 
     <button
       class="flex h-5 items-center gap-1.5 rounded px-1.5 hover:bg-panel-hover hover:text-fg {ui.view === 'keys' ? 'text-accent' : ''}"

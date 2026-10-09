@@ -46,6 +46,8 @@ async fn a_runbook_runs_over_ssh_with_conditions_a_wait_and_an_upload() {
             HostJob { host_id: bad, label: "nobody".into(), hostname: "x".into(), target: Err("credentials are needed".into()) },
         ],
         false,
+        false,
+        Order::Parallel,
         Some(history.clone()),
         Arc::new(Collect(tx)),
     );
@@ -102,7 +104,7 @@ async fn cancelling_keeps_what_happened_and_says_so() {
     let manager = Arc::new(RunbookManager::new());
     let history = History::new(dir.path().join("history"));
     let id = Uuid::new_v4().to_string();
-    manager.start(id.clone(), rb, HashMap::new(), HashMap::new(), vec![HostJob { host_id: Uuid::new_v4(), label: "box".into(), hostname: "127.0.0.1".into(), target: Ok(t) }], false, Some(history.clone()), Arc::new(Collect(tx)));
+    manager.start(id.clone(), rb, HashMap::new(), HashMap::new(), vec![HostJob { host_id: Uuid::new_v4(), label: "box".into(), hostname: "127.0.0.1".into(), target: Ok(t) }], false, false, Order::Parallel, Some(history.clone()), Arc::new(Collect(tx)));
     // Wait for the slow step to start.
     loop {
         if matches!(rx.recv_timeout(Duration::from_secs(20)).expect("event"), RunbookEvent::StepStarted { index: 1, .. }) {
@@ -115,4 +117,35 @@ async fn cancelling_keeps_what_happened_and_says_so() {
     assert!(rec.cancelled && rec.finished_at.is_some());
     assert_eq!(rec.hosts[0].steps.len(), 1, "the finished step is there, the slow one is not");
     assert_eq!(rec.hosts[0].error.as_deref(), Some("cancelled"));
+}
+
+fn run_order(order: Order, targets: Vec<Result<crate::ssh::Target, String>>) -> Vec<(bool, Option<String>)> {
+    let rb = parse(r#"{"name":"Roll","steps":[{"name":"Go","run":"true"}]}"#).unwrap();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let manager = Arc::new(RunbookManager::new());
+    let ids: Vec<Uuid> = targets.iter().map(|_| Uuid::new_v4()).collect();
+    let jobs = ids.iter().zip(targets).map(|(id, target)| HostJob { host_id: *id, label: "h".into(), hostname: "x".into(), target }).collect();
+    manager.start(Uuid::new_v4().to_string(), rb, HashMap::new(), HashMap::new(), jobs, false, false, order, None, Arc::new(Collect(tx)));
+    let mut done = HashMap::new();
+    loop {
+        match rx.recv_timeout(Duration::from_secs(30)).expect("run event") {
+            RunbookEvent::HostDone { host_id, ok, error } => {
+                done.insert(host_id, (ok, error));
+            }
+            RunbookEvent::Done { .. } => break,
+            _ => {}
+        }
+    }
+    ids.iter().map(|i| done[i].clone()).collect()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn one_at_a_time_can_stop_at_the_first_failure() {
+    let bad = || Err::<crate::ssh::Target, String>("credentials are needed".into());
+    let stop = tokio::task::spawn_blocking(move || run_order(Order::Sequential { stop_on_failure: true }, vec![bad(), bad(), bad()])).await.unwrap();
+    assert_eq!(stop[0], (false, Some("credentials are needed".into())));
+    assert_eq!(stop[1].1.as_deref(), Some("skipped: an earlier host failed"));
+    assert_eq!(stop[2].1.as_deref(), Some("skipped: an earlier host failed"));
+    let carry = tokio::task::spawn_blocking(move || run_order(Order::Sequential { stop_on_failure: false }, vec![bad(), bad()])).await.unwrap();
+    assert!(carry.iter().all(|c| c.1.as_deref() == Some("credentials are needed")), "no host was skipped");
 }

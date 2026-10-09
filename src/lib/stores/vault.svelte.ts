@@ -65,6 +65,21 @@ class VaultStore {
   settings = $state<{ rev: number; settings: VaultSettings } | null>(null);
   /** Sync conflicts waiting for a decision (see the Vault screen). */
   openConflicts = $state(0);
+  /** Records that went backwards, or vanished, since this computer last saw them (see the Vault screen). */
+  rollbacks = $state(0);
+  #healthTimer: ReturnType<typeof setTimeout> | undefined;
+
+  /** Ask the backend how the synced folder is doing, a moment after the last change (changes arrive in bursts). */
+  refreshSyncProblems(delayMs = 800) {
+    clearTimeout(this.#healthTimer);
+    this.#healthTimer = setTimeout(() => {
+      if (!this.unlocked) return;
+      void api.vault.health().then((h) => {
+        this.openConflicts = h.open_conflicts;
+        this.rollbacks = h.rollbacks;
+      }).catch(() => {});
+    }, delayMs);
+  }
   /** What the last unlock did, for a one-time notice. */
   lastUnlock = $state<UnlockReport | null>(null);
   /** Shown once after creating a vault or a new recovery key. */
@@ -156,8 +171,10 @@ class VaultStore {
   async refreshStatus() {
     try {
       this.status = await api.vault.status();
-      if (this.unlocked) await this.reloadAll();
-      else this.clearRecords();
+      if (this.unlocked) {
+        await this.reloadAll();
+        this.refreshSyncProblems(0);
+      } else this.clearRecords();
     } catch (e) {
       this.error = errorMessage(e);
     }
@@ -218,6 +235,7 @@ class VaultStore {
     this.runbooks = [];
     this.settings = null;
     this.openConflicts = 0;
+    this.rollbacks = 0;
     this.forwardStatus = {};
     this.health = {};
     this.agentStatus = null;
@@ -226,6 +244,8 @@ class VaultStore {
 
   /** Called for every record the Rust watcher sees change on disk. */
   applyChange(c: RecordChange) {
+    // Another device's change may have brought a conflict or an older copy; look again shortly.
+    this.refreshSyncProblems();
     if (c.conflict_copy) {
       this.openConflicts += 1;
       ui.notify("error", "Another device changed the same item at the same time. Review it under Vault → Conflicts.");
@@ -305,6 +325,7 @@ class VaultStore {
     this.status = res.status;
     this.lastUnlock = res.report;
     this.openConflicts = res.report.open_conflicts;
+    this.rollbacks = res.report.rollbacks ?? 0;
     if ("path" in res.status) settings.markRecentVault(res.status.path);
     await this.reloadAll();
     await this.#autoStartForwards();

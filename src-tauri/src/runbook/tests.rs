@@ -302,6 +302,110 @@ fn retry_settings_are_checked() {
     assert!(parse(&doc(r#"{"run":"x","retries":5,"retry_delay_secs":300}"#)).is_ok());
 }
 
+/// A runbook with two steps and a rollback; the fake decides which step fails.
+fn with_rollback(steps: &str, rollback: &str) -> String {
+    format!(r#"{{"name":"Deploy","params":[{{"name":"service","default":"web"}}],"steps":[{steps}],"rollback":[{rollback}]}}"#)
+}
+
+fn run_with_rollback(rb: &str, fake: &Fake, rollback: bool) -> (bool, Vec<StepResult>) {
+    let rb = parse(rb).unwrap();
+    let vals = resolve_params(&rb, &values(&[])).unwrap();
+    let rt = tokio::runtime::Builder::new_current_thread().enable_time().build().unwrap();
+    rt.block_on(run_host_with(&rb, &vals, &HashMap::new(), &values(&[("host", "h.example"), ("label", "h")]), fake, &Log::default(), rollback))
+}
+
+const DEPLOY: &str = r#"{"name":"Copy","run":"copy"},{"name":"Switch","run":"switch {{service|q}}"},{"name":"Check","run":"check"}"#;
+const UNDO: &str = r#"{"name":"Switch back","run":"switch-back {{service|q}}"},{"run":"cleanup"}"#;
+
+#[test]
+fn rollback_runs_after_a_failure_only_when_it_was_asked_for_and_the_host_still_counts_as_failed() {
+    let fake = Fake::default().on("check", 1, "");
+    let (ok, r) = run_with_rollback(&with_rollback(DEPLOY, UNDO), &fake, true);
+    assert!(!ok, "the host failed, whatever the rollback did");
+    assert_eq!(r.iter().map(|x| (x.phase, x.index, x.name.as_str())).collect::<Vec<_>>(), [
+        (Phase::Run, 0, "Copy"),
+        (Phase::Run, 1, "Switch"),
+        (Phase::Run, 2, "Check"),
+        (Phase::Rollback, 3, "Switch back"),
+        (Phase::Rollback, 4, "Rollback step 2"),
+    ]);
+    assert_eq!(*fake.seen.lock().unwrap(), ["copy", "switch web", "check", "switch-back web", "cleanup"]);
+
+    // Not asked for: nothing more runs, though the runbook has rollback steps.
+    let fake = Fake::default().on("check", 1, "");
+    let (ok, r) = run_with_rollback(&with_rollback(DEPLOY, UNDO), &fake, false);
+    assert!(!ok && r.len() == 3 && r.iter().all(|x| x.phase == Phase::Run));
+    assert_eq!(fake.seen.lock().unwrap().len(), 3);
+
+    // A host that got through is never rolled back, even with it on.
+    let fake = Fake::default();
+    let (ok, r) = run_with_rollback(&with_rollback(DEPLOY, UNDO), &fake, true);
+    assert!(ok && r.len() == 3);
+    assert!(!fake.seen.lock().unwrap().iter().any(|c| c.contains("back") || c == "cleanup"));
+}
+
+#[test]
+fn a_failing_rollback_step_follows_its_own_on_error_and_a_cancelled_run_is_not_rolled_back() {
+    // The first undo fails: by default that stops the rest of the rollback...
+    let fake = Fake::default().on("check", 1, "").on("switch-back web", 2, "");
+    let (_, r) = run_with_rollback(&with_rollback(DEPLOY, UNDO), &fake, true);
+    assert_eq!(statuses(&r[3..]), [StepStatus::Failed]);
+    // ...unless the step says to carry on.
+    let carry = r#"{"name":"Switch back","run":"switch-back {{service|q}}","on_error":"continue"},{"run":"cleanup"}"#;
+    let fake = Fake::default().on("check", 1, "").on("switch-back web", 2, "");
+    let (_, r) = run_with_rollback(&with_rollback(DEPLOY, carry), &fake, true);
+    assert_eq!(statuses(&r[3..]), [StepStatus::Failed, StepStatus::Ok]);
+
+    // A run that was cancelled is not undone behind the person's back.
+    struct CancelAfterOne(Mutex<usize>);
+    impl Progress for CancelAfterOne {
+        fn started(&self, _: usize) {}
+        fn finished(&self, _: &StepResult) {
+            *self.0.lock().unwrap() += 1;
+        }
+        fn cancelled(&self) -> bool {
+            *self.0.lock().unwrap() >= 1
+        }
+    }
+    let rb = parse(&with_rollback(DEPLOY, UNDO)).unwrap();
+    let vals = resolve_params(&rb, &values(&[])).unwrap();
+    let fake = Fake::default().on("copy", 1, "");
+    let rt = tokio::runtime::Builder::new_current_thread().enable_time().build().unwrap();
+    let (ok, r) = rt.block_on(run_host_with(&rb, &vals, &HashMap::new(), &HashMap::new(), &fake, &CancelAfterOne(Mutex::new(0)), true));
+    assert!(!ok);
+    assert!(r.iter().all(|x| x.phase == Phase::Run), "{r:?}");
+}
+
+#[test]
+fn the_rollback_is_checked_like_the_steps_and_reported_against_the_rollback() {
+    let msgs = |text: &str| parse(text).err().map(|p| p.into_iter().map(|p| (p.step, p.message)).collect::<Vec<_>>()).unwrap_or_default();
+    assert!(msgs(&with_rollback(DEPLOY, UNDO)).is_empty());
+    // A parameter that doesn't exist, in the second rollback step.
+    let bad = msgs(&with_rollback(DEPLOY, r#"{"run":"ok"},{"run":"x {{nope}}"}"#));
+    assert_eq!(bad, vec![(None, "Rollback step 2: {{nope}} isn't a parameter of this runbook".to_string())]);
+    // Ids are one list across both; a rollback step may look at an earlier step's result.
+    let dup = msgs(&with_rollback(r#"{"id":"a","run":"x"}"#, r#"{"id":"a","run":"y"}"#));
+    assert!(dup.iter().any(|(_, m)| m.starts_with("Rollback step 1:") && m.contains("used twice")), "{dup:?}");
+    let by_id = with_rollback(r#"{"id":"a","run":"x"}"#, r#"{"run":"y","when":{"step":"a","exit_not":0}}"#);
+    assert!(msgs(&by_id).is_empty());
+    // A rollback needs something to roll back; an old runbook with no rollback is unchanged.
+    assert!(msgs(&with_rollback("", UNDO)).iter().any(|(_, m)| m.contains("at least one step")));
+    assert!(parse(&doc(r#"{"run":"x"}"#)).unwrap().rollback.is_empty());
+}
+
+#[test]
+fn the_preview_shows_the_rollback_and_says_when_it_would_run() {
+    let rb = parse(&with_rollback(DEPLOY, UNDO)).unwrap();
+    let vals = resolve_params(&rb, &values(&[])).unwrap();
+    let steps = plan(&rb, &vals, &values(&[("host", "h.example"), ("label", "h")])).unwrap();
+    assert_eq!(steps.len(), 5);
+    assert_eq!((steps[2].phase, steps[3].phase), (Phase::Run, Phase::Rollback));
+    assert_eq!(steps[3].text, "switch-back web");
+    assert_eq!(steps[3].condition.as_deref(), Some("only on a host where the run failed, with rollback on"));
+    assert_eq!(steps[4].name, "Rollback step 2");
+    assert_eq!(steps[0].condition, None);
+}
+
 #[test]
 fn waiting_polls_until_the_command_succeeds() {
     let fake = Fake::default().on("check", 1, "").on("check", 1, "").on("check", 0, "ready");

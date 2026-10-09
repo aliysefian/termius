@@ -63,7 +63,7 @@ export async function runSchedule(id: string, now = Date.now(), retry?: Retry): 
         // The timer lives in this app: closing it ends the retries (a schedule is not a background service).
         if (plan) setTimeout(() => void runSchedule(id, Date.now(), { hostIds: plan.hostIds, attempt: attempt + 1 }), Math.max(0, plan.at - Date.now()));
       });
-    });
+    }, s.rollback === true && check.rollback_steps > 0);
   } catch (e) {
     running.delete(id);
     ui.notify("error", `Scheduled run of "${rb.name}" didn't start: ${errorMessage(e)}`);

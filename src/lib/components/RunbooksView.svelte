@@ -30,7 +30,7 @@
       try {
         checked = await api.runbookCheck(text);
       } catch (e) {
-        checked = { name: null, description: "", params: [], steps: 0, problems: [{ step: null, message: errorMessage(e) }] };
+        checked = { name: null, description: "", params: [], steps: 0, rollback_steps: 0, problems: [{ step: null, message: errorMessage(e) }] };
       }
     }, 200);
   });
@@ -107,7 +107,10 @@
   let runId = $state<string | null>(null);
   let running = $state(false);
   let live = $state<HostRun[]>([]);
-  let liveSteps = $state<{ name: string }[]>([]);
+  let liveSteps = $state<{ name: string; phase?: string }[]>([]);
+  /** Run the runbook's rollback steps on a host where the run fails. Asked for each run, never remembered. */
+  let rollbackOn = $state(false);
+  let hostOrder = $state<"parallel" | "stop" | "all">("parallel");
 
   const hosts = $derived(
     vaultStore.hosts
@@ -169,21 +172,21 @@
     const prod = ids.map((id) => vaultStore.hostById.get(id)?.data).filter((d) => d && vaultStore.effectiveEnv(d) === "production").map((d) => d!.label);
     const name = checked?.name ?? "this runbook";
     if (prod.length) {
-      const text = `"${name}" will run its ${checked?.steps} steps on ${prod.length} production host${prod.length === 1 ? "" : "s"}:\n\n${prod.join("\n")}`;
+      const text = `"${name}" will run its ${checked?.steps} steps on ${prod.length} production host${prod.length === 1 ? "" : "s"}:\n\n${prod.join("\n")}${rollbackOn && checked?.rollback_steps ? `\n\nOn a host where it fails, its ${checked.rollback_steps} rollback step${checked.rollback_steps === 1 ? "" : "s"} will run too.` : ""}`;
       if (!(await ask(text, { title: "Production hosts", confirm: "Run", danger: true, requireText: name }))) return;
     }
     const id = crypto.randomUUID();
     runId = id;
     running = true;
     plan = null;
-    liveSteps = (await api.runbookPlan(body, textParams(), "h", "h").catch(() => [])).map((s) => ({ name: s.name }));
+    liveSteps = (await api.runbookPlan(body, textParams(), "h", "h").catch(() => [])).map((s) => ({ name: s.name, phase: s.phase }));
     live = ids.map((h) => ({ hostId: h, label: vaultStore.hostById.get(h)?.data?.label ?? h, state: "waiting", current: null, steps: [], error: null }));
     try {
       await api.runbookStart(id, body, textParams(), $state.snapshot(files), ids, scheduled, (e) => {
         if (runId !== id) return;
         live = applyEvent(live, e);
         if (e.event === "done") running = false;
-      });
+      }, rollbackOn && (checked?.rollback_steps ?? 0) > 0, hostOrder === "parallel" ? "parallel" : { sequential: { stop_on_failure: hostOrder === "stop" } });
     } catch (e) {
       running = false;
       ui.notify("error", errorMessage(e));
@@ -333,6 +336,23 @@
               </ul>
             </div>
 
+            {#if checked && checked.rollback_steps > 0}
+              <label class="flex items-start gap-2 rounded-md border border-line bg-base/40 p-2.5 text-xs" data-testid="runbook-rollback">
+                <input type="checkbox" class="mt-0.5 accent-input" bind:checked={rollbackOn} disabled={running} />
+                <span><span class="font-medium">If a host fails, run the rollback steps on it</span>
+                  <span class="block text-fg-muted">{checked.rollback_steps} step{checked.rollback_steps === 1 ? "" : "s"} written to undo the run. They change that host again, so look at them in the dry run first. A host that got through is left alone, and a failed host still counts as failed.</span></span>
+              </label>
+            {/if}
+
+            <label class="flex items-center gap-2 text-xs" data-testid="runbook-order">
+              <span class="font-medium">Hosts</span>
+              <select class="input w-auto py-1 text-xs" bind:value={hostOrder} disabled={running}>
+                <option value="parallel">All at once</option>
+                <option value="stop">One at a time, stop at the first failure</option>
+                <option value="all">One at a time, carry on after a failure</option>
+              </select>
+            </label>
+
             <div class="flex items-center gap-2">
               <button class="btn-secondary" disabled={!valid} onclick={dryRun} data-testid="runbook-dry">Dry run</button>
               {#if running}
@@ -351,6 +371,7 @@
                   {#each plan as s (s.index)}
                     <li>
                       <span class="font-medium">{s.index + 1}. {s.name}</span>
+                      {#if s.phase === "rollback"}<span class="ml-1 rounded bg-warning/15 px-1.5 text-[10px] text-warning">rollback</span>{/if}
                       {#if s.condition}<span class="text-fg-muted"> · {s.condition}</span>{/if}
                       {#if s.on_error === "continue"}<span class="text-fg-muted"> · carries on if it fails</span>{/if}
                       <code class="mt-0.5 block break-all rounded bg-base px-2 py-1 font-mono text-[11px]">{s.text}</code>

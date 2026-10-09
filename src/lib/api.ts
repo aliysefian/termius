@@ -83,6 +83,8 @@ export const vault = {
     invoke<UnlockResult>("unlock_with_recovery", { recoveryKey, newPassword, remember }),
   forgetDevice: () => invoke<VaultStatus>("forget_device"),
   acceptRollbacks: () => invoke<void>("accept_rollbacks"),
+  /** Conflicts waiting and records that went backwards, for the status bar. */
+  health: () => invoke<{ open_conflicts: number; rollbacks: number }>("vault_health"),
   activity: (minutes: number) => invoke<void>("vault_activity", { minutes }),
   onIdleLocked: (handler: () => void): Promise<UnlistenFn> => listen("vault:idle-locked", () => handler()),
   setKeepKeyOnLock: (keep: boolean) => invoke<VaultStatus>("set_keep_key_on_lock", { keep }),
@@ -238,9 +240,13 @@ export function runbookStart(
   hostIds: Uuid[],
   scheduled: boolean,
   onEvent: (e: import("./runbook").RunbookEvent) => void,
+  /** On a host where the run fails, also run the runbook's rollback steps. */
+  rollback = false,
+  /** All hosts at once (the default), or one after another, optionally stopping at the first failure. */
+  order: RunOrder = "parallel",
 ) {
   const channel = new Channel<import("./runbook").RunbookEvent>(onEvent);
-  return invoke<void>("runbook_start", { runId, body, params, files, hostIds, scheduled, onEvent: channel });
+  return invoke<void>("runbook_start", { runId, body, params, files, hostIds, scheduled, onEvent: channel, rollback, order });
 }
 export const runbookCancel = (runId: string) => invoke<boolean>("runbook_cancel", { runId });
 export const runbookHistory = {

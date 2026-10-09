@@ -229,7 +229,7 @@ reports live records that vanished (tombstones and purged tombstones don't count
 now", and lock saves the memory. Tests: 4 unit tests plus 4 vault tests (older copy replayed; vanished vs deleted record;
 memory survives lock/restart; another device's ordinary edits and a reconciled sync-conflict copy raise nothing) and a session test
 (unlock reports 1, accept, next unlock reports 0). The whole vault + session + sync suite (92 tests) passes in a scratch crate.
-**Not done:** a sync-status indicator (syncing / waiting / error) beyond this and the conflict count; user-facing version
+(2026-10-09, later) A status-bar badge now says when the folder needs attention: "Folder went backwards: N records" (red) or "N sync conflicts" (yellow), opens the Vault screen, refreshes shortly after another device changes the folder (new cheap `vault_health` command), and is silent when there is nothing wrong; it never says "in sync", because the copying is done by the sync tool, not by the app. 4 vitest tests and a browser test (`e2e/syncbadge.py`); accessibility scan still 0 findings. **Not done:** user-facing version
 history; retry/backoff for I/O errors; blocking writes while a rollback is unresolved (deliberately left as a warning, because an
 old copy restored on purpose looks identical); the `commands.rs` wiring (`vault_info`, `accept_rollbacks`) was not compiled.
 **Evidence.** As above.
@@ -247,6 +247,7 @@ risk: medium
 ```
 **Problems.** S10 keyboard-interactive; S14 timeouts; S15 forward bounds; S19 host-key algorithms; D5 error collapse;
 D6 no reuse; no legacy algorithm configuration; connect not cancellable.
+**Pooling (step 4):** design only, awaiting an owner decision: `docs/design/CONNECTION_POOL.md`.
 **Plan.** (1) UI prompt channel for keyboard-interactive, send the saved password only to prompts matching password, and
 support publickey then keyboard-interactive; (2) per-phase timeouts (auth, channel, pty) and fix host-key-prompt timer
 accounting; (3) extend `ApiError` codes and `SessionStatus::Error` with a code (dns, refused, timeout, auth, hostkey,

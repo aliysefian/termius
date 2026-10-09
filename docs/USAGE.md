@@ -537,7 +537,11 @@ files from the page), not a program:
   until it exits with `until_exit`, default 0, and prints `contains` if given,
   or give up after `timeout_secs`), or `upload` (see below). A failed step
   stops that host unless the step has `"on_error": "continue"`; other hosts go
-  on. Each step may have a `timeout_secs`. A `run` or `upload` step may also
+  on. Each step may have a `timeout_secs`. A runbook may also have a `"rollback"` list, steps written the same way that undo
+  the run. They never run on their own: when you start a run (or make a schedule) you
+  can turn on "If a host fails, run the rollback steps on it", and then only a host
+  where the run failed gets them, after the failure, and it still counts as failed.
+  The dry run shows them marked as rollback, so you can read them first. A `run` or `upload` step may also
   say `"retries": 2` (up to 5) to be tried again when the command ran and failed,
   waiting `retry_delay_secs` (default 5) between tries; only use it for commands
   that are safe to repeat. A lost connection is never retried. The kept record of
