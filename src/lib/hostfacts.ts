@@ -9,6 +9,8 @@
 export const FACTS_SCRIPT = `LC_ALL=C; export LC_ALL
 PATH="$PATH:/usr/local/bin:/usr/sbin:/sbin:/opt/homebrew/bin"; export PATH
 have() { command -v "$1" >/dev/null 2>&1; }
+# Each tool is asked for at most 3 seconds, so one that hangs can't stall the whole collection.
+bounded() { if have timeout; then timeout 3 "$@"; else "$@"; fi; }
 echo "HOSTNAME=$(hostname 2>/dev/null)"
 echo "KERNEL=$(uname -sr 2>/dev/null)"
 echo "ARCH=$(uname -m 2>/dev/null)"
@@ -24,9 +26,17 @@ fi
 if [ -r /proc/uptime ]; then echo "UPTIME=$(awk '{print int($1)}' /proc/uptime)"; fi
 df -P -k 2>/dev/null | awk 'NR > 1 && $1 !~ /^(tmpfs|devtmpfs|overlay|shm|udev|none)$/ && $6 !~ /^\\/(proc|sys|dev|run|snap)/ { printf "DISK=%s|%s|%s|%s\\n", $6, $2, $3, $5 }' | head -n 12
 if [ -d /run/systemd/system ]; then echo "INIT=systemd"; elif [ -f /.dockerenv ]; then echo "INIT=container"; fi
-if have systemd-detect-virt; then echo "VIRT=$(systemd-detect-virt 2>/dev/null)"; fi
+if have systemd-detect-virt; then echo "VIRT=$(bounded systemd-detect-virt 2>/dev/null)"; fi
 for t in docker podman nerdctl kubectl helm git python3 node; do
-  if have "$t"; then echo "TOOL=$t|$("$t" --version 2>/dev/null | head -n 1 | cut -c1-80)"; fi
+  if have "$t"; then
+    # kubectl and helm have no --version flag; these ask the program itself and never contact a cluster.
+    case "$t" in
+      kubectl) v=$(bounded kubectl version --client 2>/dev/null | head -n 1);;
+      helm) v=$(bounded helm version --short 2>/dev/null | head -n 1);;
+      *) v=$(bounded "$t" --version 2>/dev/null | head -n 1);;
+    esac
+    echo "TOOL=$t|$(printf '%s' "$v" | cut -c1-80)"
+  fi
 done
 `;
 

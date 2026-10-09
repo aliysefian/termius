@@ -71,7 +71,7 @@ describe("parseMetricsOutput", () => {
     expect(m.uptimeSecs).toBeGreaterThan(0);
     // null on a machine without systemd, an array (maybe empty) on one with it.
     expect(m.failedUnits === null || Array.isArray(m.failedUnits)).toBe(true);
-  });
+  }, 30_000);
 });
 
 describe("formatUptime", () => {

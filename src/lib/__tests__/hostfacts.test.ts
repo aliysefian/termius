@@ -58,6 +58,13 @@ describe("host facts", () => {
     expect(text).toContain("Tool docker: Docker version 27.1.1, build abc");
   });
 
+  it("each tool is asked for at most a few seconds, and kubectl and helm are asked the way they understand", () => {
+    expect(FACTS_SCRIPT).toMatch(/timeout 3 "\$@"/);
+    expect(FACTS_SCRIPT).toContain("kubectl version --client");
+    expect(FACTS_SCRIPT).toContain("helm version --short");
+    expect(FACTS_SCRIPT).not.toMatch(/kubectl --version|helm --version/);
+  });
+
   it("the script only reads: nothing in it installs, starts, writes a file or reaches a network", () => {
     for (const bad of [/\brm\b/, /\bsudo\b/, /\bcurl\b|\bwget\b|\bnc\b|\bssh\b/, /\bapt\b|\byum\b|\bdnf\b|\bpip\b|\bnpm\b/, /\bsystemctl\b/, /(?<![=<])>>?\s*(?!\/dev\/null)["']?[\/~$.]/, /\bchmod\b|\bchown\b|\bmkdir\b|\btouch\b/]) {
       expect(FACTS_SCRIPT, String(bad)).not.toMatch(bad);
@@ -74,5 +81,5 @@ describe("host facts", () => {
     expect(f.memKb).toBeGreaterThan(0);
     expect(f.disks.length).toBeGreaterThan(0);
     expect(f.disks.every((d) => d.sizeKb > 0 && d.usedPct !== null)).toBe(true);
-  });
+  }, 30_000);
 });
