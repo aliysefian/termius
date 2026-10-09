@@ -106,7 +106,7 @@ id: SSHV-014
 title: Read-only sessions, export, safer statement guard
 module: databases
 priority: P1
-status: TODO
+status: TESTING
 dependencies: []
 risk: medium
 ```
@@ -116,7 +116,17 @@ risk: medium
 **Plan.** Engine-level read-only (`SET TRANSACTION READ ONLY` for Postgres, `SET SESSION TRANSACTION READ ONLY` for MySQL,
 equivalents); extend the guard conservatively (unknown leading keyword on a production connection => confirm); CSV/JSON
 export of the loaded page with a row cap; Db2 only if the owner wants it (no pure-Rust driver known).
-**Tests.** Table-driven `safety.rs` tests including every bypass above. Evidence pending.
+**Progress (2026-10-09).** Correction: result export already existed (`DatabasesView.svelte` Export menu: copy as CSV/TSV/JSON,
+save as CSV/JSON through `db_save_export`, with spreadsheet-formula defusing in `dbdata.ts`); the audit agent's "no export" was
+wrong. Done: (1) the statement guard (`db/safety.rs`) now also flags `WHERE 1=1`/`WHERE true`/`WHERE 'a'='a'`, data-changing
+`WITH`, `MERGE`, `REPLACE`, `GRANT`/`REVOKE`, `EXEC`/`EXECUTE`/`CALL`, and `EXPLAIN ANALYZE <statement>` (which really runs it);
+plain reads and `EXPLAIN` without `ANALYZE` stay quiet. 10 tests pass in a scratch crate. (2) A "Read-only sessions" connection
+setting for MySQL (`SET SESSION TRANSACTION READ ONLY` on every pooled connection), PostgreSQL (`default_transaction_read_only`)
+and SQL Server (it was read by the backend but never offered in the form); it is a guard against accidents, not a boundary.
+`dbengines.test.ts` covers the setting; the Rust driver edits (`pg.rs`, `mysql.rs`, `mssql.rs`, `ConnectSpec::read_only`) were
+not compiled (drivers need the full crate) but use APIs checked against the vendored sources (`Config::options`,
+`OptsBuilder::init`). **Not done:** Db2 (no pure-Rust driver known), moving query history into the vault.
+**Tests.** Table-driven `safety.rs` tests including every bypass above. Evidence: as above.
 
 ## SSHV-022 Workspace navigation
 ```yaml

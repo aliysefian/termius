@@ -10,21 +10,46 @@
 pub fn destructive_reason(sql: &str) -> Option<String> {
     for stmt in statements(sql) {
         let words: Vec<String> = stmt.iter().map(|w| w.to_ascii_lowercase()).collect();
-        let first = words.first().map(String::as_str).unwrap_or("");
-        let has_where = words.iter().any(|w| w == "where");
-        let reason = match first {
-            "drop" => Some(format!("DROP {}", words.get(1).map(|w| w.to_ascii_uppercase()).unwrap_or_default())),
-            "truncate" => Some("TRUNCATE".to_string()),
-            "delete" if !has_where => Some("DELETE without WHERE".to_string()),
-            "update" if !has_where => Some("UPDATE without WHERE".to_string()),
-            "alter" if words.iter().any(|w| w == "drop") => Some("ALTER ... DROP".to_string()),
-            _ => None,
-        };
-        if let Some(r) = reason {
+        if let Some(r) = reason_for(&words) {
             return Some(r.trim().to_string());
         }
     }
     None
+}
+
+fn reason_for(words: &[String]) -> Option<String> {
+    let first = words.first().map(String::as_str).unwrap_or("");
+    let has = |w: &str| words.iter().any(|x| x == w);
+    // `WHERE` with nothing to narrow it: `WHERE 1=1`, `WHERE true`, `WHERE 'a'='a'`. (The `=` itself is dropped when reading.)
+    let narrows = || {
+        let after: Vec<&str> = words.iter().skip_while(|w| *w != "where").skip(1).map(String::as_str).collect();
+        !matches!(after.as_slice(), [] | ["true"] | ["1", "1"] | ["?", "?"])
+    };
+    match first {
+        "drop" => Some(format!("DROP {}", words.get(1).map(|w| w.to_ascii_uppercase()).unwrap_or_default())),
+        "truncate" => Some("TRUNCATE".to_string()),
+        "delete" if !has("where") => Some("DELETE without WHERE".to_string()),
+        "delete" if !narrows() => Some("DELETE with a WHERE that matches everything".to_string()),
+        "update" if !has("where") => Some("UPDATE without WHERE".to_string()),
+        "update" if !narrows() => Some("UPDATE with a WHERE that matches everything".to_string()),
+        "alter" if has("drop") => Some("ALTER ... DROP".to_string()),
+        // MERGE can insert, update and delete in one statement, and `REPLACE INTO` (MySQL) deletes the rows it replaces.
+        "merge" => Some("MERGE".to_string()),
+        "replace" => Some("REPLACE".to_string()),
+        // Changing who may do what.
+        "grant" => Some("GRANT".to_string()),
+        "revoke" => Some("REVOKE".to_string()),
+        // A stored procedure (or T-SQL `EXEC` of any text) can do anything; nothing here can tell what.
+        "exec" | "execute" | "call" => Some("runs a stored procedure (it can do anything)".to_string()),
+        // `WITH x AS (...) DELETE ...`: the data-changing statement isn't the first word.
+        "with" if has("delete") || has("update") || has("truncate") || has("drop") => Some("WITH ... that changes data".to_string()),
+        // PostgreSQL's `EXPLAIN ANALYZE` really runs the statement; judge what follows it.
+        "explain" if has("analyze") || has("analyse") => {
+            let at = words.iter().position(|w| w == "analyze" || w == "analyse")? + 1;
+            reason_for(&words[at..]).map(|r| format!("EXPLAIN ANALYZE runs it: {r}"))
+        }
+        _ => None,
+    }
 }
 
 /// Statements as lists of bare words, with comments removed and every
@@ -204,6 +229,37 @@ mod tests {
         assert!(!flagged("SELECT `drop`, \"truncate\" FROM t"));
         assert!(!flagged("SELECT 'it''s; DROP TABLE x'"));
         assert!(!flagged("SELECT 'a\\'; DROP TABLE x'"));
+    }
+
+    #[test]
+    fn the_gaps_the_audit_found_are_closed() {
+        // A WHERE that matches everything is not a WHERE.
+        for sql in ["DELETE FROM t WHERE 1=1", "delete from t where true", "UPDATE t SET a = 1 WHERE 1 = 1", "DELETE FROM t WHERE 'a'='a'"] {
+            assert!(flagged(sql), "{sql}");
+        }
+        assert!(!flagged("DELETE FROM t WHERE id = 1"));
+        assert!(!flagged("DELETE FROM t WHERE 1=1 AND id = 7"), "narrowed by a second condition");
+        // Data-changing statements that don't start with the usual word.
+        for sql in [
+            "WITH old AS (SELECT id FROM t) DELETE FROM t USING old WHERE t.id = old.id",
+            "with x as (select 1) update t set a = 1 where id in (select * from x)",
+            "MERGE INTO t USING s ON t.id = s.id WHEN MATCHED THEN DELETE",
+            "REPLACE INTO t VALUES (1)",
+            "GRANT ALL ON db.* TO bob",
+            "REVOKE SELECT ON t FROM bob",
+            "EXEC sp_who",
+            "execute sp_executesql @sql",
+            "CALL cleanup()",
+            "EXPLAIN ANALYZE DELETE FROM t",
+            "explain (analyze) update t set a = 1",
+        ] {
+            assert!(flagged(sql), "{sql}");
+        }
+        // Still routine: plain reads, and EXPLAIN without ANALYZE (which only plans).
+        for sql in ["WITH x AS (SELECT 1) SELECT * FROM x", "EXPLAIN DELETE FROM t", "EXPLAIN ANALYZE SELECT 1", "EXPLAIN ANALYZE DELETE FROM t WHERE id = 3", "SELECT 'GRANT ALL'"] {
+            assert!(!flagged(sql), "{sql}");
+        }
+        assert_eq!(destructive_reason("EXPLAIN ANALYZE DELETE FROM t").as_deref(), Some("EXPLAIN ANALYZE runs it: DELETE without WHERE"));
     }
 
     #[test]

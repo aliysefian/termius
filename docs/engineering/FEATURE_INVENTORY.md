@@ -56,7 +56,7 @@ by search, not by reading every file. Nothing here was exercised at runtime exce
 | Alerts | PARTIAL | `alerts.svelte.ts`: down/CPU/mem/disk, quiet hours; no severity, ack, persisted history, adapters |
 | Docker / Podman | IMPLEMENTED | `containers/`; stats and health not confirmed |
 | Kubernetes | PARTIAL | `kube.rs`: contexts, namespaces, pods, logs, port-forward. No deployments/services/events/exec |
-| Databases | IMPLEMENTED | MySQL, Postgres, MSSQL, Oracle, rqlite, Redis, Mongo, Elastic; tunnel, history, destructive guard (`db/safety.rs`). Gaps: Db2 not present, no generic read-only mode (MSSQL only), no export, guard misses `WITH..DELETE`, `MERGE`, `GRANT`, `EXEC` |
+| Databases | IMPLEMENTED | MySQL, Postgres, MSSQL, Oracle, rqlite, Redis, Mongo, Elastic; tunnel, history, destructive guard (`db/safety.rs`). Export exists (corrected). On branch: read-only setting for MySQL/Postgres/SQL Server and a tighter guard. Gaps: Db2 not present; originally the guard missed `WITH..DELETE`, `MERGE`, `GRANT`, `EXEC` |
 | Multi-host command runner | IMPLEMENTED | `runner.rs` (8 parallel, 256 KiB cap, abort); no sequential mode |
 | Runbooks | PARTIAL | steps/params/when/on_error/history. No approval, retry, rollback, preview, secret refs; `{{x}}` unquoted by default (`runbook.rs:367`) |
 | Scheduler | PARTIAL | every-N/daily/weekly while app open; no one-time, no timezone, misses skipped, no retry (`scheduler.svelte.ts`) |
