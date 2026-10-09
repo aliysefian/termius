@@ -247,6 +247,7 @@ risk: medium
 ```
 **Problems.** S10 keyboard-interactive; S14 timeouts; S15 forward bounds; S19 host-key algorithms; D5 error collapse;
 D6 no reuse; no legacy algorithm configuration; connect not cancellable.
+**Pooling (step 4):** design only, awaiting an owner decision: `docs/design/CONNECTION_POOL.md`.
 **Plan.** (1) UI prompt channel for keyboard-interactive, send the saved password only to prompts matching password, and
 support publickey then keyboard-interactive; (2) per-phase timeouts (auth, channel, pty) and fix host-key-prompt timer
 accounting; (3) extend `ApiError` codes and `SessionStatus::Error` with a code (dns, refused, timeout, auth, hostkey,
