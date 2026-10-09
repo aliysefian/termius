@@ -2,7 +2,7 @@
   import { KeyRound, Lock, ShieldAlert, ShieldCheck } from "lucide-svelte";
   import Badge from "./Badge.svelte";
   import EmptyState from "./EmptyState.svelte";
-  import { checkKeyHygiene, type Finding } from "$lib/hygiene";
+  import { canUseSshKey, checkKeyHygiene, type Finding } from "$lib/hygiene";
   import { ui } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
 
@@ -19,7 +19,8 @@
     const out: (Finding & { go: () => void })[] = [];
     for (const rec of vaultStore.hosts) {
       const d = rec.data;
-      if (!d) continue;
+      // Only where a key could be used instead (not Remote Desktop, FTP, Telnet…).
+      if (!d || !canUseSshKey(d)) continue;
       const identId = vaultStore.effectiveIdentity(d);
       const ident = identId ? vaultStore.identityById.get(identId)?.data : undefined;
       if (ident?.auth.type === "password") {
@@ -112,7 +113,7 @@
         <li>An OpenSSH certificate within 14 days of expiring, or already expired.</li>
         <li>An RSA key under 3072 bits, or a DSA key (deprecated by most servers).</li>
         <li>A key created more than 5 years ago.</li>
-        <li>A host using a saved password while the Key Manager has a key it could use instead.</li>
+        <li>A host using a saved password while the Key Manager has a key it could use instead (SSH hosts, and VNC through SSH).</li>
         <li>A saved password whose record hasn't changed in over a year (a proxy for "not rotated": the vault timestamps the whole record, not the password specifically).</li>
       </ul>
       <p class="mt-2 flex items-center gap-1.5"><Lock size={12} /> Everything above is computed from what's already decrypted in this session; nothing leaves this computer.</p>

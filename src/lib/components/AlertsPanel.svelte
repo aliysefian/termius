@@ -51,7 +51,7 @@
               <div class="min-w-0 flex-1">
                 <div class={a.ack !== null ? "text-fg-muted" : ""}>{a.message}</div>
                 <div class="text-[11px] text-fg-muted">
-                  {a.severity}{#if a.quiet} · during quiet hours: not announced{/if}{#if a.ack !== null} · acknowledged {at(a.ack)}{/if}
+                  {[a.severity, a.quiet ? "during quiet hours: not announced" : "", a.ack !== null ? `acknowledged ${at(a.ack)}` : ""].filter(Boolean).join(" · ")}
                 </div>
               </div>
               {#if a.severity !== "info" && a.ack === null}<button class="btn-ghost shrink-0 py-0.5 text-xs" onclick={() => alerts.acknowledge(a.id)}>Acknowledge</button>{/if}

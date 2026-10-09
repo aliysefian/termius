@@ -172,7 +172,7 @@
   </tr>
 {/snippet}
 
-<div class="flex min-h-0 flex-1 flex-col bg-base">
+<div class="flex min-h-0 min-w-0 flex-1 flex-col bg-base">
   <ContainerTabs current="containers" />
   <!-- Source bar -->
   <div class="flex flex-wrap items-center gap-2 border-b border-line bg-panel px-4 py-2.5">

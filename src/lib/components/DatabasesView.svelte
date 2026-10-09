@@ -160,7 +160,7 @@
 
 <svelte:window onclick={onWindowClick} />
 
-<div class="flex min-h-0 flex-1 bg-base">
+<div class="flex min-h-0 min-w-0 flex-1 bg-base">
   <!-- Connections and their trees -->
   <aside class="flex w-72 shrink-0 flex-col border-r border-line bg-panel" aria-label="Database connections">
     <div class="flex items-center justify-between gap-2 border-b border-line px-3 py-2.5">

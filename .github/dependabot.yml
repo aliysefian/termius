@@ -6,6 +6,16 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    ignore:
+      # These only move together with the crates they exchange types with (see src-tauri/Cargo.toml); on their own
+      # they don't compile. hmac 0.13 needs sha2 0.11 (digest 0.11), while sha2 stays on 0.10 with russh and ssh-key.
+      - dependency-name: hmac
+        versions: [">=0.13"]
+      - dependency-name: sha2
+        versions: [">=0.11"]
+      # Certificates arrive from ironrdp-tls as x509-cert 0.2 values; a newer major is a different type.
+      - dependency-name: x509-cert
+        versions: [">=0.3"]
   - package-ecosystem: npm
     directory: /
     schedule:

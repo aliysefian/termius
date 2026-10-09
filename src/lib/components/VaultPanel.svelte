@@ -20,6 +20,7 @@
   import StrengthMeter from "./StrengthMeter.svelte";
   import Badge from "./Badge.svelte";
   import { connectionLog } from "$lib/stores/connectionlog.svelte";
+  import { entryOutcome } from "$lib/activitytext";
   import { checkKeyHygiene } from "$lib/hygiene";
   import { writeText } from "@tauri-apps/plugin-clipboard-manager";
   import Spinner from "./Spinner.svelte";
@@ -61,14 +62,6 @@
   const when = (ms: number | null | undefined) => (ms ? new Date(ms).toLocaleString() : "never");
   const keyFindingCount = $derived(checkKeyHygiene(vaultStore.keys).length);
 
-  function formatDuration(ms: number): string {
-    const s = Math.round(ms / 1000);
-    if (s < 60) return `${s}s`;
-    const m = Math.floor(s / 60);
-    if (m < 60) return `${m}m ${s % 60}s`;
-    const h = Math.floor(m / 60);
-    return `${h}h ${m % 60}m`;
-  }
 
   async function copyLogCsv() {
     try {
@@ -407,8 +400,7 @@
               <div class="flex items-center justify-between gap-3 px-3 py-1.5">
                 <span class="min-w-0 flex-1 truncate">{e.label}</span>
                 <span class="shrink-0 text-fg-muted">
-                  {when(e.startedAt)}
-                  {#if e.endedAt}· {formatDuration(e.endedAt - e.startedAt)}{#if e.exitCode != null} · exit {e.exitCode}{:else if e.reason === "dropped"} · dropped{:else if e.reason === "failed"} · failed{/if}{:else}· connected{/if}
+                  {when(e.startedAt)} {entryOutcome(e)}
                 </span>
               </div>
             {/each}

@@ -5,6 +5,7 @@
   import "@xterm/xterm/css/xterm.css";
   import { settings } from "$lib/stores/settings.svelte";
   import { themeById } from "$lib/themes";
+  import { redrawPreview } from "$lib/terminalpreview";
 
   let container = $state<HTMLDivElement>();
   let term: Terminal | undefined;
@@ -12,15 +13,7 @@
   let resizeObserver: ResizeObserver | undefined;
 
   function write() {
-    if (!term) return;
-    term.clear();
-    term.write("\x1b[38;2;120;200;120muser@host\x1b[0m:\x1b[38;2;120;160;255m~/sshvault\x1b[0m$ ls\r\n");
-    term.write("\x1b[1;34msrc\x1b[0m  \x1b[1;32mbuild.sh\x1b[0m  \x1b[1;36mREADME.md\x1b[0m  \x1b[1;31merror.log\x1b[0m\r\n");
-    term.write("\x1b[38;2;120;200;120muser@host\x1b[0m:\x1b[38;2;120;160;255m~/sshvault\x1b[0m$ git diff\r\n");
-    term.write("\x1b[32m+ a line that was added\x1b[0m\r\n");
-    term.write("\x1b[31m- a line that was removed\x1b[0m\r\n");
-    term.write("\x1b[1mBold text\x1b[0m stays readable at any contrast setting.\r\n");
-    term.write("\x1b[38;2;120;200;120muser@host\x1b[0m:\x1b[38;2;120;160;255m~/sshvault\x1b[0m$ ");
+    if (term) redrawPreview(term);
   }
 
   function safeFit() {
