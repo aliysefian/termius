@@ -149,3 +149,17 @@ async fn one_at_a_time_can_stop_at_the_first_failure() {
     let carry = tokio::task::spawn_blocking(move || run_order(Order::Sequential { stop_on_failure: false }, vec![bad(), bad()])).await.unwrap();
     assert!(carry.iter().all(|c| c.1.as_deref() == Some("credentials are needed")), "no host was skipped");
 }
+
+#[test]
+fn secret_values_are_taken_out_of_what_is_shown_and_kept() {
+    let r = StepResult {
+        phase: crate::runbook::Phase::Run,
+        index: 0,
+        name: "Login".into(),
+        status: StepStatus::Failed,
+        output: Output { stdout: "welcome hunter2\n".into(), stderr: "bad password hunter2".into(), exit_code: Some(1), ..Default::default() },
+        note: "tried hunter2".into(),
+    };
+    let r = redacted(&r, &["hunter2".to_string()]);
+    assert_eq!((r.output.stdout.as_str(), r.output.stderr.as_str(), r.note.as_str()), ("welcome [hidden]\n", "bad password [hidden]", "tried [hidden]"));
+}

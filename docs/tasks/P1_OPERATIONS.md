@@ -87,8 +87,12 @@ and never stored in history; cancel closes the channel so the remote process rec
 host at a time, or one at a time stopping at the first failure (a non-zero exit, no answer or a failed login); later hosts are
 reported as skipped and never contacted. The window has a "Hosts" selector for it. Tested against a real `sshd` in the scratch
 crate (event order proves nothing overlaps and the fourth host is never started); the command layer (`run_on_hosts` takes an
-optional `order`; the CLI sink maps `Skipped`) was not compiled. **Not done:** the same mode for runbooks (`runbookrun.rs` always
-takes hosts in parallel), secret-reference parameters, cancel that signals the remote process.
+optional `order`; the CLI sink maps `Skipped`) was not compiled. **Runbooks (2026-10-09, later):** `runbookrun.rs` takes the same `Order` (a "Hosts" selector in the runbook view); hosts not reached are
+recorded as "skipped: an earlier host failed". **Secret parameters:** a runbook parameter of kind `secret` is typed when it runs
+(password field), is not kept in schedules (a schedule refuses a required one), is `[hidden]` in the record of the run, and its
+value is replaced by `[hidden]` wherever it appears in step output, errors or notes; the preview shows `<name>`. It is typed, not
+read from the vault: reading vault secrets from Rust is a larger change left undone. **Not done:** cancel that signals the remote
+process.
 
 ## SSHV-016 Runbooks
 ```yaml

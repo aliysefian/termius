@@ -488,3 +488,13 @@ fn cancelling_stops_before_the_next_step() {
     assert_eq!(r.len(), 1);
     assert_eq!(*fake.seen.lock().unwrap(), ["a"]);
 }
+
+#[test]
+fn a_secret_parameter_cannot_have_a_default_and_is_not_shown_in_the_preview() {
+    let bad = parse(r#"{"name":"x","params":[{"name":"pw","kind":"secret","default":"hunter2"}],"steps":[{"run":"true"}]}"#).unwrap_err();
+    assert!(bad.iter().any(|p| p.message.contains("secret parameter")), "{bad:?}");
+    let rb = parse(r#"{"name":"x","params":[{"name":"pw","kind":"secret"}],"steps":[{"name":"Use","run":"login {{pw|q}}"}]}"#).unwrap();
+    let plan = plan(&rb, &HashMap::from([("pw".to_string(), "hunter2".to_string())]), &HashMap::new()).unwrap();
+    assert!(!plan[0].text.contains("hunter2"), "{}", plan[0].text);
+    assert!(plan[0].text.contains("<pw>"));
+}

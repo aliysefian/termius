@@ -119,6 +119,8 @@ pub struct RunbookManager {
 }
 
 struct HostProgress {
+    /// Values of secret parameters, taken out of anything shown or kept.
+    redact: Arc<Vec<String>>,
     host_id: Uuid,
     sink: Arc<dyn RunbookSink>,
     record: Arc<Mutex<RunRecord>>,
@@ -130,6 +132,7 @@ impl Progress for HostProgress {
         self.sink.event(RunbookEvent::StepStarted { host_id: self.host_id, index });
     }
     fn finished(&self, result: &StepResult) {
+        let result = &redacted(result, &self.redact);
         if let Some(h) = self.record.lock().unwrap_or_else(|p| p.into_inner()).hosts.iter_mut().find(|h| h.host_id == self.host_id) {
             h.steps.push(result.clone());
         }
@@ -138,6 +141,19 @@ impl Progress for HostProgress {
     fn cancelled(&self) -> bool {
         self.cancelled.load(Ordering::Relaxed)
     }
+}
+
+/// The result with every secret value replaced, in the output and the note.
+fn redacted(r: &StepResult, secrets: &[String]) -> StepResult {
+    if secrets.is_empty() {
+        return r.clone();
+    }
+    let hide = |s: &str| secrets.iter().fold(s.to_string(), |acc, v| acc.replace(v.as_str(), crate::mask::HIDDEN));
+    let mut r = r.clone();
+    r.output.stdout = hide(&r.output.stdout);
+    r.output.stderr = hide(&r.output.stderr);
+    r.note = hide(&r.note);
+    r
 }
 
 fn finish_host(record: &Mutex<RunRecord>, host_id: Uuid, ok: bool, error: Option<String>) {
@@ -168,6 +184,13 @@ impl RunbookManager {
         sink: Arc<dyn RunbookSink>,
     ) {
         let mut shown = values.clone();
+        let mut secret_values = Vec::new();
+        for p in runbook.params.iter().filter(|p| p.kind == crate::runbook::ParamKind::Secret) {
+            if let Some(v) = shown.get_mut(&p.name).filter(|v| !v.is_empty()) {
+                secret_values.push(std::mem::replace(v, crate::mask::HIDDEN.to_string()));
+            }
+        }
+        let secret_values = Arc::new(secret_values);
         for k in files.keys() {
             shown.insert(k.clone(), "(a file was chosen)".into());
         }
@@ -189,7 +212,7 @@ impl RunbookManager {
         // spawn-ok: runbook_start calls this inside tauri::async_runtime::spawn
         let handle = tokio::spawn(async move {
             let (runbook, values, files) = (Arc::new(runbook), Arc::new(values), Arc::new(files));
-            let ctx = Arc::new(HostCtx { runbook, values, files, rollback, sink: Arc::clone(&sink_for_task), record: Arc::clone(&rec), cancelled: Arc::clone(&flag) });
+            let ctx = Arc::new(HostCtx { runbook, values, files, rollback, redact: secret_values, sink: Arc::clone(&sink_for_task), record: Arc::clone(&rec), cancelled: Arc::clone(&flag) });
             match order {
                 Order::Parallel => {
                     let limit = Arc::new(Semaphore::new(CONCURRENCY));
@@ -267,6 +290,7 @@ struct HostCtx {
     values: Arc<HashMap<String, String>>,
     files: Arc<HashMap<String, Vec<u8>>>,
     rollback: bool,
+    redact: Arc<Vec<String>>,
     sink: Arc<dyn RunbookSink>,
     record: Arc<Mutex<RunRecord>>,
     cancelled: Arc<AtomicBool>,
@@ -290,7 +314,7 @@ async fn run_job(ctx: &HostCtx, job: HostJob) -> bool {
         Err(e) => return fail(e.to_string()),
     };
     let exec = SshExec::new(client);
-    let progress = HostProgress { host_id, sink: Arc::clone(&ctx.sink), record: Arc::clone(&ctx.record), cancelled: Arc::clone(&ctx.cancelled) };
+    let progress = HostProgress { redact: Arc::clone(&ctx.redact), host_id, sink: Arc::clone(&ctx.sink), record: Arc::clone(&ctx.record), cancelled: Arc::clone(&ctx.cancelled) };
     let host_values = HashMap::from([("host".to_string(), job.hostname.clone()), ("label".to_string(), job.label.clone())]);
     let (ok, _) = run_host_with(&ctx.runbook, &ctx.values, &ctx.files, &host_values, &exec, &progress, ctx.rollback).await;
     exec.client.close().await;

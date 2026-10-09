@@ -302,6 +302,9 @@
                         <button id="rp-{p.name}" class="btn-secondary py-1 text-xs" onclick={() => chooseFile(p.name)}>Choose a file…</button>
                         <span class="min-w-0 flex-1 truncate font-mono text-xs text-fg-muted">{files[p.name] ?? "none chosen"}</span>
                       </div>
+                    {:else if p.kind === "secret"}
+                      <input id="rp-{p.name}" type="password" class="input font-mono text-xs" bind:value={params[p.name]} spellcheck="false" autocomplete="off" data-testid="runbook-secret" />
+                      <p class="mt-0.5 text-[11px] text-fg-muted">Asked each time. Not saved in a schedule, and hidden in the record of the run.</p>
                     {:else if p.choices.length}
                       <select id="rp-{p.name}" class="input" bind:value={params[p.name]}>{#each p.choices as c (c)}<option value={c}>{c}</option>{/each}</select>
                     {:else}
