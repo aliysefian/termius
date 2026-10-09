@@ -30,6 +30,10 @@ use crate::models::AuthMethod;
 
 const TERM: &str = "xterm-256color";
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
+/// Signing in, once the connection is up (a key on a hardware token may wait for a touch).
+const AUTH_TIMEOUT: Duration = Duration::from_secs(60);
+/// Opening the shell channel, asking for a terminal and starting the shell.
+const SETUP_TIMEOUT: Duration = Duration::from_secs(30);
 const KEEPALIVE: Duration = Duration::from_secs(30);
 /// Longest jump chain we will follow (a sanity bound against misconfiguration).
 pub const MAX_JUMPS: usize = 8;
@@ -42,7 +46,7 @@ pub enum SshError {
     #[error("key error: {0}")]
     Key(#[from] keys::Error),
 
-    #[error("could not resolve or reach {addr}: {source}")]
+    #[error("{}", crate::neterr::connect_text(.addr, .source))]
     Connect {
         addr: String,
         #[source]
@@ -556,6 +560,8 @@ pub struct ClientHandler {
     /// Set only when this connection asked for X11 forwarding. The server may
     /// only open X11 channels when it is.
     x11: Option<Arc<crate::x11::X11Setup>>,
+    /// Set while a person is being asked about a host key, so the handshake's time limit doesn't run meanwhile.
+    asking: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl ClientHandler {
@@ -605,6 +611,7 @@ impl client::Handler for ClientHandler {
         // Nobody to ask (e.g. a background job): refuse rather than guess.
         let trusted = match &self.host_keys.prompter {
             Some(p) => {
+                let _ask = crate::deadline::Pause::new(&self.asking);
                 p.ask(HostKeyQuestion {
                     host: self.host.clone(),
                     port: self.port,
@@ -804,6 +811,7 @@ async fn connect_hop(
 ) -> Result<(Handle<ClientHandler>, Option<LearnedKey>), SshError> {
     let addr = format!("{}:{}", target.hostname, target.port);
     let learned = Arc::new(Mutex::new(None));
+    let asking = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let handler = ClientHandler {
         host: target.hostname.clone(),
         port: target.port,
@@ -813,6 +821,7 @@ async fn connect_hop(
         forward_agent: target.forward_agent,
         agent_backend: target.agent_backend.clone(),
         x11,
+        asking: Arc::clone(&asking),
     };
     let timeout = || SshError::Timeout(addr.clone());
 
@@ -821,12 +830,9 @@ async fn connect_hop(
             let stream = tokio::time::timeout(CONNECT_TIMEOUT, crate::dial::dial(target))
                 .await
                 .map_err(|_| timeout())??;
-            tokio::time::timeout(
-                CONNECT_TIMEOUT,
-                client::connect_stream(client_config(target), stream, handler),
-            )
-            .await
-            .map_err(|_| timeout())??
+            crate::deadline::within(CONNECT_TIMEOUT, &asking, client::connect_stream(client_config(target), stream, handler))
+                .await
+                .ok_or_else(timeout)??
         }
         Some((jump_name, jump)) => {
             let channel = tokio::time::timeout(
@@ -845,16 +851,16 @@ async fn connect_hop(
                 addr: addr.clone(),
                 reason: e.to_string(),
             })?;
-            tokio::time::timeout(
-                CONNECT_TIMEOUT,
-                client::connect_stream(client_config(target), channel.into_stream(), handler),
-            )
-            .await
-            .map_err(|_| timeout())??
+            crate::deadline::within(CONNECT_TIMEOUT, &asking, client::connect_stream(client_config(target), channel.into_stream(), handler))
+                .await
+                .ok_or_else(timeout)??
         }
     };
 
-    authenticate(&mut handle, target).await?;
+    // A server that accepts the connection and then never answers the login must not hold the tab forever.
+    tokio::time::timeout(AUTH_TIMEOUT, authenticate(&mut handle, target))
+        .await
+        .map_err(|_| timeout())??;
     let fp = learned
         .lock()
         .unwrap_or_else(|p| p.into_inner())
@@ -915,31 +921,37 @@ async fn run_session(
         });
     }
 
-    let channel = handle.channel_open_session().await?;
-    channel
-        .request_pty(true, TERM, params.cols, params.rows, 0, 0, &[])
-        .await?;
-    if params.target.forward_agent {
-        channel.agent_forward(true).await?;
-    }
-    match &handle.x11 {
-        Some(Ok(x)) => {
-            channel
-                .request_x11(
-                    true,
-                    false,
-                    crate::x11::PROTO,
-                    crate::x11::hex_encode(&x.fake),
-                    x.display.screen(),
-                )
-                .await?;
+    let addr = format!("{}:{}", params.target.hostname, params.target.port);
+    let channel = tokio::time::timeout(SETUP_TIMEOUT, async {
+        let channel = handle.channel_open_session().await?;
+        channel
+            .request_pty(true, TERM, params.cols, params.rows, 0, 0, &[])
+            .await?;
+        if params.target.forward_agent {
+            channel.agent_forward(true).await?;
         }
-        Some(Err(why)) => {
-            sink.data(format!("\x1b[33m[X11 forwarding is off: {why}]\x1b[0m\r\n").as_bytes())
+        match &handle.x11 {
+            Some(Ok(x)) => {
+                channel
+                    .request_x11(
+                        true,
+                        false,
+                        crate::x11::PROTO,
+                        crate::x11::hex_encode(&x.fake),
+                        x.display.screen(),
+                    )
+                    .await?;
+            }
+            Some(Err(why)) => {
+                sink.data(format!("\x1b[33m[X11 forwarding is off: {why}]\x1b[0m\r\n").as_bytes())
+            }
+            None => {}
         }
-        None => {}
-    }
-    channel.request_shell(true).await?;
+        channel.request_shell(true).await?;
+        Ok::<_, SshError>(channel)
+    })
+    .await
+    .map_err(|_| SshError::Timeout(addr))??;
     sink.status(SessionStatus::Connected);
 
     let (mut reader, writer) = channel.split();
@@ -1079,7 +1091,8 @@ async fn keyboard_interactive(
             R::Success => return Ok(true),
             R::Failure { .. } => return Ok(false),
             R::InfoRequest { prompts, .. } => {
-                let answers: Vec<String> = prompts.iter().map(|_| password.to_string()).collect();
+                // The password goes only to password questions (see `kbdint`), never to a one-time-code prompt.
+                let answers: Vec<String> = prompts.iter().map(|p| crate::kbdint::answer(&p.prompt, p.echo, password)).collect();
                 resp = handle
                     .authenticate_keyboard_interactive_respond(answers)
                     .await?;

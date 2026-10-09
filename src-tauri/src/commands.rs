@@ -204,7 +204,9 @@ impl From<SshError> for ApiError {
             SshError::Jump { .. } | SshError::JumpChainTooLong => "jump",
             SshError::AlreadyConnected => "already_connected",
             SshError::NotConnected => "not_connected",
-            SshError::Timeout(_) | SshError::Connect { .. } => "unreachable",
+            SshError::Connect { source, .. } => crate::neterr::kind(source).code(),
+            SshError::Timeout(_) => "timeout",
+            SshError::Proxy { .. } => "proxy",
             _ => "ssh",
         };
         Self::new(code, e.to_string())

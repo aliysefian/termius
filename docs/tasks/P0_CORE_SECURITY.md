@@ -203,7 +203,7 @@ id: SSHV-003
 title: Auth prompts, staged timeouts, error codes, pooling, algorithm settings
 module: connections
 priority: P0
-status: TODO
+status: TESTING
 dependencies: [SSHV-004]
 risk: medium
 ```
@@ -220,7 +220,19 @@ shows its own message.
 **Tests.** Extend `ssh.rs` testutil sshd tests (confirm CI actually has sshd so they do not pass vacuously); fake stalled
 TCP server; hostile-prompt server.
 **Rollback.** Pooling behind a setting for one release.
-**Evidence.** Pending.
+**Progress (2026-10-09).** Done: (1) `kbdint.rs`: the saved password is sent only to password prompts that don't echo; OTP,
+code, token, PIN and any other question get an empty answer (S10); real 2FA prompts still need a UI channel, so 2FA hosts remain
+unsupported. (2) `neterr.rs`: DNS failure, refused, timeout and unreachable are told apart in the message and in the IPC code
+(`dns`, `refused`, `timeout`, `proxy`); checked against a real failed lookup and a real refusal. (3) `deadline.rs`: the handshake
+limit (20 s) no longer runs while the host-key question is open; before, a person taking over 20 s to answer got "timed out" and
+lost the decision although the prompt allows 300 s. (4) New limits: sign-in 60 s (`AUTH_TIMEOUT`), shell channel setup 30 s
+(`SETUP_TIMEOUT`) (S14). (5) Forwards: accept errors back off 100 ms, at most 256 tunnels per forward, SOCKS handshake 10 s (S15).
+**Not done:** pooling (D6), per-host algorithm lists, host-key per algorithm (S19), cancel-while-connecting, UI use of the new error
+codes (the window shows the message), a server-stall test (the 20 s limit makes it slow).
+**Evidence.** The real `ssh.rs`, `dial.rs`, `forward.rs`, `agent.rs`, `x11.rs`, `hostkeys.rs`, `knownhosts.rs`, `health.rs` and
+the vault compile in a scratch crate with stubs for the tauri-only parts, and 142 tests pass, including the live-`sshd` tests (shell
+round trip, TOFU and changed keys, one and two jump hosts, X11, agent forwarding, forwards, certificates). `commands.rs` mapping
+change not compiled.
 
 ---
 ## SSHV-026 CI and supply chain

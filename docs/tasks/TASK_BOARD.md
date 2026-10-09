@@ -14,7 +14,7 @@ changes stay at TESTING until CI compiles and passes them.
 | SSHV-026 | CI gates and supply chain | P0 | IN_PROGRESS (audit workflow + dependabot added) | - | P0 |
 | SSHV-001 | Vault hardening (no key rotation) | P0 | TESTING (S18 leftovers open) | 004 | P0 |
 | SSHV-002 | Sync rollback detection, status | P0 | TODO | 001 | P0 |
-| SSHV-003 | Connection engine | P0 | TODO | 004 | P0 |
+| SSHV-003 | Connection engine | P0 | TESTING (partial) | 004 | P0 |
 | SSHV-009 | Monitoring gaps | P1 | TODO | 003 | P1_OPERATIONS |
 | SSHV-010 | Log explorer | P1 | TODO | 004 | P1_OPERATIONS |
 | SSHV-011 | Alerts | P1 | TODO | 005 | P1_OPERATIONS |
