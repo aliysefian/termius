@@ -69,6 +69,9 @@ pub mod x11;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // rustls is built with both ring and aws-lc-rs (via reqwest and the updater), so it can't choose a default on its
+    // own and panics at the first TLS handshake that doesn't install one: RDP did exactly that. Pick ring up front.
+    let _ = rustls::crypto::ring::default_provider().install_default();
     tauri::Builder::default()
         // First, so a second launch hands over to this one (and shows its window) before setting anything up. With
         // the window closed into the tray, launching the app again is how many people will look for it.
