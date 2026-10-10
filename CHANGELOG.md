@@ -4,6 +4,10 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## 0.30.3 - 2026-10-10
+
+- **Fixed:** connecting to a Windows server over RDP could crash the app ("panic in thread tokio-rt-worker ... rustls crypto/mod.rs"). The TLS crypto provider is now chosen when the app starts.
+
 ## 0.30.2 - 2026-10-09
 
 - **Fixed:** 0.30.1 was never published: its installers failed to build because two Tauri plugins (clipboard and notifications) had different versions in the app and in the frontend. They match again, and CI now checks this on every push. Everything listed under 0.30.1 is in this release.
