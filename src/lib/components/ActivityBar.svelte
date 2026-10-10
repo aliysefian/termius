@@ -72,7 +72,19 @@
   function toggleManage() {
     if (!open && manageButton) flyout = { top: Math.max(8, manageButton.getBoundingClientRect().top - 4) };
     open = !open;
-    if (open) queueMicrotask(() => panel?.querySelector<HTMLElement>("button")?.focus());
+    if (open) {
+      queueMicrotask(() => {
+        fitFlyout();
+        panel?.querySelector<HTMLElement>("button")?.focus();
+      });
+    }
+  }
+
+  /** On a short window the menu is moved up until it fits; what is still too tall scrolls (see max-h below). */
+  function fitFlyout() {
+    if (!panel) return;
+    const room = window.innerHeight - 8;
+    flyout = { top: Math.max(8, Math.min(flyout.top, room - panel.offsetHeight)) };
   }
 
   function onPanelKey(e: KeyboardEvent) {
@@ -180,7 +192,7 @@
     <!-- Beside the rail, level with the button; fixed so the rail's own scrolling can't clip it. -->
     <div
       bind:this={panel}
-      class="anim-pop-left fixed {settings.prefs.railLabels ? 'left-[72px]' : 'left-[60px]'} z-40 w-72 rounded-xl border border-line bg-panel p-1.5 shadow-xl"
+      class="anim-pop-left fixed {settings.prefs.railLabels ? 'left-[72px]' : 'left-[60px]'} z-40 max-h-[calc(100vh-1rem)] w-72 overflow-y-auto overscroll-contain rounded-xl border border-line bg-panel p-1.5 shadow-xl"
       style:top="{flyout.top}px"
       role="menu"
       aria-label={t("rail.manage")}

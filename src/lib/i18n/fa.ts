@@ -5,6 +5,7 @@ import type { Key } from "./en";
 export const fa: Partial<Record<Key, string>> = {
   "rail.hosts": "میزبان‌ها",
   "rail.favorites": "علاقه‌مندی‌ها",
+  "rail.fleetlist": "ناوگان",
   "rail.snippets": "قطعه‌کدها",
   "rail.sftp": "فایل‌ها",
   "rail.forwarding": "تونل‌ها",

@@ -3,6 +3,7 @@
 export const en = {
   "rail.hosts": "Hosts",
   "rail.favorites": "Favorites",
+  "rail.fleetlist": "Fleet",
   "rail.snippets": "Snippets",
   "rail.sftp": "Files",
   "rail.forwarding": "Tunnels",

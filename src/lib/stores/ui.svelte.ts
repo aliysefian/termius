@@ -21,6 +21,7 @@ export type View =
   | "vault"
   | "security-review"
   | "fleet"
+  | "fleetlist"
   | "topology"
   | "ops"
   | "runbooks"

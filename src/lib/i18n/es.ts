@@ -5,6 +5,7 @@ import type { Key } from "./en";
 export const es: Partial<Record<Key, string>> = {
   "rail.hosts": "Servidores",
   "rail.favorites": "Favoritos",
+  "rail.fleetlist": "Flota",
   "rail.snippets": "Snippets",
   "rail.sftp": "Archivos",
   "rail.forwarding": "Túneles",

@@ -5,6 +5,7 @@ import type { Key } from "./en";
 export const ja: Partial<Record<Key, string>> = {
   "rail.hosts": "ホスト",
   "rail.favorites": "お気に入り",
+  "rail.fleetlist": "フリート",
   "rail.snippets": "スニペット",
   "rail.sftp": "ファイル",
   "rail.forwarding": "トンネル",
