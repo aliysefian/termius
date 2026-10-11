@@ -4,6 +4,11 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## 0.30.5 - 2026-10-11
+
+- **New:** the database query editor now highlights SQL and offers context-aware PostgreSQL and MySQL completion for schemas, tables, aliases and columns. Metadata is loaded lazily from the active connection.
+- **Safety:** destructive database statements still require explicit confirmation before they run.
+
 ## 0.30.4 - 2026-10-10
 
 - **New:** a Fleet panel in the sidebar, next to Favorites. It lists your hosts under their groups, with a search box, an All / Up / Down filter, and each host's reachability and latency. The full Fleet page is one button away.

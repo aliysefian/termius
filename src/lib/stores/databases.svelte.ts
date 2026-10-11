@@ -9,6 +9,7 @@ import { addEntry, loadHistory, saveHistory, type HistoryEntry } from "$lib/dbhi
 import { ui } from "$lib/stores/ui.svelte";
 import { vaultStore } from "$lib/stores/vault.svelte";
 import { errorMessage, isApiError, type DbQueryResult, type DbTableInfo, type DbTreeNode, type Uuid } from "$lib/types";
+import type { SqlMetadataProvider } from "$lib/sqlcompletion";
 
 export const ROW_LIMITS = [100, 1000, 10_000, 100_000] as const;
 export const DEFAULT_LIMIT = 1000;
@@ -49,6 +50,9 @@ class DatabasesStore {
   tabs = $state<QueryTab[]>([]);
   activeTabId = $state<string | null>(null);
   history = $state<HistoryEntry[]>(loadHistory());
+  #completionChildren = new Map<string, Promise<DbTreeNode[]>>();
+  #completionTables = new Map<string, Promise<DbTableInfo | null>>();
+  #completionProviders = new Map<Uuid, SqlMetadataProvider>();
 
   active = $derived(this.tabs.find((t) => t.id === this.activeTabId) ?? null);
 
@@ -68,6 +72,9 @@ class DatabasesStore {
       this.tabs = [];
       this.activeTabId = null;
     }
+    this.#completionChildren.clear();
+    this.#completionTables.clear();
+    this.#completionProviders.clear();
   }
 
   connName(connId: Uuid): string {
@@ -80,6 +87,25 @@ class DatabasesStore {
 
   isProduction(connId: Uuid): boolean {
     return vaultStore.dbConnections.find((c) => c.id === connId)?.data?.environment === "production";
+  }
+
+  defaultNamespace(connId: Uuid): string | undefined {
+    const connection = vaultStore.dbConnections.find((c) => c.id === connId)?.data;
+    if (connection?.engine === "postgres") return "public";
+    return connection?.engine === "mysql" ? connection.database || undefined : undefined;
+  }
+
+  completionProvider(connId: Uuid): SqlMetadataProvider {
+    let provider = this.#completionProviders.get(connId);
+    if (!provider) {
+      provider = {
+        children: (path) => this.completionChildren(connId, path),
+        tableInfo: (namespace, table) => this.completionTableInfo(connId, namespace, table),
+        defaultNamespace: this.defaultNamespace(connId),
+      };
+      this.#completionProviders.set(connId, provider);
+    }
+    return provider;
   }
 
   // -- connections -------------------------------------------------------
@@ -104,6 +130,7 @@ class DatabasesStore {
   async disconnect(connId: Uuid) {
     const s = this.sessions[connId];
     delete this.sessions[connId];
+    this.#clearCompletion(connId);
     for (const t of this.tabs.filter((t) => t.connId === connId)) {
       if (t.queryId) t.error = "The connection was closed.";
       t.running = false;
@@ -114,6 +141,7 @@ class DatabasesStore {
   /** The session went away under us (server closed it, tunnel dropped). */
   #lost(connId: Uuid) {
     delete this.sessions[connId];
+    this.#clearCompletion(connId);
   }
 
   // -- tree --------------------------------------------------------------
@@ -147,6 +175,7 @@ class DatabasesStore {
     const s = this.sessions[connId];
     if (!s) return;
     const prefix = pathKey(path);
+    this.#clearCompletion(connId, path);
     for (const k of Object.keys(s.nodes)) {
       if (prefix === "" || k === prefix || k.startsWith(prefix + "\u0000")) delete s.nodes[k];
     }
@@ -154,6 +183,47 @@ class DatabasesStore {
     for (const [k, isOpen] of Object.entries(s.open)) {
       if (isOpen && !s.nodes[k] && (prefix === "" || k.startsWith(prefix))) await this.loadChildren(connId, k.split("\u0000"));
     }
+  }
+
+  async completionChildren(connId: Uuid, path: string[]): Promise<DbTreeNode[]> {
+    const session = this.sessions[connId];
+    if (!session) return [];
+    const nodeKey = pathKey(path);
+    if (session.nodes[nodeKey]) return session.nodes[nodeKey];
+    const key = `${connId}\u0000${nodeKey}`;
+    let pending = this.#completionChildren.get(key);
+    if (!pending) {
+      pending = api.db.children(session.sessionId, path).then((nodes) => {
+        if (this.sessions[connId]?.sessionId === session.sessionId) session.nodes[nodeKey] = nodes;
+        return nodes;
+      }).catch(() => []);
+      this.#completionChildren.set(key, pending);
+    }
+    try {
+      return await pending;
+    } finally {
+      if (this.#completionChildren.get(key) === pending) this.#completionChildren.delete(key);
+    }
+  }
+
+  completionTableInfo(connId: Uuid, namespace: string, table: string): Promise<DbTableInfo | null> {
+    const session = this.sessions[connId];
+    if (!session) return Promise.resolve(null);
+    const key = `${connId}\u0000${namespace}\u0000${table}`;
+    let pending = this.#completionTables.get(key);
+    if (!pending) {
+      pending = api.db.tableInfo(session.sessionId, namespace, table).catch(() => null);
+      this.#completionTables.set(key, pending);
+    }
+    return pending;
+  }
+
+  #clearCompletion(connId: Uuid, path: string[] = []) {
+    const prefix = `${connId}\u0000${pathKey(path)}`;
+    for (const key of this.#completionChildren.keys()) if (key.startsWith(prefix)) this.#completionChildren.delete(key);
+    const tablePrefix = `${connId}\u0000${path[0] ?? ""}`;
+    for (const key of this.#completionTables.keys()) if (key.startsWith(tablePrefix)) this.#completionTables.delete(key);
+    if (path.length === 0) this.#completionProviders.delete(connId);
   }
 
   // -- tabs --------------------------------------------------------------

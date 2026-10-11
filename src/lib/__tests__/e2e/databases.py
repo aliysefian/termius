@@ -17,6 +17,8 @@ MOCK = """
 window.__calls = [];
 const rec = (id, data) => ({ id, rev: 1, updated_at: 1, deleted: false, data: Object.assign({ host: 'h.example', port: 1, username: '', database: '', tls: 'disable', group: '', notes: '' }, data) });
 window.__conns = [
+  rec('c-pg', { name: 'warehouse', engine: 'postgres', port: 5432, database: 'app' }),
+  rec('c-mysql', { name: 'orders', engine: 'mysql', port: 3306, database: 'shop' }),
   rec('c-redis', { name: 'cache', engine: 'redis', port: 6379 }),
   rec('c-mongo', { name: 'docs', engine: 'mongodb', port: 27017, database: 'shop' }),
   rec('c-es', { name: 'search', engine: 'elasticsearch', port: 9200 }),
@@ -34,7 +36,7 @@ window.__invoke = async (cmd, args) => {
     window.__calls.push({ cmd, id: args.id });
     const c = window.__conns.find((x) => x.id === args.id).data;
     const sid = 's-' + args.id; sessions[sid] = c.engine;
-    return { session_id: sid, server_version: { redis: 'Redis 7.2.4', mongodb: 'MongoDB 7.0.5', elasticsearch: 'Elasticsearch 8.11.1', mssql: 'Microsoft SQL Server 2022', rqlite: 'rqlite 8.36.1' }[c.engine] };
+    return { session_id: sid, server_version: { postgres: 'PostgreSQL 17', mysql: 'MySQL 8.4', redis: 'Redis 7.2.4', mongodb: 'MongoDB 7.0.5', elasticsearch: 'Elasticsearch 8.11.1', mssql: 'Microsoft SQL Server 2022', rqlite: 'rqlite 8.36.1' }[c.engine] };
   }
   const engine = sessions[args.sessionId];
   if (cmd === 'db_children') {
@@ -54,8 +56,12 @@ window.__invoke = async (cmd, args) => {
       if (p.length === 1) return [{ name: 'books', kind: 'table', detail: '3 docs · 2.0 KB · green', expandable: true }];
       return [{ name: 'title', kind: 'column', detail: 'text', expandable: false }];
     }
-    if (p.length === 0) return [{ name: engine === 'rqlite' ? 'main' : 'dbo', kind: 'schema', expandable: true }];
-    if (p.length === 1) return [{ name: 'items', kind: 'table', expandable: true }];
+    if (p.length === 0) return [{ name: engine === 'rqlite' ? 'main' : engine === 'postgres' ? 'public' : engine === 'mysql' ? 'shop' : 'dbo', kind: engine === 'mysql' ? 'database' : 'schema', expandable: true }];
+    if (p.length === 1) return engine === 'postgres'
+      ? [{ name: 'users', kind: 'table', expandable: true }, { name: 'active_users', kind: 'view', expandable: true }]
+      : engine === 'mysql'
+        ? [{ name: 'orders', kind: 'table', expandable: true }, { name: 'customers', kind: 'table', expandable: true }]
+        : [{ name: 'items', kind: 'table', expandable: true }];
     return [];
   }
   if (cmd === 'db_query') {
@@ -70,6 +76,8 @@ window.__invoke = async (cmd, args) => {
     window.__calls.push({ cmd, database: args.database, table: args.table });
     if (engine === 'mongodb') return { columns: [{ name: '_id', data_type: 'objectid', nullable: false, primary_key: true, default: null }, { name: 'name', data_type: 'string', nullable: true, primary_key: false, default: null }, { name: 'age', data_type: 'number', nullable: true, primary_key: false, default: null }], primary_key: ['_id'] };
     if (engine === 'redis') return { columns: [{ name: 'field', data_type: 'string', nullable: false, primary_key: true, default: null }, { name: 'value', data_type: 'string', nullable: false, primary_key: false, default: null }], primary_key: ['field'] };
+    if (engine === 'postgres' && args.table === 'users') return { columns: [{ name: 'id', data_type: 'uuid', nullable: false, primary_key: true, default: null }, { name: 'email', data_type: 'text', nullable: false, primary_key: false, default: null }], primary_key: ['id'] };
+    if (engine === 'mysql' && args.table === 'orders') return { columns: [{ name: 'id', data_type: 'bigint', nullable: false, primary_key: true, default: null }, { name: 'customer_id', data_type: 'bigint', nullable: false, primary_key: false, default: null }], primary_key: ['id'] };
     return { columns: [], primary_key: [] };
   }
   if (cmd === 'db_preview_update') { window.__calls.push({ cmd, edit: args.edit }); return engine === 'mongodb' ? 'db.getSiblingDB("shop").users.updateOne({"_id": …}, {"$set": {"name": "Grace"}})' : 'HSET user:1 name Grace'; }
@@ -118,7 +126,14 @@ async def open_node(pg, text):
 
 
 async def editor(pg):
-    return await pg.locator("textarea[aria-label]").first.input_value()
+    return await pg.locator("[data-testid=sql-editor] .cm-content").first.inner_text()
+
+
+async def fill_editor(pg, text):
+    content = pg.locator("[data-testid=sql-editor] .cm-content").first
+    await content.click()
+    await pg.keyboard.press("Control+a")
+    await pg.keyboard.insert_text(text)
 
 
 async def main():
@@ -155,6 +170,35 @@ async def main():
         check("no page errors from the form", not pg.errors, pg.errors)
         await pg.close()
 
+        # ---- PostgreSQL and MySQL editor ----
+        pg = await fresh(b)
+        await connect(pg, "warehouse")
+        await pg.locator('button[aria-label="New query on warehouse"]').click()
+        await fill_editor(pg, "SELECT u.\nFROM public.users AS u")
+        keyword = pg.locator("[data-testid=sql-editor] .cm-line span", has_text="SELECT").first
+        highlighted = await keyword.count() == 1 and await keyword.evaluate("e => getComputedStyle(e).color !== getComputedStyle(e.parentElement).color")
+        check("PostgreSQL syntax is highlighted", highlighted)
+        content = pg.locator("[data-testid=sql-editor] .cm-content").first
+        await content.click()
+        await pg.keyboard.press("Control+Home")
+        await pg.keyboard.press("End")
+        await pg.keyboard.press("Control+Space")
+        await pg.wait_for_timeout(500)
+        choices = await pg.locator(".cm-tooltip-autocomplete").inner_text()
+        check("an alias offers PostgreSQL columns", "id" in choices and "email" in choices, choices)
+        await pg.keyboard.press("Escape")
+        await connect(pg, "orders")
+        await pg.locator('button[aria-label="New query on orders"]').click()
+        await fill_editor(pg, "SELECT * FROM ")
+        await pg.keyboard.press("Control+Space")
+        await pg.wait_for_timeout(500)
+        choices = await pg.locator(".cm-tooltip-autocomplete").inner_text()
+        check("MySQL offers tables from the selected database", "orders" in choices and "customers" in choices, choices)
+        check("database metadata is requested lazily", any(c["cmd"] == "db_table_info" and c["table"] == "users" for c in await pg.evaluate("window.__calls")))
+        check("no page errors from the SQL editor", not pg.errors, pg.errors)
+        await pg.screenshot(path="/tmp/databases-sql-editor.png")
+        await pg.close()
+
         # ---- Redis ----
         pg = await fresh(b)
         await connect(pg, "cache")
@@ -167,8 +211,8 @@ async def main():
         check("opening a key runs VIEW in its database", (await editor(pg)) == '@0 VIEW "my key"', await editor(pg))
         calls = await pg.evaluate("window.__calls")
         check("and asks which database and key it is", any(c["cmd"] == "db_table_info" and c["database"] == "db0" and c["table"] == "my key" for c in calls), calls)
-        check("the console says what it takes", "Redis commands" in await pg.locator("textarea[aria-label]").first.get_attribute("aria-label"))
-        await pg.locator("textarea[aria-label]").first.fill("FLUSHALL")
+        check("the console says what it takes", "Redis commands" in await pg.locator("[data-testid=sql-editor] .cm-content").first.get_attribute("aria-label"))
+        await fill_editor(pg, "FLUSHALL")
         await pg.keyboard.press("Control+Enter")
         await pg.wait_for_timeout(500)
         dialog = pg.locator("[role=dialog], [role=alertdialog]").last
@@ -198,7 +242,7 @@ async def main():
         await pg.wait_for_timeout(400)
         applied = [c for c in await pg.evaluate("window.__calls") if c["cmd"] == "db_apply_update"]
         check("approving it applies the edit by _id", applied and applied[0]["edit"]["key"][0]["column"] == "_id" and applied[0]["edit"]["changes"][0] == {"column": "name", "value": "Grace"}, applied)
-        await pg.locator("textarea[aria-label]").first.fill('{"drop": "users"}')
+        await fill_editor(pg, '{"drop": "users"}')
         await pg.keyboard.press("Control+Enter")
         await pg.wait_for_timeout(500)
         dialog = pg.locator("[role=dialog], [role=alertdialog]").last

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy } from "svelte";
+  import { onDestroy, tick } from "svelte";
   import {
     FolderTree,
     ChevronDown,
@@ -29,6 +29,7 @@
   import EmptyState from "./EmptyState.svelte";
   import Kbd from "./Kbd.svelte";
   import ResultGrid from "./ResultGrid.svelte";
+  import SqlEditor from "./SqlEditor.svelte";
   import * as api from "$lib/api";
   import { toCsv, toJson, toTsv } from "$lib/dbdata";
   import { browseText, engineInfo } from "$lib/dbengines";
@@ -45,7 +46,7 @@
   );
 
   let collapsed = $state<Record<Uuid, boolean>>({});
-  let editor = $state<HTMLTextAreaElement>();
+  let editor = $state<{ focus(): void; selection(): string | null }>();
   let showHistory = $state(false);
   let showExport = $state(false);
   let now = $state(Date.now());
@@ -84,21 +85,12 @@
 
   function newQueryFor(connId: Uuid, sql = "") {
     databases.newTab(connId, sql);
-    queueMicrotask(() => editor?.focus());
+    void tick().then(() => editor?.focus());
   }
 
   function runFromEditor() {
     if (!tab || !editor) return;
-    // Run the selection if there is one, else the whole editor.
-    const sel = editor.value.slice(editor.selectionStart, editor.selectionEnd);
-    void databases.run(tab.id, sel.trim() ? sel : undefined);
-  }
-
-  function onEditorKey(e: KeyboardEvent) {
-    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
-      e.preventDefault();
-      runFromEditor();
-    }
+    void databases.run(tab.id, editor.selection() ?? undefined);
   }
 
   const elapsed = (t: QueryTab) => (t.running ? ((now - t.startedAt) / 1000).toFixed(1) + " s" : "");
@@ -147,7 +139,7 @@
     showHistory = false;
     if (tab) tab.sql = sql;
     else if (connections[0]) newQueryFor(connections[0].id, sql);
-    queueMicrotask(() => editor?.focus());
+    void tick().then(() => editor?.focus());
   }
 
   function onWindowClick(e: MouseEvent) {
@@ -255,16 +247,17 @@
 
       {#if tab}
         <div class="flex shrink-0 flex-col border-b border-line">
-          <textarea
+          <SqlEditor
             bind:this={editor}
-            class="h-32 min-h-16 resize-y border-0 bg-base p-3 font-mono text-sm outline-none"
-            bind:value={tab.sql}
-            onkeydown={onEditorKey}
-            spellcheck="false"
-            autocomplete="off"
+            tabId={tab.id}
+            value={tab.sql}
+            engine={databases.engineOf(tab.connId)}
+            label="{engineInfo(databases.engineOf(tab.connId)).console} for {tab.title}"
             placeholder={engineInfo(databases.engineOf(tab.connId)).consolePlaceholder}
-            aria-label="{engineInfo(databases.engineOf(tab.connId)).console} for {tab.title}"
-          ></textarea>
+            metadata={databases.completionProvider(tab.connId)}
+            onchange={(sql) => (tab!.sql = sql)}
+            onrun={(selection) => void databases.run(tab!.id, selection ?? undefined)}
+          />
           <div class="flex flex-wrap items-center gap-2 border-t border-line bg-panel px-3 py-1.5">
             {#if tab.running}
               <button class="btn-danger border border-danger/40 py-1 text-xs" onclick={() => databases.cancel(tab!.id)}><Square size={12} /> Cancel</button>

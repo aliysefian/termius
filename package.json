@@ -1,6 +1,6 @@
 {
   "name": "sshvault",
-  "version": "0.30.4",
+  "version": "0.30.5",
   "description": "",
   "type": "module",
   "packageManager": "pnpm@12.4.1",
@@ -16,6 +16,13 @@
   },
   "license": "MIT",
   "dependencies": {
+    "@codemirror/autocomplete": "^6.20.3",
+    "@codemirror/commands": "^6.11.1",
+    "@codemirror/lang-sql": "^6.10.0",
+    "@codemirror/language": "^6.13.1",
+    "@codemirror/state": "^6.7.6",
+    "@codemirror/view": "^6.43.14",
+    "@lezer/highlight": "^1.2.5",
     "@tauri-apps/api": "^2.12.1",
     "@tauri-apps/plugin-clipboard-manager": "^2.4.1",
     "@tauri-apps/plugin-dialog": "^2.7.3",
