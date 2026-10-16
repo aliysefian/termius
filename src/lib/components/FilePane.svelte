@@ -171,17 +171,26 @@
     return [...filtered].sort((a, b) => (a.is_dir !== b.is_dir ? (a.is_dir ? -1 : 1) : sortDir * cmp[sortKey](a, b)));
   });
 
+  /** Only the newest request may fill the list: a slow listing of a folder already left must not replace the current one. */
+  let loadSeq = 0;
+
   async function load(p: string) {
     if (!source || !p) return;
+    const seq = ++loadSeq;
     loading = true;
     error = null;
     try {
-      entries = await source.list(p);
+      const list = await source.list(p);
+      if (seq !== loadSeq) return;
+      entries = list;
       selected = new Set();
     } catch (e) {
-      error = errorMessage(e);
+      if (seq === loadSeq) {
+        entries = [];
+        error = errorMessage(e);
+      }
     } finally {
-      loading = false;
+      if (seq === loadSeq) loading = false;
     }
   }
 
@@ -303,7 +312,7 @@
 <svelte:window onkeydown={(e) => { if (menu && e.key === "Escape") menu = null; }} onresize={() => (menu = null)} />
 
 <div
-  class="flex min-w-0 flex-1 flex-col bg-base {dragOver ? 'ring-2 ring-inset ring-accent' : ''}"
+  class="flex min-h-0 min-w-0 flex-1 flex-col bg-base {dragOver ? 'ring-2 ring-inset ring-accent' : ''}"
   role="region"
   aria-label="{side} files"
   ondragover={(e) => {

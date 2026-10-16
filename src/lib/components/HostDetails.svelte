@@ -194,6 +194,8 @@
   .notes :global(p) { margin: 0 0 0.5rem; }
   .notes :global(h3), .notes :global(h4), .notes :global(h5) { font-weight: 600; margin: 0.5rem 0 0.25rem; }
   .notes :global(ul) { list-style: disc; padding-left: 1.25rem; margin: 0 0 0.5rem; }
+  .notes :global(ol) { list-style: decimal; padding-left: 1.25rem; margin: 0 0 0.5rem; }
+  .notes :global(blockquote) { border-left: 2px solid var(--color-line); padding-left: 0.5rem; color: var(--color-fg-muted); margin: 0 0 0.5rem; }
   .notes :global(code) { font-family: var(--font-mono); background: var(--color-panel); padding: 0 0.25rem; border-radius: 0.25rem; }
   .notes :global(pre) { background: var(--color-panel); padding: 0.5rem; border-radius: 0.375rem; overflow-x: auto; margin: 0 0 0.5rem; }
   .notes :global(a) { color: var(--color-accent); text-decoration: underline; }

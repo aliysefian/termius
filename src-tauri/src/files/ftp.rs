@@ -29,6 +29,8 @@ use crate::sftp::FileEntry;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 /// A browsing connection idle this long is checked before it is used again.
 const IDLE_CHECK: Duration = Duration::from_secs(20);
+/// Links in one folder checked for being folders.
+const MAX_LINK_CHECKS: usize = 64;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -102,10 +104,11 @@ pub fn parse_mlsd(line: &str) -> Option<FtpEntry> {
     }
     let (mut kind, mut size, mut modified, mut mode) = (String::new(), 0u64, None, None);
     for fact in facts.split(';').filter(|f| !f.is_empty()) {
-        let (k, v) = fact.split_once('=')?;
+        // A fact this doesn't understand never hides the file; only a line with no name is dropped.
+        let Some((k, v)) = fact.split_once('=') else { continue };
         match k.to_ascii_lowercase().as_str() {
             "type" => kind = v.to_ascii_lowercase(),
-            "size" => size = v.parse().ok()?,
+            "size" => size = v.parse().unwrap_or(0),
             "modify" => modified = parse_modify(v),
             "unix.mode" => mode = u32::from_str_radix(v, 8).ok().map(|m| m & 0o7777),
             _ => {}
@@ -119,17 +122,193 @@ pub fn parse_mlsd(line: &str) -> Option<FtpEntry> {
     Some(FtpEntry { name: name.to_string(), is_dir, is_symlink, size: if is_dir { 0 } else { size }, modified, mode })
 }
 
-fn from_list_line(line: &str) -> Option<FtpEntry> {
-    // `total N` heads a Unix listing; some parsers would read it as a file.
-    if line.trim_start().starts_with("total ") {
+const MONTHS: [&str; 12] = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+
+/// Whitespace-separated fields with where each starts, so a name with spaces in it can be cut from the line as it was.
+fn fields(line: &str) -> Vec<(usize, &str)> {
+    let mut out = Vec::new();
+    let mut start = None;
+    for (i, c) in line.char_indices() {
+        match (c.is_whitespace(), start) {
+            (false, None) => start = Some(i),
+            (true, Some(s)) => {
+                out.push((s, &line[s..i]));
+                start = None;
+            }
+            _ => {}
+        }
+    }
+    if let Some(s) = start {
+        out.push((s, &line[s..]));
+    }
+    out
+}
+
+/// The text after field `i`, without the one space that separates it from the name.
+fn after<'a>(line: &'a str, f: &[(usize, &str)], i: usize) -> &'a str {
+    let end = f[i].0 + f[i].1.len();
+    let rest = &line[end..];
+    rest.strip_prefix(' ').or_else(|| rest.strip_prefix('\t')).unwrap_or(rest)
+}
+
+/// `-rwxr-xr-x` (a file type first, perhaps a `+` after) as mode bits, setuid, setgid and sticky included.
+fn mode_from_perms(p: &str) -> Option<u32> {
+    let b: Vec<char> = p.chars().take(10).collect();
+    if b.len() < 10 {
         return None;
     }
-    let f = suppaftp::list::File::try_from(line).ok()?;
-    if f.name() == "." || f.name() == ".." {
+    let mut mode = 0u32;
+    for (i, c) in b[1..].iter().enumerate() {
+        let bit = 1u32 << (8 - i);
+        let special = match i {
+            2 => 0o4000,
+            5 => 0o2000,
+            8 => 0o1000,
+            _ => 0,
+        };
+        match c {
+            'r' | 'w' | 'x' => mode |= bit,
+            's' | 't' => mode |= bit | special,
+            'S' | 'T' => mode |= special,
+            '-' | '?' | 'l' | 'L' => {}
+            _ => return None,
+        }
+    }
+    Some(mode)
+}
+
+fn month_number(s: &str) -> Option<u32> {
+    let l = s.to_ascii_lowercase();
+    MONTHS.iter().position(|m| l == *m).map(|i| i as u32 + 1)
+}
+
+/// `Jan  5 12:00` or `Jan  5  2025`, read against `now` (Unix seconds): a time without a year means the last
+/// twelve months.
+fn unix_date(month: u32, day: u32, time_or_year: &str, now: u64) -> Option<u64> {
+    let (hh, mm) = match time_or_year.split_once(':') {
+        Some((h, m)) => (h.parse::<i64>().ok()?, m.parse::<i64>().ok()?),
+        None => (0, 0),
+    };
+    if !(1..=31).contains(&day) || hh > 23 || mm > 59 {
         return None;
     }
-    let modified = f.modified().duration_since(std::time::UNIX_EPOCH).ok().map(|d| d.as_secs());
-    Some(FtpEntry { name: f.name().to_string(), is_dir: f.is_directory(), is_symlink: f.is_symlink(), size: if f.is_directory() { 0 } else { f.size() as u64 }, modified, mode: None })
+    let year = if time_or_year.contains(':') {
+        let now_days = (now / 86_400) as i64;
+        let this_year = civil_year(now_days);
+        let candidate = super::days_from_civil(this_year, month, day) * 86_400 + hh * 3600 + mm * 60;
+        // ls shows the time for dates in the past six months and the year for older ones; a time "in the future"
+        // therefore belongs to last year.
+        if candidate > now as i64 + 86_400 { this_year - 1 } else { this_year }
+    } else {
+        time_or_year.parse::<i64>().ok().filter(|y| (1900..=9999).contains(y))?
+    };
+    u64::try_from(super::days_from_civil(year, month, day) * 86_400 + hh * 3600 + mm * 60).ok()
+}
+
+/// The civil year of a day count since 1970-01-01.
+fn civil_year(days: i64) -> i64 {
+    let z = days + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    yoe + era * 400 + i64::from(m <= 2)
+}
+
+/// One line of a `LIST` reply: Unix `ls -l` (with ACL marks, no group column, ISO dates) or the Windows/IIS style.
+/// `Ok(None)` for lines that are no entry (`total`, `.` and `..`); `Err` for a line in a format this can't read.
+fn list_line(line: &str, now: u64) -> Result<Option<FtpEntry>, ()> {
+    let line = line.trim_end_matches(['\r', '\n']);
+    let f = fields(line);
+    let Some(first) = f.first().map(|f| f.1) else { return Ok(None) };
+    if first == "total" {
+        return Ok(None);
+    }
+    let unix = first.len() >= 10 && first.chars().next().is_some_and(|c| "-dlbcpsD".contains(c)) && first.chars().skip(1).take(9).all(|c| "rwxsStTlL-?".contains(c));
+    let entry = if unix { parse_unix(line, &f, now) } else { parse_dos(line, &f) }.ok_or(())?;
+    Ok((entry.name != "." && entry.name != ".." && !entry.name.is_empty()).then_some(entry))
+}
+
+/// `2025-01-05 12:00[:30]` (some servers, and `ls --time-style=long-iso`) as Unix seconds.
+fn iso_date(date: &str, time: &str) -> Option<u64> {
+    let d: Vec<&str> = date.split('-').collect();
+    if d.len() != 3 || d[0].len() != 4 {
+        return None;
+    }
+    let (y, mo, da) = (d[0].parse::<i64>().ok()?, d[1].parse::<u32>().ok()?, d[2].parse::<u32>().ok()?);
+    let mut t = time.split(':');
+    let (h, m) = (t.next()?.parse::<i64>().ok()?, t.next()?.parse::<i64>().ok()?);
+    if !(1..=12).contains(&mo) || !(1..=31).contains(&da) || h > 23 || m > 59 {
+        return None;
+    }
+    u64::try_from(super::days_from_civil(y, mo, da) * 86_400 + h * 3600 + m * 60).ok()
+}
+
+fn parse_unix(line: &str, f: &[(usize, &str)], now: u64) -> Option<FtpEntry> {
+    let perms = f[0].1;
+    // The size is the number just before the date; the owner and group (the group is missing on some servers)
+    // come before it. `found` is where the size is, the date, and which field the name follows.
+    let mut found = None;
+    for i in 2..f.len() {
+        if !f[i - 1].1.bytes().all(|b| b.is_ascii_digit()) {
+            continue;
+        }
+        if let (Some(mo), Some(day), Some(t)) = (month_number(f[i].1), f.get(i + 1).and_then(|d| d.1.parse::<u32>().ok()), f.get(i + 2)) {
+            found = Some((i, unix_date(mo, day, t.1, now), i + 2));
+            break;
+        }
+        if let Some(ts) = f.get(i + 1).and_then(|t| iso_date(f[i].1, t.1)) {
+            found = Some((i, Some(ts), i + 1));
+            break;
+        }
+    }
+    let (i, modified, name_from) = found?;
+    let size: u64 = f[i - 1].1.parse().unwrap_or(0);
+    let rest = after(line, f, name_from);
+    let kind = perms.chars().next()?;
+    let is_symlink = kind == 'l';
+    let name = if is_symlink { rest.split_once(" -> ").map_or(rest, |(n, _)| n) } else { rest };
+    let is_dir = kind == 'd';
+    Some(FtpEntry { name: name.to_string(), is_dir, is_symlink, size: if is_dir { 0 } else { size }, modified, mode: mode_from_perms(perms) })
+}
+
+/// `01-05-25  12:00PM  <DIR>  name` or `01-05-2025  12:00PM  1234  name`.
+fn parse_dos(line: &str, f: &[(usize, &str)]) -> Option<FtpEntry> {
+    if f.len() < 4 {
+        return None;
+    }
+    let d: Vec<&str> = f[0].1.split(['-', '/']).collect();
+    if d.len() != 3 || !d.iter().all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit())) {
+        return None;
+    }
+    let (mo, da, mut y) = (d[0].parse::<u32>().ok()?, d[1].parse::<u32>().ok()?, d[2].parse::<i64>().ok()?);
+    if d[2].len() <= 2 {
+        y += if y < 70 { 2000 } else { 1900 };
+    }
+    let t = f[1].1.to_ascii_uppercase();
+    let (clock, pm) = match t.strip_suffix("PM") {
+        Some(c) => (c.to_string(), Some(true)),
+        None => match t.strip_suffix("AM") {
+            Some(c) => (c.to_string(), Some(false)),
+            None => (t.clone(), None),
+        },
+    };
+    let (mut h, m) = clock.split_once(':').and_then(|(h, m)| Some((h.parse::<i64>().ok()?, m.parse::<i64>().ok()?)))?;
+    match pm {
+        Some(true) if h < 12 => h += 12,
+        Some(false) if h == 12 => h = 0,
+        _ => {}
+    }
+    let modified = if (1..=12).contains(&mo) && (1..=31).contains(&da) && h < 24 && m < 60 { u64::try_from(super::days_from_civil(y, mo, da) * 86_400 + h * 3600 + m * 60).ok() } else { None };
+    let (is_dir, size) = if f[2].1.eq_ignore_ascii_case("<DIR>") {
+        (true, 0)
+    } else {
+        (false, f[2].1.replace(',', "").parse::<u64>().ok()?)
+    };
+    // IIS pads the columns with runs of spaces.
+    Some(FtpEntry { name: after(line, f, 2).trim_start().to_string(), is_dir, is_symlink: false, size, modified, mode: None })
 }
 
 // -- TLS ---------------------------------------------------------------------------------------------------
@@ -318,6 +497,21 @@ fn ctl_of<'a>(g: &'a mut tokio::sync::MutexGuard<'_, Option<Ctl>>) -> &'a mut Ct
     g.as_mut().expect("ctl() leaves a connection in place")
 }
 
+fn unix_now() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+}
+
+fn is_mlsd_marker(line: &str) -> bool {
+    let l = line.to_ascii_lowercase();
+    l.contains("type=cdir") || l.contains("type=pdir")
+}
+
+/// A reply with lines but not one entry in it is a format this can't read. Say so: showing it as an empty folder
+/// would be wrong, and the files are right there.
+fn unreadable(what: &str, line: &str) -> FileError {
+    FileError::Backend(format!("couldn't read this server's {what} listing, which looks like: {}", line.trim()))
+}
+
 impl FtpConn {
     async fn entries(&self, dir: &str) -> Result<Vec<FtpEntry>, FileError> {
         safe(dir)?;
@@ -327,7 +521,13 @@ impl FtpConn {
             match c.ftp.mlsd(Some(dir)).await {
                 Ok(lines) => {
                     c.mlsd = Some(true);
-                    return Ok(lines.iter().filter_map(|l| parse_mlsd(l)).collect());
+                    let entries: Vec<FtpEntry> = lines.iter().filter_map(|l| parse_mlsd(l)).collect();
+                    if entries.is_empty() {
+                        if let Some(bad) = lines.iter().find(|l| !l.trim().is_empty() && !is_mlsd_marker(l)) {
+                            return Err(unreadable("MLSD", bad));
+                        }
+                    }
+                    return Ok(entries);
                 }
                 // A server without MLSD says so with 500, 501 or 502; anything else is a real problem.
                 Err(FtpError::UnexpectedResponse(r)) if matches!(r.status as u32, 500..=502) => c.mlsd = Some(false),
@@ -335,7 +535,33 @@ impl FtpConn {
             }
         }
         let lines = c.ftp.list(Some(dir)).await.map_err(ftp_err)?;
-        Ok(lines.iter().filter_map(|l| from_list_line(l)).collect())
+        let now = unix_now();
+        let mut entries = Vec::new();
+        let mut bad = None;
+        for l in &lines {
+            match list_line(l, now) {
+                Ok(Some(e)) => entries.push(e),
+                Ok(None) => {}
+                Err(()) => bad = bad.or(Some(l)),
+            }
+        }
+        if let (true, Some(bad)) = (entries.is_empty(), bad) {
+            return Err(unreadable("LIST", bad));
+        }
+        Ok(entries)
+    }
+
+    /// Whether `path` can be gone into, for links (a listing says only that it is a link). Back to where signing in
+    /// landed afterwards.
+    async fn link_is_dir(&self, path: &str) -> bool {
+        let Ok(mut g) = self.ctl().await else { return false };
+        let c = ctl_of(&mut g);
+        if c.ftp.cwd(path).await.is_err() {
+            return false;
+        }
+        let home = c.home.clone();
+        let _ = c.ftp.cwd(&home).await;
+        true
     }
 }
 
@@ -352,9 +578,15 @@ impl FileBackend for FtpConn {
     }
 
     async fn list(&self, dir: &str) -> Result<Vec<FileEntry>, FileError> {
-        let mut out: Vec<FileEntry> = self
-            .entries(dir)
-            .await?
+        let mut entries = self.entries(dir).await?;
+        // A link to a folder has to open like one. Only so many are checked, a round trip each.
+        for e in entries.iter_mut().filter(|e| e.is_symlink && !e.is_dir).take(MAX_LINK_CHECKS) {
+            e.is_dir = self.link_is_dir(&self.join(dir, &e.name)).await;
+            if e.is_dir {
+                e.size = 0;
+            }
+        }
+        let mut out: Vec<FileEntry> = entries
             .into_iter()
             .map(|e| FileEntry { path: self.join(dir, &e.name), name: e.name, is_dir: e.is_dir, is_symlink: e.is_symlink, size: e.size, modified: e.modified, permissions: e.mode })
             .collect();
@@ -424,7 +656,12 @@ impl FileBackend for FtpConn {
             for e in self.entries(&dir).await? {
                 let child = self.join(&dir, &e.name);
                 if e.is_dir && !e.is_symlink {
-                    stack.push((child, false));
+                    // Some servers list a link to a folder as a folder. Deleting it as a file removes the link and
+                    // nothing it points at, and a real folder refuses, so only a real one is gone into.
+                    let was_link = ctl_of(&mut self.ctl().await?).ftp.rm(&child).await.is_ok();
+                    if !was_link {
+                        stack.push((child, false));
+                    }
                 } else {
                     let mut g = self.ctl().await?;
                     ctl_of(&mut g).ftp.rm(&child).await.map_err(ftp_err)?;
@@ -540,21 +777,80 @@ mod tests {
         assert_eq!(parse_mlsd("type=cdir;modify=20260101000000; ."), None);
         assert_eq!(parse_mlsd("type=pdir;modify=20260101000000; .."), None);
         assert_eq!(parse_mlsd(""), None);
-        assert_eq!(parse_mlsd("type=file;size=notanumber; x"), None);
         assert_eq!(parse_mlsd("nofacts"), None);
         // A bad date doesn't hide the file, it just has no date.
         assert_eq!(parse_mlsd("type=file;size=1;modify=garbage; x").unwrap().modified, None);
         assert_eq!(parse_mlsd("type=file;size=1;modify=20261332250000; x").unwrap().modified, None);
     }
 
+    // 2026-10-16 12:00 UTC
+    const NOW: u64 = 1_792_152_000;
+
+    fn parsed(line: &str) -> FtpEntry {
+        list_line(line, NOW).unwrap().unwrap_or_else(|| panic!("skipped: {line}"))
+    }
+
     #[test]
     fn unix_list_lines_are_the_fallback() {
-        let f = from_list_line("-rw-r--r--    1 ftp      ftp          1234 Oct 06 04:28 hello.txt").unwrap();
-        assert_eq!((f.name.as_str(), f.size, f.is_dir), ("hello.txt", 1234, false));
-        let d = from_list_line("drwxr-xr-x    2 ftp      ftp          4096 Oct 06  2025 docs").unwrap();
-        assert!(d.is_dir && d.size == 0);
-        assert!(from_list_line("total 12").is_none());
-        assert!(from_list_line("drwxr-xr-x 2 ftp ftp 4096 Oct 06 2025 .").is_none());
+        let f = parsed("-rw-r--r--    1 ftp      ftp          1234 Oct 06 04:28 hello.txt");
+        assert_eq!((f.name.as_str(), f.size, f.is_dir, f.mode), ("hello.txt", 1234, false, Some(0o644)));
+        let d = parsed("drwxr-xr-x    2 ftp      ftp          4096 Oct 06  2025 docs");
+        assert!(d.is_dir && d.size == 0 && d.mode == Some(0o755));
+        assert_eq!(list_line("total 12", NOW), Ok(None));
+        assert_eq!(list_line("drwxr-xr-x 2 ftp ftp 4096 Oct 06 2025 .", NOW), Ok(None));
+        assert_eq!(list_line("drwxr-xr-x 2 ftp ftp 4096 Oct 06 2025 ..", NOW), Ok(None));
+        assert_eq!(list_line("", NOW), Ok(None));
+    }
+
+    #[test]
+    fn list_lines_from_other_servers_are_read() {
+        // Names keep their spaces, even runs of them.
+        assert_eq!(parsed("-rw-r--r-- 1 user group 12 Jan  5 12:00 two  spaces.txt").name, "two  spaces.txt");
+        assert_eq!(parsed("drwxr-xr-x 2 u g 4096 Jan 5 12:00 dir with space").name, "dir with space");
+        assert_eq!(parsed("-rw-r--r-- 1 u g 12 Jan  5 2025 año 東京.txt").name, "año 東京.txt");
+        // An ACL or SELinux mark after the permissions.
+        let acl = parsed("-rw-r--r--+ 1 u g 12 Jan  5 2025 acl.txt");
+        assert_eq!((acl.name.as_str(), acl.size), ("acl.txt", 12));
+        // No group column.
+        assert_eq!(parsed("-rw-r--r-- 1 owner 12 Jan  5 2025 nogroup.txt").name, "nogroup.txt");
+        // ISO dates.
+        let iso = parsed("-rw-r--r-- 1 u g 12 2025-01-05 12:00 isodate.txt");
+        assert_eq!((iso.name.as_str(), iso.size, iso.modified), ("isodate.txt", 12, Some(1_736_078_400)));
+        // A link is a link, named without its target.
+        let l = parsed("lrwxrwxrwx 1 u g 4 Jan 5 12:00 link -> some/target");
+        assert!(l.is_symlink && !l.is_dir && l.name == "link");
+        // setuid, setgid and sticky.
+        assert_eq!(parsed("-rwsr-sr-t 1 u g 1 Jan 5 2025 x").mode, Some(0o7755));
+        assert_eq!(parsed("-rwSr-Sr-T 1 u g 1 Jan 5 2025 x").mode, Some(0o7644));
+        // Windows / IIS.
+        let d = parsed("01-05-25  12:00PM       <DIR>          iis dir");
+        assert!(d.is_dir && d.name == "iis dir", "{d:?}");
+        assert_eq!(d.modified, Some(1_736_078_400));
+        let f = parsed("01-05-2025  12:00AM                1,234 iis file.txt");
+        assert_eq!((f.name.as_str(), f.size, f.is_dir, f.modified), ("iis file.txt", 1234, false, Some(1_736_035_200)));
+        assert_eq!(parsed("12-31-98  11:59PM       <DIR>          old").modified, Some(915_148_740));
+    }
+
+    #[test]
+    fn list_dates_without_a_year_mean_the_last_twelve_months() {
+        // Today is 2026-10-16: "Oct 20" can't be next week, so it was last year; "Mar 1" was this year.
+        let a = parsed("-rw-r--r-- 1 u g 1 Oct 20 10:00 a");
+        let b = parsed("-rw-r--r-- 1 u g 1 Mar  1 10:00 b");
+        assert_eq!(a.modified, Some(1_760_954_400), "2025-10-20 10:00");
+        assert_eq!(b.modified, Some(1_772_359_200), "2026-03-01 10:00");
+    }
+
+    #[test]
+    fn a_listing_in_an_unknown_format_is_an_error_not_an_empty_folder() {
+        assert!(list_line("this is not a listing line at all", NOW).is_err());
+        assert!(list_line("-rw-r--r-- 1 u g notasize Jan 5 2025 x", NOW).is_err());
+    }
+
+    #[test]
+    fn mlsd_facts_this_does_not_understand_do_not_hide_files() {
+        assert_eq!(parse_mlsd("type=file;size=;modify=20260101000000; empty size").unwrap().name, "empty size");
+        assert_eq!(parse_mlsd("type=file;weird;size=3; odd fact").unwrap().size, 3);
+        assert!(is_mlsd_marker("type=cdir;modify=20260101000000; ."));
     }
 
     #[test]
@@ -735,6 +1031,40 @@ mod tests {
             let bad = copy(&conn, &local, &[conn.join(&root, "gone.bin")], &down.to_string_lossy(), false).await;
             assert!(matches!(bad, TransferProgress::Failed { .. }), "{bad:?}");
             conn.remove(&root).await.unwrap();
+            conn.close().await;
+        }
+
+        #[cfg(unix)]
+        #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+        async fn listings_by_list_show_everything_and_a_link_to_a_folder_opens() {
+            // SSHVAULT_FTP_ROOT: the folder the server at SSHVAULT_FTP_ADDR serves (its home), to make a link in.
+            let (Some(s), Some(root_dir)) = (settings("SSHVAULT_FTP_ADDR", FtpTls::None, CertCheck::default()), env("SSHVAULT_FTP_ROOT")) else { return };
+            let (conn, _) = FtpConn::open(s).await.unwrap();
+            for use_list in [false, true] {
+                if use_list {
+                    conn.without_mlsd().await;
+                }
+                let root = scratch(&conn, if use_list { "links-list" } else { "links-mlsd" }).await;
+                let real = std::path::Path::new(&root_dir).join(root.trim_start_matches('/'));
+                std::fs::create_dir(real.join("target dir")).unwrap();
+                std::fs::write(real.join("target dir/inside.txt"), b"x").unwrap();
+                std::os::unix::fs::symlink("target dir", real.join("a link")).unwrap();
+                std::os::unix::fs::symlink("target dir/inside.txt", real.join("file link")).unwrap();
+                for i in 0..150 {
+                    std::fs::write(real.join(format!("f{i:03} with  spaces.txt")), b"1").unwrap();
+                }
+                let list = within("the listing", conn.list(&root)).await.unwrap();
+                assert_eq!(list.len(), 153, "use_list={use_list}: every file and folder is listed");
+                let link = list.iter().find(|e| e.name == "a link").unwrap();
+                // pyftpdlib's MLSD follows links itself; LIST says "l" and the folder check has to find out.
+                assert!(link.is_dir && (!use_list || link.is_symlink), "use_list={use_list}: a link to a folder opens like a folder: {link:?}");
+                let flink = list.iter().find(|e| e.name == "file link").unwrap();
+                assert!(!flink.is_dir && (!use_list || flink.is_symlink), "use_list={use_list}: {flink:?}");
+                assert!(list.iter().any(|e| e.name == "f149 with  spaces.txt"));
+                let inside = within("the listing through the link", conn.list(&conn.join(&root, "a link"))).await.unwrap();
+                assert_eq!(inside.iter().map(|e| e.name.as_str()).collect::<Vec<_>>(), ["inside.txt"]);
+                conn.remove(&root).await.unwrap();
+            }
             conn.close().await;
         }
 
