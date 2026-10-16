@@ -4,6 +4,14 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## 0.30.6 - 2026-10-16
+
+- **Fixed:** the file panes (SFTP, SCP and FTP) did not scroll: a long folder was cut off and the Upload / Download button fell off the bottom of the window. Each pane now fits the window and its list scrolls.
+- **Fixed:** opening folders quickly could show the wrong folder's files, because a slow earlier listing replaced the newer one. A folder that fails to load no longer keeps showing the previous folder's files.
+- **Fixed:** FTP servers without MLSD, and those listing in ISO dates, ACL marks or the IIS style, could show a folder as empty or with garbled names. These listings are now read correctly, and a listing that still cannot be read is reported instead of shown as empty.
+- **Fixed:** on FTP, a link to a folder now opens like a folder, and deleting a folder no longer follows a link into its target on servers that list links as folders.
+- **New:** Quick look shows Markdown files (.md) rendered, with a Source switch. Tables, numbered lists, quotes and rules are supported, and nothing in the file can run or load.
+
 ## 0.30.5 - 2026-10-11
 
 - **New:** the database query editor now highlights SQL and offers context-aware PostgreSQL and MySQL completion for schemas, tables, aliases and columns. Metadata is loaded lazily from the active connection.
