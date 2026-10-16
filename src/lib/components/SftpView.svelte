@@ -382,7 +382,7 @@
     </div>
   {/if}
   <div bind:this={paneRow} class="flex min-h-0 flex-1">
-    <div class="min-w-0 overflow-hidden" style:flex="0 0 {settings.prefs.sftpSplitRatio * 100}%">
+    <div class="flex min-h-0 min-w-0 flex-col overflow-hidden" style:flex="0 0 {settings.prefs.sftpSplitRatio * 100}%">
     <FilePane
       side="local"
       source={local}
@@ -420,7 +420,7 @@
       }}
     ></div>
 
-    <div class="min-w-0 flex-1 overflow-hidden border-l border-line">
+    <div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden border-l border-line">
     <FilePane
       side="remote"
       source={remoteSource}
