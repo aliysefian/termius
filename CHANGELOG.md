@@ -4,6 +4,11 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## 0.30.7 - 2026-10-17
+
+- **New:** export your hosts to one encrypted file and import it into another SSHVault. The file keeps your groups and folders, jump hosts, logins (user names and, if you choose, passwords and private keys), keys and proxies, and is protected by a passphrase you choose. Export everything or just one group. Open it from the host list's toolbar or the command palette.
+- **New:** when you import, a host whose name is already used in the same group is listed, and for each one you choose to keep both under another name (a free name is suggested) or skip it. Nothing you already have is changed or removed, and a proxy command from a file always arrives switched off until you approve it.
+
 ## 0.30.6 - 2026-10-16
 
 - **Fixed:** the file panes (SFTP, SCP and FTP) did not scroll: a long folder was cut off and the Upload / Download button fell off the bottom of the window. Each pane now fits the window and its list scrolls.
