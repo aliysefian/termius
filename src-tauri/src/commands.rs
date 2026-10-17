@@ -49,6 +49,8 @@ pub mod rdp;
 pub use rdp::*;
 pub mod runhosts;
 pub use runhosts::*;
+pub mod hostexport;
+pub use hostexport::*;
 pub mod sshconfig;
 pub use sshconfig::*;
 pub mod updates;

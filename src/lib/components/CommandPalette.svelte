@@ -210,6 +210,8 @@
       ["Open a serial console…", SquareTerminal, () => (ui.modal = { kind: "serial" })],
       ["Check which hosts are reachable", Activity, () => void vaultStore.checkHealth()],
       ["Type into all panes in this tab (toggle)", Keyboard, () => ui.syncRequest++, "Ctrl+Shift+B"],
+      ["Export hosts to an encrypted file (with logins and groups)…", FileOutput, () => (ui.modal = { kind: "hosts-transfer", tab: "export" })],
+      ["Import hosts from an encrypted SSHVault file…", FileInput, () => (ui.modal = { kind: "hosts-transfer", tab: "import" })],
       ["Export hosts as ~/.ssh/config…", FileOutput, () => void exportConfig()],
       ["Import hosts from a cloud, Tailscale, Kubernetes or Terraform…", FileInput, () => (ui.modal = { kind: "import-inventory" })],
       ["Scan the network for SSH servers…", Search, () => (ui.modal = { kind: "import-inventory", source: "scan" })],

@@ -8,6 +8,10 @@ import type {
   AgentUse,
   BackupInfo,
   CliPrompt,
+  HostsExportSummary,
+  HostsImportPreview,
+  HostsImportResult,
+  HostsResolution,
   CliStatus,
   ComposeVerb,
   ContainerAction,
@@ -260,6 +264,15 @@ export const sshConfig = {
   preview: (path: string | null) => invoke<SshConfigPreview>("ssh_config_preview", { path }),
   import: (hosts: ImportedHost[], group: string, keyImport: KeyImport) =>
     invoke<ImportSummary>("ssh_config_import", { hosts, group, keyImport }),
+};
+
+/** Moving hosts between vaults in one passphrase-encrypted file. */
+export const hostsTransfer = {
+  export: (path: string, passphrase: string, includeSecrets: boolean, group: string | null) =>
+    invoke<HostsExportSummary>("hosts_export", { path, passphrase, options: { include_secrets: includeSecrets, group } }),
+  importPreview: (path: string, passphrase: string) => invoke<HostsImportPreview>("hosts_import_preview", { path, passphrase }),
+  importApply: (path: string, passphrase: string, resolutions: HostsResolution[]) =>
+    invoke<HostsImportResult>("hosts_import_apply", { path, passphrase, resolutions }),
 };
 
 export const snippets = {

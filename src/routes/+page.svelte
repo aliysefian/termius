@@ -57,6 +57,7 @@
   import Tour from "$lib/components/Tour.svelte";
   import SnippetPack from "$lib/components/SnippetPack.svelte";
   import ImportInventory from "$lib/components/ImportInventory.svelte";
+  import HostsTransfer from "$lib/components/HostsTransfer.svelte";
   import TerminalSearch from "$lib/components/TerminalSearch.svelte";
   import IntegrationInstall from "$lib/components/IntegrationInstall.svelte";
   import StatusBar from "$lib/components/StatusBar.svelte";
@@ -403,6 +404,8 @@
     {/key}
   {:else if ui.modal?.kind === "import-inventory"}
     <ImportInventory />
+  {:else if ui.modal?.kind === "hosts-transfer"}
+    <HostsTransfer initialTab={ui.modal.tab ?? "export"} />
   {:else if ui.modal?.kind === "terminal-search"}
     <TerminalSearch />
   {:else if ui.modal?.kind === "snippet-pack"}

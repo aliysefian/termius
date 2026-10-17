@@ -15,6 +15,21 @@ pub fn write_json(p: &Path, contents: &str) -> Result<(), String> {
     if contents.len() > MAX_BYTES {
         return Err("That is too large to export.".into());
     }
+    write_atomic(p, contents)
+}
+
+/// The encrypted host export: only the `.svhosts` file the person named, up to the size an import will read.
+pub fn write_host_export(p: &Path, contents: &str) -> Result<(), String> {
+    if !p.extension().is_some_and(|e| e.eq_ignore_ascii_case(crate::hostexport::EXTENSION)) {
+        return Err(format!("An export is saved as a .{} file.", crate::hostexport::EXTENSION));
+    }
+    if contents.len() as u64 > crate::hostexport::MAX_FILE_BYTES {
+        return Err("That is too large to export.".into());
+    }
+    write_atomic(p, contents)
+}
+
+fn write_atomic(p: &Path, contents: &str) -> Result<(), String> {
     let name = p.file_name().ok_or("No file name.")?.to_string_lossy().into_owned();
     let tmp = p.with_file_name(format!(".{name}.tmp"));
     std::fs::write(&tmp, contents).map_err(|e| format!("{}: {e}", p.display()))?;
@@ -39,6 +54,19 @@ mod tests {
         let leftovers: Vec<_> = std::fs::read_dir(dir.path()).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
         assert_eq!(leftovers, ["pack.json"]);
         assert!(write_json(&dir.path().join("UPPER.JSON"), "{}").is_ok());
+    }
+
+    #[test]
+    fn a_host_export_is_written_only_as_svhosts() {
+        let dir = tempfile::TempDir::new().unwrap();
+        write_host_export(&dir.path().join("hosts.svhosts"), "{}").unwrap();
+        write_host_export(&dir.path().join("HOSTS.SVHOSTS"), "{}").unwrap();
+        for name in ["hosts.json", "hosts", "hosts.svhosts.sh", ".bashrc", "hosts.log"] {
+            assert!(write_host_export(&dir.path().join(name), "x").is_err(), "{name}");
+            assert!(!dir.path().join(name).exists(), "{name}");
+        }
+        // And the other writer doesn't take that extension.
+        assert!(write_json(&dir.path().join("x.svhosts"), "{}").is_err());
     }
 
     #[test]
