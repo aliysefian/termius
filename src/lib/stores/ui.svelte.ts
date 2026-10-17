@@ -102,6 +102,7 @@ export type Modal =
   | { kind: "quick-connect"; initial?: string }
   | { kind: "import-ssh-config" }
   | { kind: "import-inventory"; source?: string }
+  | { kind: "hosts-transfer"; tab?: "export" | "import" }
   | { kind: "snippet-vars"; command: string; names: string[]; opts: SnippetRunOpts }
   | { kind: "run-on-hosts"; command?: string }
   | { kind: "save-workspace" }

@@ -27,6 +27,7 @@ pub mod hooks;
 pub mod hostkeys;
 pub mod inventory;
 pub mod hostcreds;
+pub mod hostexport;
 pub mod keychain;
 pub mod kbdint;
 pub mod mask;
@@ -157,6 +158,9 @@ pub fn run() {
             commands::monitoring::save_vault_settings,
             commands::knownhosts::answer_host_key,
             commands::knownhosts::known_hosts_forget,
+            commands::hostexport::hosts_export,
+            commands::hostexport::hosts_import_preview,
+            commands::hostexport::hosts_import_apply,
             commands::sshconfig::ssh_config_preview,
             commands::sshconfig::ssh_config_import,
             commands::keys::save_identity,

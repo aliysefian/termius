@@ -686,6 +686,51 @@ export interface ImportSummary {
   warnings: string[];
 }
 
+/** What an encrypted host export holds. Mirrors `hostexport.rs`. */
+export interface HostsExportSummary {
+  hosts: number;
+  groups: number;
+  identities: number;
+  keys: number;
+  proxies: number;
+  secrets: boolean;
+}
+
+/** A host in an export file whose name is already used in the same group. */
+export interface HostsImportConflict {
+  /** The host's id in the file. */
+  id: string;
+  label: string;
+  group: string;
+  /** A free name to keep it under. */
+  suggested: string;
+}
+
+export interface HostsImportPreview {
+  exported_at: number;
+  hosts: number;
+  groups: number;
+  identities: number;
+  keys: number;
+  proxies: number;
+  secrets: boolean;
+  conflicts: HostsImportConflict[];
+  notes: string[];
+}
+
+export type HostsResolution = { id: string; action: "rename"; label: string } | { id: string; action: "skip" };
+
+export interface HostsImportResult {
+  hosts_added: number;
+  hosts_renamed: number;
+  hosts_skipped: number;
+  groups_added: number;
+  identities_added: number;
+  keys_added: number;
+  proxies_added: number;
+  warnings: string[];
+}
+
 export function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
   const units = ["KB", "MB", "GB", "TB"];
