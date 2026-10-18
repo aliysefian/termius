@@ -4,6 +4,15 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## 0.32.0 - 2026-10-18
+
+- **New:** a route bar in each terminal's header shows the way to the host as a row of hops: this computer, every jump host, the host. Each hop has a dot (green, amber when it is slow or missed a check, red when it dropped) and the time each link adds. Click a hop for its address, uptime, host key and fingerprint, and to reconnect the session or open a shell on that hop. The Tunnels list shows the same route for rules whose host is behind a jump host.
+- **New:** when a server in a terminal prints that it is listening on a port (Vite, Next.js, Uvicorn, Django, Express, Go, Docker and more), a small notice offers to forward it. One click makes the tunnel, which then sits in the terminal's header with Open in browser and Stop. Watching the output never slows the terminal, even for a huge log.
+- **New:** for hosts that forward your SSH agent, a switch in the terminal header turns forwarding off, on, or on for five minutes, after which it ends by itself (and cuts the agent connections already open). A host can start every session with it switched off.
+- **New:** every time a host with your agent forwarded asks for a signature, a notice names the host and the key. A new Safety setting makes each one wait for your yes.
+- **New:** Diagnose connection, from a host's hover buttons or its details: a side panel that checks the name (A, AAAA and reverse records), the TCP connection against the SSH key exchange, the route with packet loss per hop, and a login, then says where the connection most likely fails (your network, a hop or firewall, the bastion, a closed port, or a rejected key). It opens no shell and runs nothing on the host.
+- **Changed:** the host row's hover buttons now include Diagnose.
+
 ## 0.31.1 - 2026-10-18
 
 - **Fixed:** the build for 0.31.0 stopped on Windows because two database tests (cancelling a running rqlite or Elasticsearch request) failed on slow machines. The tests are fixed. The app itself is unchanged from 0.31.0.
