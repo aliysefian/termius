@@ -4,6 +4,11 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## 0.33.2 - 2026-10-18
+
+- **Fixed:** closing a terminal and reconnecting it straight away could be refused as "already connected". The pane is now released before the app is told it disconnected.
+- **Fixed:** the 0.33.0 and 0.33.1 installers were not published because the automated tests did not pass on Windows and Linux. 0.33.2 has everything in 0.33.0.
+
 ## 0.33.1 - 2026-10-18
 
 - **Fixed:** the 0.33.0 installers could not be built because of a mistake in how connections to an unsaved `user@host` were set up. 0.33.1 has everything in 0.33.0 and builds.
