@@ -3,7 +3,8 @@
   import { hostOptions } from "$lib/pickeroptions";
   import { onDestroy, onMount } from "svelte";
   import { getCurrentWindow, ProgressBarStatus } from "@tauri-apps/api/window";
-  import { CircleStop, FilePen, HardDrive, Loader2, Monitor, Pause, Play, RotateCcw, Server, Unplug, X } from "lucide-svelte";
+  import { ChevronDown, ChevronUp, CircleStop, FilePen, HardDrive, Loader2, Monitor, Pause, Play, RotateCcw, Server, Unplug, X } from "lucide-svelte";
+  import { formatEta, nextSample, type SpeedSample } from "$lib/transferspeed";
   import type { UnlistenFn } from "@tauri-apps/api/event";
   import * as api from "$lib/api";
   import FilePane from "./FilePane.svelte";
@@ -27,6 +28,8 @@
     resume: boolean;
     /** What to do with names already at the destination. */
     conflict: Conflict;
+    /** Measured throughput while it runs. */
+    speed?: SpeedSample;
   }
 
   /** Transfers running at once; the rest wait their turn. */
@@ -281,6 +284,7 @@
     if (!conflict) return;
     const label = sources.length === 1 ? baseName(sources[0]) : `${sources.length} items`;
     transfers.push({ id: crypto.randomUUID(), direction, label, progress: { state: "queued" }, sources, destDir, resume: false, conflict });
+    transfersOpen = true;
     pump();
   }
 
@@ -335,6 +339,8 @@
           const cur = find();
           if (!cur) return;
           cur.progress = p;
+          // Speed is measured only while bytes are moving; a pause or an end leaves nothing to report.
+          cur.speed = p.state === "progress" ? nextSample(cur.speed, p.bytes, Date.now()) : p.state === "paused" ? undefined : cur.speed;
           if (p.state === "done") {
             if (cur.direction === "upload") remoteRefresh++;
             else localRefresh++;
@@ -372,6 +378,23 @@
 
   const active = (p: TransferProgress) => p.state === "started" || p.state === "progress" || p.state === "paused";
   const running = $derived(transfers.filter((t) => active(t.progress)).length);
+  /** The queue can be folded to its header to give the file lists the room; a new transfer unfolds it. */
+  let transfersOpen = $state(true);
+  const moving = $derived(transfers.filter((t) => t.progress.state === "progress"));
+  const totalBps = $derived(moving.reduce((n, t) => n + (t.speed?.bps ?? 0), 0));
+  const overall = $derived.by(() => {
+    let done = 0;
+    let total = 0;
+    for (const t of transfers) {
+      const p = t.progress;
+      if (p.state === "progress" || p.state === "paused") {
+        done += p.bytes;
+        total += p.total_bytes;
+      }
+    }
+    return total > 0 ? Math.min(100, (done / total) * 100) : 0;
+  });
+  const speedText = (bps: number) => (bps > 0 ? `${formatBytes(bps)}/s` : "");
   const queued = $derived(transfers.filter((t) => t.progress.state === "queued").length);
 </script>
 
@@ -541,9 +564,18 @@
   {/if}
 
   {#if transfers.length}
-    <div class="max-h-48 overflow-y-auto border-t border-line bg-panel">
-      <div class="flex items-center justify-between px-3 py-1.5 text-xs text-fg-muted">
-        <span class="font-medium uppercase tracking-wide">Transfers{running || queued ? ` · ${running} running${queued ? `, ${queued} queued` : ""}` : ""}</span>
+    <div class="border-t border-line bg-panel" data-testid="transfer-drawer">
+      <div class="flex items-center justify-between gap-3 px-3 py-1.5 text-xs text-fg-muted">
+        <button
+          class="flex min-w-0 items-center gap-1.5 hover:text-fg"
+          aria-expanded={transfersOpen}
+          aria-controls="transfer-list"
+          onclick={() => (transfersOpen = !transfersOpen)}
+        >
+          {#if transfersOpen}<ChevronDown size={13} />{:else}<ChevronUp size={13} />{/if}
+          <span class="truncate font-medium uppercase tracking-wide">Transfers{running || queued ? ` · ${running} running${queued ? `, ${queued} queued` : ""}` : ""}</span>
+          {#if totalBps > 0}<span class="shrink-0 font-mono normal-case tabular-nums text-accent">{speedText(totalBps)}</span>{/if}
+        </button>
         <span class="flex gap-3">
           {#if transfers.some((t) => t.progress.state === "failed" || t.progress.state === "cancelled")}
             <button class="hover:text-fg" onclick={() => transfers.filter((t) => t.progress.state === "failed" || t.progress.state === "cancelled").forEach(retry)}>Retry all</button>
@@ -551,6 +583,11 @@
           <button class="hover:text-fg" onclick={() => (transfers = transfers.filter((t) => active(t.progress) || t.progress.state === "queued"))}>Clear finished</button>
         </span>
       </div>
+      {#if !transfersOpen && running}
+        <div class="h-0.5 bg-base"><div class="h-full bg-accent transition-[width]" style:width="{overall}%"></div></div>
+      {/if}
+    </div>
+    <div id="transfer-list" class="max-h-48 overflow-y-auto bg-panel" hidden={!transfersOpen}>
       {#each transfers as t (t.id)}
         <div class="flex items-center gap-3 px-3 py-1.5 text-xs">
           <span class="w-4 text-fg-muted">{t.direction === "upload" ? "↑" : "↓"}</span>
@@ -559,7 +596,7 @@
               <span class="truncate">{t.label}</span>
               <span class="shrink-0 text-fg-muted">
                 {#if t.progress.state === "progress"}
-                  {formatBytes(t.progress.bytes)} / {formatBytes(t.progress.total_bytes)} · {t.progress.files_done}/{t.progress.total_files} files
+                  <span class="font-mono tabular-nums">{formatBytes(t.progress.bytes)} / {formatBytes(t.progress.total_bytes)}</span> · {t.progress.files_done}/{t.progress.total_files} files{#if t.speed?.bps}{" · "}<span class="font-mono tabular-nums text-accent">{speedText(t.speed.bps)}</span>{@const eta = formatEta(t.progress.total_bytes - t.progress.bytes, t.speed.bps)}{#if eta}{" · "}<span class="font-mono tabular-nums">{eta}</span>{/if}{/if}
                 {:else if t.progress.state === "done"}
                   <span class="text-success">Done · {formatBytes(t.progress.bytes)}</span>
                 {:else if t.progress.state === "failed"}

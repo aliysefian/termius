@@ -47,6 +47,12 @@
 
   const hasProd = (t: Tab) => t.panes.some((p) => paneEnv(p).value === "production");
 
+  /** The environment a tab's pill shows: production if any pane is, else the first pane that has one. */
+  function tabEnv(t: Tab) {
+    const envs = t.panes.map(paneEnv).filter((e) => e.value);
+    return envs.find((e) => e.value === "production") ?? envs[0];
+  }
+
   /** Synchronized input: type once, every pane in the tab receives it. */
   /** Single-quote a path for POSIX shells. */
   // Dropping OS files onto a terminal uploads them to the active pane's
@@ -403,6 +409,10 @@
             onkeydown={(e) => e.key === "Enter" && (ui.activeTabId = t.id)}
           >
           <span class="h-2 w-2 shrink-0 rounded-full {STATUS_DOT[ui.tabStatus(t)]}"></span>
+          {#if tabEnv(t)}
+            {@const env = tabEnv(t)!}
+            <Badge tone={env.tone} outline title={env.label}>{env.short}</Badge>
+          {/if}
           {#if renaming === t.id}
             <!-- svelte-ignore a11y_autofocus -->
             <input
@@ -418,9 +428,6 @@
             />
           {:else}
             <span class="truncate">{t.customTitle ?? t.title}</span>
-          {/if}
-          {#if hasProd(t)}
-            <Badge tone="danger">PROD</Badge>
           {/if}
           {#if t.syncInput}
             <Badge tone="warning" title="Typing goes to every pane">SYNC</Badge>

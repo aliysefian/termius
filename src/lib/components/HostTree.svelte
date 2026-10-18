@@ -176,6 +176,14 @@
         if (row.kind === "host") ui.modal = { kind: "host-details", id: row.id };
         else ui.toggleGroup(row.path);
         return;
+      case "e":
+      case "E":
+        // Ctrl/Cmd+E: this host's files. Only with a host row focused, so it never shadows an editor's own binding.
+        if (row?.kind === "host" && (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
+          e.preventDefault();
+          ui.openSftpAt(row.id, "");
+        }
+        break;
       case "F2":
         if (row?.kind === "host") {
           e.preventDefault();

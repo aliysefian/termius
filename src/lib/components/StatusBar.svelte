@@ -3,6 +3,7 @@
   import { syncBadge } from "$lib/syncstatus";
   import { PAGE_VIEWS, STATUS_DOT, ui, type View } from "$lib/stores/ui.svelte";
   import { settings } from "$lib/stores/settings.svelte";
+  import { sessionFacts } from "$lib/sessioninfo";
   import { vaultStore } from "$lib/stores/vault.svelte";
 
   /** Same "go to view" behaviour as the activity bar's icons, minus the toggle-on-repeat-click. */
@@ -22,10 +23,16 @@
   const activeTab = $derived(ui.activeTab);
   const activePane = $derived(activeTab?.panes.find((p) => p.id === activeTab.activePaneId));
   const info = $derived(activePane ? ui.paneInfo[activePane.id] : undefined);
+  const facts = $derived.by(() => {
+    if (!activePane) return undefined;
+    const t = activePane.target;
+    const hostId = t.kind === "host" ? t.hostId : undefined;
+    return sessionFacts(t, hostId ? vaultStore.hostById.get(hostId)?.data : undefined, hostId ? vaultStore.health[hostId] : undefined);
+  });
 </script>
 
 {#if !settings.prefs.focusMode}
-  <footer class="flex h-6 shrink-0 items-center gap-px border-t border-line bg-panel px-1 text-[11px] text-fg-muted" aria-label="Status">
+  <footer class="flex h-6 shrink-0 items-center gap-px border-t border-line bg-panel px-1 font-mono text-[11px] text-fg-muted" aria-label="Status">
     <button class="icon-btn h-5 w-5" title="Lock vault" aria-label="Lock vault" onclick={() => vaultStore.lock()}>
       <Lock size={12} />
     </button>
@@ -73,12 +80,18 @@
 
     {#if activePane && info}
       <span class="h-2 w-2 shrink-0 rounded-full {STATUS_DOT[info.status ?? 'disconnected']}"></span>
-      <span class="truncate pl-1.5">{activeTab?.customTitle ?? activeTab?.title}</span>
+      <span class="truncate pl-1.5 font-medium">{activeTab?.customTitle ?? activeTab?.title}</span>
       {#if info.cwd}
         <span class="truncate pl-1.5 text-fg-muted" title={info.cwd}>{info.cwd}</span>
       {/if}
+      {#if facts}
+        <!-- One run of facts, dot-separated; TERM drops out first when the window is narrow. -->
+        <span class="shrink-0 pl-2 tabular-nums" title="Protocol · last probe latency · text encoding · TERM">
+          {facts.protocol}{#if facts.latencyMs !== null}<span class="text-fg-muted/60"> · </span>{facts.latencyMs}ms{/if}{#if facts.encoding}<span class="text-fg-muted/60"> · </span>{facts.encoding}{/if}{#if facts.term}<span class="hidden lg:inline"><span class="text-fg-muted/60"> · </span>{facts.term}</span>{/if}
+        </span>
+      {/if}
       {#if info.cols && info.rows}
-        <span class="shrink-0 pl-1.5 font-mono">{info.cols}×{info.rows}</span>
+        <span class="shrink-0 pl-1.5 font-mono tabular-nums">{info.cols}×{info.rows}</span>
       {/if}
     {/if}
   </footer>

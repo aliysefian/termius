@@ -32,7 +32,10 @@ found = []
 
 async def scan(pg, where, theme):
     res = await pg.evaluate("""async (skip) => {
-      const r = await axe.run(document, { runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'best-practice'] }, rules: Object.fromEntries(skip.filter(Boolean).map((r) => [r, { enabled: false }])) });
+      // [data-scheme-sample] is a sample of a terminal colour scheme the person can choose (Settings > Appearance),
+      // drawn in that scheme's own colours: weak contrast in a scheme's ANSI colours is what the sample shows, and the
+      // real terminal corrects it with the "minimum contrast" setting. It is aria-hidden; the card's button names it.
+      const r = await axe.run({ exclude: [['[data-scheme-sample]']] }, { runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'best-practice'] }, rules: Object.fromEntries(skip.filter(Boolean).map((r) => [r, { enabled: false }])) });
       return r.violations.map((v) => ({ id: v.id, impact: v.impact, help: v.help, nodes: v.nodes.slice(0, 4).map((n) => n.target.join(' ') + ' :: ' + (n.failureSummary || '').split('\\n').slice(1, 2).join(' ')), count: v.nodes.length }));
     }""", SKIP_RULES)
     for v in res:

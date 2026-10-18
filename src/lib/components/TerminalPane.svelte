@@ -1409,12 +1409,14 @@
 
 <svelte:window onkeydown={(e) => { if (menu && e.key === "Escape") menu = null; }} onresize={() => (menu = null)} />
 
-<div class="relative flex min-h-0 flex-1 flex-col" style:background>
-  {#if production && target.kind === "host"}
-    <div class="flex shrink-0 items-center gap-2 bg-danger px-3 py-0.5 text-[11px] font-semibold tracking-wide text-white" role="status">
-      <ShieldAlert size={12} /> PRODUCTION · {label}
-    </div>
-  {/if}
+<!-- Production is a hairline in the danger colour round the terminal (the pane header and the tab carry the
+     PROD badge), not a banner: a full-width bar cost a terminal row on every production session. The border is
+     always there, transparent elsewhere, so a host changing environment never resizes the terminal. -->
+<div
+  class="relative flex min-h-0 flex-1 flex-col border {production && target.kind === 'host' ? 'border-danger/30' : 'border-transparent'}"
+  style:background
+  data-production={production && target.kind === "host" ? "" : undefined}
+>
   <!-- `isolate` keeps xterm's internal z-indexed layers (up to 11) inside
        this box, so the overlays below always sit on top and stay clickable. -->
   <div
