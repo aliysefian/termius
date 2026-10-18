@@ -4,6 +4,10 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## 0.31.1 - 2026-10-18
+
+- **Fixed:** the build for 0.31.0 stopped on Windows because two database tests (cancelling a running rqlite or Elasticsearch request) failed on slow machines. The tests are fixed. The app itself is unchanged from 0.31.0.
+
 ## 0.31.0 - 2026-10-18
 
 - **New:** host rows show a reachability dot (green, red, or grey if not checked), the user, address and port in monospace with the jump host and ping on the second line, and Connect, SFTP and Copy address buttons on hover. Ctrl+E on a selected host opens its files.
