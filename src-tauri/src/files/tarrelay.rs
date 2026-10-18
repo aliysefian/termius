@@ -435,17 +435,27 @@ mod tests {
 
     #[test]
     fn long_names_are_read_in_gnu_and_pax_form() {
-        // Over 100 characters either way. On Windows the whole path must stay under 260, which the system's tar needs.
+        // Over 100 characters either way; shorter on Windows, where paths over 260 characters trouble many tools.
         let (dl, fl) = if cfg!(windows) { (45, 70) } else { (90, 120) };
         let long = format!("{}/{}", "d".repeat(dl), "f".repeat(fl));
-        for format in ["gnu", "pax"] {
+        // GNU tar calls its format "gnu", bsdtar (macOS, Windows) calls the same thing "gnutar".
+        for (format, spellings) in [("gnu", &["gnu", "gnutar"][..]), ("pax", &["pax"][..])] {
             let dir = tempfile::TempDir::new().unwrap();
             std::fs::create_dir_all(dir.path().join("d".repeat(dl))).unwrap();
             std::fs::write(dir.path().join(&long), "x").unwrap();
             let names = ["d".repeat(dl), long.clone()];
-            let out = std::process::Command::new("tar").args(["-cf", "-", &format!("--format={format}"), "--no-recursion", "-C"]).arg(dir.path()).args(&names).output().unwrap();
-            assert!(out.status.success(), "tar --format={format}: {}", String::from_utf8_lossy(&out.stderr));
-            assert_eq!(run(&entries(&[(&names[0], true), (&names[1], false)]), &out.stdout, 333), Ok(()), "{format}");
+            let mut errors = Vec::new();
+            let mut archive = None;
+            for spelling in spellings {
+                let out = std::process::Command::new("tar").args(["-cf", "-", &format!("--format={spelling}"), "--no-recursion", "-C"]).arg(dir.path()).args(&names).output().unwrap();
+                if out.status.success() {
+                    archive = Some(out.stdout);
+                    break;
+                }
+                errors.push(String::from_utf8_lossy(&out.stderr).into_owned());
+            }
+            let archive = archive.unwrap_or_else(|| panic!("tar could not make a {format} archive: {errors:?}"));
+            assert_eq!(run(&entries(&[(&names[0], true), (&names[1], false)]), &archive, 333), Ok(()), "{format}");
         }
     }
 
