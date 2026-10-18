@@ -4,6 +4,16 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## 0.33.0 - 2026-10-18
+
+- **New:** edit a file where it is. Double-click a text or settings file in the Files view (or press Ctrl+E) to open it in an editor inside the app, with colours for nginx, YAML, JSON, TOML, systemd units, shell scripts, Dockerfiles and .env files. The header shows the host and its environment, the full path, the permissions and the owner. Ctrl+S saves it back in place, so it keeps its owner and mode, and nothing is written to your disk. If the file was changed on the host after you opened it, you are asked before it is overwritten.
+- **New:** when a file is not yours to write, the editor offers to save it with `sudo`. sudo's password, if it needs one, is asked in a masked box, used once and not kept. The new file is copied over the old one rather than moved, so the owner and mode stay as they were.
+- **New:** either pane in the Files view can show This computer or any host. Copying between two hosts goes straight from one connection into the other without touching your disk, and the queue shows it: the source, the speed, the relay and the destination. Folders with many small files go as a single tar stream between the two hosts when both have tar, and every byte of that stream is checked on the way: only the files and folders that were asked for can arrive.
+- **New:** when a name is already in the destination, the overwrite dialog shows both files' size, time and SHA-256 side by side, says so when they are identical, and can show exactly which lines would change (in one column or two). Choose Overwrite, Backup & replace (the old file is kept as name.bak), Keep both or Skip, for one file or for all of them.
+- **New:** Follow terminal folder (the link button in a pane's header): the file browser goes to the folder of the terminal in front when it changes, for the same host. For a shell that does not report its folder, one click types the line that makes it do so. A folder's menu now has Open in terminal (cd here).
+- **Fixed:** a long session of file copies could stop with "handle limit reached": each file read over SFTP left a handle counted as open for good, so a big folder, or many cancelled copies, used up the server's limit. Files are now closed properly, including when a copy is cancelled.
+- **Changed:** double-clicking a text file now edits it in the app. Edit in local editor is still in the right-click menu.
+
 ## 0.32.0 - 2026-10-18
 
 - **New:** a route bar in each terminal's header shows the way to the host as a row of hops: this computer, every jump host, the host. Each hop has a dot (green, amber when it is slow or missed a check, red when it dropped) and the time each link adds. Click a hop for its address, uptime, host key and fingerprint, and to reconnect the session or open a shell on that hop. The Tunnels list shows the same route for rules whose host is behind a jump host.
