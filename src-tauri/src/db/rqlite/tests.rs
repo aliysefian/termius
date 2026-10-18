@@ -203,8 +203,9 @@ async fn a_running_request_can_be_cancelled() {
         let c = Arc::clone(&c);
         tokio::spawn(async move { c.query(qid, "SELECT sleep()", 10).await })
     };
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    f.wait_for_request("/db/query").await;
     c.cancel(qid).await.unwrap();
-    assert!(matches!(running.await.unwrap(), Err(DbError::Cancelled)));
+    let out = running.await.unwrap();
+    assert!(matches!(out, Err(DbError::Cancelled)), "{out:?}");
     c.cancel(Uuid::new_v4()).await.unwrap();
 }

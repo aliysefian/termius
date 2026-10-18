@@ -252,7 +252,8 @@ async fn a_slow_search_can_be_cancelled() {
         let c = c.clone();
         tokio::spawn(async move { c.query(qid, "GET /big/_search", 10).await })
     };
-    tokio::time::sleep(Duration::from_millis(250)).await;
+    f.wait_for_request("/big/_search").await;
     c.cancel(qid).await.unwrap();
-    assert!(matches!(running.await.unwrap(), Err(DbError::Cancelled)));
+    let out = running.await.unwrap();
+    assert!(matches!(out, Err(DbError::Cancelled)), "{out:?}");
 }

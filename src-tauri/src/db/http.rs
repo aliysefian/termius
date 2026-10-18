@@ -156,6 +156,24 @@ pub(crate) mod fake {
     pub struct Fake {
         pub port: u16,
         pub seen: Arc<Mutex<Vec<Request>>>,
+        /// Paths of requests that have arrived, logged before the answer is computed: `seen` only gets a request
+        /// once it has been answered, which for a deliberately slow answer is too late to wait on.
+        arrived: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl Fake {
+        /// Wait until a request whose path starts with `prefix` has reached the server. A test that cancels a
+        /// running request must not guess how long a loaded machine takes to send it: a cancel that comes before
+        /// the request is registered does nothing.
+        pub async fn wait_for_request(&self, prefix: &str) {
+            for _ in 0..500 {
+                if self.arrived.lock().unwrap().iter().any(|p| p.starts_with(prefix)) {
+                    return;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+            panic!("no request to {prefix} arrived within 10 s");
+        }
     }
 
     pub async fn serve(answer: impl Fn(&Request) -> (u16, String) + Send + Sync + 'static) -> Fake {
@@ -163,11 +181,13 @@ pub(crate) mod fake {
         let port = listener.local_addr().unwrap().port();
         let seen: Arc<Mutex<Vec<Request>>> = Arc::default();
         let log = Arc::clone(&seen);
+        let arrived: Arc<Mutex<Vec<String>>> = Arc::default();
+        let arrivals = Arc::clone(&arrived);
         let answer = Arc::new(answer);
         tokio::spawn(async move {
             loop {
                 let Ok((mut s, _)) = listener.accept().await else { return };
-                let (log, answer) = (Arc::clone(&log), Arc::clone(&answer));
+                let (log, answer, arrivals) = (Arc::clone(&log), Arc::clone(&answer), Arc::clone(&arrivals));
                 tokio::spawn(async move {
                     let mut buf = Vec::new();
                     let mut chunk = [0u8; 4096];
@@ -198,13 +218,21 @@ pub(crate) mod fake {
                         authorization: head.lines().find_map(|l| l.to_ascii_lowercase().starts_with("authorization:").then(|| l.to_string())),
                         body,
                     };
-                    let (status, text) = answer(&req);
+                    arrivals.lock().unwrap().push(req.path.clone());
+                    // On the blocking pool: a handler that sleeps to be slow (the cancel tests) must not hold a runtime
+                    // worker, or on a small runtime it starves the very client task the test is about to cancel.
+                    let (req, status, text) = tokio::task::spawn_blocking(move || {
+                        let (status, text) = answer(&req);
+                        (req, status, text)
+                    })
+                    .await
+                    .unwrap();
                     log.lock().unwrap().push(req);
                     let reply = format!("HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{text}", text.len());
                     let _ = s.write_all(reply.as_bytes()).await;
                 });
             }
         });
-        Fake { port, seen }
+        Fake { port, seen, arrived }
     }
 }
