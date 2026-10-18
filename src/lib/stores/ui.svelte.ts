@@ -124,7 +124,7 @@ export interface ToastAction {
 
 export interface Toast {
   id: number;
-  kind: "info" | "error";
+  kind: "info" | "error" | "warning";
   text: string;
   action?: ToastAction;
 }
@@ -195,7 +195,7 @@ class UiStore {
    * Show a toast. Info toasts go away by themselves; errors stay until
    * dismissed, so a failure isn't missed while looking elsewhere.
    */
-  notify(kind: "info" | "error", text: string, action?: ToastAction, ms = kind === "error" ? 0 : action ? 8000 : 4000) {
+  notify(kind: "info" | "error" | "warning", text: string, action?: ToastAction, ms = kind === "error" ? 0 : action ? 8000 : 4000) {
     const id = ++counter;
     this.toasts.push({ id, kind, text, action });
     while (this.toasts.length > MAX_TOASTS) this.dismissToast(this.toasts[0].id);
@@ -409,6 +409,8 @@ class UiStore {
   tour = $state(false);
   /** Typed into the Settings search box when the page opens (from the command palette). */
   settingsQuery = $state("");
+  /** The host whose connection is being diagnosed in the slide-over, if any. */
+  diagnoseHost = $state<Uuid | null>(null);
   openSftpAt(hostId: Uuid, path: string) {
     this.sftpRequest = { hostId, path, n: (this.sftpRequest?.n ?? 0) + 1 };
     this.sftpVisited = true;

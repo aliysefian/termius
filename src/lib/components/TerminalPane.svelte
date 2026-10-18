@@ -49,6 +49,9 @@
   import CompletionOverlay from "./CompletionOverlay.svelte";
   import { MOUSE_OFF, RESET_INPUT_MODES, RESET_SESSION_MODES, decodeOsc52, mouseReportAllowed, redundantMouseEnable } from "$lib/termprotocol";
   import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
+  import { PortDetector } from "$lib/portdetect";
+  import { networkStore } from "$lib/stores/network.svelte";
+  import PortOffer from "./PortOffer.svelte";
 
   let {
     pane,
@@ -85,6 +88,16 @@
   let plainSsh = $state(false);
   /** The last Mosh attempt failed because the host has no mosh-server. */
   let moshServerMissing = $state(false);
+  // Output of a session on a saved SSH host is watched for servers announcing a port, to offer it for forwarding.
+  const portWatch = $derived(target.kind === "host" && !!host && !isRaw && !["rdp", "vnc", "ftp"].includes(host.protocol ?? ""));
+  let portDetector: PortDetector | null = null;
+  function watchPorts(bytes: Uint8Array) {
+    if (!portDetector) {
+      portDetector = new PortDetector((hit) => networkStore.offerPort(paneId, hit.port));
+      networkStore.registerDetector(paneId, (port) => portDetector?.forget(port));
+    }
+    portDetector.feed(bytes);
+  }
   const useMosh = $derived(target.kind === "host" && !!host?.mosh && !telnetHost && !plainSsh);
   const needsCredentials = $derived(target.kind === "host" && !!host && !telnetHost && !vaultStore.effectiveIdentity(host));
   const production = $derived(vaultStore.effectiveEnv(host) === "production");
@@ -780,6 +793,7 @@
     const decoder = new TextDecoder();
     const onData = (bytes: Uint8Array) => {
       term.write(bytes);
+      if (portWatch) watchPorts(bytes);
       if (expectRun) for (const s of expectRun.feed(decoder.decode(bytes, { stream: true }))) void writeToPane(pane, s);
       if (!active && !ui.paneInfo[paneId]?.unread) {
         ui.paneInfo[paneId] = { ...(ui.paneInfo[paneId] ?? { status: status.kind }), unread: true };
@@ -1345,6 +1359,8 @@
     unlisten?.();
     resizeObserver?.disconnect();
     if (logId) connectionLog.end(logId, null, "closed");
+    portDetector?.dispose();
+    networkStore.closePane(paneId);
     void closePane(pane);
     term?.dispose();
   });
@@ -1417,6 +1433,9 @@
   style:background
   data-production={production && target.kind === "host" ? "" : undefined}
 >
+  {#if portWatch && target.kind === "host"}
+    <PortOffer {paneId} hostId={target.hostId} />
+  {/if}
   <!-- `isolate` keeps xterm's internal z-indexed layers (up to 11) inside
        this box, so the overlays below always sit on top and stay clickable. -->
   <div

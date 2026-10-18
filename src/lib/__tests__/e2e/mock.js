@@ -16,6 +16,10 @@
   window.__emitStatus = (kind) => {
     for (const h of listeners["ssh:status"] ?? []) window["_" + h]({ event: "ssh:status", id: 0, payload: { pane_id: lastPane, status: kind === "disconnected" ? { kind, code: 0 } : { kind } } });
   };
+  // Any backend event, to the page's listeners (agent:signature, forward:status…).
+  window.__emit = (event, payload) => {
+    for (const h of listeners[event] ?? []) window["_" + h]({ event, id: 0, payload });
+  };
   let channel = null;
   let index = 0;
   let line = "";
@@ -183,6 +187,8 @@
       case "ssh_connect_adhoc":
       case "local_spawn":
         channel = args.onData;
+        // A new channel counts its messages from 0 (Tauri delivers them in order), as a reconnect gets one.
+        index = 0;
         lastPane = args.paneId;
         if (real()) {
           await window.__ptySpawn(args.cols, args.rows);
