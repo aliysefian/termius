@@ -273,6 +273,10 @@ impl FileBackend for ScpConn {
         Ok(self.check("pwd").await?.trim().to_string())
     }
 
+    async fn exec(&self, command: &str, stdin: Option<&[u8]>) -> Result<crate::ssh::ExecOutput, FileError> {
+        Ok(self.client.exec(command, stdin, std::time::Duration::from_secs(60), 1 << 20).await?)
+    }
+
     async fn list(&self, dir: &str) -> Result<Vec<FileEntry>, FileError> {
         let out = self.check(&format!("LC_ALL=C; export LC_ALL; ls -lAn -- {}", shell_quote(dir))).await?;
         let parsed = parse_ls(&out, now());

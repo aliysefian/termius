@@ -427,6 +427,36 @@ impl FileBackend for SftpConn {
     async fn close(&self) {
         // The connection is closed when the session is dropped by its manager.
     }
+
+    async fn exec(&self, command: &str, stdin: Option<&[u8]>) -> Result<crate::ssh::ExecOutput, SftpError> {
+        Ok(self.client.exec(command, stdin, EXEC_LIMIT, EXEC_MAX_OUTPUT).await?)
+    }
+
+    async fn metadata(&self, path: &str) -> Result<Option<FileEntry>, SftpError> {
+        use russh_sftp::client::error::Error as E;
+        use russh_sftp::protocol::StatusCode;
+        match self.sftp.metadata(path.to_string()).await {
+            Ok(m) => Ok(Some(FileEntry {
+                name: remote_basename_owned(path),
+                path: path.to_string(),
+                is_dir: m.is_dir(),
+                is_symlink: false,
+                size: if m.is_dir() { 0 } else { m.size.unwrap_or(0) },
+                modified: m.mtime.map(u64::from),
+                permissions: m.permissions.map(|p| p & 0o7777),
+            })),
+            Err(E::Status(s)) if s.status_code == StatusCode::NoSuchFile => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+}
+
+/// Longest a command run beside the file pane may take, and the most output kept from it.
+const EXEC_LIMIT: std::time::Duration = std::time::Duration::from_secs(60);
+const EXEC_MAX_OUTPUT: usize = 1 << 20;
+
+fn remote_basename_owned(path: &str) -> String {
+    path.trim_end_matches('/').rsplit('/').next().unwrap_or(path).to_string()
 }
 
 // ---------------------------------------------------------------------------

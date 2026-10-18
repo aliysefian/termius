@@ -17,6 +17,7 @@ pub mod crypto;
 pub mod deadline;
 pub mod diagnose;
 pub mod exportfile;
+pub mod fileedit;
 pub mod idle;
 pub mod csvimport;
 pub mod db;
@@ -305,6 +306,10 @@ pub fn run() {
             commands::network::ssh_agent_forwarding,
             commands::network::ssh_agent_forwarding_set,
             commands::network::diagnose_host,
+            commands::editing::files_read_text,
+            commands::editing::files_write_text,
+            commands::editing::files_write_as_root,
+            commands::editing::files_checksum,
             commands::forwarding::forward_stop,
             commands::forwarding::forward_statuses,
         ])
