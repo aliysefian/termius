@@ -4,6 +4,10 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## 0.33.4 - 2026-10-18
+
+- **Fixed:** the 0.33.3 installers were not published because one automated test failed on Windows. 0.33.4 has the same app as 0.33.3 and the tests pass.
+
 ## 0.33.3 - 2026-10-18
 
 - **Fixed:** the 0.33.2 installers were not published because one automated test failed on Windows. 0.33.3 has the same app as 0.33.2 and the tests pass.
