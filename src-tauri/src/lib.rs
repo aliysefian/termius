@@ -3,6 +3,7 @@
 #[cfg(test)]
 mod acceptance_tests;
 pub mod agent;
+pub mod agentgate;
 pub mod algorithms;
 pub mod ansible;
 pub mod certs;

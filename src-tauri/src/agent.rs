@@ -193,6 +193,61 @@ pub async fn serve_conn_from<S: AsyncRead + AsyncWrite + Unpin>(
     }
 }
 
+async fn read_message<S: AsyncRead + Unpin>(stream: &mut S) -> Option<Vec<u8>> {
+    let mut len = [0u8; 4];
+    stream.read_exact(&mut len).await.ok()?;
+    let n = u32::from_be_bytes(len) as usize;
+    if n == 0 || n > MAX_MESSAGE {
+        return None;
+    }
+    let mut msg = vec![0u8; n];
+    stream.read_exact(&mut msg).await.ok()?;
+    Some(msg)
+}
+
+async fn write_message<S: AsyncWrite + Unpin>(stream: &mut S, body: &[u8]) -> bool {
+    let mut framed = Vec::with_capacity(body.len() + 4);
+    put_string(&mut framed, body);
+    stream.write_all(&framed).await.is_ok()
+}
+
+/// The key a sign request names, if `request` is one.
+fn sign_request_key(request: &[u8]) -> Option<PublicKey> {
+    let (&kind, mut rest) = request.split_first()?;
+    if kind != SIGN_REQUEST {
+        return None;
+    }
+    PublicKey::from_bytes(take_string(&mut rest)?).ok()
+}
+
+/// Relay a forwarded agent connection from `origin` to this computer's own agent (`local`), telling `observer` about
+/// each signature request first. A request the observer refuses is answered with a failure and never reaches the
+/// agent. Everything else passes through untouched, one reply per request as the protocol has it.
+pub async fn relay_observed<R, L>(mut remote: R, mut local: L, origin: String, observer: Arc<dyn crate::agentgate::SignObserver>)
+where
+    R: AsyncRead + AsyncWrite + Unpin,
+    L: AsyncRead + AsyncWrite + Unpin,
+{
+    while let Some(request) = read_message(&mut remote).await {
+        if let Some(key) = sign_request_key(&request) {
+            let asked = crate::agentgate::SignRequest { origin: origin.clone(), fingerprint: crate::agentgate::fingerprint_of(&key), at: crate::agentgate::now_secs() };
+            if !observer.signing(asked).await {
+                if !write_message(&mut remote, &[FAILURE]).await {
+                    return;
+                }
+                continue;
+            }
+        }
+        if !write_message(&mut local, &request).await {
+            return;
+        }
+        let Some(reply) = read_message(&mut local).await else { return };
+        if !write_message(&mut remote, &reply).await {
+            return;
+        }
+    }
+}
+
 /// A running agent. Dropping it stops listening and removes the socket.
 pub struct AgentHandle {
     pub path: String,
@@ -414,5 +469,70 @@ mod tests {
         let sock = std::path::PathBuf::from(&handle.path);
         drop(handle);
         assert!(!sock.exists(), "socket removed when the agent stops");
+    }
+
+    use crate::agentgate::{SignObserver, SignRequest};
+
+    struct Watcher {
+        seen: std::sync::Mutex<Vec<SignRequest>>,
+        allow: bool,
+    }
+    impl SignObserver for Watcher {
+        fn signing(&self, r: SignRequest) -> BoxFuture<bool> {
+            self.seen.lock().unwrap().push(r);
+            let ok = self.allow;
+            Box::pin(async move { ok })
+        }
+    }
+
+    /// A remote host's end of a forwarded agent connection, relayed to a local agent holding `k`.
+    fn relayed(k: &PrivateKey, observer: Arc<Watcher>) -> (tokio::io::DuplexStream, Arc<Fixed>) {
+        let local_backend = Arc::new(Fixed { keys: vec![k.clone()], allow: true, asked: AtomicUsize::new(0) });
+        let (remote_end, remote_side) = tokio::io::duplex(64 * 1024);
+        let (local_agent_end, local_side) = tokio::io::duplex(64 * 1024);
+        let backend: Arc<dyn Backend> = local_backend.clone();
+        tokio::spawn(serve_conn(local_agent_end, backend));
+        tokio::spawn(relay_observed(remote_side, local_side, "bastion:2222".into(), observer));
+        (remote_end, local_backend)
+    }
+
+    async fn ask(conn: &mut tokio::io::DuplexStream, request: &[u8]) -> Vec<u8> {
+        assert!(write_message(conn, request).await);
+        read_message(conn).await.expect("a reply")
+    }
+
+    #[tokio::test]
+    async fn a_relayed_signature_is_reported_by_key_and_origin_and_still_works() {
+        let k = key(KeyAlgorithm::Ed25519);
+        let w = Arc::new(Watcher { seen: Default::default(), allow: true });
+        let (mut conn, local) = relayed(&k, w.clone());
+
+        // Listing is not a signature: nothing is reported.
+        assert_eq!(ask(&mut conn, &[REQUEST_IDENTITIES]).await[0], IDENTITIES_ANSWER);
+        assert!(w.seen.lock().unwrap().is_empty());
+
+        let resp = ask(&mut conn, &sign_req(k.public_key(), b"challenge", 0)).await;
+        assert_eq!(resp[0], SIGN_RESPONSE);
+        let mut rest = &resp[1..];
+        let sig = Signature::try_from(take_string(&mut rest).unwrap()).unwrap();
+        Verifier::verify(k.public_key(), b"challenge", &sig).expect("the agent really signed");
+
+        let seen = w.seen.lock().unwrap().clone();
+        assert_eq!(seen.len(), 1);
+        assert_eq!(seen[0].origin, "bastion:2222");
+        assert_eq!(seen[0].fingerprint, k.public_key().fingerprint(HashAlg::Sha256).to_string());
+        assert_eq!(local.asked.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn a_refused_signature_never_reaches_the_agent() {
+        let k = key(KeyAlgorithm::Ed25519);
+        let w = Arc::new(Watcher { seen: Default::default(), allow: false });
+        let (mut conn, local) = relayed(&k, w.clone());
+        assert_eq!(ask(&mut conn, &sign_req(k.public_key(), b"x", 0)).await, [FAILURE]);
+        assert_eq!(w.seen.lock().unwrap().len(), 1, "it was still reported");
+        assert_eq!(local.asked.load(Ordering::SeqCst), 0, "the agent was never asked");
+        // The connection stays usable afterwards.
+        assert_eq!(ask(&mut conn, &[REQUEST_IDENTITIES]).await[0], IDENTITIES_ANSWER);
     }
 }

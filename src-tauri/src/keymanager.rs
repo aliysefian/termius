@@ -358,6 +358,7 @@ pub fn resolve_target(
             proxy,
             keepalive_secs: jh.keepalive_secs,
             legacy_algorithms: jh.legacy_algorithms,
+            agent_gate: None,
         }));
     }
 
@@ -380,6 +381,7 @@ pub fn resolve_target(
         proxy,
         keepalive_secs: host.keepalive_secs,
         legacy_algorithms: host.legacy_algorithms,
+        agent_gate: None,
     })
 }
 

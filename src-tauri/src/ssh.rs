@@ -199,6 +199,9 @@ pub struct Target {
     pub keepalive_secs: Option<u32>,
     /// Also offer older algorithms to this host (see `algorithms`). Off unless the host asks for it.
     pub legacy_algorithms: bool,
+    /// Lets the person switch agent forwarding off or on for a time while the session runs, and sees each signature
+    /// the remote host asks for. Only meaningful with `forward_agent`; none means forwarding runs as it always has.
+    pub agent_gate: Option<Arc<crate::agentgate::AgentGate>>,
 }
 
 /// A host key recorded for the first time during a connection.
@@ -206,6 +209,32 @@ pub struct Target {
 pub struct LearnedKey {
     pub host: String,
     pub fingerprint: String,
+}
+
+/// What is known about one hop of a connection (a jump host, or the final host), for showing the route.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct HopInfo {
+    /// `host` or `host:port`, as the rest of the app names it.
+    pub label: String,
+    pub host: String,
+    pub port: u16,
+    /// SHA-256 fingerprint and algorithm of the host key it presented.
+    pub fingerprint: Option<String>,
+    pub algorithm: Option<String>,
+    /// Time to dial (through the hop before it, if any), exchange keys and log in.
+    pub connect_ms: u64,
+    /// Unix seconds when the hop was ready.
+    pub connected_at: u64,
+}
+
+/// The round trip to each hop, measured now. `None` where a hop did not answer in time.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct HopRtt {
+    /// This computer to the hop, through every hop before it.
+    pub total_ms: Option<u64>,
+    /// The part this hop's own link adds: `total_ms` minus the previous hop's, never below zero. For the first hop
+    /// it is the whole round trip. `None` if either end of the link did not answer.
+    pub segment_ms: Option<u64>,
 }
 
 /// A live, authenticated connection plus any jump-host connections it is
@@ -216,6 +245,8 @@ pub struct Client {
     jumps: Vec<(String, Handle<ClientHandler>)>,
     /// X11 forwarding state when requested, or why it couldn't be set up.
     x11: Option<Result<Arc<crate::x11::X11Setup>, String>>,
+    /// One per hop: the jump hosts outermost first, then the final host.
+    hops: Vec<HopInfo>,
 }
 
 impl Deref for Client {
@@ -234,6 +265,38 @@ impl Client {
     /// Names of the jump hosts, outermost first.
     pub fn jump_hosts(&self) -> Vec<String> {
         self.jumps.iter().map(|(h, _)| h.clone()).collect()
+    }
+
+    /// What is known of each hop: the jump hosts outermost first, then the final host.
+    pub fn hops(&self) -> &[HopInfo] {
+        &self.hops
+    }
+
+    /// Measure the round trip to every hop at once: open a session channel on each hop's own connection and wait
+    /// for the answer, then close it. A hop's number includes the hops in front of it, since its connection rides
+    /// through them; the difference between neighbours is what each link adds.
+    pub async fn probe_hops(&self) -> Vec<HopRtt> {
+        const LIMIT: Duration = Duration::from_secs(3);
+        async fn one(handle: &Handle<ClientHandler>) -> Option<u64> {
+            let start = std::time::Instant::now();
+            let channel = tokio::time::timeout(LIMIT, handle.channel_open_session()).await.ok()?.ok()?;
+            let ms = start.elapsed().as_millis() as u64;
+            let _ = channel.close().await;
+            Some(ms)
+        }
+        let handles: Vec<&Handle<ClientHandler>> = self.jumps.iter().map(|(_, h)| h).chain(std::iter::once(&self.handle)).collect();
+        let totals = futures_util::future::join_all(handles.into_iter().map(one)).await;
+        let mut out = Vec::with_capacity(totals.len());
+        let mut previous: Option<u64> = Some(0);
+        for total in totals {
+            let segment = match (total, previous) {
+                (Some(t), Some(p)) => Some(t.saturating_sub(p)),
+                _ => None,
+            };
+            out.push(HopRtt { total_ms: total, segment_ms: segment });
+            previous = total;
+        }
+        out
     }
 
     /// Disconnect the final hop, then each jump from the inside out.
@@ -272,6 +335,8 @@ struct SessionHandle {
     /// The live connection, once there is one, for questions that need a channel of their own.
     client: Arc<std::sync::OnceLock<Arc<Client>>>,
     lookups: Arc<crate::completion::Lookups>,
+    /// Agent forwarding control for this session, if it forwards the agent under one.
+    gate: Option<Arc<crate::agentgate::AgentGate>>,
 }
 
 /// Registry of live sessions keyed by pane id.
@@ -301,7 +366,10 @@ impl SshManager {
             if sessions.contains_key(&pane_id) {
                 return Err(SshError::AlreadyConnected);
             }
-            sessions.insert(pane_id.clone(), SessionHandle { tx, client: Arc::clone(&client_cell), lookups: Arc::new(crate::completion::Lookups::new()) });
+            sessions.insert(
+                pane_id.clone(),
+                SessionHandle { tx, client: Arc::clone(&client_cell), lookups: Arc::new(crate::completion::Lookups::new()), gate: params.target.agent_gate.clone() },
+            );
         }
 
         let manager = Arc::clone(self);
@@ -354,6 +422,29 @@ impl SshManager {
         };
         let client = client.ok_or(crate::completion::LookupError::Refused)?;
         lookups.lookup(&client, request).await
+    }
+
+    /// The agent-forwarding gate of a session, if it has one.
+    pub fn agent_gate(&self, pane_id: &str) -> Option<Arc<crate::agentgate::AgentGate>> {
+        self.sessions.lock().unwrap_or_else(|p| p.into_inner()).get(pane_id)?.gate.clone()
+    }
+
+    fn client_of(&self, pane_id: &str) -> Option<Arc<Client>> {
+        self.sessions.lock().unwrap_or_else(|p| p.into_inner()).get(pane_id)?.client.get().cloned()
+    }
+
+    /// The route of a connected session: its hops, outermost first, ending with the host itself. Empty until the
+    /// session is connected (and for a pane that isn't an SSH session).
+    pub fn hops(&self, pane_id: &str) -> Vec<HopInfo> {
+        self.client_of(pane_id).map(|c| c.hops().to_vec()).unwrap_or_default()
+    }
+
+    /// A fresh round-trip measurement of every hop of a connected session.
+    pub async fn probe_hops(&self, pane_id: &str) -> Vec<HopRtt> {
+        match self.client_of(pane_id) {
+            Some(c) => c.probe_hops().await,
+            None => Vec::new(),
+        }
     }
 
     pub async fn write(&self, pane_id: &str, bytes: Vec<u8>) -> Result<(), SshError> {
@@ -567,6 +658,9 @@ pub struct ClientHandler {
     x11: Option<Arc<crate::x11::X11Setup>>,
     /// Set while a person is being asked about a host key, so the handshake's time limit doesn't run meanwhile.
     asking: Arc<std::sync::atomic::AtomicBool>,
+    /// The algorithm and fingerprint of the host key this connection was offered, whether or not it was new.
+    presented: Arc<Mutex<Option<(String, String)>>>,
+    agent_gate: Option<Arc<crate::agentgate::AgentGate>>,
 }
 
 impl ClientHandler {
@@ -602,6 +696,7 @@ impl client::Handler for ClientHandler {
         };
         let presented = PresentedKey::new(&self.host, self.port, &key)
             .map_err(|e| self.store_err(e.to_string()))?;
+        *self.presented.lock().unwrap_or_else(|p| p.into_inner()) = Some((presented.algorithm.clone(), presented.fingerprint.clone()));
         let status = self
             .host_keys
             .store
@@ -675,35 +770,59 @@ impl client::Handler for ClientHandler {
     }
 
     /// russh's default accepts these unconditionally, which would hand our
-    /// agent to any server that asks. Only accept when we requested it.
+    /// agent to any server that asks. Only accept when we requested it, and
+    /// (when the session has a gate) while the person has it switched on.
     async fn server_channel_open_agent_forward(
         &mut self,
         channel: russh::Channel<client::Msg>,
         reply: client::ChannelOpenHandle,
         _session: &mut client::Session,
     ) -> Result<(), Self::Error> {
-        if !self.forward_agent {
+        if !self.forward_agent || !self.agent_gate.as_ref().is_none_or(|g| g.allows()) {
             reply
                 .reject(russh::ChannelOpenFailure::AdministrativelyProhibited)
                 .await;
             return Ok(());
         }
         reply.accept().await;
-        if let Some(backend) = self.agent_backend.clone() {
-            // The vault agent answers, naming this host in any approval prompt.
-            let origin = display_host_port(&self.host, self.port);
-            tokio::spawn(crate::agent::serve_conn_from(channel.into_stream(), backend, Some(origin)));
-            return Ok(());
-        }
+        let origin = display_host_port(&self.host, self.port);
+        // Switching the gate off (or a timed grant running out) ends the connections already open.
+        let mut cut = self.agent_gate.as_ref().map(|g| g.watch_cut());
+        let observer = self.agent_gate.as_ref().and_then(|g| g.observer());
+        let backend = self.agent_backend.clone();
+        // spawn-ok: a forwarded agent connection lives and dies with its channel; server_channel_open_agent_forward runs on the session task
         tokio::spawn(async move {
-            match local_agent().await {
-                Ok(mut agent) => {
-                    let mut remote = channel.into_stream();
-                    let _ = tokio::io::copy_bidirectional(&mut agent, &mut remote).await;
+            let serve = async {
+                if let Some(backend) = backend {
+                    // The vault agent answers, naming this host in any approval prompt.
+                    let backend: Arc<dyn crate::agent::Backend> = match observer {
+                        Some(observer) => Arc::new(crate::agentgate::Observed { inner: backend, observer }),
+                        None => backend,
+                    };
+                    crate::agent::serve_conn_from(channel.into_stream(), backend, Some(origin)).await;
+                    return;
                 }
-                Err(_) => {
-                    let _ = channel.close().await;
+                match local_agent().await {
+                    Ok(mut agent) => {
+                        let mut remote = channel.into_stream();
+                        match observer {
+                            Some(observer) => crate::agent::relay_observed(remote, agent, origin, observer).await,
+                            None => {
+                                let _ = tokio::io::copy_bidirectional(&mut agent, &mut remote).await;
+                            }
+                        }
+                    }
+                    Err(_) => {
+                        let _ = channel.close().await;
+                    }
                 }
+            };
+            match cut.as_mut() {
+                Some(cut) => tokio::select! {
+                    _ = serve => {}
+                    _ = cut.changed() => {}
+                },
+                None => serve.await,
             }
         });
         Ok(())
@@ -769,9 +888,10 @@ pub async fn open_client(
 
     let mut learned = Vec::new();
     let mut jumps: Vec<(String, Handle<ClientHandler>)> = Vec::new();
+    let mut infos: Vec<HopInfo> = Vec::new();
     for hop in hops {
         let via = jumps.last().map(|(name, h)| (name.as_str(), h));
-        let (h, fp) = connect_hop(hop, via, None, None)
+        let (h, fp, info) = connect_hop(hop, via, None, None)
             .await
             .map_err(|e| match e {
                 // Already names the jump that failed to reach this hop.
@@ -782,6 +902,7 @@ pub async fn open_client(
                 },
             })?;
         learned.extend(fp);
+        infos.push(info);
         jumps.push((display_host(hop), h));
     }
 
@@ -790,9 +911,10 @@ pub async fn open_client(
         .then(|| crate::x11::X11Setup::from_env().map(Arc::new));
     let x11_setup = x11.as_ref().and_then(|r| r.as_ref().ok()).cloned();
     let via = jumps.last().map(|(name, h)| (name.as_str(), h));
-    let (handle, fp) = connect_hop(target, via, remote_forwards, x11_setup).await?;
+    let (handle, fp, info) = connect_hop(target, via, remote_forwards, x11_setup).await?;
     learned.extend(fp);
-    Ok((Client { handle, jumps, x11 }, learned))
+    infos.push(info);
+    Ok((Client { handle, jumps, x11, hops: infos }, learned))
 }
 
 fn display_host(t: &Target) -> String {
@@ -813,9 +935,11 @@ async fn connect_hop(
     via: Option<(&str, &Handle<ClientHandler>)>,
     remote_forwards: Option<RemoteForwards>,
     x11: Option<Arc<crate::x11::X11Setup>>,
-) -> Result<(Handle<ClientHandler>, Option<LearnedKey>), SshError> {
+) -> Result<(Handle<ClientHandler>, Option<LearnedKey>, HopInfo), SshError> {
+    let started = std::time::Instant::now();
     let addr = format!("{}:{}", target.hostname, target.port);
     let learned = Arc::new(Mutex::new(None));
+    let presented = Arc::new(Mutex::new(None));
     let asking = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let handler = ClientHandler {
         host: target.hostname.clone(),
@@ -827,6 +951,8 @@ async fn connect_hop(
         agent_backend: target.agent_backend.clone(),
         x11,
         asking: Arc::clone(&asking),
+        presented: Arc::clone(&presented),
+        agent_gate: target.agent_gate.clone(),
     };
     let timeout = || SshError::Timeout(addr.clone());
 
@@ -874,7 +1000,20 @@ async fn connect_hop(
             host: display_host(target),
             fingerprint,
         });
-    Ok((handle, fp))
+    let (algorithm, fingerprint) = match presented.lock().unwrap_or_else(|p| p.into_inner()).take() {
+        Some((a, f)) => (Some(a), Some(f)),
+        None => (None, None),
+    };
+    let info = HopInfo {
+        label: display_host(target),
+        host: target.hostname.clone(),
+        port: target.port,
+        fingerprint,
+        algorithm,
+        connect_ms: started.elapsed().as_millis() as u64,
+        connected_at: crate::agentgate::now_secs(),
+    };
+    Ok((handle, fp, info))
 }
 
 /// Connect to this computer's ssh-agent, for agent forwarding.
@@ -1346,6 +1485,7 @@ pub(crate) mod testutil {
             proxy: None,
             keepalive_secs: None,
             legacy_algorithms: false,
+            agent_gate: None,
         }
     }
 }
@@ -1366,6 +1506,7 @@ pub fn testutil_target() -> Target {
         proxy: None,
         keepalive_secs: None,
         legacy_algorithms: false,
+        agent_gate: None,
     }
 }
 
@@ -1797,9 +1938,13 @@ mod tests {
         let _ = xvfb.wait();
     }
 
+    /// Tests that point `SSH_AUTH_SOCK` at their own agent take turns: it is one variable for the whole process.
+    static AGENT_ENV: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn agent_is_forwarded_only_when_enabled() {
         use std::process::{Command, Stdio};
+        let _env = AGENT_ENV.lock().await;
         let dir = tempfile::TempDir::new().unwrap();
         let Some(sshd) = spawn_sshd(dir.path()) else {
             eprintln!("skipping: no usable sshd on this machine");
@@ -2089,5 +2234,158 @@ mod tests {
         manager.write("old2", b"printf 'A%sB\\n' _OLD_\n".to_vec()).await.unwrap();
         assert!(wait_output(&rx, "A_OLD_B").contains("A_OLD_B"));
         manager.disconnect("old2").await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn every_hop_is_described_and_timed() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let Some(sshd) = spawn_sshd(dir.path()) else {
+            eprintln!("skipping: no usable sshd on this machine");
+            return;
+        };
+        let direct = target(&sshd, &sshd.client_key, dir.path().join("kh"));
+        let mut via_one = direct.clone();
+        via_one.jump = Some(Box::new(direct.clone()));
+        let mut via_two = direct.clone();
+        via_two.jump = Some(Box::new(via_one));
+
+        let (client, _) = open_client(&via_two, None).await.unwrap();
+        let hops = client.hops();
+        assert_eq!(hops.len(), 3, "two jump hosts and the host itself");
+        for h in hops {
+            assert_eq!(h.label, format!("127.0.0.1:{}", sshd.port));
+            assert_eq!(h.port, sshd.port);
+            assert!(h.fingerprint.as_deref().is_some_and(|f| f.starts_with("SHA256:")), "{h:?}");
+            assert!(h.algorithm.is_some());
+            assert!(h.connected_at > 1_600_000_000);
+        }
+        assert_eq!(hops[0].fingerprint, hops[2].fingerprint, "the same server presents the same key at every hop");
+
+        let rtts = client.probe_hops().await;
+        assert_eq!(rtts.len(), 3);
+        assert!(rtts.iter().all(|r| r.total_ms.is_some() && r.segment_ms.is_some()), "{rtts:?}");
+        assert_eq!(rtts[0].segment_ms, rtts[0].total_ms, "the first link is the whole round trip");
+        for pair in rtts.windows(2) {
+            let (a, b) = (pair[0].total_ms.unwrap(), pair[1].total_ms.unwrap());
+            assert_eq!(pair[1].segment_ms, Some(b.saturating_sub(a)));
+        }
+        client.close().await;
+
+        // The manager answers by pane, and only once the pane is connected.
+        let manager = Arc::new(SshManager::new());
+        assert!(manager.hops("nope").is_empty());
+        let (tx, rx) = std_mpsc::channel();
+        manager.connect("h1".into(), ConnectParams { target: direct, cols: 80, rows: 24 }, Arc::new(TestSink(tx))).unwrap();
+        wait_status(&rx, |s| matches!(s, SessionStatus::Connected));
+        assert_eq!(manager.hops("h1").len(), 1);
+        assert_eq!(manager.probe_hops("h1").await.len(), 1);
+        manager.disconnect("h1").await;
+    }
+
+    struct Signatures {
+        seen: Mutex<Vec<crate::agentgate::SignRequest>>,
+        allow: std::sync::atomic::AtomicBool,
+    }
+    impl crate::agentgate::SignObserver for Signatures {
+        fn signing(&self, r: crate::agentgate::SignRequest) -> crate::agent::BoxFuture<bool> {
+            self.seen.lock().unwrap().push(r);
+            let allow = self.allow.load(std::sync::atomic::Ordering::SeqCst);
+            Box::pin(async move { allow })
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn forwarding_can_be_switched_off_on_and_timed_and_each_signature_is_seen() {
+        use std::process::{Command, Stdio};
+        let _env = AGENT_ENV.lock().await;
+        let dir = tempfile::TempDir::new().unwrap();
+        let Some(sshd) = spawn_sshd(dir.path()) else {
+            eprintln!("skipping: no usable sshd on this machine");
+            return;
+        };
+        let sock = dir.path().join("agent.sock");
+        let Ok(mut agent) = Command::new("ssh-agent").args(["-D", "-a"]).arg(&sock).stdout(Stdio::null()).stderr(Stdio::null()).spawn() else {
+            eprintln!("skipping: no ssh-agent");
+            return;
+        };
+        for _ in 0..50 {
+            if sock.exists() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        let added = Command::new("ssh-add").env("SSH_AUTH_SOCK", &sock).arg(dir.path().join("client_key")).stdout(Stdio::null()).stderr(Stdio::null()).status().map(|s| s.success()).unwrap_or(false);
+        if !added {
+            let _ = agent.kill();
+            eprintln!("skipping: ssh-add failed");
+            return;
+        }
+        std::env::set_var("SSH_AUTH_SOCK", &sock);
+
+        let signatures = Arc::new(Signatures { seen: Mutex::new(vec![]), allow: std::sync::atomic::AtomicBool::new(true) });
+        let gate = crate::agentgate::AgentGate::new(true, Some(signatures.clone()));
+        let mut t = target(&sshd, &sshd.client_key, dir.path().join("kh"));
+        t.forward_agent = true;
+        t.agent_gate = Some(gate.clone());
+
+        let manager = Arc::new(SshManager::new());
+        let (tx, rx) = std_mpsc::channel();
+        manager.connect("g".into(), ConnectParams { target: t, cols: 160, rows: 24 }, Arc::new(TestSink(tx))).unwrap();
+        wait_status(&rx, |s| matches!(s, SessionStatus::Connected));
+        assert!(Arc::ptr_eq(&manager.agent_gate("g").unwrap(), &gate), "the manager hands out the session's own gate");
+
+        let hop = format!(
+            "ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p {} 127.0.0.1 echo HOP$((2+2)) 2>/dev/null || echo REFUSED",
+            sshd.port
+        );
+        let run = |n: u32, cmd: String| {
+            let manager = Arc::clone(&manager);
+            async move {
+                // END$((1*n)): the terminal echoes what is typed, so the marker only shows once the shell has computed it.
+                manager.write("g", format!("{cmd}; echo END$((1*{n}))\n").into_bytes()).await.unwrap();
+            }
+        };
+
+        // On: the remote lists the key, and signing for a second hop works and is seen.
+        run(1, "ssh-add -l".into()).await;
+        assert!(wait_output(&rx, "END1").contains("SHA256:"));
+        assert!(signatures.seen.lock().unwrap().is_empty(), "listing keys is not a signature");
+        run(2, hop.clone()).await;
+        assert!(wait_output(&rx, "END2").contains("HOP4"));
+        {
+            let seen = signatures.seen.lock().unwrap();
+            assert!(!seen.is_empty());
+            assert!(seen.iter().all(|r| r.origin == format!("127.0.0.1:{}", sshd.port) && r.fingerprint.starts_with("SHA256:") && r.at > 1_600_000_000), "{seen:?}");
+        }
+
+        // Refusing at the observer stops the signature: the hop is denied.
+        signatures.allow.store(false, std::sync::atomic::Ordering::SeqCst);
+        run(3, hop.clone()).await;
+        let out = wait_output(&rx, "END3");
+        assert!(out.contains("REFUSED"), "the second hop was denied its signature: {out}");
+        signatures.allow.store(true, std::sync::atomic::Ordering::SeqCst);
+
+        // Off: the agent is out of reach, though the session carries on.
+        gate.set(crate::agentgate::Request::Off);
+        run(4, "ssh-add -l >/dev/null 2>&1; echo RC=$?".into()).await;
+        let out = wait_output(&rx, "END4");
+        // The socket is still there on the remote, but nothing answers behind it: ssh-add fails (1), it does not list.
+        assert!(out.contains("RC=1") && !out.contains("SHA256:"), "no agent to reach: {out:?}");
+        // On again: it is back.
+        gate.set(crate::agentgate::Request::On);
+        run(5, "ssh-add -l".into()).await;
+        assert!(wait_output(&rx, "END5").contains("SHA256:"));
+
+        // Timed: on now, off by itself a moment later.
+        gate.set(crate::agentgate::Request::Timed(Duration::from_millis(1500)));
+        run(6, "ssh-add -l".into()).await;
+        assert!(wait_output(&rx, "END6").contains("SHA256:"));
+        tokio::time::sleep(Duration::from_millis(2000)).await;
+        run(7, "ssh-add -l >/dev/null 2>&1; echo RC=$?".into()).await;
+        let out = wait_output(&rx, "END7");
+        assert!(out.contains("RC=1") && !out.contains("SHA256:"), "the timed grant ran out: {out:?}");
+
+        manager.disconnect("g").await;
+        let _ = agent.kill();
     }
 }
