@@ -435,13 +435,16 @@ mod tests {
 
     #[test]
     fn long_names_are_read_in_gnu_and_pax_form() {
-        let long = format!("{}/{}", "d".repeat(90), "f".repeat(120));
+        // Over 100 characters either way. On Windows the whole path must stay under 260, which the system's tar needs.
+        let (dl, fl) = if cfg!(windows) { (45, 70) } else { (90, 120) };
+        let long = format!("{}/{}", "d".repeat(dl), "f".repeat(fl));
         for format in ["gnu", "pax"] {
             let dir = tempfile::TempDir::new().unwrap();
-            std::fs::create_dir_all(dir.path().join("d".repeat(90))).unwrap();
+            std::fs::create_dir_all(dir.path().join("d".repeat(dl))).unwrap();
             std::fs::write(dir.path().join(&long), "x").unwrap();
-            let names = ["d".repeat(90), long.clone()];
+            let names = ["d".repeat(dl), long.clone()];
             let out = std::process::Command::new("tar").args(["-cf", "-", &format!("--format={format}"), "--no-recursion", "-C"]).arg(dir.path()).args(&names).output().unwrap();
+            assert!(out.status.success(), "tar --format={format}: {}", String::from_utf8_lossy(&out.stderr));
             assert_eq!(run(&entries(&[(&names[0], true), (&names[1], false)]), &out.stdout, 333), Ok(()), "{format}");
         }
     }
