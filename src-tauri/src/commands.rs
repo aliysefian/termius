@@ -37,6 +37,8 @@ pub mod forwarding;
 pub use forwarding::*;
 pub mod network;
 pub use network::*;
+pub mod editing;
+pub use editing::*;
 pub mod keys;
 pub use keys::*;
 pub mod knownhosts;

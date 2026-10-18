@@ -198,6 +198,71 @@ pub mod local {
 // Remote sessions
 // ---------------------------------------------------------------------------
 
+/// A remote file that is closed properly, even when it is dropped instead of finished (a cancelled or failed copy).
+///
+/// `russh-sftp` closes a dropped file without waiting, and does not then count the handle as free: its session
+/// counts open handles against the limit the server reports, and only an awaited close lowers the count. Without
+/// this, every file read left a handle counted forever, and a long session (a big folder, many cancelled copies)
+/// ran into "handle limit reached". Dropping this hands the awaited close to the runtime instead.
+pub struct ClosingFile {
+    file: Option<russh_sftp::client::fs::File>,
+    closed: bool,
+}
+
+impl ClosingFile {
+    fn new(file: russh_sftp::client::fs::File) -> Self {
+        Self { file: Some(file), closed: false }
+    }
+
+    fn file(&mut self) -> std::pin::Pin<&mut russh_sftp::client::fs::File> {
+        std::pin::Pin::new(self.file.as_mut().expect("a file that has not been taken"))
+    }
+
+    /// Reposition before reading or writing.
+    async fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
+        self.file.as_mut().expect("a file that has not been taken").seek(pos).await
+    }
+}
+
+impl tokio::io::AsyncRead for ClosingFile {
+    fn poll_read(mut self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>, buf: &mut tokio::io::ReadBuf<'_>) -> std::task::Poll<std::io::Result<()>> {
+        self.file().poll_read(cx, buf)
+    }
+}
+
+impl tokio::io::AsyncWrite for ClosingFile {
+    fn poll_write(mut self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>, buf: &[u8]) -> std::task::Poll<std::io::Result<usize>> {
+        self.file().poll_write(cx, buf)
+    }
+
+    fn poll_flush(mut self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<std::io::Result<()>> {
+        self.file().poll_flush(cx)
+    }
+
+    fn poll_shutdown(mut self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<std::io::Result<()>> {
+        let r = self.file().poll_shutdown(cx);
+        if matches!(r, std::task::Poll::Ready(Ok(()))) {
+            self.closed = true;
+        }
+        r
+    }
+}
+
+impl Drop for ClosingFile {
+    fn drop(&mut self) {
+        if self.closed {
+            return;
+        }
+        let Some(mut file) = self.file.take() else { return };
+        // Without a runtime to finish on, the file's own drop still sends the close.
+        if let Ok(rt) = tokio::runtime::Handle::try_current() {
+            rt.spawn(async move {
+                let _ = file.shutdown().await;
+            });
+        }
+    }
+}
+
 pub struct SftpConn {
     client: Client,
     sftp: SftpSession,
@@ -315,7 +380,7 @@ impl SftpConn {
 
     /// The first `max` bytes of a file, and whether there was more.
     pub async fn read_head(&self, path: &str, max: usize) -> Result<(Vec<u8>, bool), SftpError> {
-        let mut f = self.sftp.open(path.to_string()).await?;
+        let mut f = ClosingFile::new(self.sftp.open(path.to_string()).await?);
         let mut buf = Vec::with_capacity(max.min(1 << 20));
         (&mut f)
             .take(max as u64 + 1)
@@ -408,7 +473,7 @@ impl FileBackend for SftpConn {
     }
 
     async fn read(&self, path: &str, offset: u64) -> Result<Reader, SftpError> {
-        let mut f = self.sftp.open(path.to_string()).await?;
+        let mut f = ClosingFile::new(self.sftp.open(path.to_string()).await?);
         if offset > 0 {
             f.seek(std::io::SeekFrom::Start(offset)).await.map_err(|e| SftpError::Local { path: PathBuf::from(path), source: e })?;
         }
@@ -417,9 +482,9 @@ impl FileBackend for SftpConn {
 
     async fn write(&self, path: &str, offset: u64, _size: u64) -> Result<Writer, SftpError> {
         if offset == 0 {
-            return Ok(Box::new(self.sftp.create(path.to_string()).await?));
+            return Ok(Box::new(ClosingFile::new(self.sftp.create(path.to_string()).await?)));
         }
-        let mut w = self.sftp.open_with_flags(path.to_string(), russh_sftp::protocol::OpenFlags::WRITE).await?;
+        let mut w = ClosingFile::new(self.sftp.open_with_flags(path.to_string(), russh_sftp::protocol::OpenFlags::WRITE).await?);
         w.seek(std::io::SeekFrom::Start(offset)).await.map_err(|e| SftpError::Local { path: PathBuf::from(path), source: e })?;
         Ok(Box::new(w))
     }
@@ -427,6 +492,40 @@ impl FileBackend for SftpConn {
     async fn close(&self) {
         // The connection is closed when the session is dropped by its manager.
     }
+
+    fn ssh(&self) -> Option<&Client> {
+        Some(&self.client)
+    }
+
+    async fn exec(&self, command: &str, stdin: Option<&[u8]>) -> Result<crate::ssh::ExecOutput, SftpError> {
+        Ok(self.client.exec(command, stdin, EXEC_LIMIT, EXEC_MAX_OUTPUT).await?)
+    }
+
+    async fn metadata(&self, path: &str) -> Result<Option<FileEntry>, SftpError> {
+        use russh_sftp::client::error::Error as E;
+        use russh_sftp::protocol::StatusCode;
+        match self.sftp.metadata(path.to_string()).await {
+            Ok(m) => Ok(Some(FileEntry {
+                name: remote_basename_owned(path),
+                path: path.to_string(),
+                is_dir: m.is_dir(),
+                is_symlink: false,
+                size: if m.is_dir() { 0 } else { m.size.unwrap_or(0) },
+                modified: m.mtime.map(u64::from),
+                permissions: m.permissions.map(|p| p & 0o7777),
+            })),
+            Err(E::Status(s)) if s.status_code == StatusCode::NoSuchFile => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+}
+
+/// Longest a command run beside the file pane may take, and the most output kept from it.
+const EXEC_LIMIT: std::time::Duration = std::time::Duration::from_secs(60);
+const EXEC_MAX_OUTPUT: usize = 1 << 20;
+
+fn remote_basename_owned(path: &str) -> String {
+    path.trim_end_matches('/').rsplit('/').next().unwrap_or(path).to_string()
 }
 
 // ---------------------------------------------------------------------------
@@ -768,5 +867,153 @@ mod tests {
         assert_eq!(std::fs::read(down.join("big.bin")).unwrap(), big);
 
         m.close("s").await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_file_relayed_between_two_servers_arrives_whole_and_a_cancelled_one_resumes() {
+        use crate::files::{engine, FileBackend};
+        let dir = tempfile::TempDir::new().unwrap();
+        let Some(sshd) = spawn_sshd(dir.path()) else {
+            eprintln!("skipping: no usable sshd on this machine");
+            return;
+        };
+        let t = target(&sshd, &sshd.client_key, dir.path().join("kh"));
+        let m = SftpManager::new();
+        // Two separate sessions: the same server stands in for host A and host B.
+        m.open("a".into(), &t).await.unwrap();
+        m.open("b".into(), &t).await.unwrap();
+        let (a, b) = (m.get("a").unwrap(), m.get("b").unwrap());
+        let (a, b): (&dyn FileBackend, &dyn FileBackend) = (a.as_ref(), b.as_ref());
+        let registry = m.registry();
+
+        // A tree from "A" to "B": nested folders, an empty file, one that spans several chunks.
+        let src = dir.path().join("src");
+        std::fs::create_dir_all(src.join("nested/deeper")).unwrap();
+        std::fs::write(src.join("empty"), b"").unwrap();
+        std::fs::write(src.join("nested/small.txt"), b"hello").unwrap();
+        let big: Vec<u8> = (0..(CHUNK * 3 + 99)).map(|i| (i * 7 % 251) as u8).collect();
+        std::fs::write(src.join("nested/deeper/big.bin"), &big).unwrap();
+        let dst = dir.path().join("dst");
+        std::fs::create_dir(&dst).unwrap();
+
+        let sink = Arc::new(Collect(Mutex::new(Vec::new())));
+        engine::transfer(&registry, "relay1".into(), a, b, &[src.to_string_lossy().into_owned()], &dst.to_string_lossy(), false, crate::files::Conflict::Overwrite, &sink).await;
+        let last = sink.0.lock().unwrap().last().cloned();
+        assert!(matches!(last, Some(TransferProgress::Done { files: 3, .. })), "{last:?}");
+        assert_eq!(std::fs::read(dst.join("src/nested/deeper/big.bin")).unwrap(), big);
+        assert_eq!(std::fs::read(dst.join("src/nested/small.txt")).unwrap(), b"hello");
+        assert_eq!(std::fs::read(dst.join("src/empty")).unwrap(), b"");
+
+        // Cancel a long one part-way: it ends as cancelled, the partial file is closed everywhere, both sessions
+        // still work, and the same transfer can be resumed to completion.
+        let long = dir.path().join("long.bin");
+        std::fs::File::create(&long).unwrap().set_len(192 << 20).unwrap();
+        let out = dir.path().join("out");
+        std::fs::create_dir(&out).unwrap();
+        let sink = Arc::new(Collect(Mutex::new(Vec::new())));
+        let reg = Arc::clone(&registry);
+        let watcher = {
+            let sink = Arc::clone(&sink);
+            tokio::spawn(async move {
+                for _ in 0..400 {
+                    if sink.0.lock().unwrap().iter().any(|p| matches!(p, TransferProgress::Progress { bytes, .. } if *bytes > 0)) {
+                        reg.cancel("relay2");
+                        return;
+                    }
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+            })
+        };
+        engine::transfer(&registry, "relay2".into(), a, b, &[long.to_string_lossy().into_owned()], &out.to_string_lossy(), false, crate::files::Conflict::Overwrite, &sink).await;
+        watcher.await.unwrap();
+        let last = sink.0.lock().unwrap().last().cloned();
+        assert!(matches!(last, Some(TransferProgress::Cancelled)), "{last:?}");
+        let partial = out.join("long.bin");
+        let have = std::fs::metadata(&partial).unwrap().len();
+        assert!(have > 0 && have < (192 << 20), "stopped part-way: {have}");
+        assert!(a.list(&dir.path().to_string_lossy()).await.is_ok());
+        assert!(b.list(&dir.path().to_string_lossy()).await.is_ok());
+        let sink = Arc::new(Collect(Mutex::new(Vec::new())));
+        engine::transfer(&registry, "relay3".into(), a, b, &[long.to_string_lossy().into_owned()], &out.to_string_lossy(), true, crate::files::Conflict::Overwrite, &sink).await;
+        let last = sink.0.lock().unwrap().last().cloned();
+        assert!(matches!(last, Some(TransferProgress::Done { .. })), "{last:?}");
+        assert_eq!(std::fs::metadata(&partial).unwrap().len(), 192 << 20);
+        assert!(registry.is_empty(), "nothing is left registered");
+    }
+
+    /// `sftp-server` is run with room for only a few open files: a transfer that left its files open when cancelled
+    /// would use the room up, and the next open would fail.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn cancelled_relays_close_their_files_on_both_servers() {
+        use crate::files::{engine, FileBackend};
+        let dir = tempfile::TempDir::new().unwrap();
+        let Some(server) = ["/usr/lib/openssh/sftp-server", "/usr/libexec/openssh/sftp-server", "/usr/libexec/sftp-server"].iter().find(|p| std::path::Path::new(p).exists()) else {
+            eprintln!("skipping: no sftp-server to limit");
+            return;
+        };
+        let script = dir.path().join("limited-sftp.sh");
+        std::fs::write(&script, format!("#!/bin/sh\nulimit -n 24\nexec {server}\n")).unwrap();
+        let Some(sshd) = crate::ssh::testutil::spawn_sshd_with(dir.path(), false, &format!("Subsystem sftp /bin/sh {}\n", script.display())) else {
+            eprintln!("skipping: no usable sshd on this machine");
+            return;
+        };
+        let t = target(&sshd, &sshd.client_key, dir.path().join("kh"));
+        let m = SftpManager::new();
+        m.open("a".into(), &t).await.unwrap();
+        m.open("b".into(), &t).await.unwrap();
+        let (a, b) = (m.get("a").unwrap(), m.get("b").unwrap());
+
+        // Control: the limit is real. Holding files open really does run the server out of room.
+        let held: Vec<_> = {
+            let mut v = Vec::new();
+            for _ in 0..40 {
+                match a.sftp.open(dir.path().join("sshd_config").to_string_lossy().into_owned()).await {
+                    Ok(f) => v.push(f),
+                    Err(_) => break,
+                }
+            }
+            v
+        };
+        assert!(held.len() < 40, "the server's open-file limit is in force: {} held", held.len());
+        for f in held {
+            f.close().await.unwrap();
+        }
+
+        let long = dir.path().join("long.bin");
+        std::fs::File::create(&long).unwrap().set_len(64 << 20).unwrap();
+        let registry = m.registry();
+        let (a, b): (&dyn FileBackend, &dyn FileBackend) = (a.as_ref(), b.as_ref());
+        for round in 0..30 {
+            let out = dir.path().join(format!("out{round}"));
+            std::fs::create_dir(&out).unwrap();
+            let sink = Arc::new(Collect(Mutex::new(Vec::new())));
+            let id = format!("c{round}");
+            let reg = Arc::clone(&registry);
+            let watcher = {
+                let (sink, id) = (Arc::clone(&sink), id.clone());
+                tokio::spawn(async move {
+                    for _ in 0..500 {
+                        if sink.0.lock().unwrap().iter().any(|p| matches!(p, TransferProgress::Progress { bytes, .. } if *bytes > 0)) {
+                            reg.cancel(&id);
+                            return;
+                        }
+                        tokio::time::sleep(Duration::from_millis(5)).await;
+                    }
+                })
+            };
+            engine::transfer(&registry, id, a, b, &[long.to_string_lossy().into_owned()], &out.to_string_lossy(), false, crate::files::Conflict::Overwrite, &sink).await;
+            watcher.await.unwrap();
+            let last = sink.0.lock().unwrap().last().cloned();
+            assert!(matches!(last, Some(TransferProgress::Cancelled | TransferProgress::Done { .. })), "round {round}: {last:?}");
+        }
+        // After thirty cancelled relays, both servers can still open files.
+        std::fs::write(dir.path().join("small.txt"), b"still works").unwrap();
+        let out = dir.path().join("final");
+        std::fs::create_dir(&out).unwrap();
+        let sink = Arc::new(Collect(Mutex::new(Vec::new())));
+        engine::transfer(&registry, "final".into(), a, b, &[dir.path().join("small.txt").to_string_lossy().into_owned()], &out.to_string_lossy(), false, crate::files::Conflict::Overwrite, &sink).await;
+        let last = sink.0.lock().unwrap().last().cloned();
+        assert!(matches!(last, Some(TransferProgress::Done { .. })), "files were left open: {last:?}");
+        assert_eq!(std::fs::read(out.join("small.txt")).unwrap(), b"still works");
     }
 }

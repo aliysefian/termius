@@ -237,6 +237,17 @@ pub struct HopRtt {
     pub segment_ms: Option<u64>,
 }
 
+/// What a command run on the host wrote and how it ended.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ExecOutput {
+    pub stdout: Vec<u8>,
+    pub stderr: Vec<u8>,
+    /// The exit status, if the server reported one.
+    pub code: Option<u32>,
+    /// More was written than `max_output` allows; the rest was dropped.
+    pub truncated: bool,
+}
+
 /// A live, authenticated connection plus any jump-host connections it is
 /// tunnelled through. Derefs to the final hop's russh handle.
 pub struct Client {
@@ -265,6 +276,49 @@ impl Client {
     /// Names of the jump hosts, outermost first.
     pub fn jump_hosts(&self) -> Vec<String> {
         self.jumps.iter().map(|(h, _)| h.clone()).collect()
+    }
+
+    /// Run one command on the host on a channel of its own, feeding it `stdin` (then closing its input), and collect
+    /// what it writes. Gives up after `limit`; output beyond `max_output` bytes (each stream) is dropped. This is how
+    /// the file panes ask a host for a checksum or an owner, or write through `sudo`: the command is the caller's to
+    /// build, and every value in it must be quoted.
+    pub async fn exec(&self, command: &str, stdin: Option<&[u8]>, limit: Duration, max_output: usize) -> Result<ExecOutput, SshError> {
+        let run = async {
+            let mut channel = self.channel_open_session().await?;
+            channel.exec(true, command.as_bytes()).await?;
+            if let Some(input) = stdin {
+                channel.data(input).await?;
+            }
+            channel.eof().await?;
+            let mut out = ExecOutput::default();
+            while let Some(msg) = channel.wait().await {
+                match msg {
+                    ChannelMsg::Data { data } => {
+                        let room = max_output.saturating_sub(out.stdout.len());
+                        out.truncated |= data.len() > room;
+                        out.stdout.extend_from_slice(&data[..data.len().min(room)]);
+                    }
+                    ChannelMsg::ExtendedData { data, .. } => {
+                        let room = max_output.saturating_sub(out.stderr.len());
+                        out.truncated |= data.len() > room;
+                        out.stderr.extend_from_slice(&data[..data.len().min(room)]);
+                    }
+                    ChannelMsg::ExitStatus { exit_status } => out.code = Some(exit_status),
+                    ChannelMsg::Close => break,
+                    _ => {}
+                }
+            }
+            Ok::<_, SshError>(out)
+        };
+        tokio::time::timeout(limit, run).await.map_err(|_| SshError::Timeout(format!("the command `{}`", command.chars().take(40).collect::<String>())))?
+    }
+
+    /// Start a command on a channel of its own and hand the channel back, for the caller to feed and read as it goes
+    /// (a pipe between two hosts). Unlike [`Client::exec`] nothing is collected here.
+    pub async fn exec_channel(&self, command: &str) -> Result<russh::Channel<client::Msg>, SshError> {
+        let channel = self.channel_open_session().await?;
+        channel.exec(true, command.as_bytes()).await?;
+        Ok(channel)
     }
 
     /// What is known of each hop: the jump hosts outermost first, then the final host.

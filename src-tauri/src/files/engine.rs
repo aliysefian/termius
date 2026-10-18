@@ -112,7 +112,7 @@ impl TransferRegistry {
     }
 }
 
-struct Progress<'a> {
+pub(super) struct Progress<'a> {
     sink: &'a dyn ProgressSink,
     ctl: &'a TransferCtl,
     bytes: u64,
@@ -124,7 +124,7 @@ struct Progress<'a> {
 
 impl Progress<'_> {
     /// Stop if cancelled; wait here while paused.
-    async fn check(&mut self, current: &str) -> Result<(), FileError> {
+    pub(super) async fn check(&mut self, current: &str) -> Result<(), FileError> {
         if self.ctl.paused.load(Ordering::SeqCst) && !self.ctl.cancel.load(Ordering::SeqCst) {
             self.sink.report(TransferProgress::Paused { bytes: self.bytes, total_bytes: self.total });
             loop {
@@ -143,7 +143,7 @@ impl Progress<'_> {
             Ok(())
         }
     }
-    fn add(&mut self, n: u64, current: &str) {
+    pub(super) fn add(&mut self, n: u64, current: &str) {
         self.bytes += n;
         if self.last.elapsed() >= PROGRESS_INTERVAL {
             self.last = Instant::now();
@@ -257,6 +257,18 @@ async fn run(
     // A side that can't continue a file starts it over.
     let can_resume = resume && src.caps().resume && dst.caps().resume;
 
+    // Many small files between two hosts that both speak SSH: one tar stream beats a round trip per file.
+    if tar_applicable(src, dst, &plan, sources, dest_dir, resume, conflict).await {
+        if let Some((src_dir, entries)) = tar_entries(src, &plan, sources, dest_dir) {
+            super::tarrelay::relay(src.ssh().expect("checked"), dst.ssh().expect("checked"), &src_dir, dest_dir, &entries, &mut p).await?;
+            #[cfg(test)]
+            TAR_RELAYS.fetch_add(1, Ordering::SeqCst);
+            p.files_done = p.total_files;
+            p.emit("");
+            return Ok(Copied { bytes: p.bytes, files: p.files_done, skipped: plan.skipped });
+        }
+    }
+
     for dir in &plan.dirs {
         p.check(dir).await?;
         dst.ensure_dir(dir).await?;
@@ -293,6 +305,49 @@ async fn run(
         p.emit(from);
     }
     Ok(Copied { bytes: p.bytes, files: p.files_done, skipped: plan.skipped })
+}
+
+/// Copies made by the tar relay (tests only), to see it was used.
+#[cfg(test)]
+pub static TAR_RELAYS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// The tar relay is for a plain overwrite of many small files between two SSH hosts: not for continuing a copy, skipping
+/// what is there or keeping both (tar overwrites), and not when the files are big (bandwidth, not round trips, is then
+/// the limit, and per-file copies can resume).
+async fn tar_applicable(src: &dyn FileBackend, dst: &dyn FileBackend, plan: &Plan, sources: &[String], dest_dir: &str, resume: bool, conflict: Conflict) -> bool {
+    let _ = (sources, dest_dir);
+    if resume || conflict != Conflict::Overwrite || plan.files.len() < super::tarrelay::MIN_FILES {
+        return false;
+    }
+    if plan.total / plan.files.len() as u64 >= super::tarrelay::MAX_AVERAGE_BYTES {
+        return false;
+    }
+    super::tarrelay::available(src, dst).await
+}
+
+/// What the archive must hold: every planned folder and file as a path under the one folder the sources share, which
+/// must be the same path under the destination folder. `None` where the sources do not line up like that.
+fn tar_entries(src: &dyn FileBackend, plan: &Plan, sources: &[String], dest_dir: &str) -> Option<(String, Vec<super::tarrelay::Entry>)> {
+    let parent = src.parent(sources.first()?)?;
+    if sources.iter().any(|s| src.parent(s).as_deref() != Some(parent.as_str())) {
+        return None;
+    }
+    let under = |base: &str, path: &str| -> Option<String> {
+        let prefix = if base == "/" { "/".to_string() } else { format!("{}/", base.trim_end_matches('/')) };
+        path.strip_prefix(&prefix).map(str::to_string)
+    };
+    let mut entries = Vec::new();
+    for d in &plan.dirs {
+        entries.push(super::tarrelay::Entry { path: under(dest_dir, d)?, dir: true });
+    }
+    for (from, to, _) in &plan.files {
+        let rel = under(dest_dir, to)?;
+        if under(&parent, from).as_deref() != Some(rel.as_str()) {
+            return None;
+        }
+        entries.push(super::tarrelay::Entry { path: rel, dir: false });
+    }
+    Some((parent, entries))
 }
 
 struct Copied {
