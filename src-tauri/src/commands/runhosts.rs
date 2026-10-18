@@ -95,7 +95,6 @@ fn adhoc_jump_chain(state: &AppState, jumps: Vec<AdhocHop>) -> ApiResult<Option<
                     proxy: None,
                     keepalive_secs: None,
                     legacy_algorithms: false,
-            agent_gate: None,
                     agent_gate: None,
                 }
             }
@@ -149,6 +148,7 @@ pub async fn ssh_connect_adhoc(
             proxy: None,
             keepalive_secs: None,
             legacy_algorithms: false,
+            agent_gate: None,
         },
         cols: cols.max(2),
         rows: rows.max(1),
