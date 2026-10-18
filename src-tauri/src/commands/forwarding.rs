@@ -60,6 +60,17 @@ pub async fn forward_start(app: AppHandle, state: State<'_, AppState>, id: Uuid)
     Ok(())
 }
 
+/// Start a forward that is not a saved rule (a port spotted in a terminal), through `host_id`. The returned id is
+/// what `forward_stop` and the `forward:status` events use; nothing is written to the vault, so it is gone when the
+/// app closes or it is stopped.
+#[tauri::command]
+pub async fn forward_start_adhoc(app: AppHandle, state: State<'_, AppState>, host_id: Uuid, kind: crate::models::ForwardKind) -> ApiResult<Uuid> {
+    let target = resolve_target(&state, host_id, None)?;
+    let id = Uuid::new_v4();
+    state.forwards.start(id, target, kind, Arc::new(EventStatusSink(app)))?;
+    Ok(id)
+}
+
 #[tauri::command]
 pub fn forward_stop(state: State<'_, AppState>, id: Uuid) {
     state.forwards.stop(id);

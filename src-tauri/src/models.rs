@@ -210,6 +210,10 @@ pub struct Host {
     /// root on the host can use the agent while the session is open.
     #[serde(default)]
     pub forward_agent: bool,
+    /// With `forward_agent`: ask for forwarding, but start each session with it switched off, so it is on only
+    /// when (and for as long as) the person turns it on in that session.
+    #[serde(default)]
+    pub agent_forward_paused: bool,
     /// Show the host's graphical programs on this computer (`ssh -X`).
     #[serde(default)]
     pub forward_x11: bool,
@@ -532,6 +536,10 @@ pub struct VaultSettings {
     /// Clear copied secrets from the clipboard after this many seconds.
     #[serde(default = "default_clipboard_secs")]
     pub clipboard_clear_secs: u32,
+    /// Ask before a host that has the agent forwarded may use a key to sign (on top of any per-key setting). Every
+    /// request is announced either way.
+    #[serde(default)]
+    pub forwarded_agent_approval: bool,
 }
 
 /// The settings record's fixed ID.
@@ -572,6 +580,7 @@ impl Default for VaultSettings {
             destructive_patterns: default_destructive(),
             paste_confirm_lines: default_paste_lines(),
             clipboard_clear_secs: default_clipboard_secs(),
+            forwarded_agent_approval: false,
         }
     }
 }

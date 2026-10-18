@@ -308,6 +308,49 @@ fn login(vault: &Vault, e: &Effective) -> std::result::Result<Option<(String, Au
     Ok(Some((identity.username, resolve_auth(vault, identity.auth)?)))
 }
 
+/// One place on the way to a host, as the diagnostics name it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RouteStop {
+    pub label: String,
+    pub hostname: String,
+    pub port: u16,
+    pub legacy_algorithms: bool,
+}
+
+/// The way to a host without logging in: its jump hosts outermost first, and the proxy that reaches whichever hop is
+/// dialled directly. Follows the same rules as [`resolve_target`] (group defaults, opt-outs) but needs no credentials,
+/// so it works for a host that has none.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Route {
+    pub target: RouteStop,
+    pub jumps: Vec<RouteStop>,
+    pub first_hop_proxy: Option<crate::models::ProxySpec>,
+}
+
+pub fn route_of(vault: &Vault, host_id: Uuid) -> std::result::Result<Route, ResolveError> {
+    let stop = |h: &Host| RouteStop { label: h.label.clone(), hostname: h.hostname.clone(), port: h.port, legacy_algorithms: h.legacy_algorithms };
+    let host = load_host(vault, host_id)?;
+    let groups = load_groups(vault)?;
+    let jumps = jump_map(vault)?;
+    let first_jump = jumps.get(&host_id).copied().flatten();
+    let chain = crate::models::jump_chain(Some(host_id), first_jump, crate::ssh::MAX_JUMPS, |h| jumps.get(&h).copied())
+        .map_err(|e| ResolveError::JumpChain(e.to_string()))?;
+    // As in resolve_target: the outermost jump uses its own proxy, else the target's.
+    let target_proxy = load_proxy(vault, effective(&host, &groups).proxy_id)?;
+    let mut stops = Vec::new();
+    let mut first_hop_proxy = target_proxy.clone();
+    for (n, jid) in chain.iter().enumerate() {
+        let jh = load_host(vault, *jid)?;
+        stops.push(stop(&jh));
+        if n == chain.len() - 1 {
+            first_hop_proxy = load_proxy(vault, effective(&jh, &groups).proxy_id)?.or(target_proxy.clone());
+        }
+    }
+    // `chain` runs from the nearest jump outwards; the diagnostics read it outermost first.
+    stops.reverse();
+    Ok(Route { target: stop(&host), jumps: stops, first_hop_proxy })
+}
+
 /// Everything needed to connect to `host_id`: its address, login (after
 /// group defaults and key references), proxy, keep-alive, and jump chain.
 /// One-time `credentials` (username, password) apply to the final host
@@ -593,5 +636,23 @@ mod tests {
         h.no_group_proxy = true;
         let e = effective(&h, &groups);
         assert_eq!((e.jump_host_id, e.proxy_id), (None, None));
+    }
+
+    #[test]
+    fn the_route_to_a_host_lists_its_jumps_outermost_first_and_needs_no_login() {
+        let (_d, v) = new_vault();
+        let put = |label: &str, host: &str, port: u16, jump: Option<Uuid>| {
+            v.insert(Collection::Hosts, &Host { label: label.into(), hostname: host.into(), port, jump_host_id: jump, ..Default::default() }).unwrap().id
+        };
+        let edge = put("edge", "edge.example", 2222, None);
+        let inner = put("inner", "10.0.0.2", 22, Some(edge));
+        let app = put("app", "10.0.1.9", 22, Some(inner));
+        let plain = put("plain", "plain.example", 22, None);
+
+        let r = route_of(&v, app).unwrap();
+        assert_eq!(r.target.label, "app");
+        assert_eq!(r.jumps.iter().map(|j| (j.label.as_str(), j.port)).collect::<Vec<_>>(), [("edge", 2222), ("inner", 22)], "outermost first: the one this computer dials");
+        assert_eq!(route_of(&v, plain).unwrap().jumps, vec![]);
+        assert!(matches!(route_of(&v, Uuid::new_v4()), Err(ResolveError::NotFound(_))));
     }
 }

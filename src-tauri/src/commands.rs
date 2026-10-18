@@ -35,6 +35,8 @@ pub mod databases;
 pub use databases::*;
 pub mod forwarding;
 pub use forwarding::*;
+pub mod network;
+pub use network::*;
 pub mod keys;
 pub use keys::*;
 pub mod knownhosts;
@@ -1322,35 +1324,38 @@ impl crate::agent::Backend for VaultAgent {
             match k.agent {
                 crate::models::AgentUse::Allow => true,
                 crate::models::AgentUse::Off => false,
-                crate::models::AgentUse::Ask => {
-                    let state = app.state::<AppState>();
-                    let request_id = Uuid::new_v4();
-                    let (tx, rx) = tokio::sync::oneshot::channel();
-                    state
-                        .agent_prompts
-                        .lock()
-                        .unwrap_or_else(|p| p.into_inner())
-                        .insert(request_id, tx);
-                    let prompt = AgentPrompt {
-                        request_id,
-                        key_name: k.name.clone(),
-                        fingerprint: k.fingerprint.clone(),
-                        origin,
-                    };
-                    let ok = match app.emit(EVENT_AGENT_PROMPT, prompt) {
-                        Ok(()) => matches!(tokio::time::timeout(AGENT_PROMPT_TIMEOUT, rx).await, Ok(Ok(true))),
-                        Err(_) => false,
-                    };
-                    state
-                        .agent_prompts
-                        .lock()
-                        .unwrap_or_else(|p| p.into_inner())
-                        .remove(&request_id);
-                    ok
-                }
+                crate::models::AgentUse::Ask => ask_signature(&app, k.name.clone(), k.fingerprint.clone(), origin).await,
             }
         })
     }
+}
+
+/// Ask the person to approve one signature, and wait (a minute at most) for the answer. No answer means no.
+async fn ask_signature(app: &AppHandle, key_name: String, fingerprint: String, origin: Option<String>) -> bool {
+    let state = app.state::<AppState>();
+    let request_id = Uuid::new_v4();
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    state
+        .agent_prompts
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .insert(request_id, tx);
+    let prompt = AgentPrompt {
+        request_id,
+        key_name,
+        fingerprint,
+        origin,
+    };
+    let ok = match app.emit(EVENT_AGENT_PROMPT, prompt) {
+        Ok(()) => matches!(tokio::time::timeout(AGENT_PROMPT_TIMEOUT, rx).await, Ok(Ok(true))),
+        Err(_) => false,
+    };
+    state
+        .agent_prompts
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .remove(&request_id);
+    ok
 }
 
 fn agent_dir(app: &AppHandle) -> ApiResult<PathBuf> {
@@ -2029,7 +2034,6 @@ fn resolve_target(
     host_id: Uuid,
     credentials: Option<Credentials>,
 ) -> ApiResult<Target> {
-    use crate::keymanager::ResolveError;
     let creds = credentials.map(|c| (c.username, c.password));
     let policy = state.host_keys.clone();
     let resolved = state
@@ -2044,12 +2048,17 @@ fn resolve_target(
         }
         t
     });
-    resolved.map_err(|e| match e {
+    resolved.map_err(resolve_api_error)
+}
+
+fn resolve_api_error(e: crate::keymanager::ResolveError) -> ApiError {
+    use crate::keymanager::ResolveError;
+    match e {
         ResolveError::Keys(k) => k.into(),
         ResolveError::CredentialsRequired(m) => ApiError::new("credentials_required", m),
         ResolveError::JumpChain(m) => ApiError::new("jump_chain", m),
         ResolveError::NotFound(m) => ApiError::new("not_found", m),
-    })
+    }
 }
 
 /// Bridges the engine to the webview: raw PTY bytes over an IPC channel,
@@ -2093,8 +2102,20 @@ pub async fn ssh_connect(
     credentials: Option<Credentials>,
     on_data: Channel<InvokeResponseBody>,
 ) -> ApiResult<()> {
+    let mut target = resolve_target(&state, host_id, credentials)?;
+    if target.forward_agent {
+        // A session that forwards the agent can switch it off and on, and is told of every signature asked for.
+        let host = state.session.with_vault(|v| v.get::<Host>(Collection::Hosts, host_id))?.data;
+        let observer = Arc::new(network::SignatureNotifier {
+            app: app.clone(),
+            pane_id: pane_id.clone(),
+            host: host.as_ref().map(|h| h.label.clone()).unwrap_or_default(),
+        });
+        let paused = host.is_some_and(|h| h.agent_forward_paused);
+        target.agent_gate = Some(crate::agentgate::AgentGate::new(!paused, Some(observer)));
+    }
     let params = ConnectParams {
-        target: resolve_target(&state, host_id, credentials)?,
+        target,
         cols: cols.max(2),
         rows: rows.max(1),
     };

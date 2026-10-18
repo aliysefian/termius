@@ -432,11 +432,14 @@ async fn dns_stage(name: &str, port: u16) -> DnsReport {
     }
 }
 
+/// A program to try, its arguments, and how to read what it prints.
+type Tool<T> = (&'static str, Vec<String>, fn(&str) -> T);
+
 /// The name an address reverses to, asked of whichever lookup program this computer has. `None` if there is none or
 /// no program could say.
 async fn ptr_lookup(ip: IpAddr) -> Option<String> {
     let ip = ip.to_string();
-    let attempts: [(&str, Vec<String>, fn(&str) -> Option<String>); 3] = [
+    let attempts: [Tool<Option<String>>; 3] = [
         ("dig", vec!["+short".into(), "+time=2".into(), "+tries=1".into(), "-x".into(), ip.clone()], parse_dig_ptr),
         ("host", vec![ip.clone()], parse_host_ptr),
         ("nslookup", vec![ip.clone()], parse_nslookup_ptr),
@@ -505,8 +508,7 @@ async fn route_stage(ip: &str) -> RouteReport {
     let hops = MAX_HOPS.to_string();
     // mtr is first: it reports loss per hop. It needs raw sockets, which some systems give it and some don't; any
     // failure falls through to the next tool.
-    #[allow(clippy::type_complexity)]
-    let tools: Vec<(&str, Vec<String>, fn(&str) -> Vec<RouteHop>)> = if cfg!(windows) {
+    let tools: Vec<Tool<Vec<RouteHop>>> = if cfg!(windows) {
         vec![("tracert", vec!["-d".into(), "-h".into(), hops.clone(), "-w".into(), "1000".into(), ip.into()], parse_tracert)]
     } else {
         vec![
