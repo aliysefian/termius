@@ -25,6 +25,9 @@
   import SnippetPicker from "./SnippetPicker.svelte";
   import TerminalPane from "./TerminalPane.svelte";
   import RemotePane from "./RemotePane.svelte";
+  import HopChain from "./HopChain.svelte";
+  import AgentControl from "./AgentControl.svelte";
+  import PaneForwards from "./PaneForwards.svelte";
 
   const tab = $derived(ui.activeTab);
   let renaming = $state<string | null>(null);
@@ -44,6 +47,12 @@
   function paneEnv(p: Pane) {
     return p.target.kind === "host" ? envInfo(vaultStore.hostById.get(p.target.hostId)?.data?.environment) : envInfo("");
   }
+
+  /** A saved host that is reached over SSH (not Telnet, a remote desktop or an FTP server). */
+  const isSshHost = (hostId: string) => {
+    const p = vaultStore.hostById.get(hostId)?.data?.protocol ?? "";
+    return p === "" || p === "ssh";
+  };
 
   const hasProd = (t: Tab) => t.panes.some((p) => paneEnv(p).value === "production");
 
@@ -641,7 +650,7 @@
         {#if r}
           {@const full = zoomed === pane.id}
           <div
-            class="absolute flex flex-col overflow-hidden
+            class="@container absolute flex flex-col overflow-hidden
               {zoomed && !full ? 'invisible' : ''}
               {t.syncInput && multi ? 'ring-1 ring-inset ring-warning/60' : pane.id === t.activePaneId && multi && !full ? 'ring-1 ring-inset ring-accent/40' : ''}"
             style:left="{full ? 0 : r.x}%"
@@ -668,6 +677,11 @@
               {#if info?.remoteTitle}
                 <span class="truncate text-fg-muted">— {info.remoteTitle}</span>
               {/if}
+              {#if pane.target.kind === "host" && isSshHost(pane.target.hostId)}
+                <div class="min-w-0 shrink @max-[44rem]:hidden">
+                  <HopChain hostId={pane.target.hostId} paneId={pane.id} polling={pane.id === t.activePaneId && t.id === ui.activeTabId} />
+                </div>
+              {/if}
               {#if info?.cwd && pane.target.kind === "host"}
                 {@const hid = pane.target.hostId}
                 {@const cwd = info.cwd}
@@ -676,6 +690,10 @@
                 <button class="icon-btn h-6 w-6" title="New tab in {cwd}" onclick={() => ui.openTerminal(hid, paneLabel(pane.target), `cd ${shellQuote(cwd)}`)}><SquareTerminal size={12} /></button>
               {/if}
               <div class="flex-1"></div>
+              {#if pane.target.kind === "host" && isSshHost(pane.target.hostId)}
+                <PaneForwards paneId={pane.id} />
+                <AgentControl paneId={pane.id} />
+              {/if}
               {#if info?.recording}
                 <span title="Recording to {info.recording}"><Circle size={10} class="shrink-0 fill-danger text-danger animate-pulse" aria-label="Recording" /></span>
               {/if}

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Copy, CopyPlus, FolderSync, Info, Pencil, Play, Star, TerminalSquare, Trash2 } from "lucide-svelte";
+  import { Activity, Copy, CopyPlus, FolderSync, Info, Pencil, Play, Star, TerminalSquare, Trash2 } from "lucide-svelte";
   import Badge from "./Badge.svelte";
   import { writeText } from "@tauri-apps/plugin-clipboard-manager";
   import { settings } from "$lib/stores/settings.svelte";
@@ -156,6 +156,11 @@
     <button class="icon-btn h-6 w-6 @max-[16rem]:hidden" title="Copy address" aria-label="Copy address" onclick={copyAddress}>
       <CopyPlus size={12} />
     </button>
+    {#if !d.protocol || d.protocol === "ssh"}
+      <button class="icon-btn h-6 w-6 @max-[16rem]:hidden" title="Diagnose connection" aria-label="Diagnose connection" onclick={(e) => { e.stopPropagation(); ui.diagnoseHost = host.id; }}>
+        <Activity size={12} />
+      </button>
+    {/if}
     <button
       class="icon-btn h-6 w-6 {d.favorite ? 'text-warning' : ''}"
       title={d.favorite ? "Remove from favorites" : "Add to favorites"}

@@ -361,6 +361,7 @@ mod tests {
             identity_id: None,
             jump_host_id: None,
             forward_agent: false,
+            agent_forward_paused: false,
             forward_x11: false,
             environment: String::new(),
             startup_command: String::new(),

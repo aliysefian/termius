@@ -185,6 +185,9 @@
     {#snippet footer()}
       <button class="btn-ghost" onclick={() => (ui.modal = { kind: "host", id })}><Pencil size={14} /> Edit</button>
       <button class="btn-ghost" onclick={() => { ui.modal = null; ui.openSftpAt(id, ""); }}><FolderSync size={14} /> SFTP</button>
+      {#if !d.protocol || d.protocol === "ssh"}
+        <button class="btn-ghost" onclick={() => { ui.modal = null; ui.diagnoseHost = id; }}><Activity size={14} /> Diagnose</button>
+      {/if}
       <button class="btn-primary" onclick={() => { ui.modal = null; ui.openTerminal(id, d.label); }}><TerminalSquare size={14} /> Connect</button>
     {/snippet}
   </Modal>

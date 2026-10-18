@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { Copy, X } from "lucide-svelte";
+  import { Copy, KeyRound, X } from "lucide-svelte";
   import Spinner from "$lib/components/Spinner.svelte";
   import { writeText } from "@tauri-apps/plugin-clipboard-manager";
   import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -55,6 +55,7 @@
   import SnippetsPanel from "$lib/components/SnippetsPanel.svelte";
   import Onboarding from "$lib/components/Onboarding.svelte";
   import Tour from "$lib/components/Tour.svelte";
+  import DiagnoseDrawer from "$lib/components/DiagnoseDrawer.svelte";
   import SnippetPack from "$lib/components/SnippetPack.svelte";
   import ImportInventory from "$lib/components/ImportInventory.svelte";
   import HostsTransfer from "$lib/components/HostsTransfer.svelte";
@@ -74,6 +75,7 @@
   import { settings } from "$lib/stores/settings.svelte";
   import { PAGE_VIEWS, paneLabel, ui } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
+  import { networkStore } from "$lib/stores/network.svelte";
 
   let ready = $state(false);
 
@@ -230,6 +232,7 @@
   });
   onMount(async () => {
     await vaultStore.init();
+    void networkStore.init();
     ready = true;
     // After start-up settles, so it never slows the first screen.
     setTimeout(() => void updates.init(), 3000);
@@ -424,6 +427,7 @@
   {/if}
 
   {#if ui.tour}<Tour />{/if}
+  {#if ui.diagnoseHost}<DiagnoseDrawer hostId={ui.diagnoseHost} />{/if}
 
   <MasterPasswordPrompt />
   <RecoveryKeyDialog />
@@ -433,9 +437,10 @@
       {#each ui.toasts as toast (toast.id)}
         <div
           class="anim-pop pointer-events-auto flex w-full max-w-md items-start gap-3 rounded-md border px-4 py-2 text-sm shadow-xl
-            {toast.kind === 'error' ? 'border-danger/30 bg-panel text-danger' : 'border-line bg-panel text-fg'}"
+            {toast.kind === 'error' ? 'border-danger/30 bg-panel text-danger' : toast.kind === 'warning' ? 'border-warning/40 bg-warning/10 text-warning' : 'border-line bg-panel text-fg'}"
           role={toast.kind === "error" ? "alert" : "status"}
         >
+          {#if toast.kind === "warning"}<KeyRound size={15} class="mt-0.5 shrink-0" aria-hidden="true" />{/if}
           <span class="line-clamp-3 min-w-0 flex-1 break-words">{toast.text}</span>
           {#if toast.action}
             <button class="shrink-0 font-semibold text-accent hover:underline" onclick={() => ui.runToastAction(toast.id)}>{toast.action.label}</button>

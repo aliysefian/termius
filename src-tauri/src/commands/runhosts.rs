@@ -95,6 +95,8 @@ fn adhoc_jump_chain(state: &AppState, jumps: Vec<AdhocHop>) -> ApiResult<Option<
                     proxy: None,
                     keepalive_secs: None,
                     legacy_algorithms: false,
+            agent_gate: None,
+                    agent_gate: None,
                 }
             }
         };

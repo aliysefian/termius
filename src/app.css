@@ -199,6 +199,10 @@ body {
   from { opacity: 0; transform: translateX(-8px) scale(0.97); }
   to { opacity: 1; transform: none; }
 }
+@keyframes sv-slide {
+  from { opacity: 0; transform: translateX(16px); }
+  to { opacity: 1; transform: none; }
+}
 @keyframes sv-rise {
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: none; }
@@ -229,6 +233,7 @@ body {
 .anim-fade { animation: sv-fade 0.16s ease-out backwards; }
 .anim-pop { animation: sv-pop 0.18s cubic-bezier(0.2, 0.9, 0.3, 1.2) backwards; }
 .anim-pop-left { animation: sv-pop-left 0.16s cubic-bezier(0.2, 0.9, 0.3, 1.1) backwards; transform-origin: left center; }
+.anim-slide { animation: sv-slide 0.18s ease-out backwards; }
 .anim-rise { animation: sv-rise 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) backwards; animation-delay: calc(var(--i, 0) * 55ms); }
 .anim-float { animation: sv-float 4.5s ease-in-out infinite; }
 

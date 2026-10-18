@@ -69,6 +69,8 @@ export interface Host {
   jump_host_id?: Uuid;
   /** Forward this computer's ssh-agent (ssh -A). */
   forward_agent?: boolean;
+  /** With forward_agent: each session starts with forwarding switched off, and it is on only while the person turns it on. */
+  agent_forward_paused?: boolean;
   /** Show the host's graphical programs on this computer (ssh -X). */
   forward_x11?: boolean;
   /** "production", "staging", "development", or empty. */
@@ -482,6 +484,8 @@ export interface VaultSettings {
   destructive_patterns: string[];
   paste_confirm_lines: number;
   clipboard_clear_secs: number;
+  /** Ask before a host that has the agent forwarded may sign with a key. Every request is announced either way. */
+  forwarded_agent_approval?: boolean;
 }
 
 export interface ReplacedKey {
@@ -624,6 +628,116 @@ export type Health =
   | { state: "via_jump" };
 
 export type HealthResult = { host_id: Uuid } & Health;
+
+// -- routes, agent forwarding and diagnostics (mirror ssh::HopInfo, agentgate, diagnose) ---------------------------
+
+/** One hop of a connected session: the jump hosts outermost first, then the host itself. */
+export interface HopInfo {
+  label: string;
+  host: string;
+  port: number;
+  fingerprint: string | null;
+  algorithm: string | null;
+  /** Time to dial, exchange keys and log in. */
+  connect_ms: number;
+  /** Unix seconds. */
+  connected_at: number;
+}
+
+/** The round trip to a hop now. `total_ms` includes the hops in front of it; `segment_ms` is what its own link adds. */
+export interface HopRtt {
+  total_ms: number | null;
+  segment_ms: number | null;
+}
+
+export type AgentForwardState = { state: "off" } | { state: "on" } | { state: "timed"; expires_in_secs: number };
+
+/** A host the agent is forwarded to asked for a signature. */
+export interface AgentSignatureEvent {
+  pane_id: string;
+  host: string;
+  origin: string;
+  fingerprint: string;
+  key_name: string | null;
+  /** Unix seconds. */
+  at: number;
+  refused: boolean;
+}
+
+export interface DiagPlace {
+  host: string;
+  port: number;
+  label: string;
+}
+export interface DiagAddress {
+  ip: string;
+  record: "A" | "AAAA";
+  ptr: string | null;
+}
+export interface DiagDns {
+  name: string;
+  literal: boolean;
+  addresses: DiagAddress[];
+  resolve_ms: number;
+  error: string | null;
+}
+export interface DiagTcp {
+  addr: string;
+  connect_ms: number | null;
+  failure: "refused" | "timeout" | "unreachable" | null;
+  error: string | null;
+}
+export interface DiagSsh {
+  banner: string | null;
+  banner_ms: number | null;
+  kex_ms: number | null;
+  algorithm: string | null;
+  fingerprint: string | null;
+  error: string | null;
+}
+export interface DiagHop {
+  hop: number;
+  ip: string | null;
+  loss_pct: number | null;
+  avg_ms: number | null;
+  sent: number | null;
+}
+export interface DiagRoute {
+  tool: string | null;
+  hops: DiagHop[];
+  reached: boolean;
+  error: string | null;
+}
+export interface DiagAuth {
+  ok: boolean;
+  total_ms: number | null;
+  failure: "rejected" | "bastion" | "behind_bastion" | "host_key_untrusted" | "host_key_changed" | "timeout" | "other" | null;
+  error: string | null;
+}
+export type VerdictKind =
+  | "healthy"
+  | "name_not_resolved"
+  | "local_network"
+  | "intermediate_hop"
+  | "bastion_unreachable"
+  | "target_port_closed"
+  | "auth_rejected"
+  | "host_key_problem"
+  | "unknown";
+export interface DiagVerdict {
+  kind: VerdictKind;
+  title: string;
+  detail: string;
+}
+/** One diagnostic stage, as it finishes. */
+export type DiagEvent =
+  | { stage: "dns"; report: DiagDns }
+  | { stage: "tcp"; report: DiagTcp }
+  | { stage: "ssh"; report: DiagSsh }
+  | { stage: "route_started" }
+  | { stage: "route"; report: DiagRoute }
+  | { stage: "auth"; report: DiagAuth }
+  | { stage: "verdict"; verdict: DiagVerdict };
 
 export const ENVIRONMENTS = [
   { value: "", label: "None" },

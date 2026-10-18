@@ -793,6 +793,17 @@
               Lets this host use your local keys, for example to reach another server or git. Anyone with root on the
               host can use them while you're connected, so only enable it for hosts you trust.
             </span>
+            {#if form.forward_agent}
+              <label class="mt-2 flex cursor-pointer items-start gap-2 text-xs">
+                <input type="checkbox" class="mt-0.5 shrink-0 accent-input" bind:checked={form.agent_forward_paused} />
+                <span>
+                  <span class="font-medium">Start each session with it switched off</span>
+                  <span class="block leading-relaxed text-fg-muted">
+                    The host can use your keys only while you have switched forwarding on in that session, for as long as you choose.
+                  </span>
+                </span>
+              </label>
+            {/if}
           </span>
         </label>
         <div>

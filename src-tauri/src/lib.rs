@@ -3,6 +3,7 @@
 #[cfg(test)]
 mod acceptance_tests;
 pub mod agent;
+pub mod agentgate;
 pub mod algorithms;
 pub mod ansible;
 pub mod certs;
@@ -14,6 +15,7 @@ pub mod control;
 pub mod crashlog;
 pub mod crypto;
 pub mod deadline;
+pub mod diagnose;
 pub mod exportfile;
 pub mod idle;
 pub mod csvimport;
@@ -297,6 +299,12 @@ pub fn run() {
             commands::forwarding::save_forward,
             commands::forwarding::delete_forward,
             commands::forwarding::forward_start,
+            commands::forwarding::forward_start_adhoc,
+            commands::network::ssh_hops,
+            commands::network::ssh_hop_rtts,
+            commands::network::ssh_agent_forwarding,
+            commands::network::ssh_agent_forwarding_set,
+            commands::network::diagnose_host,
             commands::forwarding::forward_stop,
             commands::forwarding::forward_statuses,
         ])

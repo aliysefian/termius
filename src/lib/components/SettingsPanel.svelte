@@ -828,6 +828,16 @@ sshvault run web-01 db-01 --json -- df -h /</pre>
             <label class="label" for="s-ret">Keep backups</label>
             <input id="s-ret" class="input" type="number" min="1" max="1000" bind:value={draft.backup_retention} />
           </div>
+          <label class="col-span-2 flex cursor-pointer items-start gap-3 text-sm">
+            <input type="checkbox" class="mt-1 shrink-0 accent-input" bind:checked={draft.forwarded_agent_approval} />
+            <span>
+              <span class="font-medium">Ask before a host with your agent forwarded signs</span>
+              <span class="block text-xs text-fg-muted">
+                Every signature a forwarded host asks for is announced in a notice either way. With this on, each one also waits for your
+                yes, so a host you only half trust cannot use your keys behind your back.
+              </span>
+            </span>
+          </label>
           <div class="col-span-2">
             <label class="label" for="s-pat">Ask before running these on production hosts <span class="font-normal text-fg-muted">(one regular expression per line)</span></label>
             <textarea id="s-pat" class="input font-mono text-xs" rows="6" bind:value={patternsText} spellcheck="false"></textarea>

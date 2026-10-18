@@ -3,7 +3,9 @@ import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import type {
+  AgentForwardState,
   AgentPrompt,
+  AgentSignatureEvent,
   AgentStatus,
   AgentUse,
   BackupInfo,
@@ -21,6 +23,8 @@ import type {
   ContainerResources,
   ContainerStat,
   CrashLogView,
+  DiagEvent,
+  DiagVerdict,
   ContainerRuntime,
   DbConnection,
   DbQueryResult,
@@ -49,7 +53,10 @@ import type {
   SavedRunbook,
   Workspace,
   Health,
+  ForwardKind,
   HealthResult,
+  HopInfo,
+  HopRtt,
   Revealed,
   EditEvent,
   RunEvent,
@@ -288,6 +295,8 @@ export const forwards = {
     invoke<VaultRecord<ForwardRule>>("save_forward", { id, baseRev, rule }),
   delete: (id: Uuid, baseRev: number | null) => invoke<void>("delete_forward", { id, baseRev }),
   start: (id: Uuid) => invoke<void>("forward_start", { id }),
+  /** A forward that is not a saved rule (a port spotted in a terminal). Returns the id for stop() and the status events. */
+  startAdhoc: (hostId: Uuid, kind: ForwardKind) => invoke<Uuid>("forward_start_adhoc", { hostId, kind }),
   stop: (id: Uuid) => invoke<void>("forward_stop", { id }),
   statuses: () => invoke<Record<Uuid, ForwardStatus>>("forward_statuses"),
   onStatus: (handler: (e: { rule_id: Uuid; status: ForwardStatus }) => void): Promise<UnlistenFn> =>
@@ -444,6 +453,24 @@ export const raw = {
 export const health = {
   check: (hostIds: Uuid[] | null) => invoke<HealthResult[]>("check_hosts", { hostIds }),
 };
+
+/** The route of a connected SSH session, and the session's agent forwarding. */
+export const network = {
+  hops: (paneId: string) => invoke<HopInfo[]>("ssh_hops", { paneId }),
+  hopRtts: (paneId: string) => invoke<HopRtt[]>("ssh_hop_rtts", { paneId }),
+  /** `null` for a session that does not forward the agent. */
+  agentForwarding: (paneId: string) => invoke<AgentForwardState | null>("ssh_agent_forwarding", { paneId }),
+  setAgentForwarding: (paneId: string, mode: "off" | "on" | "timed", secs?: number) =>
+    invoke<AgentForwardState>("ssh_agent_forwarding_set", { paneId, mode, secs: secs ?? null }),
+  onSignature: (handler: (e: AgentSignatureEvent) => void): Promise<UnlistenFn> =>
+    listen<AgentSignatureEvent>("agent:signature", (e) => handler(e.payload)),
+};
+
+/** Diagnose the way to a host. Each stage arrives on `onEvent` as it finishes; the verdict is returned too. */
+export function diagnoseHost(hostId: Uuid, onEvent: (e: DiagEvent) => void) {
+  const channel = new Channel<DiagEvent>(onEvent);
+  return invoke<DiagVerdict>("diagnose_host", { hostId, onEvent: channel });
+}
 
 export const mobaxterm = {
   preview: (path: string) => invoke<SshConfigPreview>("mobaxterm_preview", { path }),

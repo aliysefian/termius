@@ -1,5 +1,6 @@
 <script lang="ts">
   import Illustration from "./Illustration.svelte";
+  import HopChain from "./HopChain.svelte";
   import { ArrowLeftRight, Globe, Loader2, Pencil, Play, Plus, Search, Square, Trash2 } from "lucide-svelte";
   import { matchesForward, statusWord, type StatusFilter } from "$lib/forwardsearch";
   import { openUrl } from "@tauri-apps/plugin-opener";
@@ -157,6 +158,8 @@
               via {host?.label ?? "missing host"}
               {#if st?.state === "active" && d.bind_port === 0}· port {st.port}{/if}
             </div>
+            <!-- The route when the host is behind a bastion; live numbers come from an open terminal to it. -->
+            <div class="overflow-hidden pl-4 pt-0.5"><HopChain hostId={d.host_id} polling={false} /></div>
             {#if st?.state === "error"}
               <div class="mt-1 pl-4 text-xs text-danger" title={st.message}>{st.message}</div>
             {/if}
