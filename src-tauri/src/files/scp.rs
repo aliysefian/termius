@@ -273,6 +273,10 @@ impl FileBackend for ScpConn {
         Ok(self.check("pwd").await?.trim().to_string())
     }
 
+    fn ssh(&self) -> Option<&Client> {
+        Some(self.client.as_ref())
+    }
+
     async fn exec(&self, command: &str, stdin: Option<&[u8]>) -> Result<crate::ssh::ExecOutput, FileError> {
         Ok(self.client.exec(command, stdin, std::time::Duration::from_secs(60), 1 << 20).await?)
     }

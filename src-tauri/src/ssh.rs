@@ -313,6 +313,14 @@ impl Client {
         tokio::time::timeout(limit, run).await.map_err(|_| SshError::Timeout(format!("the command `{}`", command.chars().take(40).collect::<String>())))?
     }
 
+    /// Start a command on a channel of its own and hand the channel back, for the caller to feed and read as it goes
+    /// (a pipe between two hosts). Unlike [`Client::exec`] nothing is collected here.
+    pub async fn exec_channel(&self, command: &str) -> Result<russh::Channel<client::Msg>, SshError> {
+        let channel = self.channel_open_session().await?;
+        channel.exec(true, command.as_bytes()).await?;
+        Ok(channel)
+    }
+
     /// What is known of each hop: the jump hosts outermost first, then the final host.
     pub fn hops(&self) -> &[HopInfo] {
         &self.hops

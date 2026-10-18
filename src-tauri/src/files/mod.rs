@@ -12,6 +12,7 @@ pub mod ftp;
 pub mod local;
 pub mod pipe;
 pub mod scp;
+pub mod tarrelay;
 #[cfg(test)]
 pub mod memory;
 
@@ -115,6 +116,12 @@ pub trait FileBackend: Send + Sync + 'static {
     async fn write(&self, path: &str, offset: u64, size: u64) -> Result<Writer, FileError>;
 
     async fn close(&self) {}
+
+    /// The SSH connection behind this place, if it has one: what lets two such places copy straight to each other
+    /// with `tar` instead of one file at a time.
+    fn ssh(&self) -> Option<&crate::ssh::Client> {
+        None
+    }
 
     /// Run a command on the host this place is on (SFTP and SCP: over the SSH connection it already has), feeding
     /// it `stdin`. Places with no shell behind them say so.

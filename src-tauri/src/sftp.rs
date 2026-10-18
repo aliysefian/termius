@@ -493,6 +493,10 @@ impl FileBackend for SftpConn {
         // The connection is closed when the session is dropped by its manager.
     }
 
+    fn ssh(&self) -> Option<&Client> {
+        Some(&self.client)
+    }
+
     async fn exec(&self, command: &str, stdin: Option<&[u8]>) -> Result<crate::ssh::ExecOutput, SftpError> {
         Ok(self.client.exec(command, stdin, EXEC_LIMIT, EXEC_MAX_OUTPUT).await?)
     }
