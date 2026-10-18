@@ -405,11 +405,11 @@ mod tests {
             let ro = dir.path().join("ro.conf");
             std::fs::write(&ro, "x\n").unwrap();
             std::fs::set_permissions(&ro, std::fs::Permissions::from_mode(0o444)).unwrap();
-            let err = write_text(&conn, &ro.to_string_lossy(), "y\n", false, None).await.err().expect("refused");
+            let err = write_text(&conn, &ro.to_string_lossy(), "y\n", false, None).await.expect_err("refused");
             assert!(matches!(&err, EditError::File(e) if is_permission_denied(e)), "{err:?}");
             assert_eq!(std::fs::read_to_string(&ro).unwrap(), "x\n");
             // And an ordinary failure is not mistaken for it.
-            let missing = write_text(&conn, "/no/such/dir/x", "y\n", false, None).await.err().expect("refused");
+            let missing = write_text(&conn, "/no/such/dir/x", "y\n", false, None).await.expect_err("refused");
             assert!(matches!(&missing, EditError::File(e) if !is_permission_denied(e)), "{missing:?}");
             // sudo here asks for a password this test does not have: that is said, and nothing is written.
             let r = write_as_root(&conn, &ro.to_string_lossy(), "y\n", false, None).await;
