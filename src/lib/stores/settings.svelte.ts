@@ -37,6 +37,8 @@ export interface Prefs {
   showHiddenFiles: boolean;
   /** The SFTP view's local/remote split, 0.15-0.85. */
   sftpSplitRatio: number;
+  /** The file browser follows the folder of the terminal that is in front (same host). */
+  sftpFollowCwd: boolean;
   /** Session logs keep colours and control codes instead of plain text. */
   logRaw: boolean;
   appTheme: "dark" | "light" | "system" | "contrast";
@@ -183,6 +185,7 @@ export const DEFAULT_PREFS: Prefs = {
   autoLockMinutes: 0,
   showHiddenFiles: false,
   sftpSplitRatio: 0.5,
+  sftpFollowCwd: false,
   logRaw: false,
   appTheme: "dark",
   sidebarHidden: false,

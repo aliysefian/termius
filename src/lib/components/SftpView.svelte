@@ -1,25 +1,29 @@
 <script lang="ts">
   import Combobox from "./Combobox.svelte";
   import { hostOptions } from "$lib/pickeroptions";
-  import { onDestroy, onMount } from "svelte";
+  import { onDestroy, onMount, untrack } from "svelte";
   import { getCurrentWindow, ProgressBarStatus } from "@tauri-apps/api/window";
-  import { ChevronDown, ChevronUp, CircleStop, FilePen, HardDrive, Loader2, Monitor, Pause, Play, RotateCcw, Server, Unplug, X } from "lucide-svelte";
+  import { ChevronDown, ChevronUp, CircleStop, FilePen, HardDrive, Link2, Loader2, Monitor, Pause, Play, RotateCcw, Server, Unplug, X } from "lucide-svelte";
   import { formatEta, nextSample, type SpeedSample } from "$lib/transferspeed";
   import type { UnlistenFn } from "@tauri-apps/api/event";
   import * as api from "$lib/api";
   import FilePane from "./FilePane.svelte";
   import Badge from "./Badge.svelte";
-  import { local, LOCAL_ID, remote, sftp, type Conflict, type Direction, type FileSource } from "$lib/sftp";
+  import ConflictDialog from "./ConflictDialog.svelte";
+  import RemoteEditor from "./RemoteEditor.svelte";
+  import { sftp, type Conflict } from "$lib/sftp";
+  import { backupName, planFromDecisions, type Decision, type SideInfo } from "$lib/conflict";
+  import { cdCommand, followedPath, OSC7_BASH_ZSH, OSC7_FISH } from "$lib/cwdsync";
   import { choose } from "$lib/dialogs.svelte";
-  import { askAboutCertificate } from "$lib/certprompt";
-  import { ui } from "$lib/stores/ui.svelte";
+  import { PaneConn, THIS_COMPUTER } from "$lib/paneconn.svelte";
+  import { writeToPane } from "$lib/terminalio";
+  import { ui, type Pane } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
   import { settings } from "$lib/stores/settings.svelte";
-  import { errorMessage, formatBytes, isApiError, type FileEntry, type TransferProgress, type Uuid } from "$lib/types";
+  import { errorMessage, formatBytes, type FileEntry, type TransferProgress, type Uuid } from "$lib/types";
 
   interface Transfer {
     id: string;
-    direction: Direction;
     label: string;
     progress: TransferProgress;
     sources: string[];
@@ -30,28 +34,25 @@
     conflict: Conflict;
     /** Measured throughput while it runs. */
     speed?: SpeedSample;
+    /** The backend ids of the two places, and what to call them. */
+    fromId: string;
+    toId: string;
+    fromLabel: string;
+    toLabel: string;
+    /** Both places are hosts: the bytes pass through this app, straight from one host to the other, never to disk. */
+    relay: boolean;
+    /** Whether either place is this computer, for the arrow. */
+    toLocal: boolean;
   }
 
   /** Transfers running at once; the rest wait their turn. */
   const MAX_RUNNING = 2;
 
-  // One remote session per SftpView; the id is stable for its lifetime.
-  const sessionId = `sftp-${crypto.randomUUID()}`;
-
-  let localPath = $state("");
-  let remotePath = $state("");
-  let localRefresh = $state(0);
-  let remoteRefresh = $state(0);
-
-  let hostId = $state<Uuid | "">("");
-  let connectedHost = $state<Uuid | null>(null);
-  let connecting = $state(false);
-  let connectError = $state<string | null>(null);
-  /** The last connect failed because the server has SFTP turned off. */
-  let sftpOff = $state(false);
-  let askCreds = $state(false);
-  let username = $state("");
-  let password = $state("");
+  // The left pane starts on this computer, the right one waits for a host; either can be either.
+  const left = new PaneConn("left", true);
+  const right = new PaneConn("right", false);
+  const panes = [left, right];
+  const other = (c: PaneConn) => (c === left ? right : left);
 
   let transfers = $state<Transfer[]>([]);
   let paneRow = $state<HTMLDivElement>();
@@ -99,17 +100,13 @@
     void getCurrentWindow().setProgressBar({ status: ProgressBarStatus.Normal, progress }).catch(() => {});
   });
 
-  const remoteSource = $derived<FileSource | null>(connectedHost ? remote(sessionId) : null);
-  const host = $derived(hostId ? vaultStore.hostById.get(hostId)?.data : undefined);
-  // Hosts with files to browse: SSH ones, and FTP ones. Not Remote Desktop or Telnet.
-  const hostChoices = $derived(hostOptions(vaultStore.hosts, (h) => !h.data?.protocol || h.data.protocol === "ssh" || h.data.protocol === "ftp"));
-  const connectedData = $derived(connectedHost ? vaultStore.hostById.get(connectedHost)?.data : undefined);
-  const connectedLabel = $derived(connectedHost ? vaultStore.hostById.get(connectedHost)?.data?.label : "");
+  // Hosts with files to browse: SSH ones, and FTP ones. Not Remote Desktop or Telnet. This computer is first.
+  const choices = $derived([
+    { value: THIS_COMPUTER, label: "This computer", detail: "local disk" },
+    ...hostOptions(vaultStore.hosts, (h) => !h.data?.protocol || h.data.protocol === "ssh" || h.data.protocol === "ftp"),
+  ]);
 
-  onMount(async () => {
-    localPath = await local.home();
-  });
-  // -- remote editing -------------------------------------------------------
+  // -- editing a file in the local editor -----------------------------------
 
   interface Editing {
     id: string;
@@ -118,6 +115,7 @@
     uploads: number;
     lastUpload?: Date;
     error?: string;
+    conn: PaneConn;
   }
   let edits = $state<Editing[]>([]);
   let unlistenEdit: UnlistenFn | null = null;
@@ -130,22 +128,21 @@
         ed.uploads++;
         ed.lastUpload = new Date();
         ed.error = undefined;
-        remoteRefresh++;
+        ed.conn.refresh++;
       } else {
         ed.error = e.message;
       }
     });
   });
 
-  async function edit(entry: FileEntry) {
-    const already = edits.find((e) => e.remote === entry.path);
-    if (already) {
+  async function edit(conn: PaneConn, entry: FileEntry) {
+    if (edits.find((e) => e.remote === entry.path && e.conn === conn)) {
       ui.notify("info", `${entry.name} is already open for editing.`);
       return;
     }
     try {
-      const started = await api.remoteEdit.start(sessionId, entry.path);
-      edits.push({ id: started.edit_id, name: entry.name, remote: entry.path, uploads: 0 });
+      const started = await api.remoteEdit.start(conn.sessionId, entry.path);
+      edits.push({ id: started.edit_id, name: entry.name, remote: entry.path, uploads: 0, conn });
     } catch (e) {
       ui.notify("error", errorMessage(e));
     }
@@ -156,159 +153,212 @@
     edits = edits.filter((e) => e.id !== id);
   }
 
-  async function stopAllEdits() {
-    await Promise.all(edits.map((e) => api.remoteEdit.stop(e.id)));
-    edits = [];
+  async function stopAllEdits(of?: PaneConn) {
+    const mine = edits.filter((e) => !of || e.conn === of);
+    await Promise.all(mine.map((e) => api.remoteEdit.stop(e.id)));
+    edits = edits.filter((e) => !mine.includes(e));
   }
 
   onDestroy(() => {
     unlistenEdit?.();
     void stopAllEdits();
-    if (connectedHost) void sftp.close(sessionId);
+    for (const c of panes) void c.dispose();
   });
 
-  async function connect(creds: { username: string; password: string } | null = null) {
-    if (!hostId) return;
-    if (!creds && host && !vaultStore.effectiveIdentity(host) && !host.ftp?.anonymous) {
-      askCreds = true;
-      return;
-    }
-    connecting = true;
-    connectError = null;
-    sftpOff = false;
-    askCreds = false;
-    try {
-      const res = await openFiles(creds);
-      connectedHost = hostId;
-      remotePath = res.home;
-      remoteRefresh++;
-      for (const k of res.new_host_keys) ui.notify("info", `New host key recorded for ${k.host}: ${k.fingerprint}`);
-    } catch (e) {
-      connectError = errorMessage(e);
-      sftpOff = isApiError(e) && e.code === "sftp_unavailable";
-      // Keep what was typed so "Use SCP" can go straight on without asking again.
-      if (sftpOff && creds) retryCreds = creds;
-    } finally {
-      connecting = false;
-      password = "";
-    }
+  // -- editing a file in the app ---------------------------------------------
+
+  let editor = $state<{ conn: PaneConn; path: string; hostId: Uuid | null } | null>(null);
+
+  function openEditor(conn: PaneConn, entry: FileEntry) {
+    editor = { conn, path: entry.path, hostId: conn.isLocal ? null : conn.connectedHost };
   }
 
-  let retryCreds: { username: string; password: string } | null = null;
+  // -- the picker and what connecting needs ---------------------------------------
 
-  /** Open the host's files by the protocol it uses; an FTP certificate that needs a decision is asked about and retried. */
-  async function openFiles(creds: { username: string; password: string } | null, accept: string | null = null): Promise<{ home: string; new_host_keys: { host: string; fingerprint: string }[] }> {
-    if (host?.protocol === "ftp") {
-      try {
-        const r = await sftp.openFtp(sessionId, hostId as Uuid, creds, accept);
-        return { home: r.home, new_host_keys: [] };
-      } catch (e) {
-        const fingerprint = await askAboutCertificate(host.label, e);
-        if (fingerprint) return openFiles(creds, fingerprint);
-        throw e;
-      }
-    }
-    return host?.file_protocol === "scp" ? sftp.openScp(sessionId, hostId as Uuid, creds) : sftp.open(sessionId, hostId as Uuid, creds);
+  async function disconnect(conn: PaneConn) {
+    await stopAllEdits(conn);
+    await conn.disconnect();
+    conn.choice = "";
   }
 
-  /** Remember on the host that its files go over SCP, and connect that way. */
-  async function useScp() {
-    const rec = hostId ? vaultStore.hostById.get(hostId) : undefined;
-    if (!rec?.data) return;
-    try {
-      await vaultStore.saveHost(rec.id, { ...$state.snapshot(rec.data), file_protocol: "scp" }, rec.rev);
-    } catch (e) {
-      ui.notify("error", errorMessage(e));
-      return;
-    }
-    const creds = retryCreds;
-    retryCreds = null;
-    await connect(creds);
-  }
-
-  // "Browse here" from a terminal pane: connect to that host, then go there.
+  // "Browse here" from a terminal pane: show that host's folder in a pane that already has the host, else the right one.
   let handledRequest = 0;
   $effect(() => {
     const r = ui.sftpRequest;
     if (!r || r.n === handledRequest) return;
     handledRequest = r.n;
     void (async () => {
-      if (connectedHost !== r.hostId) {
-        if (connectedHost) await disconnect();
-        hostId = r.hostId;
-        await connect();
+      const conn = panes.find((c) => !c.isLocal && c.connectedHost === r.hostId) ?? right;
+      if (conn.connectedHost !== r.hostId) {
+        if (conn.connectedHost) await disconnect(conn);
+        await conn.pick(r.hostId);
       }
-      if (connectedHost === r.hostId && r.path) {
-        remotePath = r.path;
-        remoteRefresh++;
+      if (conn.connectedHost === r.hostId && r.path) {
+        conn.path = r.path;
+        conn.refresh++;
       }
     })();
   });
 
-  // Files dragged in from the OS file manager upload to the remote folder.
+  // Files dragged in from the OS file manager upload to a host's folder: the right pane if it shows one, else the left.
   let osDrop = $state(false);
+  const dropTarget = $derived(!right.isLocal && right.connectedHost ? right : !left.isLocal && left.connectedHost ? left : null);
   $effect(() => {
     let off: (() => void) | undefined;
     void import("@tauri-apps/api/webview").then(async ({ getCurrentWebview }) => {
       off = await getCurrentWebview().onDragDropEvent((ev) => {
         if (ui.view !== "sftp") return;
         const p = ev.payload;
-        if (p.type === "enter" || p.type === "over") osDrop = !!connectedHost;
+        if (p.type === "enter" || p.type === "over") osDrop = !!dropTarget;
         else if (p.type === "leave") osDrop = false;
         else if (p.type === "drop") {
           osDrop = false;
-          if (connectedHost && p.paths.length) void start("upload", p.paths);
-          else if (p.paths.length) ui.notify("error", "Connect to a host first, then drop files to upload them.");
+          const target = dropTarget;
+          if (target && p.paths.length) void upload(target, p.paths);
+          else if (p.paths.length) ui.notify("error", "Open a host in one of the panes first, then drop files to upload them.");
         }
       });
     });
     return () => off?.();
   });
 
-  async function disconnect() {
-    await stopAllEdits();
-    await sftp.close(sessionId);
-    connectedHost = null;
-    remotePath = "";
+  /** Copy files that are on this computer (dropped from the OS) to `to`. */
+  async function upload(to: PaneConn, paths: string[]) {
+    const here = panes.find((c) => c.isLocal) ?? left;
+    await copy(here, to, paths, here.isLocal ? undefined : "This computer");
   }
 
   function baseName(p: string) {
     return p.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? p;
   }
 
-  /** Add a transfer to the queue; it starts when a slot is free. */
-  async function start(direction: Direction, sources: string[]) {
-    if (!connectedHost || sources.length === 0) return;
-    const destDir = direction === "upload" ? remotePath : localPath;
-    const conflict = await resolveConflicts(direction === "upload" ? remote(sessionId) : local, destDir, sources);
-    if (!conflict) return;
-    const label = sources.length === 1 ? baseName(sources[0]) : `${sources.length} items`;
-    transfers.push({ id: crypto.randomUUID(), direction, label, progress: { state: "queued" }, sources, destDir, resume: false, conflict });
-    transfersOpen = true;
-    pump();
+  /** What copying from this pane to the other is called. */
+  function verbFor(c: PaneConn): "Upload" | "Download" | "Copy" {
+    const o = other(c);
+    if (c.isLocal && !o.isLocal) return "Upload";
+    if (!c.isLocal && o.isLocal) return "Download";
+    return "Copy";
   }
 
-  /** Ask what to do about names that are already in the destination folder; null if the person backs out. */
-  async function resolveConflicts(dest: FileSource, destDir: string, sources: string[]): Promise<Conflict | null> {
-    let there: Set<string>;
-    try {
-      there = new Set((await dest.list(destDir)).map((e) => e.name));
-    } catch {
-      return "overwrite"; // can't tell; the transfer itself reports a problem with the folder
+  /** Copy `sources` from one pane to the other, asking about names that are already there. */
+  async function start(from: PaneConn, to: PaneConn, sources: string[]) {
+    if (sources.length === 0) return;
+    if (!from.source || !to.source) {
+      ui.notify("info", "Choose This computer or a host in the other pane first.");
+      return;
     }
-    const clashes = sources.map(baseName).filter((n) => there.has(n));
-    if (clashes.length === 0) return "overwrite";
-    const shown = clashes.slice(0, 5).join(", ") + (clashes.length > 5 ? `, and ${clashes.length - 5} more` : "");
-    const answer = await choose(
-      `${clashes.length === 1 ? "This name is" : "These names are"} already in the destination folder: ${shown}.`,
-      [
-        { value: "overwrite", label: "Replace" },
-        { value: "skip", label: "Skip" },
-        { value: "rename", label: "Keep both" },
-      ],
-      { title: "Already there" },
-    );
-    return (answer as Conflict | null) ?? null;
+    await copy(from, to, sources);
+  }
+
+  async function copy(from: PaneConn, to: PaneConn, sources: string[], fromLabel?: string) {
+    const src = from.source!;
+    const dst = to.source!;
+    const destDir = to.path;
+    // The names already in the destination, and what the incoming ones are (for the comparison).
+    let there: FileEntry[];
+    try {
+      there = await dst.list(destDir);
+    } catch {
+      // Can't tell; the transfer itself reports a problem with the folder.
+      queue(from, to, sources, destDir, "overwrite", fromLabel);
+      return;
+    }
+    const byName = new Map(there.map((e) => [e.name, e]));
+    const clashes = sources.map(baseName).filter((n) => byName.has(n));
+    if (clashes.length === 0) {
+      queue(from, to, sources, destDir, "overwrite", fromLabel);
+      return;
+    }
+    let here: FileEntry[] = [];
+    try {
+      here = await src.list(from.path);
+    } catch {
+      // The names alone are enough to ask with.
+    }
+    const incoming = new Map(here.map((e) => [e.path, e]));
+    const info = (e: FileEntry | undefined, name: string, path: string): SideInfo => ({ name, path, size: e?.size ?? 0, modified: e?.modified ?? null, isDir: e?.is_dir ?? false });
+
+    const decisions = new Map<string, Decision>();
+    for (let i = 0; i < clashes.length; i++) {
+      const name = clashes[i];
+      if (decisions.has(name)) continue;
+      const srcPath = sources.find((s) => baseName(s) === name)!;
+      const existing = byName.get(name)!;
+      const answer = await askConflict({
+        src: info(incoming.get(srcPath), name, srcPath),
+        dst: info(existing, name, existing.path),
+        srcSession: from.id,
+        dstSession: to.id,
+        srcLabel: fromLabel ?? from.label,
+        dstLabel: to.label,
+        remaining: clashes.slice(i + 1).filter((n) => !decisions.has(n)).length,
+      });
+      if (!answer) return;
+      decisions.set(name, answer.decision);
+      if (answer.all) for (const n of clashes.slice(i + 1)) decisions.set(n, answer.decision);
+    }
+
+    const plan = planFromDecisions(sources, new Set(clashes), decisions, baseName);
+    // "Backup & replace": what is there becomes name.bak first.
+    const taken = new Set(byName.keys());
+    for (const s of plan.backup) {
+      const name = baseName(s);
+      const bak = backupName(taken, name);
+      taken.add(bak);
+      try {
+        await dst.rename(byName.get(name)!.path, bak);
+      } catch (e) {
+        ui.notify("error", `Could not back up ${name}: ${errorMessage(e)}. Nothing was copied.`);
+        return;
+      }
+    }
+    const main = [...plan.overwrite, ...plan.backup];
+    if (main.length) queue(from, to, main, destDir, "overwrite", fromLabel);
+    if (plan.rename.length) queue(from, to, plan.rename, destDir, "rename", fromLabel);
+    if (!main.length && !plan.rename.length) ui.notify("info", "Nothing was copied: every name was skipped.");
+  }
+
+  // The overwrite dialog, asked one clash at a time.
+  interface Asking {
+    src: SideInfo;
+    dst: SideInfo;
+    srcSession: string;
+    dstSession: string;
+    srcLabel: string;
+    dstLabel: string;
+    remaining: number;
+    resolve: (r: { decision: Decision; all: boolean } | null) => void;
+  }
+  let asking = $state<Asking | null>(null);
+  function askConflict(c: Omit<Asking, "resolve">) {
+    return new Promise<{ decision: Decision; all: boolean } | null>((resolve) => (asking = { ...c, resolve }));
+  }
+  function answered(r: { decision: Decision; all: boolean } | null) {
+    const a = asking;
+    asking = null;
+    a?.resolve(r);
+  }
+
+  /** Add a transfer to the queue; it starts when a slot is free. */
+  function queue(from: PaneConn, to: PaneConn, sources: string[], destDir: string, conflict: Conflict, fromLabel?: string) {
+    const label = sources.length === 1 ? baseName(sources[0]) : `${sources.length} items`;
+    transfers.push({
+      id: crypto.randomUUID(),
+      label,
+      progress: { state: "queued" },
+      sources,
+      destDir,
+      resume: false,
+      conflict,
+      fromId: from.id,
+      toId: to.id,
+      fromLabel: fromLabel ?? from.label,
+      toLabel: to.label,
+      relay: !from.isLocal && !to.isLocal,
+      toLocal: to.isLocal,
+    });
+    transfersOpen = true;
+    pump();
   }
 
   /** Start queued transfers, oldest first, up to the limit. */
@@ -328,10 +378,9 @@
     t.progress = { state: "started", total_bytes: 0, total_files: 0 };
     const find = () => transfers.find((x) => x.id === id);
     try {
-      const [from, to] = t.direction === "upload" ? [LOCAL_ID, sessionId] : [sessionId, LOCAL_ID];
       await sftp.transfer(
-        from,
-        to,
+        t.fromId,
+        t.toId,
         id,
         t.sources,
         t.destDir,
@@ -341,10 +390,7 @@
           cur.progress = p;
           // Speed is measured only while bytes are moving; a pause or an end leaves nothing to report.
           cur.speed = p.state === "progress" ? nextSample(cur.speed, p.bytes, Date.now()) : p.state === "paused" ? undefined : cur.speed;
-          if (p.state === "done") {
-            if (cur.direction === "upload") remoteRefresh++;
-            else localRefresh++;
-          }
+          if (p.state === "done") for (const c of panes) if (c.id === cur.toId) c.refresh++;
           if (p.state === "done" || p.state === "failed" || p.state === "cancelled") pump();
         },
         { resume: t.resume, conflict: t.conflict },
@@ -360,7 +406,7 @@
   function retry(t: Transfer) {
     // Retries are appended with a fresh id so late events from the old run can't clobber them.
     transfers = transfers.filter((x) => x.id !== t.id);
-    transfers.push({ ...t, id: crypto.randomUUID(), progress: { state: "queued" }, resume: true });
+    transfers.push({ ...t, id: crypto.randomUUID(), progress: { state: "queued" }, resume: true, speed: undefined });
     pump();
   }
 
@@ -396,30 +442,240 @@
   });
   const speedText = (bps: number) => (bps > 0 ? `${formatBytes(bps)}/s` : "");
   const queued = $derived(transfers.filter((t) => t.progress.state === "queued").length);
+
+  // -- the terminal and the browser ----------------------------------------------------------
+
+  /** The terminal pane in front, and what it is on: a host's id, `"local"`, or nothing. */
+  const frontTerminal = $derived.by<{ pane: Pane; on: Uuid | "local" } | null>(() => {
+    const tab = ui.activeTab;
+    const pane = tab?.panes.find((p) => p.id === tab.activePaneId);
+    if (!pane) return null;
+    if (pane.target.kind === "host") return { pane, on: pane.target.hostId };
+    if (pane.target.kind === "local") return { pane, on: "local" };
+    return null;
+  });
+
+  const paneOn = (c: PaneConn): Uuid | "local" | null => (c.isLocal ? "local" : c.connectedHost);
+
+  // Follow the folder of the terminal in front: act when the terminal's folder changes, not whenever the browser does,
+  // so a person who then browses elsewhere is left there until the terminal moves again.
+  let lastFollowed = "";
+  $effect(() => {
+    const follow = settings.prefs.sftpFollowCwd;
+    const term = frontTerminal;
+    const cwd = term ? ui.paneInfo[term.pane.id]?.cwd : undefined;
+    if (!follow || !term || !cwd) {
+      if (!follow) lastFollowed = "";
+      return;
+    }
+    const key = `${term.pane.id}|${cwd}`;
+    if (key === lastFollowed) return;
+    lastFollowed = key;
+    for (const c of panes) {
+      const next = followedPath({ follow: true, paneHostId: paneOn(c), terminalHostId: term.on, cwd, current: untrack(() => c.path) });
+      if (next) c.path = next;
+    }
+  });
+
+  function toggleFollow() {
+    settings.prefs.sftpFollowCwd = !settings.prefs.sftpFollowCwd;
+    lastFollowed = "";
+  }
+
+  /** What to tell about following, for a pane that shows something. */
+  function followHint(c: PaneConn): { text: string; setup: boolean } | null {
+    if (!settings.prefs.sftpFollowCwd) return null;
+    const on = paneOn(c);
+    const term = frontTerminal;
+    if (!term) return { text: "Open a terminal to follow its folder.", setup: false };
+    if (term.on !== on) return { text: "Follows the terminal of the same host: the one in front is on another.", setup: false };
+    if (!ui.paneInfo[term.pane.id]?.cwd) return { text: "This terminal has not said which folder it is in.", setup: true };
+    return null;
+  }
+
+  /** Types the line that makes the shell report its folder into the terminal in front. */
+  async function setupTracking() {
+    const term = frontTerminal;
+    if (!term) return;
+    const shell = await choose(
+      "Which shell is the terminal running? This types one line into it, so the shell reports its folder after every command. Add the same line to its startup file (~/.bashrc, ~/.zshrc or fish's config.fish) to keep it for new sessions.",
+      [
+        { value: "bash", label: "bash or zsh" },
+        { value: "fish", label: "fish" },
+      ],
+      { title: "Set up folder tracking" },
+    );
+    if (shell === null) return;
+    await writeToPane(term.pane, (shell === "fish" ? OSC7_FISH : OSC7_BASH_ZSH) + "\r");
+  }
+
+  /** The terminal to send a folder to: the one in front if it is on this place, else any open one that is. */
+  function terminalOn(on: Uuid | "local"): Pane | undefined {
+    if (frontTerminal?.on === on) return frontTerminal.pane;
+    for (const tab of ui.tabs) {
+      for (const p of tab.panes) {
+        const t = p.target;
+        if ((on === "local" && t.kind === "local") || (t.kind === "host" && t.hostId === on)) return p;
+      }
+    }
+    return undefined;
+  }
+
+  /** "Open in terminal (cd here)": take a terminal on this place to the folder, or open one that starts there. */
+  function cdHere(c: PaneConn, entry: FileEntry) {
+    const on = paneOn(c);
+    if (!on) return;
+    const cmd = cdCommand(entry.path, c.isLocal && navigator.userAgent.includes("Windows"));
+    const term = terminalOn(on);
+    if (term) {
+      if (ui.paneInfo[term.id]?.running) {
+        ui.notify("error", "A program is running in that terminal, so the folder was not changed. Open a new terminal there instead.");
+        return;
+      }
+      void writeToPane(term, cmd + "\r");
+      ui.showPane(term.id);
+      ui.view = "hosts";
+      return;
+    }
+    if (on === "local") ui.openLocal(cmd);
+    else ui.openTerminal(on, c.label, cmd);
+  }
 </script>
 
+{#snippet picker(conn: PaneConn)}
+  {#if conn.isLocal}
+    <Monitor size={14} class="shrink-0 text-accent" />
+  {:else}
+    <Server size={14} class="shrink-0 text-accent" />
+  {/if}
+  <Combobox
+    class="min-w-0 flex-1"
+    inputClass="py-1"
+    options={choices}
+    bind:value={conn.choice}
+    ariaLabel={conn.side === "right" ? "Remote host" : "Left pane host"}
+    placeholder="Search hosts…"
+    emptyText="No host matches"
+    onchange={(v) => {
+      // Picking is intent enough: connect straight away.
+      if (v) void conn.pick(v);
+    }}
+  />
+  {#if conn.connecting}<Loader2 size={13} class="shrink-0 animate-spin text-fg-muted" />{/if}
+  {#if conn.connectedHost}
+    {#if conn.connectedData?.protocol === "ftp"}
+      {#if (conn.connectedData.ftp?.tls ?? "explicit") === "none"}
+        <Badge tone="warning" title="Plain FTP sends everything, including the password, readable by anyone on the network path">UNENCRYPTED</Badge>
+      {:else}
+        <Badge title="The connection is encrypted with TLS">FTPS</Badge>
+      {/if}
+    {:else if conn.connectedData?.file_protocol === "scp"}
+      <Badge title="This host's files go over SCP, not SFTP">SCP</Badge>
+    {/if}
+  {/if}
+  {#if conn.open}
+    <button
+      class="icon-btn h-7 w-7 shrink-0 {settings.prefs.sftpFollowCwd ? 'text-accent' : ''}"
+      title={settings.prefs.sftpFollowCwd ? "Following the terminal's folder (click to stop)" : "Follow the terminal's folder"}
+      aria-label="Follow terminal folder"
+      aria-pressed={settings.prefs.sftpFollowCwd}
+      onclick={toggleFollow}
+      data-testid="follow-cwd"
+    >
+      <Link2 size={14} />
+    </button>
+  {/if}
+  {#if conn.connectedHost}
+    <button class="btn-ghost shrink-0 py-1 text-xs" onclick={() => void disconnect(conn)}><Unplug size={12} /> Disconnect</button>
+  {/if}
+{/snippet}
+
+{#snippet noticeFor(conn: PaneConn)}
+  {@const hint = followHint(conn)}
+  {#if hint}
+    <div class="flex items-center gap-2 border-b border-line bg-base/40 px-3 py-1 text-[11px] text-fg-muted" data-testid="follow-hint">
+      <Link2 size={11} class="shrink-0" />
+      <span class="min-w-0 flex-1 truncate">{hint.text}</span>
+      {#if hint.setup}<button class="shrink-0 font-medium text-accent hover:underline" onclick={() => void setupTracking()}>Set up folder tracking</button>{/if}
+    </div>
+  {/if}
+{/snippet}
+
+{#snippet placeholderFor(conn: PaneConn)}
+  <div class="max-w-xs">
+    {#if conn.askCreds}
+      <form
+        class="space-y-3 rounded-xl border border-line bg-panel p-5 text-left"
+        onsubmit={(e) => {
+          e.preventDefault();
+          void conn.connect({ username: conn.username, password: conn.password });
+        }}
+      >
+        <div class="text-sm font-semibold">Credentials for {conn.host?.label}</div>
+        <div>
+          <label class="label" for="sftp-user-{conn.side}">Username</label>
+          <input id="sftp-user-{conn.side}" class="input font-mono" autocomplete="username" bind:value={conn.username} required />
+        </div>
+        <div>
+          <label class="label" for="sftp-pass-{conn.side}">Password</label>
+          <input id="sftp-pass-{conn.side}" class="input" type="password" autocomplete="current-password" bind:value={conn.password} required />
+        </div>
+        <div class="flex gap-2">
+          <button class="btn-ghost flex-1" type="button" onclick={() => conn.cancelCreds()}>Cancel</button>
+          <button class="btn-primary flex-1" type="submit">Connect</button>
+        </div>
+      </form>
+    {:else}
+      <HardDrive size={28} class="mx-auto mb-3 text-fg-muted/50" />
+      <p class="text-sm text-fg-muted">Choose This computer or a host above to browse its files over SFTP (or SCP, where SFTP is off).</p>
+      {#if conn.connectError}
+        <p class="mt-3 rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">{conn.connectError}</p>
+        {#if conn.sftpOff}
+          <button class="btn-primary mt-3" onclick={() => void conn.useScp()}>Use SCP for this host</button>
+          <p class="mt-2 text-xs text-fg-muted">SCP can browse, upload, download, rename and delete, but can't continue a partly copied file. The choice is saved on the host.</p>
+        {/if}
+      {/if}
+    {/if}
+  </div>
+{/snippet}
+
+{#snippet filepane(conn: PaneConn)}
+  {@const verb = verbFor(conn)}
+  <FilePane
+    side={conn.isLocal ? "local" : "remote"}
+    pane={conn.side}
+    {verb}
+    source={conn.source}
+    bind:path={conn.path}
+    refreshKey={conn.refresh}
+    transferLabel={conn.side === "left" ? `${verb} →` : `← ${verb}`}
+    onTransfer={(paths) => start(conn, other(conn), paths)}
+    onDropFrom={(paths) => start(other(conn), conn, paths)}
+    onEdit={conn.isLocal ? undefined : (e) => edit(conn, e)}
+    onOpenEditor={(e) => openEditor(conn, e)}
+    onCdHere={paneOn(conn) ? (e) => cdHere(conn, e) : undefined}
+  >
+    {#snippet header()}
+      {@render picker(conn)}
+    {/snippet}
+    {#snippet notice()}
+      {@render noticeFor(conn)}
+    {/snippet}
+    {#snippet placeholder()}
+      {@render placeholderFor(conn)}
+    {/snippet}
+  </FilePane>
+{/snippet}
+
 <div class="relative flex min-w-0 flex-1 flex-col">
-  {#if osDrop}
+  {#if osDrop && dropTarget}
     <div class="pointer-events-none absolute inset-0 z-30 flex items-center justify-center border-2 border-dashed border-accent bg-accent/10 text-sm font-medium text-accent">
-      Drop to upload to {remotePath || "the remote folder"} on {connectedLabel}
+      Drop to upload to {dropTarget.path || "the remote folder"} on {dropTarget.label}
     </div>
   {/if}
   <div bind:this={paneRow} class="flex min-h-0 flex-1">
     <div class="flex min-h-0 min-w-0 flex-col overflow-hidden" style:flex="0 0 {settings.prefs.sftpSplitRatio * 100}%">
-    <FilePane
-      side="local"
-      source={local}
-      bind:path={localPath}
-      refreshKey={localRefresh}
-      transferLabel="Upload →"
-      onTransfer={(paths) => start("upload", paths)}
-      onDropFrom={(paths) => start("download", paths)}
-    >
-      {#snippet header()}
-        <Monitor size={14} class="text-accent" />
-        <span class="text-sm font-medium">This computer</span>
-      {/snippet}
-    </FilePane>
+      {@render filepane(left)}
     </div>
 
     <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
@@ -427,7 +683,7 @@
       class="relative w-1.5 shrink-0 cursor-col-resize outline-none after:absolute after:left-1/2 after:top-0 after:h-full after:w-px after:-translate-x-1/2 after:bg-line after:transition-colors hover:after:bg-accent/60 focus-visible:after:bg-accent"
       role="separator"
       aria-orientation="vertical"
-      aria-label="Resize the local and remote panes"
+      aria-label="Resize the left and right panes"
       aria-valuenow={Math.round(settings.prefs.sftpSplitRatio * 100)}
       aria-valuemin={15}
       aria-valuemax={85}
@@ -444,99 +700,7 @@
     ></div>
 
     <div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden border-l border-line">
-    <FilePane
-      side="remote"
-      source={remoteSource}
-      bind:path={remotePath}
-      refreshKey={remoteRefresh}
-      transferLabel="← Download"
-      onTransfer={(paths) => start("download", paths)}
-      onDropFrom={(paths) => start("upload", paths)}
-      onEdit={edit}
-    >
-      {#snippet header()}
-        <Server size={14} class="text-accent" />
-        {#if connectedHost}
-          <span class="truncate text-sm font-medium">{connectedLabel}</span>
-          {#if connectedData?.protocol === "ftp"}
-            {#if (connectedData.ftp?.tls ?? "explicit") === "none"}
-              <Badge tone="warning" title="Plain FTP sends everything, including the password, readable by anyone on the network path">UNENCRYPTED</Badge>
-            {:else}
-              <Badge title="The connection is encrypted with TLS">FTPS</Badge>
-            {/if}
-          {:else if connectedData?.file_protocol === "scp"}
-            <Badge title="This host's files go over SCP, not SFTP">SCP</Badge>
-          {/if}
-          <span class="flex-1"></span>
-          <button class="btn-ghost py-1 text-xs" onclick={disconnect}><Unplug size={12} /> Disconnect</button>
-        {:else}
-          <Combobox
-            class="min-w-0 flex-1"
-            inputClass="py-1"
-            options={hostChoices}
-            bind:value={hostId}
-            ariaLabel="Remote host"
-            placeholder="Search hosts…"
-            emptyText="No host matches"
-            onchange={(v) => {
-              // Picking a host is intent enough: connect straight away.
-              if (v && !connecting) void connect();
-            }}
-          />
-          <button class="btn-primary py-1 text-xs" disabled={!hostId || connecting} onclick={() => connect()}>
-            {#if connecting}<Loader2 size={12} class="animate-spin" />{/if} Connect
-          </button>
-        {/if}
-      {/snippet}
-      {#snippet placeholder()}
-        <div class="max-w-xs">
-          {#if askCreds}
-            <form
-              class="space-y-3 rounded-xl border border-line bg-panel p-5 text-left"
-              onsubmit={(e) => {
-                e.preventDefault();
-                connect({ username, password });
-              }}
-            >
-              <div class="text-sm font-semibold">Credentials for {host?.label}</div>
-              <div>
-                <label class="label" for="sftp-user">Username</label>
-                <input id="sftp-user" class="input font-mono" autocomplete="username" bind:value={username} required />
-              </div>
-              <div>
-                <label class="label" for="sftp-pass">Password</label>
-                <input id="sftp-pass" class="input" type="password" autocomplete="current-password" bind:value={password} required />
-              </div>
-              <div class="flex gap-2">
-                <button
-                  class="btn-ghost flex-1"
-                  type="button"
-                  onclick={() => {
-                    askCreds = false;
-                    hostId = "";
-                    username = "";
-                    password = "";
-                  }}
-                >
-                  Cancel
-                </button>
-                <button class="btn-primary flex-1" type="submit">Connect</button>
-              </div>
-            </form>
-          {:else}
-            <HardDrive size={28} class="mx-auto mb-3 text-fg-muted/50" />
-            <p class="text-sm text-fg-muted">Choose a host above to browse its files over SFTP (or SCP, where SFTP is off).</p>
-            {#if connectError}
-              <p class="mt-3 rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">{connectError}</p>
-              {#if sftpOff}
-                <button class="btn-primary mt-3" onclick={useScp}>Use SCP for this host</button>
-                <p class="mt-2 text-xs text-fg-muted">SCP can browse, upload, download, rename and delete, but can't continue a partly copied file. The choice is saved on the host.</p>
-              {/if}
-            {/if}
-          {/if}
-        </div>
-      {/snippet}
-    </FilePane>
+      {@render filepane(right)}
     </div>
   </div>
 
@@ -589,8 +753,8 @@
     </div>
     <div id="transfer-list" class="max-h-48 overflow-y-auto bg-panel" hidden={!transfersOpen}>
       {#each transfers as t (t.id)}
-        <div class="flex items-center gap-3 px-3 py-1.5 text-xs">
-          <span class="w-4 text-fg-muted">{t.direction === "upload" ? "↑" : "↓"}</span>
+        <div class="flex items-center gap-3 px-3 py-1.5 text-xs" data-testid="transfer-row" data-relay={t.relay}>
+          <span class="w-4 text-fg-muted" title={t.relay ? "Host to host" : t.toLocal ? "Download" : "Upload"}>{t.relay ? "⇄" : t.toLocal ? "↓" : "↑"}</span>
           <div class="min-w-0 flex-1">
             <div class="flex justify-between gap-2">
               <span class="truncate">{t.label}</span>
@@ -612,6 +776,18 @@
                 {/if}
               </span>
             </div>
+            {#if t.relay}
+              <!-- Host to host: what moves goes from one connection into the other in memory, never to this computer's disk. -->
+              <div class="mt-0.5 flex min-w-0 items-center gap-1.5 font-mono text-[11px] tabular-nums text-fg-muted" data-testid="relay-line">
+                <span class="max-w-[10rem] truncate text-fg" title={t.fromLabel}>[{t.fromLabel}]</span>
+                <span aria-hidden="true">──</span>
+                <span class="shrink-0 {t.speed?.bps ? 'text-accent' : ''}">({t.speed?.bps ? speedText(t.speed.bps) : "—"})</span>
+                <span aria-hidden="true">──▸</span>
+                <span class="shrink-0">[Relay buffer]</span>
+                <span aria-hidden="true">──▸</span>
+                <span class="max-w-[10rem] truncate text-fg" title={t.toLabel}>[{t.toLabel}]</span>
+              </div>
+            {/if}
             <div class="mt-1 h-1 overflow-hidden rounded bg-base">
               <div
                 class="h-full transition-[width] {t.progress.state === 'failed' ? 'bg-danger' : t.progress.state === 'done' ? 'bg-success' : 'bg-accent'}"
@@ -640,3 +816,22 @@
     </div>
   {/if}
 </div>
+
+{#if asking}
+  <ConflictDialog
+    src={asking.src}
+    dst={asking.dst}
+    srcSession={asking.srcSession}
+    dstSession={asking.dstSession}
+    srcLabel={asking.srcLabel}
+    dstLabel={asking.dstLabel}
+    remaining={asking.remaining}
+    onanswer={(decision, all) => answered({ decision, all })}
+    oncancel={() => answered(null)}
+  />
+{/if}
+
+{#if editor}
+  {@const ed = editor}
+  <RemoteEditor sessionId={ed.conn.id} path={ed.path} hostId={ed.hostId} onclose={() => (editor = null)} onsaved={() => ed.conn.refresh++} />
+{/if}

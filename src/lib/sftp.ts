@@ -118,6 +118,52 @@ export const sftp = {
   resume: (transferId: string) => invoke<void>("transfer_resume", { transferId }),
 };
 
+/** A text file read for the in-app editor (mirrors fileedit::TextFile). `text` uses `\n`; `crlf` puts `\r\n` back on save. */
+export interface TextFile {
+  text: string;
+  crlf: boolean;
+  size: number;
+  /** Unix seconds: passed back on save, so a file someone else changed meanwhile is not overwritten unasked. */
+  modified: number | null;
+  permissions: number | null;
+  owner: string | null;
+  group: string | null;
+}
+
+export interface Saved {
+  size: number;
+  modified: number | null;
+}
+
+/** SHA-256 of a file; `host` when the host computed it (the file did not travel), `read` when it was read here. */
+export interface Checksum {
+  sha256: string;
+  method: "host" | "read";
+}
+
+/** What a failed read, save or checksum is called (the `code` of the error the backend returns). */
+export type EditFailure =
+  | "not_text"
+  | "too_large"
+  | "changed_on_server"
+  | "permission_denied"
+  | "sudo_password_required"
+  | "sudo_wrong_password"
+  | "sudo_not_allowed"
+  | "sudo_failed"
+  | "unsupported";
+
+/** Reading and saving text files in place, saving through sudo, and checksums, on any open place. */
+export const fileops = {
+  readText: (sessionId: string, path: string, maxBytes?: number) => invoke<TextFile>("files_read_text", { sessionId, path, maxBytes: maxBytes ?? null }),
+  writeText: (sessionId: string, path: string, text: string, crlf: boolean, expectModified: number | null) =>
+    invoke<Saved>("files_write_text", { sessionId, path, text, crlf, expectModified }),
+  /** Save through `sudo`. `password` null tries without one (a host where sudo asks for none). */
+  writeAsRoot: (sessionId: string, path: string, text: string, crlf: boolean, password: string | null) =>
+    invoke<void>("files_write_as_root", { sessionId, path, text, crlf, password }),
+  checksum: (sessionId: string, path: string) => invoke<Checksum>("files_checksum", { sessionId, path }),
+};
+
 /** Parent directory for either path style. Returns the input at the root. */
 export function parentPath(path: string, sep: string): string {
   if (sep === "/") {

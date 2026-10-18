@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { ArrowUp, ChevronDown, ChevronUp, Clipboard, Copy, Download, Eye, EyeOff, File, FileArchive, FileCode, FileCog, FileImage, FileKey, FilePen, FileSearch, FileText, Folder, FolderOpen, FolderPlus, KeyRound, Link, RefreshCw, Search, TextCursorInput, Trash2, Upload } from "lucide-svelte";
+  import { ArrowUp, ChevronDown, ChevronUp, Clipboard, Copy, Download, Eye, EyeOff, File, FileArchive, FileCode, FileCog, FileImage, FileKey, FilePen, FileSearch, FileText, Folder, FolderOpen, FolderPlus, KeyRound, Link, RefreshCw, Search, SquareTerminal, TextCursorInput, Trash2, Upload } from "lucide-svelte";
+  import { isTextName } from "$lib/conflict";
   import { fileKind, type FileKind } from "$lib/filekind";
   import { revealItemInDir } from "@tauri-apps/plugin-opener";
   import { ask, askText } from "$lib/dialogs.svelte";
@@ -15,6 +16,8 @@
 
   let {
     side,
+    pane = side === "local" ? "left" : "right",
+    verb = side === "local" ? "Upload" : "Download",
     source,
     path = $bindable(""),
     refreshKey = 0,
@@ -22,10 +25,17 @@
     onTransfer,
     onDropFrom,
     header,
+    notice,
     placeholder,
     onEdit,
+    onOpenEditor,
+    onCdHere,
   }: {
     side: "local" | "remote";
+    /** Which pane this is: a drag only drops on the other one, even when both show hosts. */
+    pane?: "left" | "right";
+    /** What copying to the other pane is called: Upload, Download, or Copy between two hosts. */
+    verb?: "Upload" | "Download" | "Copy";
     source: FileSource | null;
     path?: string;
     /** Bump to force a reload (e.g. after a transfer lands here). */
@@ -35,9 +45,15 @@
     /** Paths dragged in from the opposite pane. */
     onDropFrom: (paths: string[]) => void;
     header?: SvelteSnippet;
+    /** A line under the header, for a hint about this pane (shown only while the pane has something open). */
+    notice?: SvelteSnippet;
     placeholder?: SvelteSnippet;
-    /** Open a file for editing (remote pane only). */
+    /** Open a file in the local editor, saving back as it is saved there. */
     onEdit?: (entry: FileEntry) => void;
+    /** Open a text file in the in-app editor (double-click, Ctrl+E). */
+    onOpenEditor?: (entry: FileEntry) => void;
+    /** Take the terminal of this place to a folder (`cd here`). */
+    onCdHere?: (entry: FileEntry) => void;
   } = $props();
 
   /** What this place supports; the actions it can't do are not offered. */
@@ -136,6 +152,12 @@
 
   /** Ctrl/Cmd+L from anywhere in the pane: type a path, like a browser's address bar. */
   function onPaneKey(ev: KeyboardEvent) {
+    // Ctrl/Cmd+E: edit the one selected file in the app.
+    if (onOpenEditor && (ev.ctrlKey || ev.metaKey) && !ev.shiftKey && !ev.altKey && ev.key.toLowerCase() === "e" && editable) {
+      ev.preventDefault();
+      onOpenEditor(editable);
+      return;
+    }
     if (source && (ev.ctrlKey || ev.metaKey) && !ev.shiftKey && !ev.altKey && ev.key.toLowerCase() === "l") {
       ev.preventDefault();
       pathInput = path;
@@ -218,11 +240,12 @@
 
   function open(e: FileEntry) {
     if (e.is_dir) path = e.path;
+    else if (onOpenEditor && isTextName(e.name)) onOpenEditor(e);
     else onEdit?.(e);
   }
 
   const editable = $derived.by(() => {
-    if (!onEdit || selected.size !== 1) return null;
+    if (!(onEdit || onOpenEditor) || selected.size !== 1) return null;
     const [p] = [...selected];
     const e = entries.find((x) => x.path === p);
     return e && !e.is_dir ? e : null;
@@ -285,7 +308,7 @@
 
   function dragStart(ev: DragEvent, e: FileEntry) {
     if (!selected.has(e.path)) selected = new Set([e.path]);
-    ev.dataTransfer?.setData("application/x-sshvault-files", JSON.stringify({ side, paths: [...selected] }));
+    ev.dataTransfer?.setData("application/x-sshvault-files", JSON.stringify({ pane, paths: [...selected] }));
     if (ev.dataTransfer) ev.dataTransfer.effectAllowed = "copy";
   }
 
@@ -294,8 +317,8 @@
     const raw = ev.dataTransfer?.getData("application/x-sshvault-files");
     if (!raw) return;
     ev.preventDefault();
-    const { side: from, paths } = JSON.parse(raw) as { side: string; paths: string[] };
-    if (from !== side && paths.length) onDropFrom(paths);
+    const { pane: from, paths } = JSON.parse(raw) as { pane: string; paths: string[] };
+    if (from !== pane && paths.length) onDropFrom(paths);
   }
 
   function fmtDate(s: number | null) {
@@ -361,6 +384,7 @@
   <div class="flex items-center gap-2 border-b border-line bg-panel px-3 py-2">
     {@render header?.()}
   </div>
+  {#if source}{@render notice?.()}{/if}
 
   {#if !source}
     <div class="flex flex-1 items-center justify-center p-6 text-center">
@@ -417,7 +441,9 @@
       {#if caps.mkdir}
         <button class="icon-btn h-7 w-7" title="New folder" onclick={mkdir}><FolderPlus size={14} /></button>
       {/if}
-      {#if onEdit && caps.edit}
+      {#if onOpenEditor}
+        <button class="icon-btn h-7 w-7" title="Edit file (Ctrl+E, or double-click a text file)" aria-label="Edit file" disabled={!editable} onclick={() => editable && onOpenEditor?.(editable)}><FilePen size={14} /></button>
+      {:else if onEdit && caps.edit}
         <button class="icon-btn h-7 w-7" title="Edit in local editor (or double-click a file)" disabled={!editable} onclick={() => editable && onEdit?.(editable)}><FilePen size={14} /></button>
       {/if}
       {#if caps.preview}
@@ -484,14 +510,14 @@
                   aria-label="Actions for {e.name}"
                   ondblclick={(ev) => ev.stopPropagation()}
                 >
-                  <button class="icon-btn h-6 w-6" title={side === "local" ? "Upload" : "Download"} aria-label={side === "local" ? "Upload" : "Download"} onclick={(ev) => rowAction(ev, e, () => onTransfer([e.path]))}>
-                    {#if side === "local"}<Upload size={12} />{:else}<Download size={12} />{/if}
+                  <button class="icon-btn h-6 w-6" title={verb} aria-label={verb} onclick={(ev) => rowAction(ev, e, () => onTransfer([e.path]))}>
+                    {#if verb === "Upload"}<Upload size={12} />{:else if verb === "Download"}<Download size={12} />{:else}<Copy size={12} />{/if}
                   </button>
                   {#if caps.preview && !e.is_dir}
                     <button class="icon-btn h-6 w-6" title="View (Space)" aria-label="View" onclick={(ev) => rowAction(ev, e, () => quickLook(e))}><Eye size={12} /></button>
                   {/if}
-                  {#if onEdit && caps.edit && !e.is_dir}
-                    <button class="icon-btn h-6 w-6" title="Edit" aria-label="Edit" onclick={(ev) => rowAction(ev, e, () => onEdit?.(e))}><FilePen size={12} /></button>
+                  {#if (onOpenEditor || (onEdit && caps.edit)) && !e.is_dir}
+                    <button class="icon-btn h-6 w-6" title="Edit (Ctrl+E)" aria-label="Edit" onclick={(ev) => rowAction(ev, e, () => (onOpenEditor ?? onEdit)?.(e))}><FilePen size={12} /></button>
                   {/if}
                   {#if caps.rename}
                     <button class="icon-btn h-6 w-6" title="Rename" aria-label="Rename" onclick={(ev) => rowAction(ev, e, rename)}><TextCursorInput size={12} /></button>
@@ -533,16 +559,22 @@
   <div class="fixed z-50 w-52 rounded-md border border-line bg-panel py-1 text-sm shadow-2xl" use:keepInView={menu} role="menu">
     {#if e.is_dir}
       <button class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-panel-hover" role="menuitem" onclick={() => { open(e); menu = null; }}><FolderOpen size={13} /> Open</button>
+      {#if onCdHere}
+        <button class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-panel-hover" role="menuitem" onclick={() => { onCdHere?.(e); menu = null; }}><SquareTerminal size={13} /> Open in terminal (cd here)</button>
+      {/if}
     {:else}
+      {#if onOpenEditor}
+        <button class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-panel-hover" role="menuitem" onclick={() => { onOpenEditor?.(e); menu = null; }}><FilePen size={13} /> Edit <span class="ml-auto text-xs text-fg-muted">Ctrl+E</span></button>
+      {/if}
       {#if onEdit && caps.edit}
-        <button class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-panel-hover" role="menuitem" onclick={() => { onEdit?.(e); menu = null; }}><FilePen size={13} /> Edit</button>
+        <button class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-panel-hover" role="menuitem" onclick={() => { onEdit?.(e); menu = null; }}><FilePen size={13} /> Edit in local editor</button>
       {/if}
       {#if caps.preview}
         <button class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-panel-hover" role="menuitem" onclick={() => { void quickLook(e); menu = null; }}><FileSearch size={13} /> Quick look</button>
       {/if}
     {/if}
     <button class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-panel-hover" role="menuitem" onclick={() => { onTransfer([...selected]); menu = null; }}>
-      {#if side === "local"}<Copy size={13} /> Upload{:else}<Clipboard size={13} /> Download{/if}
+      {#if verb === "Upload"}<Copy size={13} /> Upload{:else if verb === "Download"}<Clipboard size={13} /> Download{:else}<Copy size={13} /> Copy to the other pane{/if}
     </button>
     <div class="my-1 border-t border-line"></div>
     <button class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-panel-hover" role="menuitem" onclick={() => { void copyPath(e); menu = null; }}><Copy size={13} /> Copy path</button>

@@ -172,7 +172,7 @@ async def main():
         await rrow.hover()
         check("it shows on hover", await strip.is_visible())
         labels = await strip.evaluate("(s) => [...s.querySelectorAll('button')].map((b) => b.getAttribute('aria-label'))")
-        check("with Download, View, Rename and Delete", labels == ["Download", "View", "Rename", "Delete"], labels)
+        check("with Download, View, Edit, Rename and Delete", labels == ["Download", "View", "Edit", "Rename", "Delete"], labels)
 
         await pg.locator('[aria-label="remote file list"] tbody tr', has_text="notes").click()
         await pg.keyboard.press("Control+l")
