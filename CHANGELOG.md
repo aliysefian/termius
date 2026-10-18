@@ -4,6 +4,15 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## 0.31.0 - 2026-10-18
+
+- **New:** host rows show a reachability dot (green, red, or grey if not checked), the user, address and port in monospace with the jump host and ping on the second line, and Connect, SFTP and Copy address buttons on hover. Ctrl+E on a selected host opens its files.
+- **Changed:** a production terminal no longer has a red banner across the top. It has a thin red border instead, and its tab shows a PROD pill (STG and DEV for the other environments) before the host name.
+- **New:** the status bar shows the focused session's protocol, ping, encoding and terminal type.
+- **New:** in the file panes, files have icons by type (folder, code, archive, config, key, image, text), sizes and dates line up, and hovering a row shows Download or Upload, View, Edit, Rename and Delete. Ctrl+L types a path.
+- **New:** the transfer list shows each transfer's speed and time left and the total speed, and can be folded away to a thin progress bar.
+- **New:** the terminal colour themes in Settings are previews of a terminal in each scheme's own colours.
+
 ## 0.30.7 - 2026-10-17
 
 - **New:** export your hosts to one encrypted file and import it into another SSHVault. The file keeps your groups and folders, jump hosts, logins (user names and, if you choose, passwords and private keys), keys and proxies, and is protected by a passphrase you choose. Export everything or just one group. Open it from the host list's toolbar or the command palette.
