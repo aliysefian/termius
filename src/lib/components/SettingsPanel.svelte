@@ -12,6 +12,7 @@
   import { localShells } from "$lib/stores/localshells.svelte";
   import { settings } from "$lib/stores/settings.svelte";
   import { allThemes } from "$lib/themes";
+  import ThemeSwatch from "./ThemeSwatch.svelte";
   import { LOCALES, t as tr, type Key } from "$lib/i18n/index.svelte";
   import { ALWAYS_SHOWN, RAIL_GROUPS, arrange as arrangeRail, move as moveRail } from "$lib/railitems";
   import { importTheme } from "$lib/themeimport";
@@ -292,14 +293,7 @@
                choosing button filling it and Remove laid over its corner. -->
           <div class="relative overflow-hidden rounded-md border text-left text-xs {settings.prefs.themeId === t.id ? 'border-accent ring-1 ring-accent' : 'border-line hover:border-fg-muted'}">
             <button type="button" class="block w-full text-left" aria-pressed={settings.prefs.themeId === t.id} onclick={() => (settings.prefs.themeId = t.id)}>
-              <span class="flex h-10 flex-col justify-center gap-1 px-2 font-mono text-[10px]" style:background={t.theme.background} style:color={t.theme.foreground}>
-                <span>user@host:~$ ls</span>
-                <span class="flex gap-0.5">
-                  {#each [t.theme.red, t.theme.yellow, t.theme.green, t.theme.cyan, t.theme.blue, t.theme.magenta] as c, i (i)}
-                    <span class="h-1.5 w-2.5 rounded-sm" style:background={c}></span>
-                  {/each}
-                </span>
-              </span>
+              <ThemeSwatch theme={t.theme} />
               <span class="block truncate bg-base px-2 py-1.5 {t.id.startsWith('custom-') ? 'pr-7' : ''}">{t.name}</span>
             </button>
             {#if t.id.startsWith("custom-")}

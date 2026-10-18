@@ -1,11 +1,12 @@
 <script lang="ts">
-  import { ArrowUp, ChevronDown, ChevronUp, Clipboard, Copy, Eye, EyeOff, File, FilePen, FileSearch, Folder, FolderOpen, FolderPlus, KeyRound, Link, RefreshCw, Search, TextCursorInput, Trash2 } from "lucide-svelte";
+  import { ArrowUp, ChevronDown, ChevronUp, Clipboard, Copy, Download, Eye, EyeOff, File, FileArchive, FileCode, FileCog, FileImage, FileKey, FilePen, FileSearch, FileText, Folder, FolderOpen, FolderPlus, KeyRound, Link, RefreshCw, Search, TextCursorInput, Trash2, Upload } from "lucide-svelte";
+  import { fileKind, type FileKind } from "$lib/filekind";
   import { revealItemInDir } from "@tauri-apps/plugin-opener";
   import { ask, askText } from "$lib/dialogs.svelte";
   import PreviewDialog from "./PreviewDialog.svelte";
   import type { Preview } from "$lib/sftp";
   import { settings } from "$lib/stores/settings.svelte";
-  import type { Snippet as SvelteSnippet } from "svelte";
+  import { tick, type Snippet as SvelteSnippet } from "svelte";
   import { ALL_CAPS, parentPath, type Caps, type FileSource } from "$lib/sftp";
   import { errorMessage, formatBytes, type FileEntry } from "$lib/types";
   import { keepInView } from "$lib/actions";
@@ -52,6 +53,7 @@
   let loading = $state(false);
   let error = $state<string | null>(null);
   let pathInput = $state("");
+  let pathEl = $state<HTMLInputElement>();
   let dragOver = $state(false);
   let lastClicked: string | null = null;
   let editingPath = $state(false);
@@ -129,6 +131,17 @@
       await revealItemInDir(target);
     } catch (err) {
       error = errorMessage(err);
+    }
+  }
+
+  /** Ctrl/Cmd+L from anywhere in the pane: type a path, like a browser's address bar. */
+  function onPaneKey(ev: KeyboardEvent) {
+    if (source && (ev.ctrlKey || ev.metaKey) && !ev.shiftKey && !ev.altKey && ev.key.toLowerCase() === "l") {
+      ev.preventDefault();
+      pathInput = path;
+      editingPath = true;
+      // `autofocus` only fires when nothing has focus, and the file list has it here.
+      void tick().then(() => pathEl?.focus());
     }
   }
 
@@ -289,6 +302,25 @@
     return s ? new Date(s * 1000).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" }) : "";
   }
 
+  const ICONS = { folder: Folder, code: FileCode, archive: FileArchive, config: FileCog, key: FileKey, image: FileImage, text: FileText, file: File } as const;
+  const ICON_TONE: Record<FileKind, string> = {
+    folder: "text-accent",
+    code: "text-success",
+    archive: "text-warning",
+    config: "text-fg-muted",
+    key: "text-danger",
+    image: "text-accent",
+    text: "text-fg-muted",
+    file: "text-fg-muted",
+  };
+
+  /** Run a row's hover action on that row alone, the way the toolbar does on a single selection. */
+  function rowAction(ev: Event, e: FileEntry, run: () => unknown) {
+    ev.stopPropagation();
+    selected = new Set([e.path]);
+    void run();
+  }
+
   // -- right-click menu ---------------------------------------------------
 
   let menu = $state<{ x: number; y: number; entry: FileEntry } | null>(null);
@@ -311,10 +343,12 @@
 
 <svelte:window onkeydown={(e) => { if (menu && e.key === "Escape") menu = null; }} onresize={() => (menu = null)} />
 
+<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <div
   class="flex min-h-0 min-w-0 flex-1 flex-col bg-base {dragOver ? 'ring-2 ring-inset ring-accent' : ''}"
   role="region"
   aria-label="{side} files"
+  onkeydown={onPaneKey}
   ondragover={(e) => {
     if (e.dataTransfer?.types.includes("application/x-sshvault-files")) {
       e.preventDefault();
@@ -350,7 +384,9 @@
             bind:value={pathInput}
             spellcheck="false"
             aria-label="Path"
+            bind:this={pathEl}
             autofocus
+            onfocus={(e) => e.currentTarget.select()}
             onblur={() => (editingPath = false)}
           />
         </form>
@@ -365,7 +401,7 @@
               {b.name || source.sep}
             </button>
           {/each}
-          <button class="ml-auto shrink-0 pl-2 text-fg-muted hover:text-fg" title="Type a path" aria-label="Type a path" onclick={() => (editingPath = true)}>
+          <button class="ml-auto shrink-0 pl-2 text-fg-muted hover:text-fg" title="Type a path (Ctrl+L)" aria-label="Type a path" onclick={() => (editingPath = true)}>
             <TextCursorInput size={12} />
           </button>
         </nav>
@@ -418,30 +454,56 @@
           <tr class="border-b border-line">
             <th class="px-3 py-1.5 font-medium"><button class="flex items-center gap-1 hover:text-fg" onclick={() => sortBy("name")}>Name {#if sortKey === "name"}{#if sortDir === 1}<ChevronUp size={11} />{:else}<ChevronDown size={11} />{/if}{/if}</button></th>
             <th class="w-24 px-2 py-1.5 text-right font-medium"><button class="flex w-full items-center justify-end gap-1 hover:text-fg" onclick={() => sortBy("size")}>{#if sortKey === "size"}{#if sortDir === 1}<ChevronUp size={11} />{:else}<ChevronDown size={11} />{/if}{/if} Size</button></th>
-            <th class="hidden w-36 px-3 py-1.5 font-medium lg:table-cell"><button class="flex items-center gap-1 hover:text-fg" onclick={() => sortBy("modified")}>Modified {#if sortKey === "modified"}{#if sortDir === 1}<ChevronUp size={11} />{:else}<ChevronDown size={11} />{/if}{/if}</button></th>
+            <th class="hidden w-44 px-3 py-1.5 font-medium lg:table-cell"><button class="flex items-center gap-1 hover:text-fg" onclick={() => sortBy("modified")}>Modified {#if sortKey === "modified"}{#if sortDir === 1}<ChevronUp size={11} />{:else}<ChevronDown size={11} />{/if}{/if}</button></th>
             <th class="hidden w-24 px-2 py-1.5 font-medium xl:table-cell"><button class="flex items-center gap-1 hover:text-fg" onclick={() => sortBy("mode")}>Mode {#if sortKey === "mode"}{#if sortDir === 1}<ChevronUp size={11} />{:else}<ChevronDown size={11} />{/if}{/if}</button></th>
           </tr>
         </thead>
         <tbody>
           {#each visible as e (e.path)}
+            {@const kind = fileKind(e.name, e.is_dir)}
+            {@const Icon = ICONS[kind]}
             <tr
-              class="cursor-default select-none {selected.has(e.path) ? 'bg-accent/20' : 'hover:bg-panel-hover'}"
+              class="group cursor-default select-none {selected.has(e.path) ? 'bg-accent/20' : 'hover:bg-panel-hover'}"
               draggable="true"
               ondragstart={(ev) => dragStart(ev, e)}
               onclick={(ev) => click(ev, e)}
               ondblclick={() => open(e)}
               oncontextmenu={(ev) => openMenu(ev, e)}
             >
-              <td class="truncate px-3 py-1">
+              <td class="relative truncate px-3 py-1">
                 <span class="inline-flex items-center gap-2">
-                  {#if e.is_dir}<Folder size={14} class="shrink-0 text-accent" />{:else}<File size={14} class="shrink-0 text-fg-muted" />{/if}
+                  <Icon size={14} class="shrink-0 {ICON_TONE[kind]}" />
                   <span class="truncate">{e.name}</span>
                   {#if e.is_symlink}<Link size={11} class="shrink-0 text-fg-muted" />{/if}
                 </span>
+                <!-- Row actions float over the name's end on hover or keyboard focus, so a row costs no width. -->
+                <span
+                  class="absolute inset-y-0 right-1 my-auto hidden h-6 items-center rounded bg-panel pl-0.5 shadow-[-8px_0_8px_-2px_var(--color-panel)] group-hover:flex group-focus-within:flex"
+                  role="toolbar"
+                  tabindex="-1"
+                  aria-label="Actions for {e.name}"
+                  ondblclick={(ev) => ev.stopPropagation()}
+                >
+                  <button class="icon-btn h-6 w-6" title={side === "local" ? "Upload" : "Download"} aria-label={side === "local" ? "Upload" : "Download"} onclick={(ev) => rowAction(ev, e, () => onTransfer([e.path]))}>
+                    {#if side === "local"}<Upload size={12} />{:else}<Download size={12} />{/if}
+                  </button>
+                  {#if caps.preview && !e.is_dir}
+                    <button class="icon-btn h-6 w-6" title="View (Space)" aria-label="View" onclick={(ev) => rowAction(ev, e, () => quickLook(e))}><Eye size={12} /></button>
+                  {/if}
+                  {#if onEdit && caps.edit && !e.is_dir}
+                    <button class="icon-btn h-6 w-6" title="Edit" aria-label="Edit" onclick={(ev) => rowAction(ev, e, () => onEdit?.(e))}><FilePen size={12} /></button>
+                  {/if}
+                  {#if caps.rename}
+                    <button class="icon-btn h-6 w-6" title="Rename" aria-label="Rename" onclick={(ev) => rowAction(ev, e, rename)}><TextCursorInput size={12} /></button>
+                  {/if}
+                  {#if caps.delete}
+                    <button class="icon-btn h-6 w-6 hover:text-danger" title="Delete" aria-label="Delete" onclick={(ev) => rowAction(ev, e, remove)}><Trash2 size={12} /></button>
+                  {/if}
+                </span>
               </td>
-              <td class="px-2 py-1 text-right font-mono text-xs text-fg-muted">{e.is_dir ? "" : formatBytes(e.size)}</td>
-              <td class="hidden px-3 py-1 text-xs text-fg-muted lg:table-cell">{fmtDate(e.modified)}</td>
-              <td class="hidden px-2 py-1 font-mono text-[11px] text-fg-muted xl:table-cell">{modeString(e.permissions)}</td>
+              <td class="px-2 py-1 text-right font-mono text-xs tabular-nums text-fg-muted">{e.is_dir ? "" : formatBytes(e.size)}</td>
+              <td class="hidden whitespace-nowrap px-3 py-1 font-mono text-xs tabular-nums text-fg-muted lg:table-cell">{fmtDate(e.modified)}</td>
+              <td class="hidden px-2 py-1 font-mono text-[11px] tabular-nums text-fg-muted xl:table-cell">{modeString(e.permissions)}</td>
             </tr>
           {:else}
             {#if !loading && !error}

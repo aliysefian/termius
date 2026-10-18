@@ -92,7 +92,7 @@ async def main():
 
         # A slow listing must not replace the newer one.
         async def goto(path):
-            await pg.locator('nav[aria-label="Path"] button[title="Type a path"]').nth(1).click()
+            await pg.locator('nav[aria-label="Path"] button[aria-label="Type a path"]').nth(1).click()
             inp = pg.locator('input[aria-label="Path"]')
             await inp.fill(path)
             await pg.keyboard.press("Enter")

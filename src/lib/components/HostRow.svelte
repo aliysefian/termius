@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Copy, Info, Pencil, Star, TerminalSquare, Trash2 } from "lucide-svelte";
+  import { Copy, CopyPlus, FolderSync, Info, Pencil, Play, Star, TerminalSquare, Trash2 } from "lucide-svelte";
   import Badge from "./Badge.svelte";
   import { writeText } from "@tauri-apps/plugin-clipboard-manager";
   import { settings } from "$lib/stores/settings.svelte";
@@ -36,6 +36,16 @@
     try {
       await writeText(cmd);
       ui.notify("info", `Copied: ${cmd}`);
+    } catch (err) {
+      ui.notify("error", errorMessage(err));
+    }
+  }
+
+  async function copyAddress(e: MouseEvent) {
+    e.stopPropagation();
+    try {
+      await writeText(d.hostname);
+      ui.notify("info", `Copied: ${d.hostname}`);
     } catch (err) {
       ui.notify("error", errorMessage(err));
     }
@@ -91,16 +101,27 @@
   ondblclick={connect}
   title="Double-click to connect, Space for details, Ctrl+click to select. {usageText}"
 >
-  <span class="ml-4 h-2 w-2 shrink-0 rounded-full {d.color ? '' : 'bg-accent'}" style:background={d.color || undefined}></span>
+  <!-- The host's colour tag is an edge bar; the dot is what the last reachability probe saw. -->
+  {#if d.color}<span class="absolute inset-y-1 left-0 w-0.5 rounded-full" style:background={d.color} aria-hidden="true"></span>{/if}
+  <span
+    class="ml-4 h-2 w-2 shrink-0 rounded-full {health?.state === 'up' ? 'bg-success' : health?.state === 'down' ? 'bg-danger' : 'bg-fg-muted/40'}"
+    title={health?.state === "up" ? "Reachable" : health?.state === "down" ? "Unreachable" : "Not probed"}
+    aria-hidden="true"
+  ></span>
   <div class="min-w-0 flex-1">
     <div class="flex items-center gap-1.5">
       <span class="truncate text-sm">{d.label}</span>
       {#if env.value}
         <Badge tone={env.tone}>{env.short ?? ""}</Badge>
       {/if}
+    </div>
+    <div class="flex items-baseline gap-1.5 text-xs text-fg-muted">
+      <span class="min-w-0 shrink truncate font-mono">{identity ? `${identity.username}@` : ""}{d.hostname}{d.port !== 22 ? `:${d.port}` : ""}</span>
+      <!-- The address is what you scan for, so "via …" gives way first. -->
+      {#if jump}<span class="min-w-0 shrink-[100] truncate">via {jump.label}</span>{/if}
       {#if health}
         <span
-          class="ml-auto shrink-0 font-mono text-[11px] {health.state === 'up' ? 'text-success' : health.state === 'down' ? 'text-danger' : 'text-fg-muted'}"
+          class="ml-auto shrink-0 pr-1 font-mono tabular-nums {health.state === 'up' ? 'text-success' : health.state === 'down' ? 'text-danger' : ''}"
           title={health.state === "up"
             ? `Reachable in ${health.latency_ms} ms${health.banner ? `\n${health.banner}` : ""}`
             : health.state === "down"
@@ -111,9 +132,6 @@
         </span>
       {/if}
     </div>
-    <div class="truncate text-xs text-fg-muted">
-      {identity ? `${identity.username}@` : ""}{d.hostname}{d.port !== 22 ? `:${d.port}` : ""}{jump ? ` via ${jump.label}` : ""}
-    </div>
   </div>
   {#if d.favorite}
     <!-- Always visible, so favorites stand out even at narrow widths. -->
@@ -121,10 +139,23 @@
   {/if}
   <!-- Actions float over the row on hover instead of reserving width, so the
        label keeps the full row when the panel is narrow. -->
+  <!-- A double-click that lands on a button here is the button's, not the row's "connect", and Connect itself
+       ignores the second click of a double-click: otherwise one double-click opened a tab per click. -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
+    ondblclick={(e) => e.stopPropagation()}
     class="host-actions absolute inset-y-0 right-1 my-auto hidden h-7 items-center rounded-md pl-1
       {selected ? 'bg-panel' : 'bg-panel-hover'} group-hover:flex group-focus-within:flex"
   >
+    <button class="icon-btn h-6 w-6 hover:text-success" title="Connect (Enter)" aria-label="Connect" onclick={(e) => { e.stopPropagation(); if (e.detail < 2) connect(); }}>
+      <Play size={12} />
+    </button>
+    <button class="icon-btn h-6 w-6 @max-[16rem]:hidden" title="Open SFTP (Ctrl+E)" aria-label="Open SFTP" onclick={(e) => { e.stopPropagation(); ui.openSftpAt(host.id, ""); }}>
+      <FolderSync size={12} />
+    </button>
+    <button class="icon-btn h-6 w-6 @max-[16rem]:hidden" title="Copy address" aria-label="Copy address" onclick={copyAddress}>
+      <CopyPlus size={12} />
+    </button>
     <button
       class="icon-btn h-6 w-6 {d.favorite ? 'text-warning' : ''}"
       title={d.favorite ? "Remove from favorites" : "Add to favorites"}
@@ -136,13 +167,13 @@
     >
       <Star size={12} fill={d.favorite ? "currentColor" : "none"} />
     </button>
-    <button class="icon-btn h-6 w-6 @max-[16rem]:hidden" title="Details" onclick={(e) => { e.stopPropagation(); ui.modal = { kind: "host-details", id: host.id }; }}>
+    <button class="icon-btn h-6 w-6 @max-[22rem]:hidden" title="Details" onclick={(e) => { e.stopPropagation(); ui.modal = { kind: "host-details", id: host.id }; }}>
       <Info size={12} />
     </button>
-    <button class="icon-btn h-6 w-6 @max-[18rem]:hidden" title="Copy as ssh command" onclick={copyCommand}>
+    <button class="icon-btn h-6 w-6 @max-[22rem]:hidden" title="Copy as ssh command" onclick={copyCommand}>
       <TerminalSquare size={12} />
     </button>
-    <button class="icon-btn h-6 w-6 @max-[18rem]:hidden" title="Duplicate" onclick={duplicate}>
+    <button class="icon-btn h-6 w-6 @max-[22rem]:hidden" title="Duplicate" onclick={duplicate}>
       <Copy size={12} />
     </button>
     <button class="icon-btn h-6 w-6" title="Edit" onclick={(e) => { e.stopPropagation(); ui.modal = { kind: "host", id: host.id }; }}>

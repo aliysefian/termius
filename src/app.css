@@ -118,6 +118,9 @@ body {
   .badge-success {
     @apply bg-success/15 text-success;
   }
+  .badge-outline {
+    @apply border border-current/25;
+  }
   /*
    * Row actions shown on hover. Focus (Tab into the row) reveals them too,
    * so they're keyboard-reachable, and touch devices (no hover) always
