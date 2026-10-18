@@ -4,6 +4,10 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## 0.33.1 - 2026-10-18
+
+- **Fixed:** the 0.33.0 installers could not be built because of a mistake in how connections to an unsaved `user@host` were set up. 0.33.1 has everything in 0.33.0 and builds.
+
 ## 0.33.0 - 2026-10-18
 
 - **New:** edit a file where it is. Double-click a text or settings file in the Files view (or press Ctrl+E) to open it in an editor inside the app, with colours for nginx, YAML, JSON, TOML, systemd units, shell scripts, Dockerfiles and .env files. The header shows the host and its environment, the full path, the permissions and the owner. Ctrl+S saves it back in place, so it keeps its owner and mode, and nothing is written to your disk. If the file was changed on the host after you opened it, you are asked before it is overwritten.
