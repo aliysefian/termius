@@ -431,6 +431,12 @@ impl SshManager {
         tokio::spawn(async move {
             sink.status(SessionStatus::Connecting);
             let outcome = run_session(params, rx, sink.as_ref(), client_cell).await;
+            // Release the pane before saying so: whoever hears "disconnected" may reconnect it at once.
+            manager
+                .sessions
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .remove(&pane_id);
             match outcome {
                 Ok(code) => sink.status(SessionStatus::Disconnected { code }),
                 Err(e) => match e.host_key_changed() {
@@ -444,11 +450,6 @@ impl SshManager {
                     }),
                 },
             }
-            manager
-                .sessions
-                .lock()
-                .unwrap_or_else(|p| p.into_inner())
-                .remove(&pane_id);
         });
         Ok(())
     }

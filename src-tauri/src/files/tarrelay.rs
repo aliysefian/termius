@@ -458,8 +458,11 @@ mod tests {
         assert!(run(&want, &tar, 4096).unwrap_err().contains("extra.txt"));
 
         // A link, even one with a harmless name.
-        let (tar, _d) = planned_archive(&["a.txt"], |p| std::os::unix::fs::symlink("/etc/passwd", p.join("a.txt")).unwrap());
-        assert!(run(&want, &tar, 4096).unwrap_err().contains("link"));
+        #[cfg(unix)]
+        {
+            let (tar, _d) = planned_archive(&["a.txt"], |p| std::os::unix::fs::symlink("/etc/passwd", p.join("a.txt")).unwrap());
+            assert!(run(&want, &tar, 4096).unwrap_err().contains("link"));
+        }
 
         // A hard link.
         let (tar, _d) = planned_archive(&["a.txt", "b.txt"], |p| {
@@ -541,156 +544,162 @@ mod tests {
         assert_eq!(parse_octal(b"      \0 "), Some(0));
     }
 
-    // -- over two real SSH sessions -----------------------------------------------------------------------------
+    // Two real sessions to a throw-away sshd, with Unix file modes; only where those exist.
+    #[cfg(unix)]
+    mod over_ssh {
+        use super::*;
+        // -- over two real SSH sessions -----------------------------------------------------------------------------
 
-    use crate::sftp::{SftpManager, TransferProgress};
-    use crate::ssh::testutil::{spawn_sshd, target};
-    use std::sync::atomic::Ordering;
-    use std::sync::{Arc, Mutex};
+        use crate::sftp::{SftpManager, TransferProgress};
+        use crate::ssh::testutil::{spawn_sshd, target};
+        use std::sync::atomic::Ordering;
+        use std::sync::{Arc, Mutex};
 
-    struct Collect(Mutex<Vec<TransferProgress>>);
-    impl crate::files::ProgressSink for Arc<Collect> {
-        fn report(&self, p: TransferProgress) {
-            self.0.lock().unwrap().push(p);
-        }
-    }
-
-    fn tree(root: &std::path::Path, files: usize) {
-        use std::os::unix::fs::PermissionsExt;
-        for i in 0..files {
-            let dir = root.join(format!("d{}/e{}", i % 7, i % 3));
-            std::fs::create_dir_all(&dir).unwrap();
-            let f = dir.join(format!("file {i}.txt"));
-            std::fs::write(&f, format!("content of file {i}\n").repeat(1 + i % 40)).unwrap();
-            if i % 11 == 0 {
-                std::fs::set_permissions(&f, std::fs::Permissions::from_mode(0o600)).unwrap();
+        struct Collect(Mutex<Vec<TransferProgress>>);
+        impl crate::files::ProgressSink for Arc<Collect> {
+            fn report(&self, p: TransferProgress) {
+                self.0.lock().unwrap().push(p);
             }
         }
-        std::fs::create_dir_all(root.join("empty folder")).unwrap();
-    }
 
-    fn same_tree(a: &std::path::Path, b: &std::path::Path) {
-        use std::os::unix::fs::PermissionsExt;
-        let list = |root: &std::path::Path| {
-            let mut out = Vec::new();
-            let mut stack = vec![root.to_path_buf()];
-            while let Some(d) = stack.pop() {
-                for e in std::fs::read_dir(&d).unwrap().flatten() {
-                    let p = e.path();
-                    let rel = p.strip_prefix(root).unwrap().to_string_lossy().into_owned();
-                    if p.is_dir() {
-                        out.push((rel, None, 0));
-                        stack.push(p);
-                    } else {
-                        out.push((rel, Some(std::fs::read(&p).unwrap()), std::fs::metadata(&p).unwrap().permissions().mode() & 0o777));
-                    }
+        fn tree(root: &std::path::Path, files: usize) {
+            use std::os::unix::fs::PermissionsExt;
+            for i in 0..files {
+                let dir = root.join(format!("d{}/e{}", i % 7, i % 3));
+                std::fs::create_dir_all(&dir).unwrap();
+                let f = dir.join(format!("file {i}.txt"));
+                std::fs::write(&f, format!("content of file {i}\n").repeat(1 + i % 40)).unwrap();
+                if i % 11 == 0 {
+                    std::fs::set_permissions(&f, std::fs::Permissions::from_mode(0o600)).unwrap();
                 }
             }
-            out.sort();
-            out
-        };
-        assert_eq!(list(a), list(b));
-    }
+            std::fs::create_dir_all(root.join("empty folder")).unwrap();
+        }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn many_small_files_go_between_two_hosts_in_one_tar_stream_and_arrive_identical() {
-        let dir = tempfile::TempDir::new().unwrap();
-        let Some(sshd) = spawn_sshd(dir.path()) else {
-            eprintln!("skipping: no usable sshd on this machine");
-            return;
-        };
-        let t = target(&sshd, &sshd.client_key, dir.path().join("kh"));
-        let m = SftpManager::new();
-        m.open("a".into(), &t).await.unwrap();
-        m.open("b".into(), &t).await.unwrap();
-        let (a, b) = (m.get("a").unwrap(), m.get("b").unwrap());
-        let (a, b): (&dyn FileBackend, &dyn FileBackend) = (a.as_ref(), b.as_ref());
-        let registry = m.registry();
+        /// Same names and contents; with `modes`, same permission bits too (only the tar path keeps those).
+        fn same_tree(a: &std::path::Path, b: &std::path::Path, modes: bool) {
+            use std::os::unix::fs::PermissionsExt;
+            let list = |root: &std::path::Path| {
+                let mut out = Vec::new();
+                let mut stack = vec![root.to_path_buf()];
+                while let Some(d) = stack.pop() {
+                    for e in std::fs::read_dir(&d).unwrap().flatten() {
+                        let p = e.path();
+                        let rel = p.strip_prefix(root).unwrap().to_string_lossy().into_owned();
+                        if p.is_dir() {
+                            out.push((rel, None, 0));
+                            stack.push(p);
+                        } else {
+                            out.push((rel, Some(std::fs::read(&p).unwrap()), if modes { std::fs::metadata(&p).unwrap().permissions().mode() & 0o777 } else { 0 }));
+                        }
+                    }
+                }
+                out.sort();
+                out
+            };
+            assert_eq!(list(a), list(b));
+        }
 
-        let src = dir.path().join("proj");
-        tree(&src, 400);
-        let dst = dir.path().join("dst");
-        std::fs::create_dir(&dst).unwrap();
+        #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+        async fn many_small_files_go_between_two_hosts_in_one_tar_stream_and_arrive_identical() {
+            let dir = tempfile::TempDir::new().unwrap();
+            let Some(sshd) = spawn_sshd(dir.path()) else {
+                eprintln!("skipping: no usable sshd on this machine");
+                return;
+            };
+            let t = target(&sshd, &sshd.client_key, dir.path().join("kh"));
+            let m = SftpManager::new();
+            m.open("a".into(), &t).await.unwrap();
+            m.open("b".into(), &t).await.unwrap();
+            let (a, b) = (m.get("a").unwrap(), m.get("b").unwrap());
+            let (a, b): (&dyn FileBackend, &dyn FileBackend) = (a.as_ref(), b.as_ref());
+            let registry = m.registry();
 
-        let before = crate::files::engine::TAR_RELAYS.load(Ordering::SeqCst);
-        let sink = Arc::new(Collect(Mutex::new(Vec::new())));
-        crate::files::engine::transfer(&registry, "t1".into(), a, b, &[src.to_string_lossy().into_owned()], &dst.to_string_lossy(), false, crate::files::Conflict::Overwrite, &sink).await;
-        let last = sink.0.lock().unwrap().last().cloned();
-        assert!(matches!(last, Some(TransferProgress::Done { files: 400, .. })), "{last:?}");
-        assert_eq!(crate::files::engine::TAR_RELAYS.load(Ordering::SeqCst), before + 1, "the tar relay did the copying");
-        same_tree(&src, &dst.join("proj"));
-        // Progress ran from the start to the end, in order.
-        let bytes: Vec<u64> = sink.0.lock().unwrap().iter().filter_map(|p| if let TransferProgress::Progress { bytes, .. } = p { Some(*bytes) } else { None }).collect();
-        assert!(bytes.windows(2).all(|w| w[0] <= w[1]));
+            let src = dir.path().join("proj");
+            tree(&src, 400);
+            let dst = dir.path().join("dst");
+            std::fs::create_dir(&dst).unwrap();
 
-        // Few files, resume, skip, keep-both and mixed parents all take the per-file path.
-        let before = crate::files::engine::TAR_RELAYS.load(Ordering::SeqCst);
-        let few = dir.path().join("few");
-        tree(&few, 5);
-        let out = dir.path().join("out");
-        std::fs::create_dir(&out).unwrap();
-        for (id, resume, conflict) in [("few", false, crate::files::Conflict::Overwrite), ("resume", true, crate::files::Conflict::Overwrite)] {
+            let before = crate::files::engine::TAR_RELAYS.load(Ordering::SeqCst);
             let sink = Arc::new(Collect(Mutex::new(Vec::new())));
-            crate::files::engine::transfer(&registry, id.into(), a, b, &[few.to_string_lossy().into_owned()], &out.to_string_lossy(), resume, conflict, &sink).await;
-        }
-        let sink = Arc::new(Collect(Mutex::new(Vec::new())));
-        let dst2 = dir.path().join("dst2");
-        std::fs::create_dir(&dst2).unwrap();
-        crate::files::engine::transfer(&registry, "keep".into(), a, b, &[src.to_string_lossy().into_owned()], &dst2.to_string_lossy(), false, crate::files::Conflict::Rename, &sink).await;
-        assert_eq!(crate::files::engine::TAR_RELAYS.load(Ordering::SeqCst), before, "those did not use it");
-        same_tree(&src, &dst2.join("proj"));
-        assert!(registry.is_empty());
-    }
+            crate::files::engine::transfer(&registry, "t1".into(), a, b, &[src.to_string_lossy().into_owned()], &dst.to_string_lossy(), false, crate::files::Conflict::Overwrite, &sink).await;
+            let last = sink.0.lock().unwrap().last().cloned();
+            assert!(matches!(last, Some(TransferProgress::Done { files: 400, .. })), "{last:?}");
+            assert_eq!(crate::files::engine::TAR_RELAYS.load(Ordering::SeqCst), before + 1, "the tar relay did the copying");
+            same_tree(&src, &dst.join("proj"), true);
+            // Progress ran from the start to the end, in order.
+            let bytes: Vec<u64> = sink.0.lock().unwrap().iter().filter_map(|p| if let TransferProgress::Progress { bytes, .. } = p { Some(*bytes) } else { None }).collect();
+            assert!(bytes.windows(2).all(|w| w[0] <= w[1]));
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn a_tar_relay_can_be_cancelled_and_both_hosts_carry_on() {
-        let dir = tempfile::TempDir::new().unwrap();
-        let Some(sshd) = spawn_sshd(dir.path()) else {
-            eprintln!("skipping: no usable sshd on this machine");
-            return;
-        };
-        let t = target(&sshd, &sshd.client_key, dir.path().join("kh"));
-        let m = SftpManager::new();
-        m.open("a".into(), &t).await.unwrap();
-        m.open("b".into(), &t).await.unwrap();
-        let (a, b) = (m.get("a").unwrap(), m.get("b").unwrap());
-        let (a, b): (&dyn FileBackend, &dyn FileBackend) = (a.as_ref(), b.as_ref());
-        let registry = m.registry();
-        let src = dir.path().join("big");
-        // Enough bytes (small files, 40 KB each, 48 MB) that the copy is still going when it is stopped.
-        std::fs::create_dir_all(&src).unwrap();
-        for i in 0..1200 {
-            std::fs::write(src.join(format!("f{i}")), vec![b'z'; 40_000]).unwrap();
+            // Few files, resume, skip, keep-both and mixed parents all take the per-file path.
+            let before = crate::files::engine::TAR_RELAYS.load(Ordering::SeqCst);
+            let few = dir.path().join("few");
+            tree(&few, 5);
+            let out = dir.path().join("out");
+            std::fs::create_dir(&out).unwrap();
+            for (id, resume, conflict) in [("few", false, crate::files::Conflict::Overwrite), ("resume", true, crate::files::Conflict::Overwrite)] {
+                let sink = Arc::new(Collect(Mutex::new(Vec::new())));
+                crate::files::engine::transfer(&registry, id.into(), a, b, &[few.to_string_lossy().into_owned()], &out.to_string_lossy(), resume, conflict, &sink).await;
+            }
+            let sink = Arc::new(Collect(Mutex::new(Vec::new())));
+            let dst2 = dir.path().join("dst2");
+            std::fs::create_dir(&dst2).unwrap();
+            crate::files::engine::transfer(&registry, "keep".into(), a, b, &[src.to_string_lossy().into_owned()], &dst2.to_string_lossy(), false, crate::files::Conflict::Rename, &sink).await;
+            assert_eq!(crate::files::engine::TAR_RELAYS.load(Ordering::SeqCst), before, "those did not use it");
+            same_tree(&src, &dst2.join("proj"), false);
+            assert!(registry.is_empty());
         }
-        let dst = dir.path().join("dst");
-        std::fs::create_dir(&dst).unwrap();
-        let sink = Arc::new(Collect(Mutex::new(Vec::new())));
-        let reg = Arc::clone(&registry);
-        let watcher = {
-            let sink = Arc::clone(&sink);
-            tokio::spawn(async move {
-                for _ in 0..600 {
-                    if sink.0.lock().unwrap().iter().any(|p| matches!(p, TransferProgress::Progress { bytes, .. } if *bytes > 0)) {
-                        reg.cancel("c1");
-                        return;
+
+        #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+        async fn a_tar_relay_can_be_cancelled_and_both_hosts_carry_on() {
+            let dir = tempfile::TempDir::new().unwrap();
+            let Some(sshd) = spawn_sshd(dir.path()) else {
+                eprintln!("skipping: no usable sshd on this machine");
+                return;
+            };
+            let t = target(&sshd, &sshd.client_key, dir.path().join("kh"));
+            let m = SftpManager::new();
+            m.open("a".into(), &t).await.unwrap();
+            m.open("b".into(), &t).await.unwrap();
+            let (a, b) = (m.get("a").unwrap(), m.get("b").unwrap());
+            let (a, b): (&dyn FileBackend, &dyn FileBackend) = (a.as_ref(), b.as_ref());
+            let registry = m.registry();
+            let src = dir.path().join("big");
+            // Enough bytes (small files, 40 KB each, 48 MB) that the copy is still going when it is stopped.
+            std::fs::create_dir_all(&src).unwrap();
+            for i in 0..1200 {
+                std::fs::write(src.join(format!("f{i}")), vec![b'z'; 40_000]).unwrap();
+            }
+            let dst = dir.path().join("dst");
+            std::fs::create_dir(&dst).unwrap();
+            let sink = Arc::new(Collect(Mutex::new(Vec::new())));
+            let reg = Arc::clone(&registry);
+            let watcher = {
+                let sink = Arc::clone(&sink);
+                tokio::spawn(async move {
+                    for _ in 0..600 {
+                        if sink.0.lock().unwrap().iter().any(|p| matches!(p, TransferProgress::Progress { bytes, .. } if *bytes > 0)) {
+                            reg.cancel("c1");
+                            return;
+                        }
+                        tokio::time::sleep(Duration::from_millis(5)).await;
                     }
-                    tokio::time::sleep(Duration::from_millis(5)).await;
-                }
-            })
-        };
-        crate::files::engine::transfer(&registry, "c1".into(), a, b, &[src.to_string_lossy().into_owned()], &dst.to_string_lossy(), false, crate::files::Conflict::Overwrite, &sink).await;
-        watcher.await.unwrap();
-        let last = sink.0.lock().unwrap().last().cloned();
-        assert!(matches!(last, Some(TransferProgress::Cancelled)), "{last:?}");
-        let got = std::fs::read_dir(dst.join("big")).map(|d| d.count()).unwrap_or(0);
-        assert!(got < 1200, "stopped before the end: {got} files");
-        // Both sessions still work, and the same copy can be finished with resume (which goes file by file).
-        assert!(a.list(&dir.path().to_string_lossy()).await.is_ok());
-        assert!(b.list(&dir.path().to_string_lossy()).await.is_ok());
-        let sink = Arc::new(Collect(Mutex::new(Vec::new())));
-        crate::files::engine::transfer(&registry, "c2".into(), a, b, &[src.to_string_lossy().into_owned()], &dst.to_string_lossy(), true, crate::files::Conflict::Overwrite, &sink).await;
-        let last = sink.0.lock().unwrap().last().cloned();
-        assert!(matches!(last, Some(TransferProgress::Done { .. })), "{last:?}");
-        assert_eq!(std::fs::read_dir(dst.join("big")).unwrap().count(), 1200);
+                })
+            };
+            crate::files::engine::transfer(&registry, "c1".into(), a, b, &[src.to_string_lossy().into_owned()], &dst.to_string_lossy(), false, crate::files::Conflict::Overwrite, &sink).await;
+            watcher.await.unwrap();
+            let last = sink.0.lock().unwrap().last().cloned();
+            assert!(matches!(last, Some(TransferProgress::Cancelled)), "{last:?}");
+            let got = std::fs::read_dir(dst.join("big")).map(|d| d.count()).unwrap_or(0);
+            assert!(got < 1200, "stopped before the end: {got} files");
+            // Both sessions still work, and the same copy can be finished with resume (which goes file by file).
+            assert!(a.list(&dir.path().to_string_lossy()).await.is_ok());
+            assert!(b.list(&dir.path().to_string_lossy()).await.is_ok());
+            let sink = Arc::new(Collect(Mutex::new(Vec::new())));
+            crate::files::engine::transfer(&registry, "c2".into(), a, b, &[src.to_string_lossy().into_owned()], &dst.to_string_lossy(), true, crate::files::Conflict::Overwrite, &sink).await;
+            let last = sink.0.lock().unwrap().last().cloned();
+            assert!(matches!(last, Some(TransferProgress::Done { .. })), "{last:?}");
+            assert_eq!(std::fs::read_dir(dst.join("big")).unwrap().count(), 1200);
+        }
     }
 }

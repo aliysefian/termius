@@ -355,165 +355,174 @@ mod tests {
         assert_eq!((c.sha256.as_str(), c.method), (ABC, ChecksumMethod::Read));
     }
 
-    // -- over a real SFTP connection --------------------------------------------------------------------------
+    // These lean on Unix permissions, owners and a POSIX shell, so they only exist where those do.
+    #[cfg(unix)]
+    mod unix_hosts {
+        use super::*;
+        // -- over a real SFTP connection --------------------------------------------------------------------------
 
-    use crate::ssh::testutil::{spawn_sshd, target};
+        use crate::ssh::testutil::{spawn_sshd, target};
 
-    fn me() -> String {
-        String::from_utf8(std::process::Command::new("id").arg("-un").output().unwrap().stdout).unwrap().trim().to_string()
-    }
+        fn me() -> String {
+            String::from_utf8(std::process::Command::new("id").arg("-un").output().unwrap().stdout).unwrap().trim().to_string()
+        }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn over_sftp_a_file_is_read_with_its_owner_saved_in_place_and_checksummed_by_the_host() {
-        use std::os::unix::fs::PermissionsExt;
-        let dir = tempfile::TempDir::new().unwrap();
-        let Some(sshd) = spawn_sshd(dir.path()) else {
-            eprintln!("skipping: no usable sshd on this machine");
-            return;
-        };
-        let (conn, _) = crate::sftp::SftpConn::open(&target(&sshd, &sshd.client_key, dir.path().join("kh"))).await.unwrap();
-        let path = dir.path().join("nginx it's.conf");
-        std::fs::write(&path, "server {\n  listen 80;\n}\n").unwrap();
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o640)).unwrap();
-        let p = path.to_string_lossy().into_owned();
+        #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+        async fn over_sftp_a_file_is_read_with_its_owner_saved_in_place_and_checksummed_by_the_host() {
+            use std::os::unix::fs::PermissionsExt;
+            let dir = tempfile::TempDir::new().unwrap();
+            let Some(sshd) = spawn_sshd(dir.path()) else {
+                eprintln!("skipping: no usable sshd on this machine");
+                return;
+            };
+            let (conn, _) = crate::sftp::SftpConn::open(&target(&sshd, &sshd.client_key, dir.path().join("kh"))).await.unwrap();
+            let path = dir.path().join("nginx it's.conf");
+            std::fs::write(&path, "server {\n  listen 80;\n}\n").unwrap();
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o640)).unwrap();
+            let p = path.to_string_lossy().into_owned();
 
-        let f = read_text(&conn, &p, 1024).await.unwrap();
-        assert_eq!(f.text, "server {\n  listen 80;\n}\n");
-        assert_eq!(f.permissions, Some(0o640));
-        assert_eq!(f.owner.as_deref(), Some(me().as_str()), "the owner comes from the host");
-        assert!(f.group.as_deref().is_some_and(|g| !g.is_empty()));
-        assert!(f.modified.is_some());
+            let f = read_text(&conn, &p, 1024).await.unwrap();
+            assert_eq!(f.text, "server {\n  listen 80;\n}\n");
+            assert_eq!(f.permissions, Some(0o640));
+            assert_eq!(f.owner.as_deref(), Some(me().as_str()), "the owner comes from the host");
+            assert!(f.group.as_deref().is_some_and(|g| !g.is_empty()));
+            assert!(f.modified.is_some());
 
-        // Saved in place: same inode, same mode.
-        use std::os::unix::fs::MetadataExt;
-        let inode = std::fs::metadata(&path).unwrap().ino();
-        let saved = write_text(&conn, &p, "server {\n  listen 8080;\n}\n", false, f.modified).await.unwrap();
-        assert_eq!(saved.size, 26);
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), "server {\n  listen 8080;\n}\n");
-        assert_eq!(std::fs::metadata(&path).unwrap().ino(), inode, "same file, not a replacement");
-        assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o7777, 0o640, "same mode");
+            // Saved in place: same inode, same mode.
+            use std::os::unix::fs::MetadataExt;
+            let inode = std::fs::metadata(&path).unwrap().ino();
+            let saved = write_text(&conn, &p, "server {\n  listen 8080;\n}\n", false, f.modified).await.unwrap();
+            assert_eq!(saved.size, 26);
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), "server {\n  listen 8080;\n}\n");
+            assert_eq!(std::fs::metadata(&path).unwrap().ino(), inode, "same file, not a replacement");
+            assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o7777, 0o640, "same mode");
 
-        // The host computes the checksum, and it is the right one.
-        let c = checksum(&conn, &p).await.unwrap();
-        assert_eq!(c.method, ChecksumMethod::Host);
-        let mut h = Sha256::new();
-        h.update(std::fs::read(&path).unwrap());
-        assert_eq!(c.sha256, hex(&h.finalize()));
+            // The host computes the checksum, and it is the right one.
+            let c = checksum(&conn, &p).await.unwrap();
+            assert_eq!(c.method, ChecksumMethod::Host);
+            let mut h = Sha256::new();
+            h.update(std::fs::read(&path).unwrap());
+            assert_eq!(c.sha256, hex(&h.finalize()));
 
-        // Not writable by this user: it is recognised as a permission problem (skipped when running as root).
-        if me() != "root" {
-            let ro = dir.path().join("ro.conf");
-            std::fs::write(&ro, "x\n").unwrap();
-            std::fs::set_permissions(&ro, std::fs::Permissions::from_mode(0o444)).unwrap();
-            let err = write_text(&conn, &ro.to_string_lossy(), "y\n", false, None).await.expect_err("refused");
-            assert!(matches!(&err, EditError::File(e) if is_permission_denied(e)), "{err:?}");
-            assert_eq!(std::fs::read_to_string(&ro).unwrap(), "x\n");
-            // And an ordinary failure is not mistaken for it.
-            let missing = write_text(&conn, "/no/such/dir/x", "y\n", false, None).await.expect_err("refused");
-            assert!(matches!(&missing, EditError::File(e) if !is_permission_denied(e)), "{missing:?}");
-            // sudo here asks for a password this test does not have: that is said, and nothing is written.
-            let r = write_as_root(&conn, &ro.to_string_lossy(), "y\n", false, None).await;
-            assert!(r.is_err(), "{r:?}");
-            assert_eq!(std::fs::read_to_string(&ro).unwrap(), "x\n");
-        }
-    }
-
-    // -- sudo, against a stand-in that reads its password the way the real one does ------------------------------
-
-    /// A local place whose commands run through a `sudo` that wants the password "secret" on its first input line.
-    struct Shim {
-        bin: std::path::PathBuf,
-    }
-
-    #[async_trait::async_trait]
-    impl FileBackend for Shim {
-        fn caps(&self) -> crate::files::Caps {
-            LocalBackend.caps()
-        }
-        async fn home(&self) -> Result<String, FileError> {
-            LocalBackend.home().await
-        }
-        async fn list(&self, dir: &str) -> Result<Vec<crate::files::FileEntry>, FileError> {
-            LocalBackend.list(dir).await
-        }
-        async fn stat(&self, path: &str) -> Result<Option<crate::files::Stat>, FileError> {
-            LocalBackend.stat(path).await
-        }
-        async fn mkdir(&self, dir: &str, name: &str) -> Result<(), FileError> {
-            LocalBackend.mkdir(dir, name).await
-        }
-        async fn rename(&self, from: &str, new_name: &str) -> Result<(), FileError> {
-            LocalBackend.rename(from, new_name).await
-        }
-        async fn remove(&self, path: &str) -> Result<(), FileError> {
-            LocalBackend.remove(path).await
-        }
-        async fn read(&self, path: &str, offset: u64) -> Result<crate::files::Reader, FileError> {
-            LocalBackend.read(path, offset).await
-        }
-        async fn write(&self, path: &str, offset: u64, size: u64) -> Result<crate::files::Writer, FileError> {
-            LocalBackend.write(path, offset, size).await
-        }
-        async fn exec(&self, command: &str, stdin: Option<&[u8]>) -> Result<crate::ssh::ExecOutput, FileError> {
-            use std::process::Stdio;
-            let mut child = tokio::process::Command::new("sh")
-                .arg("-c")
-                .arg(command)
-                .env("PATH", format!("{}:{}", self.bin.display(), std::env::var("PATH").unwrap_or_default()))
-                .stdin(Stdio::piped())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()
-                .map_err(|e| FileError::Backend(e.to_string()))?;
-            let mut input = child.stdin.take().unwrap();
-            if let Some(bytes) = stdin {
-                let _ = input.write_all(bytes).await;
+            // Not writable by this user: it is recognised as a permission problem (skipped when running as root).
+            if me() != "root" {
+                let ro = dir.path().join("ro.conf");
+                std::fs::write(&ro, "x\n").unwrap();
+                std::fs::set_permissions(&ro, std::fs::Permissions::from_mode(0o444)).unwrap();
+                let err = write_text(&conn, &ro.to_string_lossy(), "y\n", false, None).await.expect_err("refused");
+                assert!(matches!(&err, EditError::File(e) if is_permission_denied(e)), "{err:?}");
+                assert_eq!(std::fs::read_to_string(&ro).unwrap(), "x\n");
+                // And an ordinary failure is not mistaken for it.
+                let missing = write_text(&conn, "/no/such/dir/x", "y\n", false, None).await.expect_err("refused");
+                assert!(matches!(&missing, EditError::File(e) if !is_permission_denied(e)), "{missing:?}");
+                // What sudo does here depends on the machine: asking for a password this test does not have (refused, and
+                // nothing is written) or, as on CI runners, not asking at all (written). Either way the answer and the file agree.
+                let r = write_as_root(&conn, &ro.to_string_lossy(), "y\n", false, None).await;
+                let now = std::fs::read_to_string(&ro).unwrap();
+                match &r {
+                    Ok(_) => assert_eq!(now, "y\n", "{r:?}"),
+                    Err(_) => assert_eq!(now, "x\n", "{r:?}"),
+                }
             }
-            drop(input);
-            let out = child.wait_with_output().await.map_err(|e| FileError::Backend(e.to_string()))?;
-            Ok(crate::ssh::ExecOutput { stdout: out.stdout, stderr: out.stderr, code: out.status.code().map(|c| c as u32), truncated: false })
         }
-    }
 
-    fn shim(dir: &std::path::Path) -> Shim {
-        use std::os::unix::fs::PermissionsExt;
-        let bin = dir.join("bin");
-        std::fs::create_dir_all(&bin).unwrap();
-        let script = "#!/bin/sh\nif [ \"$1\" = \"-n\" ]; then echo 'sudo: a password is required' >&2; exit 1; fi\nif [ \"$1\" = \"-S\" ]; then shift 3; read pw; if [ \"$pw\" != \"secret\" ]; then echo 'Sorry, try again.' >&2; echo 'sudo: 1 incorrect password attempt' >&2; exit 1; fi; fi\nexec \"$@\"\n";
-        std::fs::write(bin.join("sudo"), script).unwrap();
-        std::fs::set_permissions(bin.join("sudo"), std::fs::Permissions::from_mode(0o755)).unwrap();
-        Shim { bin }
-    }
+        // -- sudo, against a stand-in that reads its password the way the real one does ------------------------------
 
-    #[tokio::test]
-    async fn saving_with_sudo_feeds_the_password_first_and_keeps_the_files_owner_and_mode() {
-        use std::os::unix::fs::{MetadataExt, PermissionsExt};
-        let dir = tempfile::TempDir::new().unwrap();
-        let b = shim(dir.path());
-        let path = dir.path().join("it's a file; $(id).conf");
-        std::fs::write(&path, "old\n").unwrap();
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o640)).unwrap();
-        let p = path.to_string_lossy().into_owned();
-        let (inode, uid) = {
+        /// A local place whose commands run through a `sudo` that wants the password "secret" on its first input line.
+        struct Shim {
+            bin: std::path::PathBuf,
+        }
+
+        #[async_trait::async_trait]
+        impl FileBackend for Shim {
+            fn caps(&self) -> crate::files::Caps {
+                LocalBackend.caps()
+            }
+            async fn home(&self) -> Result<String, FileError> {
+                LocalBackend.home().await
+            }
+            async fn list(&self, dir: &str) -> Result<Vec<crate::files::FileEntry>, FileError> {
+                LocalBackend.list(dir).await
+            }
+            async fn stat(&self, path: &str) -> Result<Option<crate::files::Stat>, FileError> {
+                LocalBackend.stat(path).await
+            }
+            async fn mkdir(&self, dir: &str, name: &str) -> Result<(), FileError> {
+                LocalBackend.mkdir(dir, name).await
+            }
+            async fn rename(&self, from: &str, new_name: &str) -> Result<(), FileError> {
+                LocalBackend.rename(from, new_name).await
+            }
+            async fn remove(&self, path: &str) -> Result<(), FileError> {
+                LocalBackend.remove(path).await
+            }
+            async fn read(&self, path: &str, offset: u64) -> Result<crate::files::Reader, FileError> {
+                LocalBackend.read(path, offset).await
+            }
+            async fn write(&self, path: &str, offset: u64, size: u64) -> Result<crate::files::Writer, FileError> {
+                LocalBackend.write(path, offset, size).await
+            }
+            async fn exec(&self, command: &str, stdin: Option<&[u8]>) -> Result<crate::ssh::ExecOutput, FileError> {
+                use std::process::Stdio;
+                let mut child = tokio::process::Command::new("sh")
+                    .arg("-c")
+                    .arg(command)
+                    .env("PATH", format!("{}:{}", self.bin.display(), std::env::var("PATH").unwrap_or_default()))
+                    .stdin(Stdio::piped())
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped())
+                    .spawn()
+                    .map_err(|e| FileError::Backend(e.to_string()))?;
+                let mut input = child.stdin.take().unwrap();
+                if let Some(bytes) = stdin {
+                    let _ = input.write_all(bytes).await;
+                }
+                drop(input);
+                let out = child.wait_with_output().await.map_err(|e| FileError::Backend(e.to_string()))?;
+                Ok(crate::ssh::ExecOutput { stdout: out.stdout, stderr: out.stderr, code: out.status.code().map(|c| c as u32), truncated: false })
+            }
+        }
+
+        fn shim(dir: &std::path::Path) -> Shim {
+            use std::os::unix::fs::PermissionsExt;
+            let bin = dir.join("bin");
+            std::fs::create_dir_all(&bin).unwrap();
+            let script = "#!/bin/sh\nif [ \"$1\" = \"-n\" ]; then echo 'sudo: a password is required' >&2; exit 1; fi\nif [ \"$1\" = \"-S\" ]; then shift 3; read pw; if [ \"$pw\" != \"secret\" ]; then echo 'Sorry, try again.' >&2; echo 'sudo: 1 incorrect password attempt' >&2; exit 1; fi; fi\nexec \"$@\"\n";
+            std::fs::write(bin.join("sudo"), script).unwrap();
+            std::fs::set_permissions(bin.join("sudo"), std::fs::Permissions::from_mode(0o755)).unwrap();
+            Shim { bin }
+        }
+
+        #[tokio::test]
+        async fn saving_with_sudo_feeds_the_password_first_and_keeps_the_files_owner_and_mode() {
+            use std::os::unix::fs::{MetadataExt, PermissionsExt};
+            let dir = tempfile::TempDir::new().unwrap();
+            let b = shim(dir.path());
+            let path = dir.path().join("it's a file; $(id).conf");
+            std::fs::write(&path, "old\n").unwrap();
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o640)).unwrap();
+            let p = path.to_string_lossy().into_owned();
+            let (inode, uid) = {
+                let m = std::fs::metadata(&path).unwrap();
+                (m.ino(), m.uid())
+            };
+
+            // No password: sudo asks, and nothing is touched.
+            assert_eq!(write_as_root(&b, &p, "new\n", false, None).await, Err(RootError::NeedsPassword));
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), "old\n");
+            // The wrong one.
+            assert_eq!(write_as_root(&b, &p, "new\n", false, Some("nope")).await, Err(RootError::WrongPassword));
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), "old\n");
+            // The right one: the text arrives whole, after the password line, and is not mistaken for part of it.
+            write_as_root(&b, &p, "line one\nline two\n\nlast without newline", false, Some("secret")).await.unwrap();
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), "line one\nline two\n\nlast without newline");
             let m = std::fs::metadata(&path).unwrap();
-            (m.ino(), m.uid())
-        };
-
-        // No password: sudo asks, and nothing is touched.
-        assert_eq!(write_as_root(&b, &p, "new\n", false, None).await, Err(RootError::NeedsPassword));
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), "old\n");
-        // The wrong one.
-        assert_eq!(write_as_root(&b, &p, "new\n", false, Some("nope")).await, Err(RootError::WrongPassword));
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), "old\n");
-        // The right one: the text arrives whole, after the password line, and is not mistaken for part of it.
-        write_as_root(&b, &p, "line one\nline two\n\nlast without newline", false, Some("secret")).await.unwrap();
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), "line one\nline two\n\nlast without newline");
-        let m = std::fs::metadata(&path).unwrap();
-        assert_eq!((m.ino(), m.uid(), m.permissions().mode() & 0o7777), (inode, uid, 0o640), "the same file: owner, mode and inode kept");
-        assert!(!dir.path().join("it's a file; $(id).conf.svnew").exists(), "no temporary file is left");
-        // CRLF is put back, and a password never appears in what is run.
-        write_as_root(&b, &p, "a\nb\n", true, Some("secret")).await.unwrap();
-        assert_eq!(std::fs::read(&path).unwrap(), b"a\r\nb\r\n");
+            assert_eq!((m.ino(), m.uid(), m.permissions().mode() & 0o7777), (inode, uid, 0o640), "the same file: owner, mode and inode kept");
+            assert!(!dir.path().join("it's a file; $(id).conf.svnew").exists(), "no temporary file is left");
+            // CRLF is put back, and a password never appears in what is run.
+            write_as_root(&b, &p, "a\nb\n", true, Some("secret")).await.unwrap();
+            assert_eq!(std::fs::read(&path).unwrap(), b"a\r\nb\r\n");
+        }
     }
 
     #[tokio::test]
