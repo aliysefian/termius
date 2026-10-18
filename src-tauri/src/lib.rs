@@ -15,6 +15,7 @@ pub mod control;
 pub mod crashlog;
 pub mod crypto;
 pub mod deadline;
+pub mod diagnose;
 pub mod exportfile;
 pub mod idle;
 pub mod csvimport;
