@@ -28,6 +28,9 @@
   import HopChain from "./HopChain.svelte";
   import AgentControl from "./AgentControl.svelte";
   import PaneForwards from "./PaneForwards.svelte";
+  import MultiplexerHeaderBar from "./MultiplexerHeaderBar.svelte";
+  import TmuxNativeView from "./TmuxNativeView.svelte";
+  import { multiplexers } from "$lib/tmux/useRemoteMultiplexer.svelte";
 
   const tab = $derived(ui.activeTab);
   let renaming = $state<string | null>(null);
@@ -635,6 +638,11 @@
     </div>
   {/if}
 
+  <!-- tmux and screen sessions found on the active pane's host, right under the tab strip. -->
+  {#if tab && !settings.prefs.focusMode}
+    <MultiplexerHeaderBar paneId={tab.activePaneId} />
+  {/if}
+
   <!-- Every tab stays mounted so background sessions keep streaming. Within a
        tab, panes are a flat keyed list placed by the layout's rectangles, so
        splitting never remounts (and disconnects) an existing terminal. -->
@@ -716,6 +724,13 @@
                 active={pane.id === t.activePaneId && t.id === ui.activeTabId}
                 broadcast={t.syncInput && multi ? broadcastFor(t) : null}
               />
+              <!-- A tmux session shown natively covers the shell, which stays connected underneath. -->
+              {@const tmuxClient = multiplexers.get(pane.id).native ? multiplexers.client(pane.id) : undefined}
+              {#if tmuxClient?.ready}
+                <div class="absolute inset-x-0 bottom-0 z-10 {settings.prefs.focusMode ? 'top-0' : 'top-7'}">
+                  <TmuxNativeView paneId={pane.id} client={tmuxClient} active={pane.id === t.activePaneId && t.id === ui.activeTabId} />
+                </div>
+              {/if}
             {/if}
           </div>
         {/if}

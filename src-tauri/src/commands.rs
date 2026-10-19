@@ -2159,6 +2159,13 @@ pub async fn completion_lookup(
     })
 }
 
+/// What tmux and screen sessions the pane's host has, for the multiplexer bar: a fixed read-only script over an
+/// extra channel of the pane's connection. The raw text comes back; the frontend parses it.
+#[tauri::command]
+pub async fn multiplexer_probe(state: State<'_, AppState>, pane_id: String) -> ApiResult<Option<String>> {
+    Ok(state.ssh.probe_multiplexer(&pane_id).await)
+}
+
 /// Smart completion in a tab running a shell on this computer: a folder listing, nothing else.
 #[tauri::command]
 pub async fn completion_lookup_local(request: crate::completion::Request) -> ApiResult<crate::completion::Reply> {

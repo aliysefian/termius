@@ -8,6 +8,7 @@
 import { completionBridge } from "$lib/completion/bridge";
 import { settings } from "$lib/stores/settings.svelte";
 import { ui } from "$lib/stores/ui.svelte";
+import { multiplexers } from "$lib/tmux/useRemoteMultiplexer.svelte";
 import { vaultStore } from "$lib/stores/vault.svelte";
 
 export interface Action {
@@ -35,6 +36,18 @@ export const ACTIONS: Action[] = [
   { id: "split-right", label: "Split right", combo: "Ctrl+Shift+D", run: () => ui.splitActive("vertical") },
   { id: "split-down", label: "Split down", combo: "Ctrl+Shift+E", run: () => ui.splitActive("horizontal") },
   { id: "zoom-pane", label: "Maximize or restore the pane", combo: "Ctrl+Shift+Enter", run: () => ui.toggleZoomActive() },
+  {
+    id: "tmux-detach",
+    label: "Detach from tmux (native mode)",
+    // Not plain Ctrl+D: that is end-of-input for the shell. Only acts while a pane shows a tmux session natively.
+    combo: "Ctrl+Alt+D",
+    run: () => {
+      const id = ui.activeTab?.activePaneId;
+      if (!id || !multiplexers.get(id).native) return false;
+      multiplexers.detach(id);
+      return true;
+    },
+  },
   { id: "lock", label: "Lock the vault", combo: "Ctrl+Shift+L", run: () => void vaultStore.lock() },
   { id: "sync-input", label: "Type into all panes (toggle)", combo: "Ctrl+Shift+B", run: () => void ui.syncRequest++ },
   { id: "sidebar", label: "Hide or show the list panel", combo: "Ctrl+Shift+H", run: () => ui.toggleSidebar() },

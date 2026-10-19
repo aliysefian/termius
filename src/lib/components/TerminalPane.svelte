@@ -52,6 +52,7 @@
   import { PortDetector } from "$lib/portdetect";
   import { networkStore } from "$lib/stores/network.svelte";
   import PortOffer from "./PortOffer.svelte";
+  import { multiplexers } from "$lib/tmux/useRemoteMultiplexer.svelte";
 
   let {
     pane,
@@ -98,6 +99,8 @@
     }
     portDetector.feed(bytes);
   }
+  /** An SSH shell, where tmux and screen sessions can be listed and tmux's control mode can run. */
+  const muxCapable = $derived((target.kind === "host" && !!host && !isRaw && (host.protocol ?? "ssh") === "ssh" && !host.mosh) || target.kind === "adhoc");
   const useMosh = $derived(target.kind === "host" && !!host?.mosh && !telnetHost && !plainSsh);
   const needsCredentials = $derived(target.kind === "host" && !!host && !telnetHost && !vaultStore.effectiveIdentity(host));
   const production = $derived(vaultStore.effectiveEnv(host) === "production");
@@ -791,8 +794,10 @@
     term.clear();
     safeFit();
     const decoder = new TextDecoder();
-    const onData = (bytes: Uint8Array) => {
-      term.write(bytes);
+    const onData = (received: Uint8Array) => {
+      // While tmux runs in control mode its protocol is taken out here; the terminal only gets the shell's own bytes.
+      const bytes = muxCapable ? multiplexers.filter(paneId, received) : received;
+      if (bytes.length > 0) term.write(bytes);
       if (portWatch) watchPorts(bytes);
       if (expectRun) for (const s of expectRun.feed(decoder.decode(bytes, { stream: true }))) void writeToPane(pane, s);
       if (!active && !ui.paneInfo[paneId]?.unread) {
@@ -1168,7 +1173,10 @@
       // The session is over, and so is whatever program asked for the mouse: stop reporting it, or the
       // shell that is left (or the next one) would print the reports as text.
       if (e.status.kind === "disconnected" || e.status.kind === "error" || e.status.kind === "host_key_changed") term.write(RESET_SESSION_MODES);
+      // A new session starts without the old one's tmux; a connected one is asked what it has running.
+      if (e.status.kind !== "connecting") multiplexers.reset(paneId);
       if (e.status.kind === "connected") {
+        if (muxCapable) void multiplexers.refresh(paneId);
         reconnectAttempts = 0;
         safeFit();
         term.focus();
@@ -1360,6 +1368,7 @@
     resizeObserver?.disconnect();
     if (logId) connectionLog.end(logId, null, "closed");
     portDetector?.dispose();
+    multiplexers.reset(paneId);
     networkStore.closePane(paneId);
     void closePane(pane);
     term?.dispose();

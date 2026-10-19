@@ -479,6 +479,13 @@ impl SshManager {
         lookups.lookup(&client, request).await
     }
 
+    /// Look for tmux and screen sessions on the pane's host, over an extra channel (see `multiplexer`). A pane that
+    /// isn't a connected SSH session, or a host that won't run commands, answers `None`.
+    pub async fn probe_multiplexer(&self, pane_id: &str) -> Option<String> {
+        let client = self.client_of(pane_id)?;
+        crate::multiplexer::probe(&client).await
+    }
+
     /// The agent-forwarding gate of a session, if it has one.
     pub fn agent_gate(&self, pane_id: &str) -> Option<Arc<crate::agentgate::AgentGate>> {
         self.sessions.lock().unwrap_or_else(|p| p.into_inner()).get(pane_id)?.gate.clone()

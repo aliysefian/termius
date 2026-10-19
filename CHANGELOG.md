@@ -4,6 +4,12 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## 0.34.0 - 2026-10-19
+
+- **New:** tmux and screen sessions on a host are found as soon as you connect, over a separate channel so your shell prompt is untouched. A bar under the tab strip lists them with a hover preview (windows, running programs, last attached) and offers **Attach (Native GUI)**, **Attach (Standard CLI)** and **New Session**.
+- **New:** native tmux mode (`tmux -CC`). tmux windows become tabs, panes become real terminals placed where tmux puts them, and the mouse wheel, text selection and copy work without tmux's copy mode. Scrolling past the top fetches older lines from tmux. Split, new window, close pane (asks first if a program is running), drag-to-resize dividers and **Detach** (Ctrl+Alt+D) are buttons. Everything keeps running on the host after you detach.
+- **New:** on a host with tmux older than 1.8, or only screen, the bar offers one-click buttons for the usual prefix keys instead.
+
 ## 0.33.4 - 2026-10-18
 
 - **Fixed:** the 0.33.3 installers were not published because one automated test failed on Windows. 0.33.4 has the same app as 0.33.3 and the tests pass.

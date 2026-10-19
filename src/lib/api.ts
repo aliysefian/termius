@@ -594,3 +594,9 @@ export const monitor = {
   },
   streamStop: (streamId: Uuid) => invoke<void>("monitor_stream_stop", { streamId }),
 };
+
+/** tmux and screen sessions on a host, found over an extra channel of a pane's connection. */
+export const multiplexer = {
+  /** The probe's raw text (see `tmux/discovery.ts`), or null when the pane isn't a connected SSH session. */
+  probe: (paneId: string) => invoke<string | null>("multiplexer_probe", { paneId }),
+};

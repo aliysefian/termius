@@ -45,6 +45,7 @@ pub mod localshells;
 pub mod mosh;
 pub mod models;
 pub mod monitor;
+pub mod multiplexer;
 pub mod mobaxterm;
 pub mod putty;
 pub mod rawterm;
@@ -175,6 +176,7 @@ pub fn run() {
             commands::ssh_write,
             commands::completion_lookup,
             commands::completion_lookup_local,
+            commands::multiplexer_probe,
             commands::ssh_resize,
             commands::ssh_disconnect,
             commands::localterm::local_spawn,
