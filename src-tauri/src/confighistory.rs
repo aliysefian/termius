@@ -192,7 +192,7 @@ impl Store {
                 }
             }
         }
-        out.sort_by(|a, b| b.latest_at.cmp(&a.latest_at));
+        out.sort_by_key(|f| std::cmp::Reverse(f.latest_at));
         out
     }
 

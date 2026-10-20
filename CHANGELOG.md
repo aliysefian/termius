@@ -4,6 +4,10 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## 0.36.1 - 2026-10-20
+
+- **Fixed:** the 0.36.0 installers were not published because a code-style check failed in the build. 0.36.1 has the same app as 0.36.0 and the checks pass.
+
 ## 0.36.0 - 2026-10-20
 
 - **New:** Config Time-Machine (off until enabled in Settings, Safety). Before you edit a watched remote file (`/etc/**` and others) with `vim`, `nano`, `sed -i`, `tee` or the SFTP editor, a copy is kept on this computer, encrypted with your vault key. Open the history from a terminal's header or a host row to scrub through versions, compare them with the file on the server, and restore one. The current file is saved first.
