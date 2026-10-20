@@ -43,7 +43,8 @@ mod tests {
         let c = command();
         assert!(c.starts_with("sh -c '"));
         // Read-only: no attach, kill or new session, whatever tmux or screen are asked.
-        for verb in ["attach", "kill", "new-session", "new ", "send-keys", "-X", "-S "] {
+        // ("session_attached" is a format field, so a bare "attach" would match it.)
+        for verb in ["attach-session", " attach ", "kill-", "new-session", " new ", "send-keys", " -X", " -S "] {
             assert!(!PROBE_SCRIPT.contains(verb), "{verb}");
         }
         assert!(PROBE_SCRIPT.contains("list-sessions"));

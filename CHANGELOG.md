@@ -4,6 +4,10 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## 0.34.1 - 2026-10-20
+
+- **Fixed:** the 0.34.0 installers were not published because one automated test failed (the tmux/screen probe's read-only check matched a harmless field name). 0.34.1 has the same app as 0.34.0 and the tests pass.
+
 ## 0.34.0 - 2026-10-19
 
 - **New:** tmux and screen sessions on a host are found as soon as you connect, over a separate channel so your shell prompt is untouched. A bar under the tab strip lists them with a hover preview (windows, running programs, last attached) and offers **Attach (Native GUI)**, **Attach (Standard CLI)** and **New Session**.
