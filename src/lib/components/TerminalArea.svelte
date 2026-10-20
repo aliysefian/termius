@@ -6,7 +6,7 @@
   import { writeText } from "@tauri-apps/plugin-clipboard-manager";
   import { sshCommand } from "$lib/sshcmd";
   import { ACTIONS, comboFor } from "$lib/shortcuts";
-  import { ArrowLeftRight, BellRing, Check, ChevronDown, Circle, Columns2, Command, Copy, Ellipsis, FolderSync, Keyboard, List, Loader2, Maximize2, Minimize2, Plus, RefreshCw, Rows2, Search, SquareTerminal, Terminal, TextSelect, X, Zap } from "lucide-svelte";
+  import { ArrowLeftRight, BellRing, Check, ChevronDown, Circle, Columns2, History, Command, Copy, Ellipsis, FolderSync, Keyboard, List, Loader2, Maximize2, Minimize2, Plus, RefreshCw, Rows2, Search, SquareTerminal, Terminal, TextSelect, X, Zap } from "lucide-svelte";
   import Badge from "./Badge.svelte";
   import Kbd from "./Kbd.svelte";
   import { save } from "@tauri-apps/plugin-dialog";
@@ -699,6 +699,8 @@
               {/if}
               <div class="flex-1"></div>
               {#if pane.target.kind === "host" && isSshHost(pane.target.hostId)}
+                {@const hid = pane.target.hostId}
+                <button class="icon-btn h-6 w-6" title="Config Time-Machine" aria-label="Config Time-Machine" onclick={() => (ui.configHistory = { hostId: hid })}><History size={13} /></button>
                 <PaneForwards paneId={pane.id} />
                 <AgentControl paneId={pane.id} />
               {/if}

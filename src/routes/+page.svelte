@@ -47,6 +47,7 @@
   import RecoveryKeyDialog from "$lib/components/RecoveryKeyDialog.svelte";
   import SaveWorkspace from "$lib/components/SaveWorkspace.svelte";
   import ShortcutsDialog from "$lib/components/ShortcutsDialog.svelte";
+  import ConfigHistoryDrawer from "$lib/components/ConfigHistoryDrawer.svelte";
   import BulkEditForm from "$lib/components/BulkEditForm.svelte";
   import SerialDialog from "$lib/components/SerialDialog.svelte";
   import HostDetails from "$lib/components/HostDetails.svelte";
@@ -415,6 +416,10 @@
     <SnippetPack />
   {:else if ui.modal?.kind === "onboarding"}
     <Onboarding />
+  {/if}
+
+  {#if ui.configHistory}
+    {#key ui.configHistory.hostId + (ui.configHistory.path ?? "")}<ConfigHistoryDrawer />{/key}
   {/if}
 
   <HostKeyDialog />

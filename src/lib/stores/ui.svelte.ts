@@ -178,6 +178,8 @@ class UiStore {
   tabs = $state<Tab[]>([]);
   activeTabId = $state<string | null>(null);
   modal = $state<Modal>(null);
+  /** The Config Time-Machine drawer: open on this host, and on this file if one is named. */
+  configHistory = $state<{ hostId: Uuid; path?: string } | null>(null);
   paletteOpen = $state(false);
   search = $state("");
   collapsedGroups = $derived(new Set(settings.collapsedGroups));

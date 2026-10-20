@@ -9,6 +9,7 @@ pub mod ansible;
 pub mod certs;
 pub mod commands;
 pub mod completion;
+pub mod confighistory;
 pub mod config;
 pub mod containers;
 pub mod control;
@@ -177,6 +178,15 @@ pub fn run() {
             commands::completion_lookup,
             commands::completion_lookup_local,
             commands::multiplexer_probe,
+            commands::confighistory::config_capture,
+            commands::confighistory::config_store,
+            commands::confighistory::config_files,
+            commands::confighistory::config_versions,
+            commands::confighistory::config_get,
+            commands::confighistory::config_delete_file,
+            commands::confighistory::config_clear,
+            commands::confighistory::config_usage,
+            commands::confighistory::config_prune,
             commands::ssh_resize,
             commands::ssh_disconnect,
             commands::localterm::local_spawn,

@@ -491,7 +491,7 @@ impl SshManager {
         self.sessions.lock().unwrap_or_else(|p| p.into_inner()).get(pane_id)?.gate.clone()
     }
 
-    fn client_of(&self, pane_id: &str) -> Option<Arc<Client>> {
+    pub fn client_of(&self, pane_id: &str) -> Option<Arc<Client>> {
         self.sessions.lock().unwrap_or_else(|p| p.into_inner()).get(pane_id)?.client.get().cloned()
     }
 

@@ -13,6 +13,7 @@
   import { modeString } from "$lib/filemode";
   import { fileops, LOCAL_ID, type TextFile } from "$lib/sftp";
   import { ui } from "$lib/stores/ui.svelte";
+  import { timeMachine } from "$lib/confighistory/useConfigTimeMachine.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
   import { envInfo, errorMessage, isApiError, type Uuid } from "$lib/types";
 
@@ -107,6 +108,11 @@
     try {
       file = await fileops.readText(sessionId, path);
       loading = false;
+      // What was on the host before any edit here: kept (if watched and different) while the editor draws.
+      if (hostId && sessionId !== LOCAL_ID) {
+        const perm = file.permissions === null ? "" : (file.permissions & 0o7777).toString(8).padStart(4, "0");
+        void timeMachine.onEditorOpened(hostId, path, file.crlf ? file.text.replace(/\r?\n/g, "\r\n") : file.text, perm, file.owner && file.group ? `${file.owner}:${file.group}` : "");
+      }
       await build(file);
     } catch (e) {
       loadError = isApiError(e) && (e.code === "not_text" || e.code === "too_large") ? `${e.message}. Open it in a local editor instead.` : errorMessage(e);

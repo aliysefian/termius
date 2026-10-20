@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Activity, Copy, CopyPlus, FolderSync, Info, Pencil, Play, Star, TerminalSquare, Trash2 } from "lucide-svelte";
+  import { Activity, Copy, CopyPlus, FolderSync, History, Info, Pencil, Play, Star, TerminalSquare, Trash2 } from "lucide-svelte";
   import Badge from "./Badge.svelte";
   import { writeText } from "@tauri-apps/plugin-clipboard-manager";
   import { settings } from "$lib/stores/settings.svelte";
@@ -175,6 +175,11 @@
     <button class="icon-btn h-6 w-6 @max-[22rem]:hidden" title="Details" onclick={(e) => { e.stopPropagation(); ui.modal = { kind: "host-details", id: host.id }; }}>
       <Info size={12} />
     </button>
+    {#if (d.protocol ?? "ssh") === "ssh"}
+      <button class="icon-btn h-6 w-6 @max-[22rem]:hidden" title="Config Time-Machine" aria-label="Config Time-Machine" onclick={(e) => { e.stopPropagation(); ui.configHistory = { hostId: host.id }; }}>
+        <History size={12} />
+      </button>
+    {/if}
     <button class="icon-btn h-6 w-6 @max-[22rem]:hidden" title="Copy as ssh command" onclick={copyCommand}>
       <TerminalSquare size={12} />
     </button>

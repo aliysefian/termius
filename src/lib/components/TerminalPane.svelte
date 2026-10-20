@@ -53,6 +53,7 @@
   import { networkStore } from "$lib/stores/network.svelte";
   import PortOffer from "./PortOffer.svelte";
   import { multiplexers } from "$lib/tmux/useRemoteMultiplexer.svelte";
+  import { timeMachine } from "$lib/confighistory/useConfigTimeMachine.svelte";
 
   let {
     pane,
@@ -119,7 +120,15 @@
   }
 
   /** Typed input: hold Enter on production when the line looks destructive. */
+  /** The line about to be run, as the screen shows it (tab completion and history recall included). */
+  function lineAtEnter(): string | null {
+    const typedLine = tracker.line;
+    return completionLine(policy, term, watch, typedLine)?.text ?? typedLine;
+  }
+
   function typed(d: string) {
+    // Read now, while the line is still on screen; looked at only after Enter has gone to the shell.
+    const enterLine = (d === "\r" || d === "\n") && hostId && settings.prefs.cfgEnabled ? lineAtEnter() : null;
     // Without shell integration, history comes from what was typed.
     if ((d === "\r" || d === "\n") && !commands.active && tracker.line) recordTyped(tracker.line);
     if (production && shared && (d === "\r" || d === "\n")) {
@@ -133,6 +142,8 @@
     tracker.feed(d);
     send(d);
     refreshSuggestion();
+    // After the carriage return is on its way: the Time-Machine never stands between a key and the shell.
+    if (enterLine && hostId) queueMicrotask(() => timeMachine.onTerminalCommand({ paneId, hostId, line: enterLine, cwd: ui.paneInfo[paneId]?.cwd ?? null }));
   }
 
   /** Every paste path (menu, shortcut, native Ctrl+V) goes through here. */
@@ -240,6 +251,8 @@
 
   function recordFinished(rec: { command: string; exit: number | null; leadingSpace: boolean }) {
     indexCommand(rec.command, rec.exit, rec.leadingSpace);
+    // An editor command that was being watched has ended: keep the file as the edit left it.
+    if (hostId) timeMachine.onCommandFinished(paneId, rec.command);
   }
 
   /** Without shell integration, the line that was typed, if the screen agrees it is a command and not a password. */

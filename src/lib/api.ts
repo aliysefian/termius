@@ -607,3 +607,48 @@ export const security = {
   /** Connects to the host with this vault key as the host's own user, then hangs up. Rejects if the host refuses it. */
   verifyKey: (hostId: Uuid, keyId: Uuid) => invoke<void>("ssh_verify_key", { hostId, keyId }),
 };
+
+/** The Config Time-Machine: remote files as they were before an edit, kept encrypted on this computer. */
+export interface ConfigSnapshot {
+  id: string;
+  host_id: Uuid;
+  file_path: string;
+  sha256: string;
+  size_bytes: number;
+  /** `0644`, or empty. */
+  permissions: string;
+  /** `root:root`, or empty. */
+  owner: string;
+  /** Milliseconds since the epoch. */
+  captured_at: number;
+  trigger_source: string;
+  ssh_user: string;
+  version: number;
+}
+export interface TrackedConfigFile {
+  host_id: Uuid;
+  file_path: string;
+  versions: number;
+  latest_at: number;
+  latest_size: number;
+}
+export interface CaptureOutcome {
+  status: "saved" | "unchanged" | "skipped" | "failed";
+  reason: string | null;
+  snapshot: ConfigSnapshot | null;
+}
+export const configHistory = {
+  /** Read a file over an extra channel of the pane's connection and keep it as a version. */
+  capture: (paneId: string, hostId: Uuid, path: string, trigger: string, sshUser: string, maxBytes: number) =>
+    invoke<CaptureOutcome>("config_capture", { paneId, hostId, path, trigger, sshUser, maxBytes }),
+  /** Keep text the app already has. */
+  store: (hostId: Uuid, path: string, content: string, permissions: string, owner: string, trigger: string, sshUser: string, maxBytes: number) =>
+    invoke<CaptureOutcome>("config_store", { hostId, path, content, permissions, owner, trigger, sshUser, maxBytes }),
+  files: (hostId: Uuid | null = null) => invoke<TrackedConfigFile[]>("config_files", { hostId }),
+  versions: (hostId: Uuid, path: string) => invoke<ConfigSnapshot[]>("config_versions", { hostId, path }),
+  get: (hostId: Uuid, path: string, id: string) => invoke<string>("config_get", { hostId, path, id }),
+  deleteFile: (hostId: Uuid, path: string) => invoke<boolean>("config_delete_file", { hostId, path }),
+  clear: () => invoke<number>("config_clear"),
+  usage: () => invoke<{ bytes: number; snapshots: number }>("config_usage"),
+  prune: (days: number) => invoke<number>("config_prune", { days }),
+};

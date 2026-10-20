@@ -1,4 +1,5 @@
 <script lang="ts">
+  import SafetySettingsSection from "./SafetySettingsSection.svelte";
   import HighlightRules from "./HighlightRules.svelte";
   import specSource from "$lib/completion/specs/SOURCE.json";
   import { ChevronDown, ChevronUp, Copy, Download, ExternalLink, Loader2, Lock, Palette, RefreshCw, RotateCcw, Search, ShieldAlert, SquareTerminal, TerminalSquare, X } from "lucide-svelte";
@@ -88,7 +89,7 @@
     "connections auto-reconnect notify background command history remember restore session reopen tabs last time production paste trailing newline",
     "command line cli scripting sshvault run list connect",
     "shell integration osc 133 7 prompt directory",
-    "safety clipboard clear paste confirm destructive production backup retention pattern",
+    "safety clipboard clear paste confirm destructive production backup retention pattern config time-machine snapshot history rollback",
     "export ssh config openssh include scp ansible git",
     "reset default settings",
   ];
@@ -798,7 +799,7 @@ sshvault run web-01 db-01 --json -- df -h /</pre>
     </section>
     {/if}
 
-    {#if visible("safety", "safety clipboard clear paste confirm destructive production backup retention pattern")}
+    {#if visible("safety", "safety clipboard clear paste confirm destructive production backup retention pattern config time-machine snapshot history rollback")}
     {#if draft}
       <form class="rounded-xl border border-line bg-panel p-5" onsubmit={saveShared}>
         <div class="mb-1 flex items-center gap-2">
@@ -851,6 +852,7 @@ sshvault run web-01 db-01 --json -- df -h /</pre>
         {@render msgBox(safetyMsg)}
       </form>
     {/if}
+    <div class="mt-4"><SafetySettingsSection /></div>
     {/if}
 
     {#if visible("integrations", "export ssh config openssh include scp ansible git")}

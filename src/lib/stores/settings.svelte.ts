@@ -32,6 +32,18 @@ export interface Prefs {
   copyOnSelect: boolean;
   /** Programs may put text on the clipboard with OSC 52 (tmux, Claude Code, Neovim). */
   remoteClipboard: boolean;
+  /** Config Time-Machine: keep a copy of a remote file from before it is edited (see src/lib/confighistory/). */
+  cfgEnabled: boolean;
+  /** Hosts whose environment is listed here are covered; "" is a host with none set. */
+  cfgEnvs: string[];
+  /** Glob patterns for the files to keep. */
+  cfgPatterns: string[];
+  /** Versions older than this many days are dropped (the newest of each file stays); 0 keeps everything. */
+  cfgRetentionDays: number;
+  /** Files bigger than this many KB are never kept. */
+  cfgMaxKb: number;
+  /** Also keep the file again when the editor exits, so the version after the edit is there too. */
+  cfgPostEdit: boolean;
   /** 0 disables auto-lock. */
   autoLockMinutes: number;
   showHiddenFiles: boolean;
@@ -182,6 +194,13 @@ export const DEFAULT_PREFS: Prefs = {
   scrollback: 5000,
   copyOnSelect: false,
   remoteClipboard: true,
+  // Off until asked for: it reads files from servers and keeps them on this computer.
+  cfgEnabled: false,
+  cfgEnvs: ["production", "staging", ""],
+  cfgPatterns: ["/etc/**", "/usr/local/etc/**", "/var/www/**", "**/docker-compose*.yml", "**/.env*", "/etc/systemd/system/**"],
+  cfgRetentionDays: 30,
+  cfgMaxKb: 2048,
+  cfgPostEdit: true,
   autoLockMinutes: 0,
   showHiddenFiles: false,
   sftpSplitRatio: 0.5,

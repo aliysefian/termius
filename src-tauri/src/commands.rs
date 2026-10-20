@@ -55,6 +55,7 @@ pub mod runhosts;
 pub use runhosts::*;
 pub mod hostexport;
 pub use hostexport::*;
+pub mod confighistory;
 pub mod sshconfig;
 pub use sshconfig::*;
 pub mod updates;
@@ -94,6 +95,8 @@ pub struct AppState {
     pub vnc: Arc<crate::vnc::VncManager>,
     pub runbooks: Arc<crate::runbookrun::RunbookManager>,
     pub runbook_history: crate::runbookhistory::History,
+    /// Copies of remote files from before they were edited (the Config Time-Machine). Local only, encrypted.
+    pub config_history: crate::confighistory::Store,
     /// Telnet and serial-console sessions.
     pub raw: Arc<crate::rawterm::RawManager>,
     /// Open database connections (the Databases view).
@@ -2904,6 +2907,7 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         vnc: Arc::new(crate::vnc::VncManager::new()),
         runbooks: Arc::new(crate::runbookrun::RunbookManager::new()),
         runbook_history: crate::runbookhistory::History::new(config_dir.join("runbook-history")),
+        config_history: crate::confighistory::Store::new(config_dir.join("config-history")),
         raw: Arc::new(crate::rawterm::RawManager::new()),
         dbs: Arc::new(crate::db::DbManager::new()),
         containers: Arc::new(crate::containers::ContainerManager::new()),

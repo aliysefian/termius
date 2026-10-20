@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { AlertTriangle, ArrowLeftRight, Bot, Lock, SquareTerminal } from "lucide-svelte";
+  import { AlertTriangle, ArrowLeftRight, Bot, Lock, ShieldCheck, SquareTerminal } from "lucide-svelte";
+  import { snapshotVault } from "$lib/confighistory/snapshotVaultStore.svelte";
   import { syncBadge } from "$lib/syncstatus";
   import { PAGE_VIEWS, STATUS_DOT, ui, type View } from "$lib/stores/ui.svelte";
   import { settings } from "$lib/stores/settings.svelte";
@@ -75,6 +76,20 @@
       <ArrowLeftRight size={12} />
       <span>{activeTunnels} tunnel{activeTunnels === 1 ? "" : "s"}</span>
     </button>
+
+    <!-- A version of a config file was just kept: says which, and opens its history. -->
+    {#if snapshotVault.note}
+      {@const n = snapshotVault.note}
+      <button
+        class="flex h-6 min-w-0 max-w-[48ch] items-center gap-1.5 rounded px-1.5 font-mono text-[11px] tabular-nums text-fg-muted hover:bg-panel-hover hover:text-fg"
+        title="Open the Config Time-Machine"
+        data-testid="snapshot-note"
+        onclick={() => (ui.configHistory = { hostId: n.host_id, path: n.file_path })}
+      >
+        <ShieldCheck size={12} class="shrink-0 text-success" />
+        <span class="truncate">Snapshot saved: {n.file_path} (v{n.version})</span>
+      </button>
+    {/if}
 
     <div class="min-w-0 flex-1"></div>
 
