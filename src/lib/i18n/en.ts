@@ -49,6 +49,7 @@ export const en = {
   "ops.title": "Operations",
   "ops.logs": "Logs",
   "ops.services": "Services",
+  "ops.security": "Security",
   "ops.alerts": "Alerts",
   "tabs.containers": "Containers",
   "tabs.kubernetes": "Kubernetes",

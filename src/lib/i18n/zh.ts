@@ -51,6 +51,7 @@ export const zh: Partial<Record<Key, string>> = {
   "ops.title": "运维",
   "ops.logs": "日志",
   "ops.services": "服务",
+  "ops.security": "安全",
   "ops.alerts": "告警",
   "tabs.containers": "容器",
   "tabs.kubernetes": "Kubernetes",

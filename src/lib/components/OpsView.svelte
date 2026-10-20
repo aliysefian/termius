@@ -1,19 +1,21 @@
 <script lang="ts">
-  import { BellRing, ScrollText, Server, Wrench } from "lucide-svelte";
+  import { BellRing, ScrollText, Server, ShieldCheck, Wrench } from "lucide-svelte";
   import AlertsPanel from "./AlertsPanel.svelte";
   import LogsPanel from "./LogsPanel.svelte";
   import ServicesPanel from "./ServicesPanel.svelte";
+  import SecurityCockpitView from "./SecurityCockpitView.svelte";
   import { alerts } from "$lib/stores/alerts.svelte";
   import type { Uuid } from "$lib/types";
   import { t as tr } from "$lib/i18n/index.svelte";
 
-  type Tab = "logs" | "services" | "alerts";
+  type Tab = "logs" | "services" | "security" | "alerts";
   let tab = $state<Tab>("logs");
   let preset = $state<{ hostId: Uuid; unit: string } | null>(null);
 
-  const TABS: { id: Tab; label: "ops.logs" | "ops.services" | "ops.alerts"; icon: typeof Server }[] = [
+  const TABS: { id: Tab; label: "ops.logs" | "ops.services" | "ops.security" | "ops.alerts"; icon: typeof Server }[] = [
     { id: "logs", label: "ops.logs", icon: ScrollText },
     { id: "services", label: "ops.services", icon: Wrench },
+    { id: "security", label: "ops.security", icon: ShieldCheck },
     { id: "alerts", label: "ops.alerts", icon: BellRing },
   ];
 
@@ -28,7 +30,7 @@
   <div class="mx-auto max-w-6xl space-y-5">
     <div>
       <h1 class="flex items-center gap-2 text-lg font-semibold"><Wrench size={20} class="text-accent" /> {tr("ops.title")}</h1>
-      <p class="mt-1 text-sm text-fg-muted">Follow logs on several hosts at once, manage systemd services, and get told when a host goes down or runs hot. Everything is read over a second connection; nothing is installed on the host.</p>
+      <p class="mt-1 text-sm text-fg-muted">Follow logs on several hosts at once, manage systemd services, check a host's firewall, logins and keys, and get told when a host goes down or runs hot. Everything is read over a second connection; nothing is installed on the host.</p>
     </div>
 
     <div class="flex w-fit gap-1 rounded-lg border border-line bg-panel p-1 text-sm" role="tablist">
@@ -49,6 +51,7 @@
     <!-- Logs keep running while another tab is looked at. -->
     <div hidden={tab !== "logs"}><LogsPanel {preset} /></div>
     {#if tab === "services"}<ServicesPanel onlogs={followLog} />{/if}
+    {#if tab === "security"}<SecurityCockpitView />{/if}
     {#if tab === "alerts"}<AlertsPanel />{/if}
   </div>
 </div>

@@ -59,7 +59,12 @@ impl MonitorManager {
     }
 
     pub async fn exec(&self, id: Uuid, script: &str, timeout: Duration) -> Result<ExecResult, ContainerError> {
-        let out = self.get(id)?.exec(&wrap(script), timeout.min(MAX_TIMEOUT)).await?;
+        self.exec_stdin(id, script, None, timeout).await
+    }
+
+    /// [`Self::exec`] with input for the script (the password for `sudo -S`).
+    pub async fn exec_stdin(&self, id: Uuid, script: &str, stdin: Option<&[u8]>, timeout: Duration) -> Result<ExecResult, ContainerError> {
+        let out = self.get(id)?.exec_stdin(&wrap(script), stdin, timeout.min(MAX_TIMEOUT)).await?;
         Ok(ExecResult { stdout: out.stdout, stderr: out.stderr, code: out.code })
     }
 

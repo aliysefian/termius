@@ -51,6 +51,7 @@ export const fa: Partial<Record<Key, string>> = {
   "ops.title": "عملیات",
   "ops.logs": "گزارش‌ها",
   "ops.services": "سرویس‌ها",
+  "ops.security": "امنیت",
   "ops.alerts": "هشدارها",
   "tabs.containers": "کانتینرها",
   "tabs.kubernetes": "Kubernetes",

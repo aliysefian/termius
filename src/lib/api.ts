@@ -584,8 +584,9 @@ export const kube = {
 /** Detail monitoring: one SSH connection per watched host, scripts run under `sh -c`. */
 export const monitor = {
   open: (hostId: Uuid) => invoke<Uuid>("monitor_open", { hostId }),
-  exec: (sessionId: Uuid, script: string, timeoutSecs: number) =>
-    invoke<{ stdout: string; stderr: string; code: number | null }>("monitor_exec", { sessionId, script, timeoutSecs }),
+  /** `stdin` reaches the script's input (the password for `sudo -S`), never its command line. */
+  exec: (sessionId: Uuid, script: string, timeoutSecs: number, stdin?: string) =>
+    invoke<{ stdout: string; stderr: string; code: number | null }>("monitor_exec", { sessionId, script, timeoutSecs, stdin: stdin ?? null }),
   close: (sessionId: Uuid) => invoke<void>("monitor_close", { sessionId }),
   /** Follow a script's output (logs). Resolves to an id for `streamStop`; events arrive until an "end". */
   streamStart(sessionId: Uuid, script: string, onEvent: (e: ContainerLogEvent) => void) {
@@ -599,4 +600,10 @@ export const monitor = {
 export const multiplexer = {
   /** The probe's raw text (see `tmux/discovery.ts`), or null when the pane isn't a connected SSH session. */
   probe: (paneId: string) => invoke<string | null>("multiplexer_probe", { paneId }),
+};
+
+/** Proof that a key works, before the one it replaces is taken away. */
+export const security = {
+  /** Connects to the host with this vault key as the host's own user, then hangs up. Rejects if the host refuses it. */
+  verifyKey: (hostId: Uuid, keyId: Uuid) => invoke<void>("ssh_verify_key", { hostId, keyId }),
 };

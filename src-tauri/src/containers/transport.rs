@@ -261,9 +261,19 @@ impl SshShell {
     }
 
     pub async fn exec(&self, command: &str, timeout: Duration) -> Result<Output, ContainerError> {
+        self.exec_stdin(command, None, timeout).await
+    }
+
+    /// Like [`Self::exec`], with `stdin` written to the command's input first (a `sudo -S` password: it travels
+    /// on the channel, never in the command line, where `ps` would show it).
+    pub async fn exec_stdin(&self, command: &str, stdin: Option<&[u8]>, timeout: Duration) -> Result<Output, ContainerError> {
         let work = async {
             let mut channel = self.channel().await?;
             channel.exec(true, command.as_bytes()).await.map_err(|e| ContainerError::Ssh(e.into()))?;
+            if let Some(input) = stdin {
+                channel.data(input).await.map_err(|e| ContainerError::Ssh(e.into()))?;
+                channel.eof().await.map_err(|e| ContainerError::Ssh(e.into()))?;
+            }
             let (mut out, mut err) = (Vec::new(), Vec::new());
             let mut code = None;
             while let Some(msg) = channel.wait().await {

@@ -51,6 +51,7 @@ export const de: Partial<Record<Key, string>> = {
   "ops.title": "Betrieb",
   "ops.logs": "Logs",
   "ops.services": "Dienste",
+  "ops.security": "Sicherheit",
   "ops.alerts": "Warnungen",
   "tabs.containers": "Container",
   "tabs.kubernetes": "Kubernetes",

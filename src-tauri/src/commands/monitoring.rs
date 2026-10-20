@@ -17,9 +17,28 @@ pub async fn monitor_exec(
     session_id: Uuid,
     script: String,
     timeout_secs: u64,
+    stdin: Option<String>,
 ) -> ApiResult<crate::monitor::ExecResult> {
     let timeout = std::time::Duration::from_secs(timeout_secs.clamp(1, 120));
-    Ok(state.monitors.exec(session_id, &script, timeout).await?)
+    // Wiped when done: this is the `sudo` password when there is one.
+    let stdin = stdin.map(Zeroizing::new);
+    Ok(state.monitors.exec_stdin(session_id, &script, stdin.as_ref().map(|s| s.as_bytes()), timeout).await?)
+}
+
+/// Check that a key from the Key Manager logs in to a host: connect with it, as the host's own user, and hang up.
+/// The host's own keys-and-known-hosts rules apply. Used to prove a new key works before the old one is removed.
+#[tauri::command]
+pub async fn ssh_verify_key(state: State<'_, AppState>, host_id: Uuid, key_id: Uuid) -> ApiResult<()> {
+    let mut target = resolve_target(&state, host_id, None)?;
+    target.auth = state
+        .session
+        .with_vault(|v| Ok(crate::keymanager::resolve_auth(v, AuthMethod::Key { key_id })))?
+        .map_err(|e| ApiError::new("key", e.to_string()))?;
+    let (client, _) = crate::ssh::open_client(&target, None)
+        .await
+        .map_err(|e| ApiError::new("verify_failed", e.to_string()))?;
+    client.close().await;
+    Ok(())
 }
 
 /// Follow a script's output on a watched host (logs). Events arrive on `on_event`; the returned id stops it.

@@ -51,6 +51,7 @@ export const ru: Partial<Record<Key, string>> = {
   "ops.title": "Операции",
   "ops.logs": "Журналы",
   "ops.services": "Службы",
+  "ops.security": "Безопасность",
   "ops.alerts": "Оповещения",
   "tabs.containers": "Контейнеры",
   "tabs.kubernetes": "Kubernetes",

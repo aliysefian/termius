@@ -51,6 +51,7 @@ export const ja: Partial<Record<Key, string>> = {
   "ops.title": "運用",
   "ops.logs": "ログ",
   "ops.services": "サービス",
+  "ops.security": "セキュリティ",
   "ops.alerts": "アラート",
   "tabs.containers": "コンテナ",
   "tabs.kubernetes": "Kubernetes",
