@@ -4,10 +4,13 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## 0.36.0 - 2026-10-20
+
+- **New:** Config Time-Machine (off until enabled in Settings, Safety). Before you edit a watched remote file (`/etc/**` and others) with `vim`, `nano`, `sed -i`, `tee` or the SFTP editor, a copy is kept on this computer, encrypted with your vault key. Open the history from a terminal's header or a host row to scrub through versions, compare them with the file on the server, and restore one. The current file is saved first.
+
 ## 0.35.0 - 2026-10-20
 
 - **New:** Security Cockpit in Ops. Firewall view for ufw, firewalld, nftables and iptables, with a safeguard against locking yourself out, an "Allow my IP" button with optional expiry, and rule delete. Intrusion radar with logged-in sessions, fail2ban jails and the top failed-login sources. SSH key manager for `authorized_keys`: add from the vault, revoke, and rotate with a login test before the old key is removed. Everything runs over its own connection, so nothing lands in your shell history.
-- **New:** Config Time-Machine (off until enabled in Settings, Safety). Before you edit a watched remote file (`/etc/**` and others) with `vim`, `nano`, `sed -i`, `tee` or the SFTP editor, a copy is kept on this computer, encrypted with your vault key. Open the history from a terminal's header or a host row to scrub through versions, compare them with the file on the server, and restore one. The current file is saved first.
 
 ## 0.34.1 - 2026-10-20
 
