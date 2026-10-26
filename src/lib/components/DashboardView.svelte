@@ -1,7 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { ArrowLeftRight, CircleUser, Clock, Database, KeyRound, Loader2, Plus, RefreshCw, Server, Settings, Tag, Terminal } from "lucide-svelte";
-  import { version as appVersion } from "../../../package.json";
   import Badge from "./Badge.svelte";
   import EmptyState from "./EmptyState.svelte";
   import PageSection from "./PageSection.svelte";
@@ -35,6 +34,7 @@
   const online = $derived(countOnline(rows.map((r) => r.status)));
   const checked = $derived(rows.some((r) => r.status !== "unknown"));
   const db = $derived(vaultHealth({ unlocked: vaultStore.unlocked, conflicts: vaultStore.openConflicts, rollbacks: vaultStore.rollbacks }));
+  const appVersion = __APP_VERSION__;
   const channel = releaseChannel(appVersion);
   // How long this app has been running: the page was loaded when the app started.
   const uptime = $derived(formatUptime(Math.max(0, Math.floor((now - performance.timeOrigin) / 1000))));

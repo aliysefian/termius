@@ -133,7 +133,7 @@
       {/if}
       <button
         class="inline-flex h-6 items-center gap-1.5 rounded-sm border border-line px-2 text-fg-muted hover:bg-panel-hover hover:text-fg"
-        title={kind === "tmux" ? "Type tmux attach into the shell" : "Type screen -r into the shell"}
+        title={kind === "tmux" ? "Type the attach command into the shell (inside tmux it switches to this session instead)" : "Type screen -r into the shell"}
         onclick={() => mux.attachStandard(kind, key(target))}
       >
         <ArrowRightLeft size={12} aria-hidden="true" /> {kind === "tmux" ? "Attach (Standard CLI)" : "Attach"}

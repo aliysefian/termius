@@ -1,6 +1,7 @@
 import { defineConfig } from "vite";
 import { sveltekit } from "@sveltejs/kit/vite";
 import tailwindcss from "@tailwindcss/vite";
+import pkg from "./package.json" with { type: "json" };
 // @ts-expect-error type error without @types/node package
 import process from "node:process";
 const host = process.env.TAURI_DEV_HOST;
@@ -8,6 +9,9 @@ const host = process.env.TAURI_DEV_HOST;
 // https://vite.dev/config/
 export default defineConfig(() => ({
   plugins: [tailwindcss(), sveltekit()],
+
+  // The version the Dashboard shows, read here so no page has to import package.json (the dev server will not serve it).
+  define: { __APP_VERSION__: JSON.stringify(pkg.version) },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //

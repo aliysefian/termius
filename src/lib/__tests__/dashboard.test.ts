@@ -59,7 +59,7 @@ describe("host status", () => {
 });
 
 describe("usage bars", () => {
-  it("is green, then orange, then yellow, switching at the thresholds", () => {
+  it("is green, then yellow, then orange, switching at the thresholds", () => {
     expect(usageLevel(0)).toBe("low");
     expect(usageLevel(MODERATE_FROM - 1)).toBe("low");
     expect(usageLevel(MODERATE_FROM)).toBe("moderate");
