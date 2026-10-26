@@ -8,6 +8,7 @@ import {
   formatAge,
   filterNetworks,
   filterVolumes,
+  isAnonymousVolume,
   formatPorts,
   groupByProject,
   imageRef,
@@ -21,6 +22,7 @@ import {
   stateTone,
   summarizePrune,
   usedByText,
+  volumeLabel,
   healthOf,
 } from "../containerdata";
 import type { ContainerImage, ContainerInfo, ContainerNetwork, ContainerVolume, PortMapping, PruneItem } from "../types";
@@ -277,6 +279,17 @@ describe("volumes and networks", () => {
     expect(filterNetworks(nets, "web").map((n) => n.name)).toEqual(["shop_default"]);
     expect(filterNetworks(nets, "abc123").length).toBe(2);
     expect(filterNetworks(nets, "zzz")).toEqual([]);
+  });
+  it("calls an unnamed volume by a short ID, never the 64-digit one", () => {
+    const id = "6a080e735935935ae141c1afed52343992a44e7b8f5d2f8e305c9d1b2a3f4e5d";
+    expect(id.length).toBe(64);
+    expect(isAnonymousVolume(id)).toBe(true);
+    expect(volumeLabel(id)).toBe("anonymous volume 6a080e735935");
+    // Named volumes, including ones that merely look hex-ish, keep their name.
+    for (const name of ["pgdata", "shop_data", "deadbeef", id.slice(0, 63), id + "0", id.toUpperCase()]) {
+      expect(isAnonymousVolume(name)).toBe(false);
+      expect(volumeLabel(name)).toBe(name);
+    }
   });
   it("says who uses something", () => {
     expect(usedByText([])).toBe("unused");
