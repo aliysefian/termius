@@ -3,6 +3,7 @@
 import type { Key } from "./en";
 
 export const zh: Partial<Record<Key, string>> = {
+  "rail.dashboard": "仪表盘",
   "rail.hosts": "主机",
   "rail.favorites": "收藏",
   "rail.fleetlist": "集群",

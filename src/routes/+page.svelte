@@ -32,6 +32,7 @@
   import "$lib/stores/alerts.svelte";
   import DatabasesView from "$lib/components/DatabasesView.svelte";
   import ContainersView from "$lib/components/ContainersView.svelte";
+  import DashboardView from "$lib/components/DashboardView.svelte";
   import ContainerLogs from "$lib/components/ContainerLogs.svelte";
   import ContainerInspect from "$lib/components/ContainerInspect.svelte";
   import HostMonitor from "$lib/components/HostMonitor.svelte";
@@ -310,7 +311,9 @@
         <SftpView />
       </div>
     {/if}
-    {#if ui.view === "settings"}
+    {#if ui.view === "dashboard"}
+      <DashboardView />
+    {:else if ui.view === "settings"}
       <SettingsPanel />
     {:else if ui.view === "keys"}
       <KeysPanel />

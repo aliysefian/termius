@@ -3,6 +3,7 @@
 import type { Key } from "./en";
 
 export const es: Partial<Record<Key, string>> = {
+  "rail.dashboard": "Panel",
   "rail.hosts": "Servidores",
   "rail.favorites": "Favoritos",
   "rail.fleetlist": "Flota",

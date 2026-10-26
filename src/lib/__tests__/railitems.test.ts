@@ -19,7 +19,7 @@ describe("the rail", () => {
   it("applies an order inside a group only, and leaves unnamed entries where they were, after the named ones", () => {
     const r = arrange(RAIL_GROUPS, ["forwarding", "snippets"], []);
     expect(names(r.groups)[1]).toEqual(["forwarding", "snippets", "sftp"]);
-    expect(names(r.groups)[0]).toEqual(["hosts", "favorites", "fleetlist"]);
+    expect(names(r.groups)[0]).toEqual(["dashboard", "hosts", "favorites", "fleetlist"]);
     // An entry named for another group does not pull across.
     expect(names(arrange(RAIL_GROUPS, ["ops", "snippets"], []).groups)[1]).toEqual(["snippets", "sftp", "forwarding"]);
   });
@@ -27,7 +27,7 @@ describe("the rail", () => {
   it("takes hidden entries out and hands them back, keeps a group's line only while it has entries", () => {
     const r = arrange(RAIL_GROUPS, [], ["databases", "containers", "ops", "runbooks", "favorites", "fleetlist"]);
     expect(r.away.map((i) => i.view)).toEqual(["favorites", "fleetlist", "databases", "containers", "ops", "runbooks"]);
-    expect(names(r.groups)).toEqual([["hosts"], ["snippets", "sftp", "forwarding"]]);
+    expect(names(r.groups)).toEqual([["dashboard", "hosts"], ["snippets", "sftp", "forwarding"]]);
   });
 
   it("never hides Hosts, and ignores names it doesn't know", () => {
@@ -47,7 +47,7 @@ describe("the rail", () => {
     expect(move(RAIL_GROUPS, order, "sftp", 1)).toBe(order);
     // Another group's order is kept.
     order = move(RAIL_GROUPS, order, "ops", -1);
-    expect(names(arrange(RAIL_GROUPS, order, []).groups)).toEqual([["hosts", "favorites", "fleetlist"], ["forwarding", "snippets", "sftp"], ["databases", "ops", "containers", "runbooks"]]);
+    expect(names(arrange(RAIL_GROUPS, order, []).groups)).toEqual([["dashboard", "hosts", "favorites", "fleetlist"], ["forwarding", "snippets", "sftp"], ["databases", "ops", "containers", "runbooks"]]);
     expect(move(RAIL_GROUPS, ["x"], "unknown" as never, 1)).toEqual(["x"]);
   });
 });

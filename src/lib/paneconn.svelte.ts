@@ -4,6 +4,7 @@
 
 import { askAboutCertificate } from "$lib/certprompt";
 import { local, LOCAL_ID, remote, sftp, type FileSource } from "$lib/sftp";
+import { connectionLog } from "$lib/stores/connectionlog.svelte";
 import { ui } from "$lib/stores/ui.svelte";
 import { vaultStore } from "$lib/stores/vault.svelte";
 import { errorMessage, isApiError, type Uuid } from "$lib/types";
@@ -124,6 +125,7 @@ export class PaneConn {
     try {
       const res = await this.#openFiles(creds);
       this.connectedHost = wanted;
+      this.#logId = connectionLog.start(wanted, host?.label ?? "host", "files");
       this.path = res.home;
       this.refresh++;
       for (const k of res.new_host_keys) ui.notify("info", `New host key recorded for ${k.host}: ${k.fingerprint}`);
@@ -172,9 +174,17 @@ export class PaneConn {
 
   /** Close the connection and leave the pane with nothing in it. */
   async disconnect() {
+    this.#endLog();
     await sftp.close(this.sessionId);
     this.connectedHost = null;
     this.path = "";
+  }
+
+  /** The connection log's line for this connection, closed once when the connection is. */
+  #logId: string | null = null;
+  #endLog() {
+    if (this.#logId) connectionLog.end(this.#logId, null, "closed");
+    this.#logId = null;
   }
 
   cancelCreds() {
@@ -187,6 +197,7 @@ export class PaneConn {
 
   /** Free the connection when the view goes away. */
   async dispose() {
+    this.#endLog();
     if (this.connectedHost) await sftp.close(this.sessionId).catch(() => {});
   }
 }
