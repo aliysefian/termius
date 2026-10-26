@@ -571,7 +571,8 @@ class VaultStore {
   health = $state<Record<Uuid, Health & { at: number }>>({});
   checking = $state(false);
 
-  async checkHealth(hostIds: Uuid[] | null = null) {
+  /** `quiet`: no "N of M reachable" toast, for a view that refreshes by itself. */
+  async checkHealth(hostIds: Uuid[] | null = null, quiet = false) {
     this.checking = true;
     try {
       const results = await api.health.check(hostIds);
@@ -580,10 +581,12 @@ class VaultStore {
         const { host_id, ...h } = r;
         this.health[host_id] = { ...(h as Health), at };
       }
-      const down = results.filter((r) => r.state === "down").length;
-      ui.notify(down ? "error" : "info", `${results.length - down} of ${results.length} hosts reachable${down ? `, ${down} down` : ""}.`);
+      if (!quiet) {
+        const down = results.filter((r) => r.state === "down").length;
+        ui.notify(down ? "error" : "info", `${results.length - down} of ${results.length} hosts reachable${down ? `, ${down} down` : ""}.`);
+      }
     } catch (e) {
-      ui.notify("error", errorMessage(e));
+      if (!quiet) ui.notify("error", errorMessage(e));
     } finally {
       this.checking = false;
     }

@@ -9,7 +9,7 @@ export interface ConnectionLogEntry {
   id: string;
   hostId: Uuid | null;
   label: string;
-  kind: "host" | "adhoc" | "telnet" | "serial" | "local";
+  kind: "host" | "adhoc" | "telnet" | "serial" | "local" | "files" | "rdp" | "vnc";
   startedAt: number;
   endedAt: number | null;
   /** Exit code when the remote shell exited; null for a dropped link, a user-closed tab, or no exit code reported. */

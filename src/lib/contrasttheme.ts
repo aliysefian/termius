@@ -15,4 +15,6 @@ export const CONTRAST_TOKENS: Record<string, string> = {
   "danger-solid": "#ff9494",
   success: "#5dff8f",
   warning: "#ffd966",
+  "usage-moderate": "#ffa05a",
+  "usage-high": "#fff066",
 };

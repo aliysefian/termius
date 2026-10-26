@@ -8,6 +8,7 @@
   import type { Credentials } from "$lib/ssh";
     import { askAboutCertificate } from "$lib/certprompt";
   import { decodeMessage, usableSize } from "$lib/rdp";
+  import { connectionLog } from "$lib/stores/connectionlog.svelte";
   import { settings } from "$lib/stores/settings.svelte";
   import { ui, type Pane } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
@@ -76,6 +77,7 @@
         }
         break;
       case "ended":
+        endLog(m.error ? "dropped" : "closed");
         if (m.error) {
           status = { kind: "error", message: m.error };
           setInfo("error");
@@ -85,6 +87,13 @@
         }
         break;
     }
+  }
+
+  /** This session's line in the connection log, closed once however the session ends. */
+  let logId: string | null = null;
+  function endLog(reason: "closed" | "dropped") {
+    if (logId) connectionLog.end(logId, null, reason);
+    logId = null;
   }
 
   async function connect(credentials: Credentials | null, accept: string | null = null) {
@@ -98,6 +107,8 @@
       else await api.rdp.connect(paneId, hostId, width, height, credentials, accept, onMessage);
       status = { kind: "connected" };
       setInfo("connected");
+      endLog("closed");
+      logId = connectionLog.start(hostId, label, isVnc ? "vnc" : "rdp");
       settings.markRecent(hostId);
       display?.focus();
       void sendLocalClipboard();
@@ -186,6 +197,7 @@
   });
 
   onDestroy(() => {
+    endLog("closed");
     void (isVnc ? api.vnc : api.rdp).close(paneId).catch(() => {});
   });
 

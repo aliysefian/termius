@@ -1,6 +1,7 @@
 // The words of the app's chrome (sidebar, menus, headings and the tour), in English: the source the other
 // languages are checked against. A key missing from another language falls back to this text.
 export const en = {
+  "rail.dashboard": "Dashboard",
   "rail.hosts": "Hosts",
   "rail.favorites": "Favorites",
   "rail.fleetlist": "Fleet",

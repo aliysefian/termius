@@ -79,7 +79,7 @@ async def main():
             # An untouched form may still ask "Discard your changes?".
             if await pg.locator('button:has-text("Discard")').count():
                 await pg.click('button:has-text("Discard")'); await pg.wait_for_timeout(200)
-            for label, name in [("Snippets", "snippets"), ("Tunnels", "tunnels"), ("Databases", "databases"), ("Containers", "containers"), ("Ops", "operations"), ("Runbooks", "runbooks"), ("Settings", "settings")]:
+            for label, name in [("Dashboard", "dashboard"), ("Snippets", "snippets"), ("Tunnels", "tunnels"), ("Databases", "databases"), ("Containers", "containers"), ("Ops", "operations"), ("Runbooks", "runbooks"), ("Settings", "settings")]:
                 await pg.click(f'button[aria-label="{label}"]'); await pg.wait_for_timeout(500)
                 await scan(pg, name, theme)
                 if name == "runbooks":

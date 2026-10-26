@@ -9,6 +9,7 @@ import { errorMessage, type SerialConfig, type Uuid } from "$lib/types";
 import { vaultStore } from "$lib/stores/vault.svelte";
 
 export type View =
+  | "dashboard"
   | "hosts"
   | "favorites"
   | "groups"
@@ -32,7 +33,7 @@ export type View =
   | "changelog";
 
 /** Views that fill the window instead of sitting beside the terminals. */
-export const PAGE_VIEWS: View[] = ["groups", "keys", "knownhosts", "vault", "security-review", "fleet", "topology", "ops", "runbooks", "databases", "containers", "kubernetes", "settings", "changelog"];
+export const PAGE_VIEWS: View[] = ["dashboard", "groups", "keys", "knownhosts", "vault", "security-review", "fleet", "topology", "ops", "runbooks", "databases", "containers", "kubernetes", "settings", "changelog"];
 
 /** What a pane connects to: a saved host, or an unsaved quick connection. */
 export type PaneTarget =

@@ -17,6 +17,9 @@
   --color-danger-solid: #c92a2f;
   --color-success: #3ddc84;
   --color-warning: #ffb020;
+  /* The dashboard's usage bars: orange when moderate, yellow when high (green is --color-success). */
+  --color-usage-moderate: #ff8a3d;
+  --color-usage-high: #ffd54a;
   --font-mono: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
 }
 
@@ -36,6 +39,8 @@
   --color-danger-solid: #d7373f;
   --color-success: #12693c;
   --color-warning: #855200;
+  --color-usage-moderate: #c2570a;
+  --color-usage-high: #a67c00;
   color-scheme: light;
 }
 

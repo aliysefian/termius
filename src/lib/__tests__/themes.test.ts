@@ -58,7 +58,7 @@ describe("the app's high-contrast theme", () => {
 
   it("text and status colours are 7:1 on every surface", () => {
     for (const surface of ["base", "panel", "panel-hover"]) {
-      for (const text of ["fg", "fg-muted", "accent", "danger", "success", "warning"]) expect(contrast(tokens[surface], tokens[text]), `${text} on ${surface}`).toBeGreaterThanOrEqual(7);
+      for (const text of ["fg", "fg-muted", "accent", "danger", "success", "warning", "usage-moderate", "usage-high"]) expect(contrast(tokens[surface], tokens[text]), `${text} on ${surface}`).toBeGreaterThanOrEqual(7);
     }
   });
 
