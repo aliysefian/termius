@@ -262,6 +262,16 @@ export function groupByProject(list: ContainerInfo[]): ProjectGroup[] {
 
 // -- volumes, networks, pruning -------------------------------------------------
 
+/** Docker names a volume nobody named (a Dockerfile `VOLUME`, `-v /path`) with its 64-hex-digit ID. */
+export function isAnonymousVolume(name: string): boolean {
+  return /^[0-9a-f]{64}$/.test(name);
+}
+
+/** What to call a volume to a person: its name, or for an anonymous one the short form of its ID. */
+export function volumeLabel(name: string): string {
+  return isAnonymousVolume(name) ? `anonymous volume ${name.slice(0, 12)}` : name;
+}
+
 export function filterVolumes(list: ContainerVolume[], query: string): ContainerVolume[] {
   const ts = terms(query);
   if (ts.length === 0) return list;

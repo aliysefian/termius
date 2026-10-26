@@ -31,10 +31,12 @@
     groupByProject,
     healthOf,
     imageRef,
+    isAnonymousVolume,
     isLive,
     portLabels,
     stateTone,
     usedByText,
+    volumeLabel,
     type StateFilter,
   } from "$lib/containerdata";
   import { hostOptions } from "$lib/pickeroptions";
@@ -379,15 +381,16 @@
             <tbody>
               {#each shownVolumes as v (v.name)}
                 <tr class="border-b border-line/60 hover:bg-panel-hover/50">
-                  <td class="max-w-80 px-4 py-2" title={v.mountpoint}>
-                    <div class="truncate font-mono text-sm">{v.name}</div>
+                  <td class="max-w-80 px-4 py-2" title="{v.name}{v.mountpoint ? `\n${v.mountpoint}` : ''}">
+                    <div class="truncate font-mono text-sm">{isAnonymousVolume(v.name) ? v.name.slice(0, 12) : v.name}</div>
+                    {#if isAnonymousVolume(v.name)}<Badge tone="neutral" title="Created without a name, so it is known by its ID">anonymous</Badge>{/if}
                     {#if v.labels["com.docker.compose.project"]}<Badge tone="accent" title="Compose project">{v.labels["com.docker.compose.project"]}</Badge>{/if}
                   </td>
                   <td class="px-2 py-2">{v.driver}</td>
                   <td class="max-w-64 truncate px-2 py-2 {v.used_by.length ? '' : 'text-fg-muted'}" title={v.used_by.join("\n")}>{usedByText(v.used_by)}</td>
                   {#if src.sizes}<td class="px-2 py-2 text-right text-fg-muted">{v.size ?? "—"}</td>{/if}
                   <td class="px-4 py-2 text-right">
-                    <button class="icon-btn h-7 w-7 hover:text-danger" title={v.used_by.length ? `In use by ${v.used_by.join(", ")}` : "Remove this volume and its data…"} aria-label="Remove volume {v.name}" disabled={v.used_by.length > 0 || !!containers.busy[`volume:${v.name}`]} onclick={() => containers.removeResource(src.key, "volume", v.name, v.name)}><Trash2 size={14} /></button>
+                    <button class="icon-btn h-7 w-7 hover:text-danger" title={v.used_by.length ? `In use by ${v.used_by.join(", ")}` : "Remove this volume and its data…"} aria-label="Remove {volumeLabel(v.name)}" disabled={v.used_by.length > 0 || !!containers.busy[`volume:${v.name}`]} onclick={() => containers.removeResource(src.key, "volume", v.name, volumeLabel(v.name))}><Trash2 size={14} /></button>
                   </td>
                 </tr>
               {/each}

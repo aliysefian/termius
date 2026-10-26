@@ -97,13 +97,18 @@ pub fn attach_network_usage(networks: &mut [Network], containers: &[Container]) 
     }
 }
 
+/// A volume nobody named is called by its ID: 64 lowercase hex digits.
+fn is_anonymous_volume(name: &str) -> bool {
+    name.len() == 64 && name.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+}
+
 pub fn unused_volumes(volumes: &[Volume]) -> Vec<PruneItem> {
     let mut out: Vec<PruneItem> = volumes
         .iter()
         .filter(|v| v.used_by.is_empty())
         .map(|v| PruneItem {
             id: v.name.clone(),
-            label: v.name.clone(),
+            label: if is_anonymous_volume(&v.name) { format!("<anonymous> {}", &v.name[..12]) } else { v.name.clone() },
             detail: v.size.clone().unwrap_or_default(),
             project: v.labels.get(COMPOSE_PROJECT).cloned(),
         })
@@ -205,6 +210,18 @@ mod tests {
         let proj = items.iter().find(|i| i.id == "sshvault-c1-proj_data").unwrap();
         assert_eq!(proj.project.as_deref(), Some("sshvault-c1-proj"));
         assert!(items.iter().find(|i| i.id == "sshvault-c1-vol").unwrap().project.is_none());
+    }
+
+    #[test]
+    fn an_unnamed_volume_is_labelled_by_a_short_id() {
+        let id = "6a080e735935935ae141c1afed52343992a44e7b8f5d2f8e305c9d1b2a3f4e5d";
+        let mut vols = parse_volumes(&format!("{{\"Name\":\"{id}\"}}\n{{\"Name\":\"pgdata\"}}\n{{\"Name\":\"deadbeef\"}}")).unwrap();
+        attach_volume_usage(&mut vols, &[]);
+        let items = unused_volumes(&vols);
+        let label = |id: &str| items.iter().find(|i| i.id == id).unwrap().label.clone();
+        assert_eq!(label(id), "<anonymous> 6a080e735935", "what is removed is still the full ID");
+        assert_eq!(label("pgdata"), "pgdata");
+        assert_eq!(label("deadbeef"), "deadbeef", "only a full 64-digit ID counts as anonymous");
     }
 
     #[test]
