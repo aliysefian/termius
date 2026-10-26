@@ -4,6 +4,11 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## 0.37.1 - 2026-10-26
+
+- **Changed:** the Dashboard's usage bars are green under 50%, yellow from 50% and orange from 80% (0.37.0 had the two colours the other way round).
+- **Fixed:** in the tmux session bar, **Attach (Standard CLI)** did nothing when the terminal was already inside tmux, because tmux refuses to nest sessions. In that case it now switches to the chosen session. From a plain shell it still attaches, and it leaves any other terminal attached to the host alone. **Attach (Native GUI)** and **New Session** still need a shell that is not inside tmux.
+
 ## 0.37.0 - 2026-10-26
 
 - **New:** a Dashboard page, first on the left rail. At the top: the version, how long SSHVault has been running, the health of your vault, and how many hosts answered a connection check. Below, your host, credential and active-tunnel totals; each host with its address, CPU, RAM and disk bars (green, then orange from 50%, yellow from 80%) and an Online or Offline badge; quick actions for adding a host or credential and opening Settings or the Vault screen; and your recent sessions, newest first. Usage bars show for hosts you turned monitoring on for. For the others, a **Monitor** button turns it on. Nothing is read over SSH until you do.
