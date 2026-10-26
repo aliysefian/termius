@@ -69,10 +69,19 @@ describe("probe output", () => {
 describe("commands typed into the shell", () => {
   it("quotes names that came from the host", () => {
     expect(attachCommand.tmuxNative("deploy")).toBe("tmux -CC -u attach -t 'deploy'");
-    expect(attachCommand.tmuxStandard("x; rm -rf ~")).toBe("tmux attach -t 'x; rm -rf ~'");
+    expect(attachCommand.tmuxStandard("x; rm -rf ~")).toBe(`[ -n "$TMUX" ] && tmux switch-client -t 'x; rm -rf ~' || tmux attach -t 'x; rm -rf ~'`);
     expect(attachCommand.newNative("")).toBe("tmux -CC -u new");
     expect(attachCommand.newNative("it's")).toBe("tmux -CC -u new -s 'it'\\''s'");
     expect(attachCommand.screen("4242.build")).toBe("screen -r '4242.build'");
+  });
+
+  it("attaches by switching when the shell is already in tmux, and never switches otherwise", () => {
+    // Inside tmux `attach` is refused (nested sessions). Outside it, `switch-client` would move another client of the
+    // host instead of failing, so it may only run behind the $TMUX check (a real tmux showed both).
+    const cmd = attachCommand.tmuxStandard("deploy");
+    expect(cmd).toBe(`[ -n "$TMUX" ] && tmux switch-client -t 'deploy' || tmux attach -t 'deploy'`);
+    expect(cmd.indexOf('[ -n "$TMUX" ]')).toBeLessThan(cmd.indexOf("switch-client"));
+    expect(cmd.endsWith("|| tmux attach -t 'deploy'")).toBe(true);
   });
   it("accepts the names tmux accepts", () => {
     expect(["deploy", "my build", "a-b_c", "日本"].every(validSessionName)).toBe(true);

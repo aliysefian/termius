@@ -126,7 +126,15 @@ export function validSessionName(name: string): boolean {
 /** What to type into the remote shell. Every name is quoted: it came from the host. */
 export const attachCommand = {
   tmuxNative: (name: string) => `tmux -CC -u attach -t ${shellQuote(name)}`,
-  tmuxStandard: (name: string) => `tmux attach -t ${shellQuote(name)}`,
+  /**
+   * From inside tmux, `attach` is refused (sessions aren't nested); the way to move is `switch-client`, which acts on
+   * the client of the pane it runs in. Outside tmux, `switch-client` doesn't fail: it pulls some other client of the
+   * host onto the session and leaves this shell where it was. So it runs only when `$TMUX` says this shell is in tmux.
+   */
+  tmuxStandard: (name: string) => {
+    const q = shellQuote(name);
+    return `[ -n "$TMUX" ] && tmux switch-client -t ${q} || tmux attach -t ${q}`;
+  },
   /** An empty name lets tmux number the session itself. */
   newNative: (name: string) => (name ? `tmux -CC -u new -s ${shellQuote(name)}` : "tmux -CC -u new"),
   newStandard: (name: string) => (name ? `tmux new -s ${shellQuote(name)}` : "tmux new"),
