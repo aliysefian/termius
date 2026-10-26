@@ -4,6 +4,11 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## 0.37.0 - 2026-10-26
+
+- **New:** a Dashboard page, first on the left rail. At the top: the version, how long SSHVault has been running, the health of your vault, and how many hosts answered a connection check. Below, your host, credential and active-tunnel totals; each host with its address, CPU, RAM and disk bars (green, then orange from 50%, yellow from 80%) and an Online or Offline badge; quick actions for adding a host or credential and opening Settings or the Vault screen; and your recent sessions, newest first. Usage bars show for hosts you turned monitoring on for. For the others, a **Monitor** button turns it on. Nothing is read over SSH until you do.
+- **Changed:** file browser (SFTP), Remote Desktop and VNC sessions are now listed in the connection log on the Vault screen, next to terminal sessions. The log still stays on this computer.
+
 ## 0.36.2 - 2026-10-26
 
 - **Fixed:** removing a volume that was never given a name showed its whole 64-character ID in the confirmation. It now reads "anonymous volume 6a080e735935", and the volumes list and "Remove unused…" show the same short ID.
