@@ -70,7 +70,7 @@ export function usageLevel(pct: number): UsageLevel {
   return p >= HIGH_FROM ? "high" : p >= MODERATE_FROM ? "moderate" : "low";
 }
 
-/** The bar's fill: green while low, orange when moderate, yellow when high. */
+/** The bar's fill: green while low, yellow when moderate, orange when high. */
 export const LEVEL_FILL: Record<UsageLevel, string> = {
   low: "bg-success",
   moderate: "bg-usage-moderate",
