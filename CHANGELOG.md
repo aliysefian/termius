@@ -4,6 +4,10 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## 0.36.2 - 2026-10-26
+
+- **Fixed:** removing a volume that was never given a name showed its whole 64-character ID in the confirmation. It now reads "anonymous volume 6a080e735935", and the volumes list and "Remove unused…" show the same short ID.
+
 ## 0.36.1 - 2026-10-20
 
 - **Fixed:** the 0.36.0 installers were not published because a code-style check failed in the build. 0.36.1 has the same app as 0.36.0 and the checks pass.
