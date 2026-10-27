@@ -49,9 +49,98 @@ export function countOnline(statuses: HostStatus[]): number {
   return statuses.filter((s) => s === "online").length;
 }
 
+const natural = (a: string, b: string) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
+
 /** Natural order, so web-2 comes before web-10. */
 export function byLabel<T extends { label: string }>(a: T, b: T): number {
-  return a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: "base" });
+  return natural(a.label, b.label);
+}
+
+// -- the host table: filter and sort ---------------------------------------------------
+
+/** What the Host Status table knows about a host, flattened so it can be filtered and sorted. */
+export interface HostRow {
+  label: string;
+  hostname: string;
+  group: string;
+  tags: string[];
+  status: HostStatus;
+  monitored: boolean;
+  /** The latest reading, or null: not monitored, nothing read yet, or the host doesn't report it. */
+  cpu: number | null;
+  ram: number | null;
+  disk: number | null;
+}
+
+export type SortKey = "host" | "address" | "cpu" | "ram" | "disk" | "monitor" | "status";
+export interface TableSort {
+  key: SortKey;
+  dir: "asc" | "desc";
+}
+
+export const DEFAULT_SORT: TableSort = { key: "host", dir: "asc" };
+
+/** A click on a column header: the same column flips direction, another starts the natural way (usage: highest first). */
+export function nextSort(cur: TableSort, key: SortKey): TableSort {
+  if (cur.key === key) return { key, dir: cur.dir === "asc" ? "desc" : "asc" };
+  return { key, dir: key === "cpu" || key === "ram" || key === "disk" ? "desc" : "asc" };
+}
+
+const STATUS_ORDER: Record<HostStatus, number> = { online: 0, offline: 1, unknown: 2 };
+
+/**
+ * A sorted copy. Ties fall back to the name, and a host with no reading goes last whichever way the usage
+ * columns run, so "highest first" is never a screenful of dashes. Ascending status is online first, ascending
+ * monitor is monitored first.
+ */
+export function sortRows<T extends HostRow>(rows: T[], { key, dir }: TableSort): T[] {
+  const sign = dir === "asc" ? 1 : -1;
+  const cmp = (a: T, b: T): number => {
+    switch (key) {
+      case "host":
+        return sign * byLabel(a, b);
+      case "address":
+        return sign * natural(a.hostname, b.hostname);
+      case "status":
+        return sign * (STATUS_ORDER[a.status] - STATUS_ORDER[b.status]);
+      case "monitor":
+        return sign * (Number(b.monitored) - Number(a.monitored));
+      default: {
+        const x = a[key];
+        const y = b[key];
+        if (x == null || y == null) return x == null ? (y == null ? 0 : 1) : -1;
+        return sign * (x - y);
+      }
+    }
+  };
+  return [...rows].sort((a, b) => cmp(a, b) || byLabel(a, b));
+}
+
+export interface HostFilter {
+  /** Words that must all appear in the name, address, group or a tag. */
+  query: string;
+  status: HostStatus | "all";
+  monitoring: "all" | "on" | "off";
+  /** A group path, which also takes in the groups inside it. Empty for every group. */
+  group: string;
+}
+
+export const NO_FILTER: HostFilter = { query: "", status: "all", monitoring: "all", group: "" };
+
+export function isFiltering(f: HostFilter): boolean {
+  return f.query.trim() !== "" || f.status !== "all" || f.monitoring !== "all" || f.group !== "";
+}
+
+export function filterRows<T extends HostRow>(rows: T[], f: HostFilter): T[] {
+  const words = f.query.toLowerCase().split(/\s+/).filter(Boolean);
+  return rows.filter((r) => {
+    if (f.status !== "all" && r.status !== f.status) return false;
+    if (f.monitoring !== "all" && r.monitored !== (f.monitoring === "on")) return false;
+    if (f.group && r.group !== f.group && !r.group.startsWith(`${f.group}/`)) return false;
+    if (!words.length) return true;
+    const text = [r.label, r.hostname, r.group, ...r.tags].join("\n").toLowerCase();
+    return words.every((w) => text.includes(w));
+  });
 }
 
 // -- usage bars ----------------------------------------------------------------------
