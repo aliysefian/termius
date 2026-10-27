@@ -4,6 +4,11 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## 0.38.0 - 2026-10-27
+
+- **New:** every host in the Dashboard's Host Status table has a **Monitor** switch, so you can turn monitoring on or off for that host right there. Before, a **Monitor** button showed only while a host was off, and a host you turned off kept showing its last numbers. Now it says "Monitoring is off". A host with no saved credentials can't be switched on, and its row says why.
+- **New:** filter the Host Status table by text (name, address, group or tag), by status, by whether it is monitored, and by group, with a "3 of 12 hosts" count and a Clear button. Sort it by clicking the Host, Address, CPU, RAM, Disk, Monitor or Status heading; click again to reverse. Usage columns start with the highest first, and hosts with no reading stay at the bottom either way. The tiles above still count every host.
+
 ## 0.37.1 - 2026-10-26
 
 - **Changed:** the Dashboard's usage bars are green under 50%, yellow from 50% and orange from 80% (0.37.0 had the two colours the other way round).
