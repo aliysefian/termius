@@ -1,16 +1,23 @@
 import { describe, expect, it } from "vitest";
 import {
+  DEFAULT_SORT,
   HIGH_FROM,
   LEVEL_FILL,
   MODERATE_FROM,
+  NO_FILTER,
+  type HostRow,
   activeTunnels,
   activityRows,
   byLabel,
   clampPct,
   countOnline,
   elapsedShort,
+  filterRows,
   hostStatus,
+  isFiltering,
+  nextSort,
   releaseChannel,
+  sortRows,
   usageLevel,
   vaultHealth,
 } from "../dashboard";
@@ -120,5 +127,83 @@ describe("recent activity", () => {
   it("falls back to the raw kind for one a newer version wrote", () => {
     const odd = { ...entry("1", "x", "host", 0), kind: "quic" } as unknown as ConnectionLogEntry;
     expect(activityRows([odd], NOW)[0].what).toBe("quic");
+  });
+});
+
+describe("the host table", () => {
+  const row = (label: string, over: Partial<HostRow> = {}): HostRow => ({ label, hostname: `${label}.example`, group: "", tags: [], status: "unknown", monitored: false, cpu: null, ram: null, disk: null, ...over });
+  const fleet = [
+    row("web-10", { group: "Production/Web", tags: ["nginx"], status: "online", monitored: true, cpu: 20, ram: 90, disk: 40 }),
+    row("web-2", { group: "Production/Web", status: "online", monitored: true, cpu: 85, ram: 10, disk: 40 }),
+    row("db-1", { group: "Production/Db", tags: ["postgres", "primary"], status: "offline" }),
+    row("lab", { hostname: "10.0.0.10", group: "Lab" }),
+    row("nas", { hostname: "10.0.0.9", group: "Lab", status: "online", monitored: true, cpu: null, ram: 55, disk: 70 }),
+  ];
+  const names = (rows: HostRow[]) => rows.map((r) => r.label);
+
+  describe("sorting", () => {
+    it("starts by name, in natural order", () => {
+      expect(names(sortRows(fleet, DEFAULT_SORT))).toEqual(["db-1", "lab", "nas", "web-2", "web-10"]);
+      expect(names(sortRows(fleet, { key: "host", dir: "desc" }))).toEqual(["web-10", "web-2", "nas", "lab", "db-1"]);
+    });
+    it("sorts addresses by number, not by character", () => {
+      expect(names(sortRows([fleet[3], fleet[4]], { key: "address", dir: "asc" }))).toEqual(["nas", "lab"]);
+    });
+    it("sorts by usage and keeps hosts with no reading last in both directions", () => {
+      expect(names(sortRows(fleet, { key: "cpu", dir: "desc" }))).toEqual(["web-2", "web-10", "db-1", "lab", "nas"]);
+      expect(names(sortRows(fleet, { key: "cpu", dir: "asc" }))).toEqual(["web-10", "web-2", "db-1", "lab", "nas"]);
+      expect(names(sortRows(fleet, { key: "ram", dir: "desc" }))).toEqual(["web-10", "nas", "web-2", "db-1", "lab"]);
+    });
+    it("breaks ties by name", () => {
+      // web-2 and web-10 both read 40% disk.
+      expect(names(sortRows(fleet, { key: "disk", dir: "asc" }).slice(0, 2))).toEqual(["web-2", "web-10"]);
+    });
+    it("puts online first, then offline, then unknown; and monitored hosts first", () => {
+      expect(names(sortRows(fleet, { key: "status", dir: "asc" }))).toEqual(["nas", "web-2", "web-10", "db-1", "lab"]);
+      expect(names(sortRows(fleet, { key: "status", dir: "desc" }))).toEqual(["lab", "db-1", "nas", "web-2", "web-10"]);
+      expect(names(sortRows(fleet, { key: "monitor", dir: "asc" })).slice(0, 3)).toEqual(["nas", "web-2", "web-10"]);
+    });
+    it("returns a copy and leaves the list alone", () => {
+      const before = names(fleet);
+      sortRows(fleet, { key: "cpu", dir: "desc" });
+      expect(names(fleet)).toEqual(before);
+    });
+    it("flips a column on a second click, and starts usage columns at the highest", () => {
+      expect(nextSort(DEFAULT_SORT, "host")).toEqual({ key: "host", dir: "desc" });
+      expect(nextSort({ key: "host", dir: "desc" }, "host")).toEqual({ key: "host", dir: "asc" });
+      expect(nextSort(DEFAULT_SORT, "status")).toEqual({ key: "status", dir: "asc" });
+      expect(nextSort(DEFAULT_SORT, "cpu")).toEqual({ key: "cpu", dir: "desc" });
+      expect(nextSort({ key: "cpu", dir: "desc" }, "cpu")).toEqual({ key: "cpu", dir: "asc" });
+    });
+  });
+
+  describe("filtering", () => {
+    it("shows everything when nothing is set", () => {
+      expect(filterRows(fleet, NO_FILTER)).toHaveLength(5);
+      expect(isFiltering(NO_FILTER)).toBe(false);
+      expect(isFiltering({ ...NO_FILTER, query: "  " })).toBe(false);
+    });
+    it("finds words in the name, address, group and tags, all of them, in any case", () => {
+      expect(names(filterRows(fleet, { ...NO_FILTER, query: "WEB" }))).toEqual(["web-10", "web-2"]);
+      expect(names(filterRows(fleet, { ...NO_FILTER, query: "10.0.0" }))).toEqual(["lab", "nas"]);
+      expect(names(filterRows(fleet, { ...NO_FILTER, query: "postgres" }))).toEqual(["db-1"]);
+      expect(names(filterRows(fleet, { ...NO_FILTER, query: "production nginx" }))).toEqual(["web-10"]);
+      expect(filterRows(fleet, { ...NO_FILTER, query: "web nope" })).toEqual([]);
+    });
+    it("filters by status and by whether the host is monitored", () => {
+      expect(names(filterRows(fleet, { ...NO_FILTER, status: "offline" }))).toEqual(["db-1"]);
+      expect(names(filterRows(fleet, { ...NO_FILTER, status: "unknown" }))).toEqual(["lab"]);
+      expect(names(filterRows(fleet, { ...NO_FILTER, monitoring: "on" }))).toEqual(["web-10", "web-2", "nas"]);
+      expect(names(filterRows(fleet, { ...NO_FILTER, monitoring: "off" }))).toEqual(["db-1", "lab"]);
+    });
+    it("takes a group together with the groups inside it, and not one that only starts the same", () => {
+      expect(names(filterRows(fleet, { ...NO_FILTER, group: "Production" }))).toEqual(["web-10", "web-2", "db-1"]);
+      expect(names(filterRows(fleet, { ...NO_FILTER, group: "Production/Web" }))).toEqual(["web-10", "web-2"]);
+      expect(filterRows([row("x", { group: "Production2" })], { ...NO_FILTER, group: "Production" })).toEqual([]);
+    });
+    it("combines the filters", () => {
+      expect(names(filterRows(fleet, { query: "web", status: "online", monitoring: "on", group: "Production" }))).toEqual(["web-10", "web-2"]);
+      expect(filterRows(fleet, { ...NO_FILTER, status: "offline", monitoring: "on" })).toEqual([]);
+    });
   });
 });

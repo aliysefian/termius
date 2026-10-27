@@ -1,15 +1,34 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { ArrowLeftRight, CircleUser, Clock, Database, KeyRound, Loader2, Plus, RefreshCw, Server, Settings, Tag, Terminal } from "lucide-svelte";
+  import { ArrowDown, ArrowLeftRight, ArrowUp, CircleUser, Clock, Database, KeyRound, Loader2, Plus, RefreshCw, Search, Server, Settings, Tag, Terminal, X } from "lucide-svelte";
   import Badge from "./Badge.svelte";
   import EmptyState from "./EmptyState.svelte";
   import PageSection from "./PageSection.svelte";
-  import { LEVEL_FILL, activeTunnels, activityRows, byLabel, clampPct, countOnline, hostStatus, releaseChannel, usageLevel, vaultHealth } from "$lib/dashboard";
+  import {
+    DEFAULT_SORT,
+    LEVEL_FILL,
+    NO_FILTER,
+    activeTunnels,
+    activityRows,
+    clampPct,
+    countOnline,
+    filterRows,
+    hostStatus,
+    isFiltering,
+    nextSort,
+    releaseChannel,
+    sortRows,
+    usageLevel,
+    vaultHealth,
+    type HostFilter,
+    type SortKey,
+  } from "$lib/dashboard";
   import { formatUptime } from "$lib/hostmetrics";
   import { connectionLog } from "$lib/stores/connectionlog.svelte";
   import { hostMetrics } from "$lib/stores/hostmetrics.svelte";
   import { ui } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
+  import { buildTree, groupPaths } from "$lib/tree";
 
   const CHECK_EVERY_MS = 30_000;
   const TICK_MS = 5_000;
@@ -17,22 +36,43 @@
 
   let now = $state(Date.now());
 
-  const rows = $derived(
+  let filter = $state<HostFilter>({ ...NO_FILTER });
+  let sort = $state(DEFAULT_SORT);
+
+  // Every host: the tiles and the health check count these, whatever the table is filtered to.
+  const all = $derived(
     vaultStore.hosts
       .filter((h) => h.data)
-      .map((h) => ({
-        id: h.id,
-        d: h.data!,
-        health: vaultStore.health[h.id],
-        status: hostStatus(vaultStore.health[h.id]),
-        monitored: hostMetrics.isMonitored(h.id),
-        reading: hostMetrics.readings[h.id],
-      }))
-      .sort((a, b) => byLabel(a.d, b.d)),
+      .map((h) => {
+        const d = h.data!;
+        const monitored = hostMetrics.isMonitored(h.id);
+        // A reading left from before monitoring was turned off is stale: show none.
+        const reading = monitored ? hostMetrics.readings[h.id] : undefined;
+        const m = reading?.metrics;
+        return {
+          id: h.id,
+          d,
+          label: d.label,
+          hostname: d.hostname,
+          group: d.group,
+          tags: d.tags,
+          health: vaultStore.health[h.id],
+          status: hostStatus(vaultStore.health[h.id]),
+          monitored,
+          canMonitor: hostMetrics.canMonitor(h.id),
+          reading,
+          cpu: m?.cpuPct ?? null,
+          ram: m?.memPct ?? null,
+          disk: m?.diskPct ?? null,
+        };
+      }),
   );
+  const rows = $derived(sortRows(filterRows(all, filter), sort));
+  const groups = $derived(groupPaths(buildTree(vaultStore.hosts)).sort());
+  const filtering = $derived(isFiltering(filter));
 
-  const online = $derived(countOnline(rows.map((r) => r.status)));
-  const checked = $derived(rows.some((r) => r.status !== "unknown"));
+  const online = $derived(countOnline(all.map((r) => r.status)));
+  const checked = $derived(all.some((r) => r.status !== "unknown"));
   const db = $derived(vaultHealth({ unlocked: vaultStore.unlocked, conflicts: vaultStore.openConflicts, rollbacks: vaultStore.rollbacks }));
   const appVersion = __APP_VERSION__;
   const channel = releaseChannel(appVersion);
@@ -42,9 +82,9 @@
   const activity = $derived(activityRows(connectionLog.entries, now, ACTIVITY_LINES));
 
   async function refresh() {
-    if (vaultStore.checking || !rows.length) return;
+    if (vaultStore.checking || !all.length) return;
     await vaultStore.checkHealth(
-      rows.map((r) => r.id),
+      all.map((r) => r.id),
       true,
     );
   }
@@ -87,6 +127,15 @@
   {/if}
 {/snippet}
 
+{#snippet th(key: SortKey, label: string, cls: string)}
+  <th class={cls} aria-sort={sort.key === key ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}>
+    <button class="inline-flex items-center gap-1 rounded font-medium hover:text-fg {sort.key === key ? 'text-fg' : ''}" title="Sort by {label.toLowerCase()}" onclick={() => (sort = nextSort(sort, key))}>
+      {label}
+      {#if sort.key === key}{#if sort.dir === "asc"}<ArrowUp size={11} />{:else}<ArrowDown size={11} />{/if}{/if}
+    </button>
+  </th>
+{/snippet}
+
 {#snippet total(label: string, value: number, icon: typeof Server)}
   {@const Icon = icon}
   <div class="flex items-center gap-2">
@@ -111,7 +160,7 @@
         <h1 class="text-lg font-semibold">Dashboard</h1>
         <p class="mt-1 text-sm text-fg-muted">Your hosts, tunnels and recent sessions at a glance.</p>
       </div>
-      <button class="btn-secondary py-1.5 text-xs" disabled={vaultStore.checking || !rows.length} onclick={refresh}>
+      <button class="btn-secondary py-1.5 text-xs" disabled={vaultStore.checking || !all.length} onclick={refresh}>
         {#if vaultStore.checking}<Loader2 size={13} class="animate-spin" />{:else}<RefreshCw size={13} />{/if} Check now
       </button>
     </div>
@@ -135,8 +184,8 @@
       <div class="rounded-xl border border-line bg-panel p-4">
         {@render tile("Hosts Available", Server, "Hosts that answered a connection check just now")}
         <div class="mt-2 flex items-baseline gap-1.5">
-          <span class="text-2xl font-semibold">{checked || !rows.length ? online : "—"}</span>
-          <span class="text-sm text-fg-muted">/ {rows.length}</span>
+          <span class="text-2xl font-semibold">{checked || !all.length ? online : "—"}</span>
+          <span class="text-sm text-fg-muted">/ {all.length}</span>
         </div>
       </div>
     </div>
@@ -149,26 +198,53 @@
 
     <div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
       <PageSection title="Host Status" icon={Server}>
-        {#if rows.length === 0}
+        {#if all.length === 0}
           <EmptyState art="hosts" text="No hosts yet.">
             <button class="btn-primary mt-3" onclick={() => (ui.modal = { kind: "host", id: null })}><Plus size={14} /> Add Host</button>
           </EmptyState>
         {:else}
+          <div class="mb-3 flex flex-wrap items-center gap-2">
+            <div class="relative min-w-40 flex-1">
+              <Search size={13} class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-muted" />
+              <input class="input py-1 pl-7 text-xs" placeholder="Filter hosts…" bind:value={filter.query} aria-label="Filter hosts by name, address, group or tag" spellcheck="false" />
+            </div>
+            <select class="input w-auto py-1 text-xs" bind:value={filter.status} aria-label="Filter by status">
+              <option value="all">All statuses</option>
+              <option value="online">Online</option>
+              <option value="offline">Offline</option>
+              <option value="unknown">Unknown</option>
+            </select>
+            <select class="input w-auto py-1 text-xs" bind:value={filter.monitoring} aria-label="Filter by monitoring">
+              <option value="all">Monitored or not</option>
+              <option value="on">Monitored</option>
+              <option value="off">Not monitored</option>
+            </select>
+            {#if groups.length}
+              <select class="input w-auto max-w-44 py-1 text-xs" bind:value={filter.group} aria-label="Filter by group">
+                <option value="">All groups</option>
+                {#each groups as g (g)}<option value={g}>{g}</option>{/each}
+              </select>
+            {/if}
+            {#if filtering}
+              <button class="btn-ghost py-1 text-xs" onclick={() => (filter = { ...NO_FILTER })}><X size={12} /> Clear</button>
+            {/if}
+            <span class="ml-auto text-xs text-fg-muted" aria-live="polite">{rows.length === all.length ? `${all.length} ${all.length === 1 ? "host" : "hosts"}` : `${rows.length} of ${all.length} hosts`}</span>
+          </div>
           <div class="-mx-5 -mb-5 max-h-[34rem] overflow-auto border-t border-line">
-            <table class="w-full min-w-[40rem] text-left text-xs">
+            <table class="w-full min-w-[46rem] text-left text-xs">
               <thead class="sticky top-0 z-10 bg-panel text-fg-muted">
                 <tr>
-                  <th class="px-5 py-2 font-medium">Host</th>
-                  <th class="px-2 py-2 font-medium">Address</th>
-                  <th class="px-2 py-2 font-medium">CPU</th>
-                  <th class="px-2 py-2 font-medium">RAM</th>
-                  <th class="px-2 py-2 font-medium">Disk</th>
-                  <th class="px-5 py-2 text-right font-medium">Status</th>
+                  {@render th("host", "Host", "px-5 py-2")}
+                  {@render th("address", "Address", "px-2 py-2")}
+                  {@render th("cpu", "CPU", "px-2 py-2")}
+                  {@render th("ram", "RAM", "px-2 py-2")}
+                  {@render th("disk", "Disk", "px-2 py-2")}
+                  {@render th("monitor", "Monitor", "px-2 py-2")}
+                  {@render th("status", "Status", "px-5 py-2 text-right")}
                 </tr>
               </thead>
               <tbody>
                 {#each rows as r (r.id)}
-                  {@const m = r.reading?.metrics}
                   <tr class="border-t border-line/60 hover:bg-panel-hover/50">
                     <td class="max-w-56 px-5 py-2">
                       <button class="flex w-full items-center gap-2 text-left" title="Open a terminal on {r.d.label}" onclick={() => ui.openTerminal(r.id, r.d.label)}>
@@ -177,23 +253,36 @@
                       </button>
                     </td>
                     <td class="max-w-48 truncate px-2 py-2 font-mono text-fg-muted" title="{r.d.hostname}:{r.d.port}">{r.d.hostname}</td>
-                    {#if m}
-                      <td class="px-2 py-2">{@render usage(m.cpuPct, "CPU")}</td>
-                      <td class="px-2 py-2">{@render usage(m.memPct, "RAM")}</td>
-                      <td class="px-2 py-2">{@render usage(m.diskPct, "Disk")}</td>
+                    {#if r.reading?.metrics}
+                      <td class="px-2 py-2">{@render usage(r.cpu, "CPU")}</td>
+                      <td class="px-2 py-2">{@render usage(r.ram, "RAM")}</td>
+                      <td class="px-2 py-2">{@render usage(r.disk, "Disk")}</td>
                     {:else}
                       <td colspan="3" class="px-2 py-2 text-fg-muted">
-                        {#if r.reading?.error}
-                          <span class="block max-w-72 truncate" title={r.reading.error}>Couldn't read usage: {r.reading.error}</span>
-                        {:else if r.monitored}
-                          Waiting for the first reading…
-                        {:else if hostMetrics.canMonitor(r.id)}
-                          <button class="btn-secondary py-0.5 text-xs" title="Read CPU, RAM and disk over SSH every 30 seconds" onclick={() => hostMetrics.setMonitored(r.id, true)}>Monitor</button>
-                        {:else}
+                        {#if !r.canMonitor}
                           Needs saved credentials to monitor
+                        {:else if !r.monitored}
+                          Monitoring is off
+                        {:else if r.reading?.error}
+                          <span class="block max-w-72 truncate" title={r.reading.error}>Couldn't read usage: {r.reading.error}</span>
+                        {:else}
+                          Waiting for the first reading…
                         {/if}
                       </td>
                     {/if}
+                    <td class="px-2 py-2">
+                      <button
+                        role="switch"
+                        aria-checked={r.monitored}
+                        aria-label="Monitor {r.label}"
+                        class="relative h-4 w-7 shrink-0 rounded-full border transition-colors disabled:cursor-not-allowed disabled:opacity-50 {r.monitored ? 'border-accent bg-accent' : 'border-line bg-base'}"
+                        disabled={!r.monitored && !r.canMonitor}
+                        title={r.monitored ? "Stop monitoring this host" : r.canMonitor ? "Read CPU, RAM and disk over SSH every 30 seconds" : "Needs saved credentials to monitor"}
+                        onclick={() => hostMetrics.setMonitored(r.id, !r.monitored)}
+                      >
+                        <span aria-hidden="true" class="absolute top-1/2 h-2.5 w-2.5 -translate-y-1/2 rounded-full transition-all {r.monitored ? 'left-[0.9rem] bg-white' : 'left-0.5 bg-fg-muted'}"></span>
+                      </button>
+                    </td>
                     <td class="px-5 py-2 text-right">
                       {#if r.status === "online"}
                         <Badge tone="success" title={r.health?.state === "up" ? `Answered in ${r.health.latency_ms} ms` : undefined}>Online</Badge>
@@ -202,6 +291,13 @@
                       {:else}
                         <Badge tone="neutral" title={r.health ? "Reached only through a jump host, so it can't be checked directly" : "Not checked yet"}>Unknown</Badge>
                       {/if}
+                    </td>
+                  </tr>
+                {:else}
+                  <tr>
+                    <td colspan="7" class="px-5 py-6 text-center text-fg-muted">
+                      No hosts match these filters.
+                      <button class="btn-ghost ml-1 py-0.5 text-xs" onclick={() => (filter = { ...NO_FILTER })}>Clear filters</button>
                     </td>
                   </tr>
                 {/each}
