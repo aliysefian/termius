@@ -4,6 +4,12 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## 0.39.0 - 2026-10-27
+
+- **New:** import hosts from **Ásbrú Connection Manager** (`asbru.yml` or a file from its Export dialog) in the import window, with its folders kept. Only SSH connections are imported; saved passwords are left behind, and the import says how many.
+- **New:** export your hosts for **MobaXterm** (`.mxtsessions`) or **Ásbrú**, under **Settings → Use your hosts from the command line**, to move to or try those apps. The files hold names, addresses, ports, users, key file paths and folders. Never passwords or keys.
+- **Changed:** MobaXterm and Ásbrú imports now show each host's folder in the preview, and hosts that share a name in different folders are renamed ("name (2)") instead of skipped.
+
 ## 0.38.0 - 2026-10-27
 
 - **New:** every host in the Dashboard's Host Status table has a **Monitor** switch, so you can turn monitoring on or off for that host right there. Before, a **Monitor** button showed only while a host was off, and a host you turned off kept showing its last numbers. Now it says "Monitoring is off". A host with no saved credentials can't be switched on, and its row says why.
