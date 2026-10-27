@@ -29,6 +29,18 @@ pub fn write_host_export(p: &Path, contents: &str) -> Result<(), String> {
     write_atomic(p, contents)
 }
 
+/// A host list for another SSH client (MobaXterm sessions, an Ásbrú config): only those file types, same size cap.
+pub fn write_interchange(p: &Path, contents: &str) -> Result<(), String> {
+    const TYPES: [&str; 3] = ["mxtsessions", "yml", "yaml"];
+    if !p.extension().is_some_and(|e| TYPES.iter().any(|a| e.eq_ignore_ascii_case(a))) {
+        return Err("A host list for another client is saved as a .mxtsessions, .yml or .yaml file.".into());
+    }
+    if contents.len() > MAX_BYTES {
+        return Err("That is too large to export.".into());
+    }
+    write_atomic(p, contents)
+}
+
 fn write_atomic(p: &Path, contents: &str) -> Result<(), String> {
     let name = p.file_name().ok_or("No file name.")?.to_string_lossy().into_owned();
     let tmp = p.with_file_name(format!(".{name}.tmp"));
@@ -67,6 +79,18 @@ mod tests {
         }
         // And the other writer doesn't take that extension.
         assert!(write_json(&dir.path().join("x.svhosts"), "{}").is_err());
+    }
+
+    #[test]
+    fn an_interchange_file_is_written_only_as_a_host_list_type() {
+        let dir = tempfile::TempDir::new().unwrap();
+        for name in ["a.mxtsessions", "b.yml", "C.YAML"] {
+            write_interchange(&dir.path().join(name), "x").unwrap();
+        }
+        for name in ["a.sh", "a.json", ".bashrc", "a.yml.sh", "yml"] {
+            assert!(write_interchange(&dir.path().join(name), "x").is_err(), "{name}");
+            assert!(!dir.path().join(name).exists(), "{name}");
+        }
     }
 
     #[test]

@@ -10,15 +10,12 @@
 //! Passwords aren't stored there (MobaXterm keeps them elsewhere, encrypted),
 //! so none are imported.
 
+use crate::interchange::{ExportHost, HostFormat, ImportContext};
 use crate::sshconfig::ImportedHost;
 
 const SSH: &str = "109";
 
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct Parsed {
-    pub hosts: Vec<ImportedHost>,
-    pub warnings: Vec<String>,
-}
+pub use crate::interchange::Parsed;
 
 /// MobaXterm writes some characters in names as `__PIPE__`, `__DIEZE__`…
 fn unescape(s: &str) -> String {
@@ -106,6 +103,73 @@ pub fn parse(text: &str, profile_dir: Option<&str>) -> Parsed {
     out
 }
 
+/// The inverse of [`unescape`], and `=` / line breaks, which would end the name early.
+fn escape(s: &str) -> String {
+    s.replace('%', "__PERCENT__")
+        .replace('|', "__PIPE__")
+        .replace('#', "__DIEZE__")
+        .replace(';', "__PTVIRG__")
+        .replace('"', "__DBLQUO__")
+        .replace('\'', "__APOS__")
+        .replace(['=', '\r', '\n'], "-")
+}
+
+/// A value inside a `%`-separated field list can't hold `%` or a line break.
+fn field(s: &str) -> String {
+    s.chars().filter(|c| !matches!(c, '%' | '#' | '\r' | '\n')).collect()
+}
+
+/// The bookmark file MobaXterm reads with Import / "Sessions > Import sessions from file". One `[Bookmarks_N]`
+/// section per folder; the top level is `[Bookmarks]`. Only what the format can hold is written: no passwords, and
+/// terminal settings are MobaXterm's defaults.
+pub fn export(hosts: &[ExportHost]) -> String {
+    use std::collections::BTreeMap;
+    use std::fmt::Write as _;
+    // BTreeMap keeps folders in a stable order; "" sorts first, which is the top level.
+    let mut folders: BTreeMap<String, Vec<&ExportHost>> = BTreeMap::new();
+    folders.entry(String::new()).or_default();
+    for h in hosts {
+        folders.entry(h.group.replace('/', "\\").trim_matches('\\').to_string()).or_default().push(h);
+    }
+    let mut out = String::new();
+    for (n, (folder, members)) in folders.iter().enumerate() {
+        let _ = write!(out, "[Bookmarks{}]\r\nSubRep={folder}\r\nImgNum={}\r\n", if n == 0 { String::new() } else { format!("_{n}") }, if n == 0 { 42 } else { 41 });
+        for h in members {
+            let port = if h.port == 0 { 22 } else { h.port };
+            let key = h.key_file.as_deref().map(field).unwrap_or_default();
+            let _ = write!(
+                out,
+                "{}=#{SSH}#0%{}%{port}%{}%%-1%-1%%%%%0%0%0%{key}%%-1%0%0%0%%1080%%0%0%1%%0%%%%%0#MobaFont%10%0%0%-1%15%236,236,236%30,30,30%180,180,192%0%-1%0%%xterm%-1%-1%_Std_Colors_0_%80%24%0%1%-1%<none>%%0%1%-1#0# #-1\r\n",
+                escape(h.name.trim()),
+                field(h.hostname.trim()),
+                field(h.user.as_deref().unwrap_or_default()),
+            );
+        }
+        out.push_str("\r\n");
+    }
+    out
+}
+
+pub struct MobaXterm;
+
+impl HostFormat for MobaXterm {
+    fn id(&self) -> &'static str {
+        "mobaxterm"
+    }
+    fn name(&self) -> &'static str {
+        "MobaXterm"
+    }
+    fn extensions(&self) -> &'static [&'static str] {
+        &["mxtsessions", "ini"]
+    }
+    fn parse(&self, text: &str, ctx: &ImportContext) -> Parsed {
+        parse(text, ctx.profile_dir.as_deref())
+    }
+    fn export(&self, hosts: &[ExportHost]) -> String {
+        export(hosts)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -148,5 +212,29 @@ broken=#109#0%%22%x
     fn placeholders_without_a_profile_dir_are_dropped() {
         let p = parse(INI, None);
         assert_eq!(p.hosts[0].identity_file, None);
+    }
+    #[test]
+    fn export_round_trips_through_the_parser() {
+        let hosts = vec![
+            ExportHost { name: "web-01".into(), hostname: "10.0.0.5".into(), port: 22, user: Some("ops".into()), ..Default::default() },
+            ExportHost { name: "db|primary".into(), hostname: "db.example.com".into(), port: 2222, group: "Production/Databases".into(), key_file: Some("/home/me/.ssh/id_ed25519".into()), ..Default::default() },
+            ExportHost { name: "no-port".into(), hostname: "h".into(), port: 0, group: "Production/Databases".into(), ..Default::default() },
+        ];
+        let p = parse(&export(&hosts), None);
+        assert_eq!(p.hosts.len(), 3, "{p:?}");
+        assert_eq!(p.warnings, Vec::<String>::new());
+        let by = |n: &str| p.hosts.iter().find(|h| h.alias == n).unwrap();
+        assert_eq!((by("web-01").port, by("web-01").user.as_deref(), by("web-01").group.clone()), (22, Some("ops"), None));
+        let db = by("db|primary");
+        assert_eq!((db.hostname.as_str(), db.port, db.group.as_deref()), ("db.example.com", 2222, Some("Production/Databases")));
+        assert_eq!(db.identity_file.as_deref(), Some("/home/me/.ssh/id_ed25519"));
+        assert_eq!(by("no-port").port, 22);
+    }
+
+    #[test]
+    fn a_byte_order_mark_does_not_hide_the_first_section() {
+        let f = crate::interchange::find("mobaxterm").unwrap();
+        let p = crate::interchange::parse(f, &format!("\u{feff}{INI}"), &ImportContext::default());
+        assert_eq!(p.hosts.len(), 2);
     }
 }

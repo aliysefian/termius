@@ -41,7 +41,7 @@
   }
   onMount(() => load(null));
 
-  let source = $state<"ssh" | "ansible" | "putty" | "csv" | "mobaxterm">("ssh");
+  let source = $state<"ssh" | "ansible" | "putty" | "csv" | "mobaxterm" | "asbru">("ssh");
 
   async function chooseMobaxterm() {
     const f = await open({
@@ -55,8 +55,30 @@
     loading = true;
     error = null;
     try {
-      show(await api.mobaxterm.preview(f));
+      show(await api.interchange.preview("mobaxterm", f));
       if (!preview?.hosts.length) error = "No SSH bookmarks were found in that file.";
+    } catch (e) {
+      error = errorMessage(e);
+      preview = null;
+    } finally {
+      loading = false;
+    }
+  }
+
+  async function chooseAsbru() {
+    const f = await open({
+      multiple: false,
+      directory: false,
+      title: "Choose asbru.yml or a file exported from Ásbrú",
+      filters: [{ name: "Ásbrú", extensions: ["yml", "yaml"] }],
+    });
+    if (typeof f !== "string") return;
+    source = "asbru";
+    loading = true;
+    error = null;
+    try {
+      show(await api.interchange.preview("asbru", f));
+      if (!preview?.hosts.length) error = "No SSH connections were found in that file.";
     } catch (e) {
       error = errorMessage(e);
       preview = null;
@@ -195,7 +217,7 @@
   }
 </script>
 
-<Modal title={source === "ansible" ? "Import from Ansible inventory" : source === "putty" ? "Import PuTTY sessions" : source === "mobaxterm" ? "Import MobaXterm bookmarks" : source === "csv" ? "Import from CSV" : "Import hosts"} onclose={() => (ui.modal = null)} width="max-w-3xl">
+<Modal title={source === "ansible" ? "Import from Ansible inventory" : source === "putty" ? "Import PuTTY sessions" : source === "mobaxterm" ? "Import MobaXterm bookmarks" : source === "asbru" ? "Import from Ásbrú" : source === "csv" ? "Import from CSV" : "Import hosts"} onclose={() => (ui.modal = null)} width="max-w-3xl">
   {#if summary}
     <div class="space-y-3 text-sm">
       <p>
@@ -228,6 +250,7 @@
         <button class="btn-secondary" onclick={chooseInventory}><FileInput size={14} /> Ansible…</button>
         <button class="btn-secondary" onclick={choosePutty}><FileInput size={14} /> PuTTY</button>
         <button class="btn-secondary" onclick={chooseMobaxterm}><FileInput size={14} /> MobaXterm…</button>
+        <button class="btn-secondary" onclick={chooseAsbru}><FileInput size={14} /> Ásbrú…</button>
         <button class="btn-secondary" onclick={chooseCsv} title="Termius export or any spreadsheet"><FileInput size={14} /> CSV…</button>
       </div>
 
@@ -275,7 +298,7 @@
                   <th class="px-2 py-1.5 font-medium">Address</th>
                   <th class="px-2 py-1.5 font-medium">User</th>
                   <th class="px-2 py-1.5 font-medium">Key / jump</th>
-                  {#if source === "ansible"}<th class="px-2 py-1.5 font-medium">Group</th>{/if}
+                  {#if source === "ansible" || source === "mobaxterm" || source === "asbru"}<th class="px-2 py-1.5 font-medium">Group</th>{/if}
                 </tr>
               </thead>
               <tbody>
@@ -296,7 +319,7 @@
                         <span class="block" title={h.forwards.map(describeForward).join("\n")}>{h.forwards.length} forward(s)</span>
                       {/if}
                     </td>
-                    {#if source === "ansible"}<td class="px-2 py-1.5 text-fg-muted">{h.group ?? "—"}</td>{/if}
+                    {#if source === "ansible" || source === "mobaxterm" || source === "asbru"}<td class="px-2 py-1.5 text-fg-muted">{h.group ?? "—"}</td>{/if}
                   </tr>
                 {/each}
               </tbody>

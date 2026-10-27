@@ -215,6 +215,25 @@
     }
   }
 
+  let otherClients = $state<api.InterchangeFormat[]>([]);
+  void api.interchange.formats().then((f) => (otherClients = f)).catch(() => {});
+
+  async function exportToClient(f: api.InterchangeFormat) {
+    const ext = f.extensions[0];
+    const path = await save({
+      title: `Export hosts for ${f.name}`,
+      defaultPath: `sshvault.${ext}`,
+      filters: [{ name: f.name, extensions: f.extensions.filter((e) => e !== "ini") }],
+    });
+    if (!path) return;
+    try {
+      const n = await api.interchange.exportHosts(f.id, path);
+      exportMsg = { ok: true, text: `Exported ${n} host${n === 1 ? "" : "s"} to ${path}. Passwords and keys are not included.` };
+    } catch (e) {
+      exportMsg = { ok: false, text: errorMessage(e) };
+    }
+  }
+
   async function exportToClipboard() {
     try {
       await writeText(await api.exportSshConfig(null));
@@ -867,6 +886,17 @@ sshvault run web-01 db-01 --json -- df -h /</pre>
         <button class="btn-secondary" onclick={exportToFile}>Save to file…</button>
         <button class="btn-secondary" onclick={exportToClipboard}>Copy to clipboard</button>
       </div>
+      {#if otherClients.length}
+        <p class="mb-2 mt-4 text-xs text-fg-muted">
+          Or move to another client. Only names, addresses, ports, users, key file paths and folders are written; passwords
+          and keys stay in the vault.
+        </p>
+        <div class="flex flex-wrap gap-2">
+          {#each otherClients as f (f.id)}
+            <button class="btn-secondary" onclick={() => exportToClient(f)}>Export for {f.name}…</button>
+          {/each}
+        </div>
+      {/if}
       {@render msgBox(exportMsg)}
     </section>
     {/if}

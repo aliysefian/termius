@@ -476,6 +476,18 @@ export const mobaxterm = {
   preview: (path: string) => invoke<SshConfigPreview>("mobaxterm_preview", { path }),
 };
 
+/** Another SSH client whose host files can be imported and exported (MobaXterm, Ásbrú). */
+export type InterchangeFormat = { id: string; name: string; extensions: string[] };
+
+/** Import from, and export to, other SSH clients. Exports carry no passwords or keys. */
+export const interchange = {
+  formats: () => invoke<InterchangeFormat[]>("interchange_formats"),
+  preview: (formatId: string, path: string) => invoke<SshConfigPreview>("interchange_preview", { formatId, path }),
+  /** Returns how many hosts were written. `group` limits it to one folder and below. */
+  exportHosts: (formatId: string, path: string, group: string | null = null) =>
+    invoke<number>("interchange_export", { formatId, path, group }),
+};
+
 export const putty = {
   sessions: () => invoke<SshConfigPreview>("putty_sessions"),
 };

@@ -6,6 +6,7 @@ pub mod agent;
 pub mod agentgate;
 pub mod algorithms;
 pub mod ansible;
+pub mod asbru;
 pub mod certs;
 pub mod commands;
 pub mod completion;
@@ -29,6 +30,7 @@ pub mod forward;
 pub mod health;
 pub mod hooks;
 pub mod hostkeys;
+pub mod interchange;
 pub mod inventory;
 pub mod hostcreds;
 pub mod hostexport;
@@ -149,6 +151,9 @@ pub fn run() {
             commands::csv_preview,
             commands::putty_sessions,
             commands::mobaxterm_preview,
+            commands::interchange::interchange_formats,
+            commands::interchange::interchange_preview,
+            commands::interchange::interchange_export,
             commands::list_groups,
             commands::save_group,
             commands::delete_group,
