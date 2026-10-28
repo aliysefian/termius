@@ -4,6 +4,10 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## 0.40.1 - 2026-10-28
+
+- **Fixed:** the installers for 0.39.0 and 0.40.0 were not published because a code-style check failed in the build. 0.40.1 has everything from both releases (Ásbrú and MobaXterm import and export, and the new Windows local terminal defaults) and the checks pass.
+
 ## 0.40.0 - 2026-10-28
 
 - **Changed:** on Windows, a new local terminal now opens the first Unix-like shell found, in this order: WSL, Git Bash, MSYS2, Cygwin. Only if none is installed does it use PowerShell, then Command Prompt. Before, it always opened Command Prompt. Pick another under **Settings → Local terminal**.
