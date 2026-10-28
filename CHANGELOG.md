@@ -4,6 +4,12 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## 0.41.0 - 2026-10-28
+
+- **New:** a **Monitoring** page that watches hosts in the background and tells you when one changes state. A host doesn't have to be a saved SSH host. Checks: **ping** (is it up, packet loss, latency), **TCP ports** (is the port open), and **CPU, memory and disk** over SSH with a saved host's credentials. Rules say when a reading is a warning or critical; a state changes only after several checks in a row agree, and you are told once when it changes, not on every check.
+- **New:** alerts can go to **Telegram**, **Bale** and **email**. Set them up under **Settings → Integrations → Notification channels**, each with a test button. Bot tokens and the SMTP password are kept in the encrypted vault and never shown again after saving. Messages carry only the host's name unless you choose to include its address. Nothing is sent unless a channel is switched on.
+- **Changed:** monitoring runs only while the vault is unlocked and SSHVault is running; locking the vault (including auto-lock) stops it. The Alerts tab under Ops is unchanged.
+
 ## 0.40.1 - 2026-10-28
 
 - **Fixed:** the installers for 0.39.0 and 0.40.0 were not published because a code-style check failed in the build. 0.40.1 has everything from both releases (Ásbrú and MobaXterm import and export, and the new Windows local terminal defaults) and the checks pass.
