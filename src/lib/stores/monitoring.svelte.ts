@@ -12,7 +12,8 @@ const KEEP_ALERTS = 200;
 
 /** What comes from the vault may lack fields that were never set. */
 function fillTarget(t: MonitorTarget): MonitorTarget {
-  return { ...t, tags: t.tags ?? [], ssh_host_id: t.ssh_host_id ?? null, notes: t.notes ?? "" };
+  const checks = (t.checks ?? []).map((c) => (c.kind === "http" ? { ...c, contains: c.contains ?? null } : c));
+  return { ...t, checks, tags: t.tags ?? [], ssh_host_id: t.ssh_host_id ?? null, notes: t.notes ?? "" };
 }
 function fillRule(r: AlertRule): AlertRule {
   return { ...r, warn: r.warn ?? null, crit: r.crit ?? null, channels: r.channels ?? [] };

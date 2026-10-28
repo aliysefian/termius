@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { BellRing, HeartPulse, Pencil, Plus, RefreshCw, Trash2, TriangleAlert } from "lucide-svelte";
+  import { BellRing, HeartPulse, Pencil, Plus, Radar, RefreshCw, Trash2, TriangleAlert } from "lucide-svelte";
   import EmptyState from "./EmptyState.svelte";
   import { ask } from "$lib/dialogs.svelte";
   import { monitoring } from "$lib/stores/monitoring.svelte";
@@ -100,7 +100,7 @@
 
   const checkSummary = (t: MonitorTarget) =>
     t.checks
-      .map((c) => (c.kind === "ping" ? "ping" : c.kind === "tcp" ? `port ${c.port}` : "CPU, memory, disk"))
+      .map((c) => (c.kind === "ping" ? "ping" : c.kind === "tcp" ? `port ${c.port}` : c.kind === "http" ? `site ${c.url.replace(/^https?:\/\//, "").split(/[?#]/)[0]}` : "CPU, memory, disk"))
       .join(", ");
   const hostLine = (t: MonitorTarget) => [`Every ${t.interval_secs} s`, checkSummary(t), t.tags.join(", ")].filter(Boolean).join(" · ");
   const ruleLine = (r: AlertRule) =>
@@ -160,6 +160,7 @@
                 <th class="px-3 py-2 font-medium">State</th>
                 <th class="px-3 py-2 font-medium">Ping</th>
                 <th class="px-3 py-2 font-medium">Ports</th>
+                <th class="px-3 py-2 font-medium">Sites</th>
                 <th class="px-3 py-2 font-medium">CPU</th>
                 <th class="px-3 py-2 font-medium">Memory</th>
                 <th class="px-3 py-2 font-medium">Disk</th>
@@ -188,6 +189,15 @@
                   <td class="px-3 py-2 font-mono text-xs">
                     {#if st?.ports.length}{#each st.ports as p (p.port)}<span class={p.open ? "text-success" : "text-danger"} title={p.error ?? ""}>{p.port}</span>{" "}{/each}{:else}–{/if}
                   </td>
+                  <td class="px-3 py-2 font-mono text-xs">
+                    {#if st?.web.length}
+                      {#each st.web as w (w.url)}
+                        <div class="whitespace-nowrap" title={w.error ?? w.url}>
+                          <span class={w.ok ? "text-success" : "text-danger"}>{w.status ?? "no answer"}</span>{#if w.time_ms !== null}{" "}{w.time_ms} ms{/if}{#if w.cert_days !== null}{" "}<span class={w.cert_days < 7 ? "text-danger" : w.cert_days < 21 ? "text-warning" : "text-fg-muted"}>cert {w.cert_days} d</span>{/if}
+                        </div>
+                      {/each}
+                    {:else}–{/if}
+                  </td>
                   <td class="px-3 py-2 font-mono text-xs">{formatValue("cpu", st?.metrics?.cpu ?? null)}</td>
                   <td class="px-3 py-2 font-mono text-xs">{formatValue("mem", st?.metrics?.mem ?? null)}</td>
                   <td class="px-3 py-2 font-mono text-xs">{formatValue("disk", st?.metrics?.disk ?? null)}</td>
@@ -198,11 +208,12 @@
                 </tr>
                 {#if st && (st.errors.length || st.states.some((s) => s.status !== "ok"))}
                   <tr>
-                    <td colspan="9" class="bg-base/50 px-3 py-1.5 text-xs">
+                    <td colspan="10" class="bg-base/50 px-3 py-1.5 text-xs">
                       {#each st.states.filter((s) => s.status !== "ok") as s (s.rule_id + s.subject)}
                         <span class="mr-3"><span class={pill(s.status)}>{STATUS_TEXT[s.status]}</span> {s.rule}</span>
                       {/each}
                       {#each st.errors as e (e)}<span class="mr-3 text-fg-muted">{e}</span>{/each}
+                      {#each st.web.filter((w) => w.error) as w (w.url)}<span class="mr-3 text-fg-muted">{w.url}: {w.error}</span>{/each}
                     </td>
                   </tr>
                 {/if}
@@ -230,6 +241,7 @@
                 <div class="truncate text-sm font-medium">{t.label} <span class="font-mono text-xs font-normal text-fg-muted">{t.address}</span></div>
                 <div class="truncate text-xs text-fg-muted">{hostLine(t)}</div>
               </div>
+              <button class="icon-btn" title="Scan ports" aria-label="Scan the ports of {t.label}" onclick={() => (ui.modal = { kind: "port-scan", id: rec.id })}><Radar size={14} /></button>
               <button class="icon-btn" title="Edit" aria-label="Edit {t.label}" onclick={() => (ui.modal = { kind: "monitor-target", id: rec.id })}><Pencil size={14} /></button>
               <button class="icon-btn" title="Remove" aria-label="Remove {t.label}" onclick={() => void removeTarget(rec)}><Trash2 size={14} /></button>
             </div>

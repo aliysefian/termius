@@ -231,6 +231,21 @@ pub fn monitor_snapshot(state: State<'_, AppState>) -> Snapshot {
     state.alerting.snapshot()
 }
 
+/// Which ports of a watched host accept a connection, like `nc -z` for many ports at once. Runs when asked. It takes
+/// the host's id and uses the address saved with it, so it can't be aimed at some other machine.
+#[tauri::command]
+pub async fn monitor_scan(state: State<'_, AppState>, id: Uuid, ports: String) -> ApiResult<crate::monitoring::scan::ScanReport> {
+    use crate::monitoring::scan;
+    let ports = scan::parse_ports(&ports).map_err(|m| ApiError::new("validation", m))?;
+    let address = list_records::<MonitorTarget>(&state, Collection::Monitors)?
+        .into_iter()
+        .find(|r| r.id == id)
+        .and_then(|r| r.data)
+        .map(|t| t.address.trim().to_string())
+        .ok_or_else(|| ApiError::new("not_found", "That host is not in the list."))?;
+    scan::scan(&address, &ports, Duration::from_millis(1500)).await.map_err(|m| ApiError::new("scan", m))
+}
+
 /// Check one host now, whatever its schedule.
 #[tauri::command]
 pub fn monitor_run_now(state: State<'_, AppState>, id: Uuid) {

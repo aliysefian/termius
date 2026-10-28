@@ -64,6 +64,9 @@ pub fn describe(rule: &AlertRule, value: f64, status: Status) -> String {
     if m == Metric::PortClosed {
         return if value >= 1.0 { "The port is closed: nothing accepted the connection".to_string() } else { "The port accepts connections".to_string() };
     }
+    if m == Metric::HttpDown {
+        return if value >= 1.0 { "The site is not answering correctly (wrong status, no answer, or the page is missing its text)".to_string() } else { "The site is answering correctly".to_string() };
+    }
     let limit = match status {
         Status::Critical => rule.crit,
         Status::Warning => rule.warn,
@@ -293,6 +296,11 @@ mod tests {
         let lat = AlertRule { warn: Some(200.0), crit: None, ..rule(Metric::PingLatency) };
         assert_eq!(describe(&lat, 250.4, Status::Warning), "Ping latency is 250.4 ms (limit 200 ms)");
         assert_eq!(describe(&rule(Metric::PortClosed), 1.0, Status::Critical), "The port is closed: nothing accepted the connection");
+        assert!(describe(&rule(Metric::HttpDown), 1.0, Status::Critical).starts_with("The site is not answering"));
+        assert_eq!(describe(&rule(Metric::HttpDown), 0.0, Status::Ok), "The site is answering correctly");
+        let cert = AlertRule { op: Op::Lt, warn: Some(21.0), crit: Some(7.0), ..rule(Metric::CertDays) };
+        assert_eq!(describe(&cert, 5.0, Status::Critical), "Certificate days left is 5 days (minimum 7 days)");
+        assert_eq!(describe(&AlertRule { warn: Some(1500.0), crit: None, ..rule(Metric::HttpTime) }, 2300.0, Status::Warning), "Site response time is 2300 ms (limit 1500 ms)");
         let minimum = AlertRule { op: Op::Lt, warn: Some(20.0), crit: None, ..rule(Metric::Disk) };
         assert_eq!(describe(&minimum, 12.0, Status::Warning), "Disk use is 12% (minimum 20%)");
     }

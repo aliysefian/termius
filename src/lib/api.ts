@@ -2,7 +2,7 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
-import type { AlertEntry, AlertRule, ChannelKind, ChannelsRecord, MonitorTarget, NotifyChannels, Snapshot, TargetStatus } from "./monitoring";
+import type { AlertEntry, AlertRule, ChannelKind, ChannelsRecord, MonitorTarget, NotifyChannels, ScanReport, Snapshot, TargetStatus } from "./monitoring";
 import type {
   AgentForwardState,
   AgentPrompt,
@@ -507,6 +507,8 @@ export const monitoring = {
   testChannel: (channel: ChannelKind) => invoke<void>("notify_test", { channel }),
   snapshot: () => invoke<Snapshot>("monitor_snapshot"),
   runNow: (id: Uuid) => invoke<void>("monitor_run_now", { id }),
+  /** Which ports of a watched host accept a connection. `ports` is "22, 80, 8000-8100" or "common"; the host's saved address is used. */
+  scanPorts: (id: Uuid, ports: string) => invoke<ScanReport>("monitor_scan", { id, ports }),
   onStatus: (handler: (s: TargetStatus) => void): Promise<UnlistenFn> => listen<TargetStatus>("monitor:status", (e) => handler(e.payload)),
   onAlert: (handler: (a: AlertEntry) => void): Promise<UnlistenFn> => listen<AlertEntry>("monitor:alert", (e) => handler(e.payload)),
 };

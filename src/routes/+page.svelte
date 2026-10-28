@@ -28,6 +28,7 @@
   import MonitoringView from "$lib/components/MonitoringView.svelte";
   import MonitorTargetForm from "$lib/components/MonitorTargetForm.svelte";
   import AlertRuleForm from "$lib/components/AlertRuleForm.svelte";
+  import PortScanDialog from "$lib/components/PortScanDialog.svelte";
   // The monitoring page's data follows the vault in the background, and counts new alerts for the rail.
   import "$lib/stores/monitoring.svelte";
   import { startScheduler } from "$lib/stores/scheduler.svelte";
@@ -373,6 +374,10 @@
   {:else if ui.modal?.kind === "monitor-target"}
     {#key ui.modal.id}
       <MonitorTargetForm id={ui.modal.id} />
+    {/key}
+  {:else if ui.modal?.kind === "port-scan"}
+    {#key ui.modal.id}
+      <PortScanDialog id={ui.modal.id} />
     {/key}
   {:else if ui.modal?.kind === "alert-rule"}
     {#key ui.modal.id}

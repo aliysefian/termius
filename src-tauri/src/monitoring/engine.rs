@@ -19,6 +19,7 @@ use tokio::sync::{Notify, Semaphore};
 use uuid::Uuid;
 
 use super::checks::tcp_check;
+use super::http;
 use super::metrics;
 use super::model::{AlertRule, ChannelKind, CheckSpec, Metric, MonitorTarget, NotifyChannels, MIN_SSH_INTERVAL_SECS};
 use super::notify::bot::BotChannel;
@@ -66,6 +67,17 @@ pub struct PortView {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct HttpView {
+    /// The address without its query, which may hold a token. (A token in the path would still show: keep secrets out of it.)
+    pub url: String,
+    pub status: Option<u16>,
+    pub ok: bool,
+    pub time_ms: Option<u64>,
+    pub cert_days: Option<i64>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct MetricsView {
     pub cpu: Option<f64>,
     pub mem: Option<f64>,
@@ -88,6 +100,7 @@ pub struct TargetStatus {
     pub checked_at: u64,
     pub ping: Option<PingView>,
     pub ports: Vec<PortView>,
+    pub web: Vec<HttpView>,
     pub metrics: Option<MetricsView>,
     pub states: Vec<StateView>,
     /// Checks that could not run, in words.
@@ -405,6 +418,7 @@ struct Gathered {
     readings: Vec<Reading>,
     ping: Option<PingView>,
     ports: Vec<PortView>,
+    web: Vec<HttpView>,
     metrics: Option<MetricsView>,
     errors: Vec<String>,
 }
@@ -423,9 +437,17 @@ async fn gather(host: &dyn EngineHost, target: &MonitorTarget, run_ssh: bool) ->
             _ => None,
         })
         .collect();
+    let webs: Vec<(String, u16, u32, Option<String>)> = target
+        .checks
+        .iter()
+        .filter_map(|c| match c {
+            CheckSpec::Http { url, expect_status, timeout_ms, contains } => Some((url.clone(), *expect_status, *timeout_ms, contains.clone())),
+            _ => None,
+        })
+        .collect();
     let ssh_host = if run_ssh && target.has_ssh_check() { target.ssh_host_id } else { None };
 
-    let (ping_result, tcp_results, ssh_result) = tokio::join!(
+    let (ping_result, tcp_results, web_results, ssh_result) = tokio::join!(
         async {
             match ping_spec {
                 Some((count, timeout_ms)) => Some(ping::ping(&address, count, timeout_ms).await),
@@ -436,6 +458,14 @@ async fn gather(host: &dyn EngineHost, target: &MonitorTarget, run_ssh: bool) ->
             let mut v = Vec::new();
             for p in &ports {
                 v.push((*p, tcp_check(&address, *p, TCP_LIMIT).await));
+            }
+            v
+        },
+        async {
+            let mut v = Vec::new();
+            for (url, expect, timeout_ms, contains) in &webs {
+                let limit = Duration::from_millis(u64::from(*timeout_ms));
+                v.push((url.clone(), http::http_check(url, *expect, contains.as_deref(), limit).await));
             }
             v
         },
@@ -468,6 +498,15 @@ async fn gather(host: &dyn EngineHost, target: &MonitorTarget, run_ssh: bool) ->
     for (port, r) in tcp_results {
         g.readings.push(Reading { metric: Metric::PortClosed, subject: format!("tcp/{port}"), value: Some(if r.open { 0.0 } else { 1.0 }) });
         g.ports.push(PortView { port, open: r.open, latency_ms: r.latency_ms, error: r.error });
+    }
+    for (url, r) in web_results {
+        let subject = format!("http/{}", http::short(&url));
+        g.readings.push(Reading { metric: Metric::HttpDown, subject: subject.clone(), value: Some(if r.ok { 0.0 } else { 1.0 }) });
+        g.readings.push(Reading { metric: Metric::HttpTime, subject: subject.clone(), value: r.time_ms.map(|t| t as f64) });
+        if url.starts_with("https://") {
+            g.readings.push(Reading { metric: Metric::CertDays, subject, value: r.cert_days.map(|d| d as f64) });
+        }
+        g.web.push(HttpView { url: http::short(&url), status: r.status, ok: r.ok, time_ms: r.time_ms, cert_days: r.cert_days, error: r.error });
     }
     match ssh_result {
         Some(Ok(out)) => {
@@ -520,7 +559,7 @@ async fn run_job(inner: &Inner, host: &dyn EngineHost, job: Job) {
                 }
             }
         }
-        let status = TargetStatus { id: job.id, checked_at: now, ping: g.ping, ports: g.ports, metrics: g.metrics, states, errors: g.errors };
+        let status = TargetStatus { id: job.id, checked_at: now, ping: g.ping, ports: g.ports, web: g.web, metrics: g.metrics, states, errors: g.errors };
         s.statuses.insert(job.id, status.clone());
         (status, transitions)
     };
@@ -791,6 +830,46 @@ mod tests {
         let n = host.got.lock().unwrap()[0].clone();
         assert_eq!(n.status, Status::Critical);
         assert_eq!(n.rule, format!("Port [tcp/{port}]"));
+        engine.stop();
+    }
+
+    #[tokio::test]
+    async fn a_site_that_starts_failing_is_announced_and_so_is_its_recovery() {
+        use std::sync::atomic::AtomicU16;
+        let status = Arc::new(AtomicU16::new(200));
+        let served = Arc::clone(&status);
+        let server = crate::db::http::fake::serve(move |_| (served.load(Ordering::SeqCst), "hello".to_string())).await;
+        let url = format!("http://127.0.0.1:{}/", server.port);
+        let id = Uuid::new_v4();
+        let target = MonitorTarget {
+            label: "shop".into(),
+            address: "127.0.0.1".into(),
+            tags: vec![],
+            enabled: true,
+            interval_secs: 3600,
+            checks: vec![CheckSpec::Http { url, expect_status: 0, timeout_ms: 5000, contains: None }],
+            ssh_host_id: None,
+            notes: String::new(),
+        };
+        let rule = AlertRule { name: "Site down".into(), enabled: true, metric: Metric::HttpDown, op: Op::Gt, warn: None, crit: Some(0.0), attempts: 1, scope: Scope::All, channels: vec![] };
+        let host = FakeHost::new(Config { targets: vec![(id, target)], rules: vec![(Uuid::new_v4(), rule)], channels: NotifyChannels::default() });
+        let engine = quick();
+        engine.start(host.clone()).await;
+        until("the first check", || host.runs() >= 1).await;
+        assert!(host.notified().is_empty(), "a healthy site says nothing");
+        assert_eq!(engine.snapshot().statuses[0].web[0].status, Some(200));
+        status.store(500, Ordering::SeqCst);
+        engine.run_now(id);
+        until("the alert", || host.notified().len() == 1).await;
+        let n = host.got.lock().unwrap()[0].clone();
+        assert_eq!(n.status, Status::Critical);
+        assert!(n.rule.starts_with("Site down [http/127.0.0.1:"), "{}", n.rule);
+        assert!(n.summary.starts_with("The site is not answering"), "{}", n.summary);
+        status.store(200, Ordering::SeqCst);
+        until("the check to finish", || host.runs() >= 2).await;
+        engine.run_now(id);
+        until("the recovery", || host.notified().len() == 2).await;
+        assert_eq!(host.notified(), vec![Status::Critical, Status::Ok]);
         engine.stop();
     }
 

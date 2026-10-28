@@ -31,6 +31,9 @@ fn default_ping_timeout_ms() -> u32 {
 fn default_attempts() -> u8 {
     3
 }
+fn default_http_timeout_ms() -> u32 {
+    10_000
+}
 fn default_smtp_port() -> u16 {
     587
 }
@@ -51,6 +54,18 @@ pub enum CheckSpec {
     Tcp { port: u16 },
     /// CPU, memory and disk use read over SSH. Needs `ssh_host_id`.
     SshMetrics,
+    /// A web page: the right status, how fast it answers, and for https how long the certificate has left.
+    Http {
+        url: String,
+        /// 0 means any 2xx or 3xx.
+        #[serde(default)]
+        expect_status: u16,
+        #[serde(default = "default_http_timeout_ms")]
+        timeout_ms: u32,
+        /// Text the page must contain.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        contains: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -98,6 +113,13 @@ impl MonitorTarget {
         if self.checks.len() > 20 || self.tags.len() > 20 || self.notes.chars().count() > 2000 {
             return Err("That is too many checks or tags, or too long a note.".into());
         }
+        let web: Vec<String> = self.checks.iter().filter_map(|c| if let CheckSpec::Http { url, .. } = c { Some(super::http::short(url)) } else { None }).collect();
+        if web.len() > 5 {
+            return Err("Watch at most 5 web addresses per host.".into());
+        }
+        if web.iter().enumerate().any(|(i, w)| web[..i].contains(w)) {
+            return Err("Two web addresses are the same up to the query. Each one needs to differ.".into());
+        }
         if self.has_ssh_check() && self.interval_secs < MIN_SSH_INTERVAL_SECS {
             return Err(format!("CPU, memory and disk are read at most every {MIN_SSH_INTERVAL_SECS} seconds."));
         }
@@ -116,6 +138,20 @@ impl MonitorTarget {
                 CheckSpec::SshMetrics => {
                     if self.ssh_host_id.is_none() {
                         return Err("CPU, memory and disk checks need a saved SSH host to log in with.".into());
+                    }
+                }
+                CheckSpec::Http { url, expect_status, timeout_ms, contains } => {
+                    if !super::http::valid_url(url) {
+                        return Err("Web checks need an http:// or https:// address, without a user name or password in it.".into());
+                    }
+                    if *expect_status != 0 && !(100..=599).contains(expect_status) {
+                        return Err("The expected status is a number from 100 to 599, or empty for any 2xx or 3xx.".into());
+                    }
+                    if !(500..=30_000).contains(timeout_ms) {
+                        return Err("Web checks wait 500 to 30000 ms for an answer.".into());
+                    }
+                    if contains.as_deref().is_some_and(|c| c.chars().count() > 200) {
+                        return Err("The text the page must contain can be at most 200 characters.".into());
                     }
                 }
             }
@@ -138,6 +174,12 @@ pub enum Metric {
     Cpu,
     Mem,
     Disk,
+    /// 1 when a web check got the wrong status, no answer, or a page without its text; 0 when it was fine.
+    HttpDown,
+    /// How long a web page took to start answering, in milliseconds.
+    HttpTime,
+    /// Days until an https site's certificate ends. Use "below".
+    CertDays,
 }
 
 impl Metric {
@@ -149,14 +191,18 @@ impl Metric {
             Metric::Cpu => "CPU use",
             Metric::Mem => "Memory use",
             Metric::Disk => "Disk use",
+            Metric::HttpDown => "Site down",
+            Metric::HttpTime => "Site response time",
+            Metric::CertDays => "Certificate days left",
         }
     }
 
     pub fn unit(self) -> &'static str {
         match self {
             Metric::PingLoss | Metric::Cpu | Metric::Mem | Metric::Disk => "%",
-            Metric::PingLatency => " ms",
-            Metric::PortClosed => "",
+            Metric::PingLatency | Metric::HttpTime => " ms",
+            Metric::PortClosed | Metric::HttpDown => "",
+            Metric::CertDays => " days",
         }
     }
 }
@@ -531,6 +577,28 @@ mod tests {
         assert!(t.validate().is_err());
         t.checks.clear();
         assert!(t.validate().is_err());
+    }
+
+    #[test]
+    fn a_web_check_has_defaults_and_is_validated() {
+        let c: CheckSpec = serde_json::from_str(r#"{"kind":"http","url":"https://example.com/"}"#).unwrap();
+        assert_eq!(c, CheckSpec::Http { url: "https://example.com/".into(), expect_status: 0, timeout_ms: 10_000, contains: None });
+        let web = |c: CheckSpec| MonitorTarget { checks: vec![c], ..target() };
+        let http = |url: &str, expect_status: u16, timeout_ms: u32, contains: Option<&str>| CheckSpec::Http { url: url.into(), expect_status, timeout_ms, contains: contains.map(str::to_string) };
+        assert!(web(http("https://example.com/", 0, 10_000, None)).validate().is_ok());
+        assert!(web(http("https://example.com/", 204, 500, Some("ok"))).validate().is_ok());
+        assert!(web(http("example.com", 0, 10_000, None)).validate().unwrap_err().contains("http://"));
+        assert!(web(http("https://user:pw@example.com/", 0, 10_000, None)).validate().is_err(), "no credentials in an address");
+        assert!(web(http("https://example.com/", 99, 10_000, None)).validate().is_err());
+        assert!(web(http("https://example.com/", 600, 10_000, None)).validate().is_err());
+        assert!(web(http("https://example.com/", 0, 100, None)).validate().is_err());
+        assert!(web(http("https://example.com/", 0, 99_000, None)).validate().is_err());
+        assert!(web(http("https://example.com/", 0, 10_000, Some(&"x".repeat(201)))).validate().is_err());
+        let many = |n: usize| MonitorTarget { checks: (0..n).map(|i| http(&format!("https://example.com/{i}"), 0, 10_000, None)).collect(), ..target() };
+        assert!(many(5).validate().is_ok());
+        assert!(many(6).validate().unwrap_err().contains("at most 5"));
+        let twice = MonitorTarget { checks: vec![http("https://example.com/a?x=1", 0, 10_000, None), http("https://example.com/a?x=2", 0, 10_000, None)], ..target() };
+        assert!(twice.validate().unwrap_err().contains("the same"));
     }
 
     #[test]

@@ -166,6 +166,7 @@ pub fn run() {
             commands::alerting::notify_test,
             commands::alerting::monitor_snapshot,
             commands::alerting::monitor_run_now,
+            commands::alerting::monitor_scan,
             commands::list_groups,
             commands::save_group,
             commands::delete_group,

@@ -9,10 +9,12 @@ import {
   describeScope,
   emptyTarget,
   formatValue,
+  hostOf,
   parsePorts,
   ruleFromPreset,
   splitList,
   validAddress,
+  validUrl,
   worst,
 } from "../monitoring";
 
@@ -53,6 +55,54 @@ describe("a host to watch", () => {
     expect(parsePorts("22, http")).toBeNull();
     expect(parsePorts("0")).toBeNull();
     expect(parsePorts("70000")).toBeNull();
+  });
+});
+
+describe("a website to watch", () => {
+  const site = (over: Partial<Extract<import("../monitoring").CheckSpec, { kind: "http" }>> = {}) => ({
+    ...emptyTarget(),
+    label: "shop",
+    address: "example.com",
+    checks: [{ kind: "http" as const, url: "https://example.com/", expect_status: 0, timeout_ms: 10000, contains: null, ...over }],
+  });
+
+  it("accepts http and https addresses and refuses the rest", () => {
+    for (const ok of ["https://example.com", "http://10.0.0.5:8080/health?x=1", "https://[::1]:8443/", "HTTPS://Example.com/"]) expect(validUrl(ok), ok).toBe(true);
+    for (const bad of ["", "example.com", "ftp://example.com", "https://", "https://user:pw@example.com/", "http://a b/", "http://host:0/", "http://host:99999/", "http://-oops/", "javascript:alert(1)"]) expect(validUrl(bad), bad).toBe(false);
+  });
+
+  it("takes a host's address from its website", () => {
+    expect(hostOf("https://shop.example.com:8443/a?b=1")).toBe("shop.example.com");
+    expect(hostOf("http://[::1]:80/")).toBe("::1");
+    expect(hostOf("nonsense")).toBe("");
+  });
+
+  it("is checked the way the backend checks it", () => {
+    expect(checkTarget(site())).toBeNull();
+    expect(checkTarget(site({ url: "example.com" }))).toMatch(/http:\/\//);
+    expect(checkTarget(site({ url: "https://user:pw@example.com/" }))).toMatch(/user name/);
+    expect(checkTarget(site({ expect_status: 99 }))).toMatch(/100 to 599/);
+    expect(checkTarget(site({ expect_status: 204 }))).toBeNull();
+    expect(checkTarget(site({ timeout_ms: 100 }))).toMatch(/500 to 30000/);
+    expect(checkTarget(site({ contains: "x".repeat(201) }))).toMatch(/200 characters/);
+    const web = (url: string) => ({ kind: "http" as const, url, expect_status: 0, timeout_ms: 10000, contains: null });
+    const many = (n: number) => ({ ...site(), checks: Array.from({ length: n }, (_, i) => web(`https://example.com/${i}`)) });
+    expect(checkTarget(many(5))).toBeNull();
+    expect(checkTarget(many(6))).toMatch(/at most 5/);
+    expect(checkTarget({ ...site(), checks: [web("https://example.com/a?x=1"), web("https://example.com/a?x=2")] })).toMatch(/the same/);
+  });
+
+  it("has rules for it: down, slow, and the certificate running out", () => {
+    const down = ruleFromPreset("Site down");
+    expect([down.metric, down.crit, down.op]).toEqual(["http_down", 0, "gt"]);
+    const cert = ruleFromPreset("Certificate expiring");
+    expect([cert.metric, cert.op, cert.warn, cert.crit]).toEqual(["cert_days", "lt", 21, 7]);
+    expect(describeLimits(cert)).toBe("< 21 days warning, < 7 days critical");
+    expect(describeLimits(down)).toMatch(/isn't answering/);
+    expect(formatValue("http_down", 1)).toBe("down");
+    expect(formatValue("http_down", 0)).toBe("up");
+    expect(formatValue("cert_days", 12)).toBe("12 days");
+    expect(formatValue("http_time", 340.2)).toBe("340.2 ms");
   });
 });
 

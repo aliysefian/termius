@@ -527,15 +527,26 @@ Each has an address, tags, how often to check (at least every 10 seconds), and a
   and how long they take.
 - **TCP ports.** Whether something accepts a connection on each port you list (22, 443…). Nothing is sent; the
   service sees only a connection that closes.
+- **Web pages.** One address per line (`https://example.com/health`). Checks that the page answers with the right
+  status (any 2xx or 3xx unless you name one), how long it takes to start answering, and, for https, how many days the
+  certificate has left. You can also require some text to be on the page. Redirects are not followed, so a site that
+  answers `301` shows `301`. It runs from this computer, so you see the site as this computer sees it. A site on its
+  own needs no other address: leave the address empty and it is taken from the web address.
 - **CPU, memory and disk**, read over SSH with a saved host's credentials, every 30 seconds at most. It never asks
   for a password and never asks about a host key: a host key you haven't trusted yet is refused, so connect to the host once
   first. Memory and CPU are read on Linux; a host that doesn't report them shows "unknown", never 0.
 
 **Rules.** The **Rules** tab says when a reading is a problem: for example ping loss above 0% (warning) and 50% (critical),
-latency above 200 ms, a closed port, CPU above 90%. A rule can apply to all hosts, to hosts with a tag, or to one host.
+latency above 200 ms, a closed port, CPU above 90%, a site that isn't answering correctly, a page that takes over
+1.5 seconds, or an https certificate with less than 21 days left (choose *below* for that one). A rule can apply to all hosts, to hosts with a tag, or to one host.
 A state changes only after the rule's number of checks *in a row* agree (3 by default), so one lost packet doesn't send
 anything. Getting better is not delayed. You are told **once, when the state changes** (OK, warning, critical, and back
 to OK), not on every check. A check that could not run is shown as unknown and sends nothing.
+
+**Scanning ports.** The radar button on a host in the **Hosts** tab tries a list of ports (`common`, or `22, 80, 8000-8100`,
+at most 1024 at a time) the way `nc -z` would, and lists the ones that answer, with what usually runs there. Tick the open
+ones you want to keep an eye on and press **Watch** to turn them into port checks. A scan runs only when you ask, one at a
+time, and only on a host that is in the list, using the address saved with it. Only scan hosts you are allowed to.
 
 **Notifications.** Under **Settings → Integrations → Notification channels**, switch on any of:
 

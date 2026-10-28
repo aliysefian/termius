@@ -2,7 +2,7 @@
   import Combobox from "./Combobox.svelte";
   import Modal, { DISCARD } from "./Modal.svelte";
   import { hostOptions } from "$lib/pickeroptions";
-  import { checkTarget, emptyTarget, parsePorts, splitList, type CheckSpec, type MonitorTarget } from "$lib/monitoring";
+  import { checkTarget, emptyTarget, hostOf, parsePorts, splitList, type CheckSpec, type MonitorTarget } from "$lib/monitoring";
   import { monitoring } from "$lib/stores/monitoring.svelte";
   import { ui } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
@@ -25,6 +25,10 @@
   let usePing = $state(!!ping);
   let pingCount = $state(ping?.count ?? 4);
   let portsText = $state(base.checks.flatMap((c) => (c.kind === "tcp" ? [String(c.port)] : [])).join(", "));
+  const webChecks = base.checks.filter((c): c is Extract<CheckSpec, { kind: "http" }> => c.kind === "http");
+  let webText = $state(webChecks.map((c) => c.url).join("\n"));
+  let webExpect = $state(webChecks[0]?.expect_status ? String(webChecks[0].expect_status) : "");
+  let webContains = $state(webChecks[0]?.contains ?? "");
   let useSsh = $state(base.checks.some((c) => c.kind === "ssh_metrics"));
   let sshHostId = $state(base.ssh_host_id ?? "");
   let notes = $state(base.notes);
@@ -33,7 +37,7 @@
   let busy = $state(false);
 
   const hostChoices = $derived(hostOptions(vaultStore.hosts));
-  const fingerprint = () => JSON.stringify([label, address, tagsText, interval, enabled, usePing, pingCount, portsText, useSsh, sshHostId, notes]);
+  const fingerprint = () => JSON.stringify([label, address, tagsText, interval, enabled, usePing, pingCount, portsText, webText, webExpect, webContains, useSsh, sshHostId, notes]);
   const initial = fingerprint();
   const dirty = $derived(fingerprint() !== initial);
 
@@ -60,10 +64,14 @@
     const checks: CheckSpec[] = [];
     if (usePing) checks.push({ kind: "ping", count: Number(pingCount), timeout_ms: ping?.timeout_ms ?? 1000 });
     for (const port of ports) checks.push({ kind: "tcp", port });
+    const urls = webText.split("\n").map((u) => u.trim()).filter(Boolean);
+    const expect = webExpect.trim() === "" ? 0 : Number(webExpect);
+    for (const url of urls) checks.push({ kind: "http", url, expect_status: expect, timeout_ms: webChecks[0]?.timeout_ms ?? 10000, contains: webContains.trim() ? webContains : null });
     if (useSsh) checks.push({ kind: "ssh_metrics" });
     const target: MonitorTarget = {
       label: label.trim(),
-      address: address.trim(),
+      // A site on its own needs no separate address: take it from the first web address.
+      address: address.trim() || hostOf(urls[0] ?? ""),
       tags: splitList(tagsText),
       enabled,
       interval_secs: Number(interval),
@@ -97,7 +105,7 @@
       </div>
       <div>
         <label class="label" for="m-address">Address</label>
-        <input id="m-address" class="input font-mono" bind:value={address} required placeholder="10.0.0.5 or web.example.com" spellcheck="false" />
+        <input id="m-address" class="input font-mono" bind:value={address} placeholder="10.0.0.5 or web.example.com (or leave empty for a website)" spellcheck="false" />
       </div>
       <div>
         <label class="label" for="m-tags">Tags</label>
@@ -126,6 +134,23 @@
       <div>
         <label class="label" for="m-ports">TCP ports that should be open</label>
         <input id="m-ports" class="input font-mono" bind:value={portsText} placeholder="22, 443" spellcheck="false" />
+      </div>
+      <div>
+        <label class="label" for="m-web">Web pages (one address per line)</label>
+        <textarea id="m-web" class="input min-h-14 font-mono text-xs" bind:value={webText} placeholder="https://example.com/&#10;https://example.com/health" spellcheck="false"></textarea>
+        {#if webText.trim()}
+          <div class="mt-2 grid grid-cols-2 gap-3">
+            <div>
+              <label class="label" for="m-web-status">Expected status</label>
+              <input id="m-web-status" class="input font-mono text-xs" type="number" min="100" max="599" bind:value={webExpect} placeholder="any 2xx or 3xx" />
+            </div>
+            <div>
+              <label class="label" for="m-web-text">Page must contain</label>
+              <input id="m-web-text" class="input text-xs" bind:value={webContains} placeholder="optional text" />
+            </div>
+          </div>
+          <p class="mt-1 text-xs text-fg-muted">Checks the status, how fast the page starts to answer, and for https how many days the certificate has left. Redirects are not followed. Up to 5 addresses; keep secrets out of them.</p>
+        {/if}
       </div>
       <label class="flex items-start gap-2 text-sm">
         <input type="checkbox" class="mt-0.5 accent-input" bind:checked={useSsh} />

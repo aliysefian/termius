@@ -97,6 +97,7 @@ export type Modal =
   | { kind: "snippet"; id: Uuid | null }
   | { kind: "forward"; id: Uuid | null }
   | { kind: "monitor-target"; id: Uuid | null }
+  | { kind: "port-scan"; id: Uuid }
   | { kind: "alert-rule"; id: Uuid | null }
   | { kind: "db-connection"; id: Uuid | null }
   | { kind: "container-logs"; sourceKey: string; id: string; name: string }
