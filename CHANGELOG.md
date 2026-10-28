@@ -4,6 +4,11 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## 0.42.0 - 2026-10-28
+
+- **New:** **website checks** on the Monitoring page. Add web addresses to a host, one per line, and it checks that each answers with the right status (any 2xx or 3xx unless you name one), how long it takes to start answering, and, for https, how many days the certificate has left. You can also require some text on the page. New rules: **site down**, **site response time** and **certificate expiring**. Redirects are not followed, so a site that answers `301` shows `301`.
+- **New:** **scan ports.** The radar button on a watched host tries a list of ports (`common`, or `22, 80, 8000-8100`, up to 1024 at a time), like `nc -z` for many ports, and lists the ones that answer. Tick the open ones and press **Watch** to turn them into port checks. A scan runs only when you ask, one at a time, and only on a host in the list.
+
 ## 0.41.0 - 2026-10-28
 
 - **New:** a **Monitoring** page that watches hosts in the background and tells you when one changes state. A host doesn't have to be a saved SSH host. Checks: **ping** (is it up, packet loss, latency), **TCP ports** (is the port open), and **CPU, memory and disk** over SSH with a saved host's credentials. Rules say when a reading is a warning or critical; a state changes only after several checks in a row agree, and you are told once when it changes, not on every check.
