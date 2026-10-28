@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { ArrowDown, ArrowLeftRight, ArrowUp, CircleUser, Clock, Database, KeyRound, Loader2, Plus, RefreshCw, Search, Server, Settings, Tag, Terminal, X } from "lucide-svelte";
+  import { ArrowDown, ArrowLeftRight, ArrowUp, CircleUser, Clock, Database, KeyRound, Loader2, Plus, RefreshCw, Search, Server, Settings, SquareTerminal, Tag, Terminal, X } from "lucide-svelte";
   import Badge from "./Badge.svelte";
   import EmptyState from "./EmptyState.svelte";
   import PageSection from "./PageSection.svelte";
@@ -312,6 +312,7 @@
           <div class="grid grid-cols-2 gap-3">
             {@render quick("Add Host", Plus, () => (ui.modal = { kind: "host", id: null }))}
             {@render quick("Add Credential", KeyRound, () => (ui.modal = { kind: "identity", id: null }))}
+            {@render quick("Local Terminal", SquareTerminal, () => ui.openLocal())}
             {@render quick("Admin Settings", Settings, () => (ui.view = "settings"))}
             {@render quick("User Profile", CircleUser, () => (ui.view = "vault"))}
           </div>

@@ -547,6 +547,8 @@ export interface LocalShell {
   argv: string[];
   kind: "native" | "wsl";
   is_default: boolean;
+  /** A Unix-like environment: ls, grep and awk work. False for PowerShell and Command Prompt. */
+  unix: boolean;
 }
 
 export function errorMessage(e: unknown): string {

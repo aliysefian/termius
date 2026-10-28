@@ -353,6 +353,9 @@
     {:else}
       <p class="px-3 py-2 text-fg-muted">{localShells.loaded ? "No shells found." : "Looking…"}</p>
     {/each}
+    {#if localShells.noUnix}
+      <p class="border-t border-line px-3 py-2 text-warning">No Unix-like shell was found (WSL, Git Bash, MSYS2 or Cygwin), so commands such as ls, grep and awk may not work here. Install Git for Windows or WSL, or choose a shell under Settings > Local terminal.</p>
+    {/if}
     <button class="flex w-full items-center gap-2 border-t border-line px-3 py-1.5 text-left text-fg-muted hover:bg-hover" role="menuitem" onclick={() => { shellMenu = null; void localShells.refresh(); }}>
       Look again
     </button>

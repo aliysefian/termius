@@ -77,12 +77,27 @@ pub fn local_spawn(
         data: on_data,
         log: state.log_slot(&pane_id),
     });
-    // "pwsh -NoLogo" style: the first word is the program.
-    let argv: Option<Vec<String>> = by_id.or_else(|| {
-        shell
-            .map(|s| s.split_whitespace().map(str::to_string).collect::<Vec<_>>())
-            .filter(|v| !v.is_empty())
-    });
+    // "pwsh -NoLogo" style: the first word is the program. A whole path that is a file is one program even with
+    // spaces in it, and double quotes keep a path together: `"C:\Program Files\Git\bin\bash.exe" --login -i`.
+    let custom: Option<Vec<String>> = shell
+        .map(|s| {
+            let s = s.trim();
+            if std::path::Path::new(s).is_file() {
+                vec![s.to_string()]
+            } else {
+                crate::localshells::split_command(s)
+            }
+        })
+        .filter(|v| !v.is_empty());
+    // Nothing chosen: on Windows the detected default (WSL, Git Bash, MSYS2, Cygwin, then PowerShell); elsewhere
+    // the user's login shell, which the PTY picks itself.
+    let detected = || {
+        crate::localshells::detect(&crate::localshells::RealEnv)
+            .into_iter()
+            .find(|s| s.is_default)
+            .map(|s| s.argv)
+    };
+    let argv: Option<Vec<String>> = by_id.or(custom).or_else(|| if cfg!(windows) { detected() } else { None });
     let home = sftp::local::home();
     let cwd = cwd
         .filter(|c| !c.trim().is_empty())

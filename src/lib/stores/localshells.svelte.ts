@@ -26,6 +26,11 @@ class LocalShells {
     this.#pending = null;
   }
 
+  /** Detection ran and found shells, but none with Unix commands (a Windows computer without WSL, Git Bash, MSYS2 or Cygwin). */
+  get noUnix(): boolean {
+    return this.loaded && this.list.length > 0 && !this.list.some((s) => s.unix);
+  }
+
   /** The id a plain "new local terminal" uses: your chosen default if it is still here. */
   get defaultId(): string | null {
     const want = settings.prefs.localShellId;

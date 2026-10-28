@@ -836,6 +836,10 @@
         await ssh.connectAdhoc(paneId, target.adhoc, term.cols, term.rows, onData);
       } else {
         await localShells.ensure();
+        // Windows without WSL, Git Bash, MSYS2 or Cygwin starts PowerShell: say why Unix commands won't be there.
+        if (target.kind === "local" && localShells.noUnix && !settings.prefs.localShell.trim()) {
+          term.write(`\x1b[33m[No Unix-like shell was found (WSL, Git Bash, MSYS2 or Cygwin), so commands such as ls, grep and awk may not work here. Install Git for Windows or WSL, or choose a shell under Settings > Local terminal.]\x1b[0m\r\n`);
+        }
         // This tab's own shell, else your default if it is still installed, else the free-text command.
         const shellId = (target.kind === "local" ? target.shellId : undefined) ?? localShells.defaultId;
         await api.localTerm.spawn(paneId, term.cols, term.rows, onData, settings.prefs.localShell.trim() || null, settings.prefs.localCwd.trim() || null, shellId);

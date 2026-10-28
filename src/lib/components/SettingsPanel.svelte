@@ -243,6 +243,14 @@
     }
   }
 
+  async function pickShell() {
+    const f = await openFile({ multiple: false, directory: false, title: "Choose a shell program" });
+    if (typeof f === "string") {
+      settings.prefs.localShell = f.includes(" ") ? `"${f}"` : f;
+      settings.prefs.localShellId = "";
+    }
+  }
+
   void localShells.ensure();
 </script>
 
@@ -564,7 +572,12 @@
         </div>
         <div class="col-span-2">
           <label class="label" for="s-shell">Custom command</label>
-          <input id="s-shell" class="input font-mono text-xs" bind:value={settings.prefs.localShell} placeholder="used when no default shell is chosen, e.g. pwsh -NoLogo" spellcheck="false" />
+          <div class="flex gap-2">
+            <input id="s-shell" class="input flex-1 font-mono text-xs" bind:value={settings.prefs.localShell} placeholder="used when no default shell is chosen, e.g. pwsh -NoLogo" spellcheck="false" />
+            <button class="btn-secondary" onclick={pickShell}>Browse…</button>
+          </div>
+          <p class="mt-1 text-xs text-fg-muted">If a shell isn't found automatically (for example Git Bash or MSYS2 in an unusual folder), browse to its program. A path with spaces works as it is.</p>
+          {#if localShells.noUnix}<p class="mt-1 text-xs text-warning">No Unix-like shell was found (WSL, Git Bash, MSYS2 or Cygwin), so commands such as ls, grep and awk may not work here. Install Git for Windows or WSL, or choose a shell under Settings > Local terminal.</p>{/if}
         </div>
       </div>
     </section>

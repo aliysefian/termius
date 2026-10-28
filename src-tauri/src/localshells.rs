@@ -42,6 +42,10 @@ pub struct ShellInfo {
     pub kind: ShellKind,
     /// What a plain "new local terminal" runs on this computer.
     pub is_default: bool,
+    /// A Unix-like environment (`ls`, `grep`, `awk` work): every shell on Linux and macOS, and WSL, Git Bash, MSYS2
+    /// and Cygwin on Windows. PowerShell and Command Prompt are not.
+    #[serde(default)]
+    pub unix: bool,
 }
 
 /// Everything detection needs to know about the computer.
@@ -117,7 +121,7 @@ pub fn parse_wsl_list(bytes: &[u8]) -> Vec<String> {
 // -- detection -------------------------------------------------------------------
 
 fn native(id: &str, label: &str, argv: Vec<String>, is_default: bool) -> ShellInfo {
-    ShellInfo { id: id.into(), label: label.into(), argv, kind: ShellKind::Native, is_default }
+    ShellInfo { id: id.into(), label: label.into(), argv, kind: ShellKind::Native, is_default, unix: false }
 }
 
 fn unix_shells(env: &dyn Env) -> Vec<ShellInfo> {
@@ -154,29 +158,20 @@ fn unix_shells(env: &dyn Env) -> Vec<ShellInfo> {
         _ => 4,
     };
     out.sort_by(|a, b| rank(a).cmp(&rank(b)).then_with(|| a.label.cmp(&b.label)));
+    out.iter_mut().for_each(|s| s.unix = true);
     out
 }
 
+/// A bash from a Unix-like layer on Windows, started as a login shell so `PATH` and the home folder are set up.
+fn unix_bash(id: &str, label: &str, bash: String) -> ShellInfo {
+    ShellInfo { unix: true, ..native(id, label, vec![bash, "--login".into(), "-i".into()], false) }
+}
+
+/// In the order a plain terminal prefers them: WSL, Git Bash, MSYS2, Cygwin, then PowerShell and Command Prompt,
+/// which have no Unix commands. The first one is the default.
 fn windows_shells(env: &dyn Env) -> Vec<ShellInfo> {
     let mut out = Vec::new();
     let system_root = env.var("SystemRoot").unwrap_or_else(|| "C:\\Windows".into());
-    // What a plain terminal runs today: %COMSPEC%, which is cmd.exe.
-    let comspec = env.var("COMSPEC").filter(|c| env.is_file(c)).unwrap_or_else(|| format!("{system_root}\\System32\\cmd.exe"));
-    out.push(native("win:cmd", "Command Prompt", vec![comspec], true));
-
-    let ps = format!("{system_root}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe");
-    if env.is_file(&ps) || env.which("powershell.exe").is_some() {
-        out.insert(0, native("win:powershell", "Windows PowerShell", vec!["powershell.exe".into(), "-NoLogo".into()], false));
-    }
-    if let Some(p) = env.which("pwsh.exe") {
-        out.insert(0, native("win:pwsh", "PowerShell 7", vec![p, "-NoLogo".into()], false));
-    }
-
-    // Git for Windows: its bash is not the one in System32, which is the WSL launcher.
-    let git_roots = [env.var("ProgramFiles"), env.var("ProgramFiles(x86)"), env.var("LOCALAPPDATA").map(|l| format!("{l}\\Programs"))];
-    if let Some(bash) = git_roots.into_iter().flatten().map(|r| format!("{r}\\Git\\bin\\bash.exe")).find(|p| env.is_file(p)) {
-        out.push(native("win:gitbash", "Git Bash", vec![bash, "--login".into(), "-i".into()], false));
-    }
 
     for name in env.wsl_list().map(|b| parse_wsl_list(&b)).unwrap_or_default() {
         // `--cd ~` starts in the distribution's own home directory.
@@ -186,7 +181,63 @@ fn windows_shells(env: &dyn Env) -> Vec<ShellInfo> {
             argv: vec!["wsl.exe".into(), "-d".into(), name, "--cd".into(), "~".into()],
             kind: ShellKind::Wsl,
             is_default: false,
+            unix: true,
         });
+    }
+
+    // Git for Windows: its bash is not the one in System32, which is the WSL launcher.
+    let git_roots = [env.var("ProgramFiles"), env.var("ProgramFiles(x86)"), env.var("LOCALAPPDATA").map(|l| format!("{l}\\Programs"))];
+    if let Some(bash) = git_roots.into_iter().flatten().map(|r| format!("{r}\\Git\\bin\\bash.exe")).find(|p| env.is_file(p)) {
+        out.push(unix_bash("win:gitbash", "Git Bash", bash));
+    }
+
+    let msys_roots = [env.var("MSYS2_ROOT"), Some("C:\\msys64".into()), Some("C:\\msys32".into())];
+    if let Some(bash) = msys_roots.into_iter().flatten().map(|r| format!("{}\\usr\\bin\\bash.exe", r.trim_end_matches('\\'))).find(|p| env.is_file(p)) {
+        out.push(unix_bash("win:msys2", "MSYS2", bash));
+    }
+    if let Some(bash) = ["C:\\cygwin64", "C:\\cygwin"].iter().map(|r| format!("{r}\\bin\\bash.exe")).find(|p| env.is_file(p)) {
+        out.push(unix_bash("win:cygwin", "Cygwin", bash));
+    }
+
+    if let Some(p) = env.which("pwsh.exe") {
+        out.push(native("win:pwsh", "PowerShell 7", vec![p, "-NoLogo".into()], false));
+    }
+    let ps = format!("{system_root}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe");
+    if env.is_file(&ps) || env.which("powershell.exe").is_some() {
+        out.push(native("win:powershell", "Windows PowerShell", vec!["powershell.exe".into(), "-NoLogo".into()], false));
+    }
+    // Always last, and always there: %COMSPEC%, which is cmd.exe.
+    let comspec = env.var("COMSPEC").filter(|c| env.is_file(c)).unwrap_or_else(|| format!("{system_root}\\System32\\cmd.exe"));
+    out.push(native("win:cmd", "Command Prompt", vec![comspec], false));
+
+    out[0].is_default = true;
+    out
+}
+
+/// Split a typed command into a program and arguments. Double quotes keep a path with spaces together:
+/// `"C:\Program Files\Git\bin\bash.exe" --login -i`.
+pub fn split_command(s: &str) -> Vec<String> {
+    let (mut out, mut cur, mut quoted, mut any) = (Vec::new(), String::new(), false, false);
+    for c in s.chars() {
+        match c {
+            '"' => {
+                quoted = !quoted;
+                any = true;
+            }
+            c if c.is_whitespace() && !quoted => {
+                if any {
+                    out.push(std::mem::take(&mut cur));
+                    any = false;
+                }
+            }
+            c => {
+                cur.push(c);
+                any = true;
+            }
+        }
+    }
+    if any {
+        out.push(cur);
     }
     out
 }
@@ -383,7 +434,8 @@ mod tests {
     fn windows_always_has_command_prompt_and_powershell_and_never_unix_entries() {
         let list = detect(&windows());
         assert_eq!(ids(&list), ["win:powershell", "win:cmd"]);
-        assert_eq!(list.iter().filter(|s| s.is_default).map(|s| s.id.as_str()).collect::<Vec<_>>(), ["win:cmd"], "what a plain terminal runs today");
+        assert_eq!(list.iter().filter(|s| s.is_default).map(|s| s.id.as_str()).collect::<Vec<_>>(), ["win:powershell"], "PowerShell is the fallback when no Unix-like shell is installed");
+        assert!(list.iter().all(|s| !s.unix), "nothing here has ls or grep");
         assert_eq!(list[1].argv, vec!["C:\\Windows\\System32\\cmd.exe"]);
         assert!(list.iter().all(|s| !s.id.starts_with("unix:")));
     }
@@ -394,7 +446,8 @@ mod tests {
         env.path.insert("pwsh.exe", "C:\\Program Files\\PowerShell\\7\\pwsh.exe");
         env.files.insert("C:\\Program Files (x86)\\Git\\bin\\bash.exe");
         let list = detect(&env);
-        assert_eq!(ids(&list), ["win:pwsh", "win:powershell", "win:cmd", "win:gitbash"]);
+        assert_eq!(ids(&list), ["win:gitbash", "win:pwsh", "win:powershell", "win:cmd"]);
+        assert!(list[0].is_default && list[0].unix, "Git Bash beats PowerShell");
         let git = list.iter().find(|s| s.id == "win:gitbash").unwrap();
         assert_eq!(git.argv, vec!["C:\\Program Files (x86)\\Git\\bin\\bash.exe", "--login", "-i"]);
         let mut per_user = windows();
@@ -418,7 +471,38 @@ mod tests {
         assert_eq!(wsl.iter().map(|s| s.id.as_str()).collect::<Vec<_>>(), ["wsl:Ubuntu-22.04", "wsl:Debian"]);
         assert_eq!(wsl[0].label, "WSL: Ubuntu-22.04");
         assert_eq!(wsl[0].argv, vec!["wsl.exe", "-d", "Ubuntu-22.04", "--cd", "~"]);
-        assert!(wsl.iter().all(|s| !s.is_default));
+        assert!(wsl.iter().all(|s| s.unix));
+        assert_eq!(list.iter().filter(|s| s.is_default).map(|s| s.id.as_str()).collect::<Vec<_>>(), ["wsl:Ubuntu-22.04"], "the first distribution is the default");
+    }
+
+    #[test]
+    fn windows_prefers_wsl_then_git_bash_then_msys2_then_cygwin_then_powershell() {
+        let mut env = windows();
+        env.path.insert("pwsh.exe", "C:\\pwsh.exe");
+        env.files.insert("C:\\Program Files\\Git\\bin\\bash.exe");
+        env.files.insert("C:\\msys64\\usr\\bin\\bash.exe");
+        env.files.insert("C:\\cygwin64\\bin\\bash.exe");
+        assert_eq!(ids(&detect(&env)), ["win:gitbash", "win:msys2", "win:cygwin", "win:pwsh", "win:powershell", "win:cmd"]);
+        env.wsl = Some(utf16le("Debian\r\n", false));
+        let list = detect(&env);
+        assert_eq!(ids(&list)[0], "wsl:Debian");
+        assert_eq!(list.iter().filter(|s| s.is_default).count(), 1);
+        assert!(list[0].is_default);
+        env.files.remove("C:\\Program Files\\Git\\bin\\bash.exe");
+        env.wsl = None;
+        let list = detect(&env);
+        assert_eq!(ids(&list)[0], "win:msys2");
+        let msys = &list[0];
+        assert_eq!(msys.argv, vec!["C:\\msys64\\usr\\bin\\bash.exe", "--login", "-i"]);
+        assert!(msys.unix && msys.is_default);
+    }
+
+    #[test]
+    fn a_typed_command_keeps_a_quoted_path_with_spaces_together() {
+        assert_eq!(split_command("pwsh -NoLogo"), ["pwsh", "-NoLogo"]);
+        assert_eq!(split_command("  \"C:\\Program Files\\Git\\bin\\bash.exe\" --login  -i "), ["C:\\Program Files\\Git\\bin\\bash.exe", "--login", "-i"]);
+        assert_eq!(split_command("a \"\" b"), ["a", "", "b"]);
+        assert!(split_command("   ").is_empty());
     }
 
     #[test]
