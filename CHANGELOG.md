@@ -4,6 +4,10 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## 0.43.1 - 2026-10-28
+
+- **Fixed:** the 0.43.0 installers were not published because the build failed. 0.43.1 has the same changes (MobaXterm saved-password import) and builds.
+
 ## 0.43.0 - 2026-10-28
 
 - **New:** importing from MobaXterm can bring the **saved passwords** along. Choose `MobaXterm.ini` (not an exported `.mxtsessions` file, which holds none), and the preview shows which hosts have one. Enter the MobaXterm master password and the passwords are decrypted on this computer and stored in the vault as each host's own credential. If you never set a master password, MobaXterm uses your Windows user name and computer name, `user@computer`, which is filled in for you on Windows. A master password that does not fit imports nothing. The decrypted passwords never pass through the window.
