@@ -4,6 +4,12 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## 0.43.2 - 2026-10-28
+
+- **Fixed:** importing from MobaXterm failed for the usual setup, a MobaXterm with no master password. Its saved passwords could not be read, and the import stopped with nothing imported, hosts included. Those passwords now come along without typing anything. If you did set a master password, enter it in the box: the import says when a file needs one and imports nothing until it has it, and one password that cannot be read no longer stops the rest. Passwords that MobaXterm 25 or later protects with a master password use a newer layout that this app reads from a third-party description, not yet tried on a real file.
+- **New:** you can choose a MobaXterm configuration export (`MobaXterm configuration (…).mobaconf`) directly. When a file has no saved passwords, the import window lists the sections it does have.
+- **Fixed:** a MobaXterm file that began with a byte-order mark lost its first section, and a file over 1 MB or saved in Windows' ANSI encoding was refused. Both are read now.
+
 ## 0.43.1 - 2026-10-28
 
 - **Fixed:** the 0.43.0 installers were not published because the build failed. 0.43.1 has the same changes (MobaXterm saved-password import) and builds.
