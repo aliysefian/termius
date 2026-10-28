@@ -4,6 +4,14 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## 0.40.0 - 2026-10-28
+
+- **Changed:** on Windows, a new local terminal now opens the first Unix-like shell found, in this order: WSL, Git Bash, MSYS2, Cygwin. Only if none is installed does it use PowerShell, then Command Prompt. Before, it always opened Command Prompt. Pick another under **Settings → Local terminal**.
+- **New:** MSYS2 and Cygwin are found and listed with the other local shells.
+- **New:** when no Unix-like shell is installed, the local tab, the shell menu and Settings say that `ls`, `grep` and `awk` may not work, and what to install.
+- **Fixed:** a custom local shell whose path has spaces, such as `C:\Program Files\Git\bin\bash.exe`, did not start. Paths with spaces now work, and double quotes keep a path together. **Browse…** next to the custom command picks the program.
+- **New:** a **Local Terminal** quick action on the Dashboard.
+
 ## 0.39.0 - 2026-10-27
 
 - **New:** import hosts from **Ásbrú Connection Manager** (`asbru.yml` or a file from its Export dialog) in the import window, with its folders kept. Only SSH connections are imported; saved passwords are left behind, and the import says how many.
