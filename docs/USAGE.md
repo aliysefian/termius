@@ -263,14 +263,21 @@ host it found. Pick the ones you want and choose a group.
 
 ## Importing from MobaXterm
 
-In the same import window, **MobaXterm…** reads a `MobaXterm.ini` or an exported `.mxtsessions` file: the SSH
-bookmarks with their folders, ports, users and key files. Saved passwords are only in `MobaXterm.ini`
-(`%APPDATA%\MobaXterm\MobaXterm.ini`, or next to `MobaXterm.exe` for the portable edition), encrypted. Choose that
-file and the preview says which hosts have one; enter the MobaXterm master password and they are decrypted on this
-computer and stored in the vault with their hosts, as each host's own credential. If you never set a master password,
-MobaXterm uses your Windows user name and computer name, `user@computer`, which is filled in for you on Windows. A
-master password that does not fit imports nothing, rather than hosts with wrong passwords. The password you type is
-the only secret that passes through the window: the decrypted passwords never do.
+In the same import window, **MobaXterm…** reads a `MobaXterm.ini`, a MobaXterm configuration export
+(`MobaXterm configuration (…).mobaconf`) or an exported `.mxtsessions` file: the SSH bookmarks with their folders,
+ports, users and key files. Saved passwords are only in `MobaXterm.ini` (`%APPDATA%\MobaXterm\MobaXterm.ini`, or next to
+`MobaXterm.exe` for the portable edition) and in a `.mobaconf` export. Choose one of those and the preview says which
+hosts have one. They are read on this computer and stored in the vault with their hosts, as each host's own credential.
+
+- If you never set a master password in MobaXterm (the default), leave the password box empty: those files need none.
+- If you did, enter it. A master password that is missing or does not fit imports nothing, rather than hosts with wrong
+  passwords, so you can run the import again.
+- A saved password that cannot be read is left behind with a warning; the other hosts keep theirs.
+
+The master password you type is the only secret that passes through the window: the decrypted passwords never do.
+Passwords written with a master password by MobaXterm 25 or later use a newer layout that this app reads from a
+third-party description; if one does not decrypt, untick **Import saved passwords** and add that host's credential by
+hand.
 
 ## Keys
 

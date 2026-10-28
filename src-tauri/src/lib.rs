@@ -153,7 +153,6 @@ pub fn run() {
             commands::putty_sessions,
             commands::mobaxterm_preview,
             commands::mobaxterm_import,
-            commands::mobaxterm_default_master,
             commands::interchange::interchange_formats,
             commands::interchange::interchange_preview,
             commands::interchange::interchange_export,
