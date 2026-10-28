@@ -43,8 +43,9 @@
 
   let source = $state<"ssh" | "ansible" | "putty" | "csv" | "mobaxterm" | "asbru">("ssh");
 
-  // MobaXterm keeps passwords encrypted in MobaXterm.ini; with the master password the backend stores them with
-  // their hosts. The password typed here is the only secret that passes through this window.
+  // MobaXterm keeps passwords scrambled or encrypted in MobaXterm.ini (and in a .mobaconf export); the backend reads them
+  // and stores each with its host. A file made without a master password needs nothing typed here; for one made with a
+  // master password, the one typed here is the only secret that passes through this window.
   let mobaPath = $state("");
   let masterPassword = $state("");
   let importPasswords = $state(true);
@@ -54,8 +55,8 @@
     const f = await open({
       multiple: false,
       directory: false,
-      title: "Choose MobaXterm.ini or an exported .mxtsessions file",
-      filters: [{ name: "MobaXterm", extensions: ["ini", "mxtsessions"] }],
+      title: "Choose MobaXterm.ini, a MobaXterm configuration export (.mobaconf) or an exported .mxtsessions file",
+      filters: [{ name: "MobaXterm", extensions: ["mobaconf", "ini", "mxtsessions"] }],
     });
     if (typeof f !== "string") return;
     source = "mobaxterm";
@@ -65,10 +66,6 @@
     try {
       show(await api.mobaxterm.preview(f));
       if (!preview?.hosts.length) error = "No SSH bookmarks were found in that file.";
-      if (preview?.hosts.some((h) => h.has_password) && !masterPassword) {
-        const d = await api.mobaxterm.defaultMaster().catch(() => null);
-        if (d) masterPassword = d;
-      }
     } catch (e) {
       error = errorMessage(e);
       preview = null;
@@ -212,7 +209,7 @@
       const hosts = preview.hosts.filter((h) => picked.has(h.alias));
       summary =
         source === "mobaxterm"
-          ? await api.mobaxterm.import(mobaPath, hosts, group, keyImport, importPasswords && passwordsFound > 0 ? masterPassword : null)
+          ? await api.mobaxterm.import(mobaPath, hosts, group, keyImport, importPasswords && passwordsFound > 0, masterPassword || null)
           : await api.sshConfig.import(hosts, group, keyImport);
       // CSV tags and notes have no ssh-config equivalent; apply them now.
       if (source === "csv") {
@@ -261,8 +258,8 @@
     <div class="flex items-center justify-center gap-2 py-10 text-sm text-fg-muted"><Loader2 size={16} class="animate-spin" /> Reading config…</div>
   {:else}
     <div class="space-y-4">
-      <div class="flex items-center gap-2">
-        <div class="input flex-1 truncate font-mono text-xs">{preview?.path ?? "~/.ssh/config"}</div>
+      <div class="flex flex-wrap items-center gap-2">
+        <div class="input min-w-0 basis-full truncate font-mono text-xs" title={preview?.path ?? "~/.ssh/config"}>{preview?.path ?? "~/.ssh/config"}</div>
         <button class="btn-secondary" onclick={chooseFile}><FileInput size={14} /> SSH config…</button>
         <button class="btn-secondary" onclick={chooseInventory}><FileInput size={14} /> Ansible…</button>
         <button class="btn-secondary" onclick={choosePutty}><FileInput size={14} /> PuTTY</button>
@@ -354,19 +351,20 @@
                 </label>
                 {#if importPasswords}
                   <div>
-                    <label class="label" for="imp-master">MobaXterm master password</label>
+                    <label class="label" for="imp-master">MobaXterm master password (only if you set one)</label>
                     <input id="imp-master" class="input font-mono text-xs" type="password" autocomplete="off" bind:value={masterPassword} spellcheck="false" />
                     <p class="mt-1 text-xs text-fg-muted">
-                      The passwords are decrypted on this computer and stored in the vault with their hosts. If you never set a master password, MobaXterm uses your Windows
-                      user name and computer name: type them as <span class="font-mono">user@computer</span> (filled in for you on Windows).
+                      The passwords are decrypted on this computer and stored in the vault with their hosts. Leave this empty if you never set a master password in MobaXterm;
+                      if the file needs one, the import says so and imports nothing.
                     </p>
                   </div>
                 {/if}
               </div>
             {:else}
               <p class="text-xs text-fg-muted">
-                This file holds no saved passwords. MobaXterm keeps them in <span class="font-mono">MobaXterm.ini</span> (<span class="font-mono">%APPDATA%\MobaXterm</span>, or next to
-                MobaXterm.exe for the portable edition): choose that file to import hosts with their passwords.
+                This file holds no saved passwords (an exported <span class="font-mono">.mxtsessions</span> file never does). A MobaXterm configuration export
+                (<span class="font-mono">.mobaconf</span>) or <span class="font-mono">MobaXterm.ini</span> (<span class="font-mono">%APPDATA%\MobaXterm</span>, or next to
+                MobaXterm.exe for the portable edition) can: choose one of those to import hosts with their passwords.
               </p>
             {/if}
           {/if}

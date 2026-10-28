@@ -2783,15 +2783,27 @@ pub fn csv_preview(path: String) -> ApiResult<crate::csvimport::CsvTable> {
     Ok(crate::csvimport::parse(&read_text_file(path)?))
 }
 
-/// SSH bookmarks from a MobaXterm `.ini` or `.mxtsessions` file. Each host says whether the file holds a password for
-/// it; the passwords themselves stay encrypted until `mobaxterm_import` is given the master password.
+/// A MobaXterm file's text, up to 16 MiB: a full configuration export can be far past the 1 MiB of `read_text_file`, and
+/// the file is often in Windows' ANSI code page rather than UTF-8 (see `mobaxterm::decode_text`).
+fn read_mobaxterm_file(path: &str) -> ApiResult<String> {
+    let p = PathBuf::from(crate::sshconfig::expand_path(path, &sftp::local::home()));
+    let bytes = crate::vault::read_regular_file(&p, 16 * 1024 * 1024).map_err(|e| ApiError::new("io", format!("{}: {e}", p.display())))?;
+    Ok(crate::mobaxterm::decode_text(&bytes))
+}
+
+/// SSH bookmarks from a MobaXterm `.ini`, `.mobaconf` or `.mxtsessions` file. Each host says whether the file holds a
+/// password for it; the passwords themselves stay encrypted until `mobaxterm_import` decrypts them in the backend.
 #[tauri::command]
 pub fn mobaxterm_preview(state: State<'_, AppState>, path: String) -> ApiResult<SshConfigPreview> {
-    let text = read_text_file(path.clone())?;
+    let text = read_mobaxterm_file(&path)?;
     // `_ProfileDir_` is the Windows user folder.
     let profile = std::env::var("USERPROFILE").ok();
     let mut parsed = crate::mobaxterm::parse(&text, profile.as_deref());
-    crate::mobaxterm::mark_passwords(&mut parsed.hosts, &crate::mobaxterm::Secrets::parse(&text));
+    let secrets = crate::mobaxterm::Secrets::parse(&text);
+    crate::mobaxterm::mark_passwords(&mut parsed.hosts, &secrets);
+    if secrets.is_empty() {
+        parsed.warnings.extend(crate::mobaxterm::no_passwords_note(&text));
+    }
     let labels: std::collections::HashSet<String> = list_records::<Host>(&state, Collection::Hosts)?
         .into_iter()
         .filter_map(|r| r.data.map(|d| d.label.to_lowercase()))
@@ -2810,9 +2822,10 @@ pub fn mobaxterm_preview(state: State<'_, AppState>, path: String) -> ApiResult<
     })
 }
 
-/// Import chosen MobaXterm bookmarks. With `master_password`, the file is read again and the saved passwords are
-/// decrypted here and stored with their hosts: they never pass through the window. A master password that does not
-/// fit imports nothing. Without one, the hosts are imported and their passwords left behind.
+/// Import chosen MobaXterm bookmarks. With `import_passwords`, the file is read again and the saved passwords are
+/// decrypted here and stored with their hosts: they never pass through the window. A file written with no master
+/// password needs none; one written with a master password needs `master_password`, and without the right one nothing
+/// is imported, so the import can be run again. A single password that cannot be read is left behind with a warning.
 #[tauri::command]
 pub fn mobaxterm_import(
     state: State<'_, AppState>,
@@ -2820,22 +2833,23 @@ pub fn mobaxterm_import(
     hosts: Vec<crate::sshconfig::ImportedHost>,
     group: String,
     key_import: Option<crate::sshconfig::KeyImport>,
+    import_passwords: bool,
     master_password: Option<String>,
 ) -> ApiResult<crate::sshconfig::ImportSummary> {
-    use crate::mobaxterm::{attach_passwords, derive_key, DecryptError, Secrets};
+    use crate::mobaxterm::{attach_passwords, DecryptError, Secrets};
     let mut hosts = hosts;
     let master = master_password.map(Zeroizing::new).filter(|m| !m.trim().is_empty());
-    if let Some(master) = &master {
-        let text = read_text_file(path)?;
+    if import_passwords && hosts.iter().any(|h| h.has_password) {
+        let text = read_mobaxterm_file(&path)?;
         let secrets = Secrets::parse(&text);
         if secrets.is_empty() {
-            return Err(ApiError::new("validation", "That file holds no saved passwords. MobaXterm keeps them in MobaXterm.ini."));
+            return Err(ApiError::new("validation", "That file holds no saved passwords. MobaXterm keeps them in MobaXterm.ini, and a .mobaconf export has them too; an exported .mxtsessions file never does."));
         }
-        let key = derive_key(master.trim());
-        match attach_passwords(&mut hosts, &secrets, &key) {
+        match attach_passwords(&mut hosts, &secrets, master.as_ref().map(|m| m.trim())) {
             Ok(_) => {}
-            Err(DecryptError::WrongKey) => return Err(ApiError::new("wrong_password", "That master password doesn't decrypt the saved passwords. Nothing was imported. If you never set one in MobaXterm, use your Windows user name and computer name as user@computer.")),
-            Err(DecryptError::NotEncrypted) => return Err(ApiError::new("bad_export", "The saved passwords in that file aren't in a form this app can read. Nothing was imported.")),
+            Err(DecryptError::NeedsMaster) => return Err(ApiError::new("master_password_needed", "These saved passwords are protected by your MobaXterm master password. Enter it and import again, or untick \"Import saved passwords\" to bring in just the hosts. Nothing was imported.")),
+            Err(DecryptError::WrongKey) => return Err(ApiError::new("wrong_password", "That master password doesn't decrypt the saved passwords. Nothing was imported. Check it, or untick \"Import saved passwords\" to bring in just the hosts.")),
+            Err(DecryptError::NotEncrypted) => return Err(ApiError::new("bad_export", "The saved passwords in that file aren't in a form this app can read. Nothing was imported. Untick \"Import saved passwords\" to bring in just the hosts.")),
         };
     }
     let left_behind = hosts.iter().filter(|h| h.has_password && h.password.is_none()).count();
@@ -2843,15 +2857,10 @@ pub fn mobaxterm_import(
     let key_import = key_import.unwrap_or_default();
     let mut summary = state.session.with_vault(|v| crate::sshconfig::import_into_vault(v, &hosts, group.trim(), local_user.as_deref(), key_import))?;
     if left_behind > 0 {
-        summary.warnings.push(format!("{left_behind} host(s) had a saved password that was not imported{}", if master.is_none() { ": no master password was given" } else { "" }));
+        let why = if import_passwords { "it could not be decrypted" } else { "importing passwords was switched off" };
+        summary.warnings.push(format!("{left_behind} host(s) had a saved password that was not imported: {why}"));
     }
     Ok(summary)
-}
-
-/// What MobaXterm uses as the master password when none was set: this computer's `user@computer`, on Windows.
-#[tauri::command]
-pub fn mobaxterm_default_master() -> Option<String> {
-    crate::mobaxterm::default_master()
 }
 
 /// Saved PuTTY sessions on this computer, as importable hosts.

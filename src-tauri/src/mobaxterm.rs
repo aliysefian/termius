@@ -1,4 +1,4 @@
-//! Import SSH bookmarks from MobaXterm (`MobaXterm.ini`, or an exported
+//! Import SSH bookmarks from MobaXterm (`MobaXterm.ini`, a `.mobaconf` configuration export, or an exported
 //! `.mxtsessions` file). Each `[Bookmarks…]` section is a folder
 //! (`SubRep=Parent\Child`); each SSH session is a line such as
 //!
@@ -8,15 +8,30 @@
 //!
 //! where `109` means SSH and the `%` fields start with host, port and user.
 //!
-//! Passwords are not on those lines. MobaXterm keeps them in `MobaXterm.ini` under `[Passwords]` (one per
-//! `ssh22:user@host`) and `[Credentials]` (named user-and-password pairs), encrypted with a key made from the master
-//! password: AES-256 in CFB mode on single bytes, the key the first 32 bytes of SHA-512 of the master password, and
-//! the IV that key's encryption of a block of zeros. Without a master password MobaXterm uses the Windows user name
-//! and computer name as `user@computer`. An exported `.mxtsessions` file holds no passwords at all. See [`Secrets`].
+//! Passwords are not on those lines. MobaXterm keeps them in `MobaXterm.ini` (and in a `.mobaconf` export, which has the
+//! same sections) under `[Passwords]` (one per `ssh22:user@host`) and `[Credentials]` (named user-and-password pairs).
+//! There are three ways a value can be written, and which one is in use depends on the MobaXterm version and on whether
+//! a master password was set:
+//!
+//! * **No master password** (the default): not encryption but a substitution that needs no secret. Each byte becomes two
+//!   letters picked from a sixteen-letter table made from the `SessionP` line of `[Misc]`, which rotates one place after
+//!   every letter, with random filler between them. See [`session_table`].
+//! * **A master password, before MobaXterm 25:** AES-256 in CFB mode on single bytes, the key the first 32 bytes of
+//!   SHA-512 of the master password, and the IV that key's encryption of a block of zeros.
+//! * **A master password, from MobaXterm 25** (which fixed CVE-2025-0714, that fixed IV): the same cipher and key, with
+//!   the IV written at the front of each value, which starts with `_@`.
+//!
+//! The first two were checked against the examples published with the HyperSine reverse-engineering notes; the third
+//! follows an independent decryptor's description and has no published example. An exported `.mxtsessions` file holds no
+//! passwords at all. See [`Secrets`].
 
 use aes::cipher::{Block, BlockCipherEncrypt, KeyInit};
 use aes::Aes256;
-use base64::{engine::general_purpose::STANDARD as B64, Engine};
+use base64::{
+    alphabet,
+    engine::{general_purpose::GeneralPurpose, DecodePaddingMode, GeneralPurposeConfig},
+    Engine,
+};
 use sha2::{Digest, Sha512};
 use zeroize::Zeroizing;
 
@@ -57,6 +72,7 @@ fn key_path(fields: &[&str], profile_dir: Option<&str>) -> Option<String> {
 }
 
 pub fn parse(text: &str, profile_dir: Option<&str>) -> Parsed {
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
     let mut out = Parsed::default();
     let mut in_bookmarks = false;
     let mut folder = String::new();
@@ -160,6 +176,45 @@ pub fn export(hosts: &[ExportHost]) -> String {
     out
 }
 
+// -- reading the file ----------------------------------------------------------------------------------------------
+
+/// The text of a MobaXterm file. It is usually in Windows' ANSI code page, so a name with an accent is not UTF-8; some
+/// versions write UTF-8 (with or without a byte-order mark) or UTF-16. Anything that is not UTF-8 is read one byte to a
+/// character, which keeps every ASCII line, and so every section, key and password, exactly as written.
+pub fn decode_text(bytes: &[u8]) -> String {
+    let utf16 = |rest: &[u8], unit: fn([u8; 2]) -> u16| String::from_utf16_lossy(&rest.as_chunks::<2>().0.iter().map(|c| unit(*c)).collect::<Vec<u16>>());
+    if let Some(rest) = bytes.strip_prefix(&[0xFF, 0xFE]) {
+        return utf16(rest, u16::from_le_bytes);
+    }
+    if let Some(rest) = bytes.strip_prefix(&[0xFE, 0xFF]) {
+        return utf16(rest, u16::from_be_bytes);
+    }
+    let bytes = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(bytes);
+    match std::str::from_utf8(bytes) {
+        Ok(text) => text.to_string(),
+        Err(_) => bytes.iter().map(|&b| b as char).collect(),
+    }
+}
+
+/// What to say when a file that is more than a list of bookmarks has no saved passwords in it: the sections it does
+/// have, so it is plain whether they are somewhere this app does not look. Names only, never a value.
+pub fn no_passwords_note(text: &str) -> Option<String> {
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+    let mut names: Vec<&str> = Vec::new();
+    for line in text.lines() {
+        let name = line.trim().strip_prefix('[').and_then(|l| l.strip_suffix(']'));
+        if let Some(name) = name.filter(|n| !n.starts_with("Bookmarks") && !names.contains(n)) {
+            names.push(name);
+        }
+    }
+    if names.is_empty() {
+        return None;
+    }
+    let more = names.len().saturating_sub(24);
+    names.truncate(24);
+    Some(format!("No saved passwords were found in this file. Its sections: {}{}.", names.join(", "), if more > 0 { format!(" and {more} more") } else { String::new() }))
+}
+
 // -- the password store ------------------------------------------------------------------------------------------
 
 /// One line of `[Passwords]`: `ssh22:user@host=…`, or just `user@host=…`.
@@ -180,11 +235,14 @@ struct CredentialEntry {
     cipher: String,
 }
 
-/// The encrypted passwords in a `MobaXterm.ini`. Nothing here is decrypted until [`attach_passwords`] is given a key.
+/// The encrypted passwords in a `MobaXterm.ini`. Nothing here is decrypted until [`attach_passwords`] is called.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Secrets {
     passwords: Vec<PasswordEntry>,
     credentials: Vec<CredentialEntry>,
+    /// `SessionP` from `[Misc]`: what the table for a file with no master password is made from. It is not a secret
+    /// (MobaXterm stores it in the clear beside the passwords it scrambles).
+    session_p: Option<String>,
 }
 
 /// What was found for one host: the user name the password belongs to, and the ciphertext.
@@ -196,6 +254,7 @@ pub struct Found {
 
 impl Secrets {
     pub fn parse(text: &str) -> Secrets {
+        let text = text.strip_prefix('\u{feff}').unwrap_or(text);
         let mut out = Secrets::default();
         let mut section = String::new();
         for raw in text.lines() {
@@ -207,6 +266,10 @@ impl Secrets {
             let Some((key, value)) = line.split_once('=') else { continue };
             let (key, value) = (unescape(key.trim()), value.trim());
             if value.is_empty() {
+                continue;
+            }
+            if key.eq_ignore_ascii_case("SessionP") && out.session_p.is_none() {
+                out.session_p = Some(value.to_string());
                 continue;
             }
             match section.as_str() {
@@ -294,8 +357,10 @@ pub fn mark_passwords(hosts: &mut [ImportedHost], secrets: &Secrets) {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DecryptError {
-    /// The key does not turn the saved passwords into text.
+    /// A master password was given and it does not turn the saved passwords into text.
     WrongKey,
+    /// The saved passwords need the master password, and none was given.
+    NeedsMaster,
     /// A saved value is not base64 of a sensible length.
     NotEncrypted,
 }
@@ -304,9 +369,23 @@ impl std::fmt::Display for DecryptError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             DecryptError::WrongKey => write!(f, "the master password does not decrypt the saved passwords"),
+            DecryptError::NeedsMaster => write!(f, "the saved passwords are protected by a master password"),
             DecryptError::NotEncrypted => write!(f, "a saved password is not in a form this app can read"),
         }
     }
+}
+
+/// Base64 as MobaXterm writes it: the usual letters, with `@` and `_` standing in for `+` and `/` in the newer values,
+/// and the `=` padding sometimes left off.
+const B64: GeneralPurpose = GeneralPurpose::new(&alphabet::STANDARD, GeneralPurposeConfig::new().with_decode_padding_mode(DecodePaddingMode::Indifferent).with_decode_allow_trailing_bits(true));
+
+fn from_b64(s: &str) -> Result<Vec<u8>, DecryptError> {
+    let plain_alphabet: String = s.trim().chars().map(|c| match c {
+        '@' => '+',
+        '_' => '/',
+        c => c,
+    }).collect();
+    B64.decode(plain_alphabet).map_err(|_| DecryptError::NotEncrypted)
 }
 
 /// The AES key for a master password: the first 32 bytes of its SHA-512.
@@ -325,11 +404,16 @@ fn aes_block(cipher: &Aes256, input: &[u8; 16]) -> [u8; 16] {
     out
 }
 
+/// The IV of the values written before MobaXterm 25: the key's encryption of a block of zeros.
+fn fixed_iv(key: &[u8; 32]) -> [u8; 16] {
+    aes_block(&Aes256::new_from_slice(key).expect("an AES-256 key is thirty-two bytes"), &[0u8; 16])
+}
+
 /// CFB on single bytes: each byte is XORed with the first byte of the encrypted shift register, and the register then
 /// takes the ciphertext byte in. The same loop encrypts and decrypts; only which byte is fed back differs.
-fn cfb8(key: &[u8; 32], input: &[u8], decrypt: bool) -> Zeroizing<Vec<u8>> {
+fn cfb8(key: &[u8; 32], iv: [u8; 16], input: &[u8], decrypt: bool) -> Zeroizing<Vec<u8>> {
     let cipher = Aes256::new_from_slice(key).expect("an AES-256 key is thirty-two bytes");
-    let mut shift = aes_block(&cipher, &[0u8; 16]);
+    let mut shift = iv;
     let mut out = Zeroizing::new(Vec::with_capacity(input.len()));
     for &b in input {
         let k = aes_block(&cipher, &shift)[0];
@@ -341,37 +425,167 @@ fn cfb8(key: &[u8; 32], input: &[u8], decrypt: bool) -> Zeroizing<Vec<u8>> {
     out
 }
 
-/// A saved value as text. A wrong key gives bytes that are not text, which is how it is told apart.
-pub fn decrypt(cipher_b64: &str, key: &[u8; 32]) -> Result<ImportedSecret, DecryptError> {
-    let data = B64.decode(cipher_b64.trim()).map_err(|_| DecryptError::NotEncrypted)?;
-    if data.is_empty() || data.len() > 1024 {
-        return Err(DecryptError::NotEncrypted);
-    }
-    let plain = cfb8(key, &data, true);
-    let text = std::str::from_utf8(&plain).map_err(|_| DecryptError::WrongKey)?;
-    if text.chars().any(char::is_control) {
+/// Decrypted bytes as a password. A wrong key (or a wrong table) gives bytes that are not text, which is how it is told apart.
+fn as_secret(plain: &[u8]) -> Result<ImportedSecret, DecryptError> {
+    let text = std::str::from_utf8(plain).map_err(|_| DecryptError::WrongKey)?;
+    if text.is_empty() || text.chars().any(char::is_control) {
         return Err(DecryptError::WrongKey);
     }
     Ok(ImportedSecret(Zeroizing::new(text.to_string())))
 }
 
-/// What MobaXterm writes for a password; for the tests, and to show the scheme is the same both ways.
+/// A value written before MobaXterm 25, with a master password: base64 of the ciphertext, under the fixed IV.
+pub fn decrypt(cipher_b64: &str, key: &[u8; 32]) -> Result<ImportedSecret, DecryptError> {
+    let data = from_b64(cipher_b64)?;
+    if data.is_empty() || data.len() > 1024 {
+        return Err(DecryptError::NotEncrypted);
+    }
+    as_secret(&cfb8(key, fixed_iv(key), &data, true))
+}
+
+/// A value from MobaXterm 25 or later, with a master password: `_@`, then sixteen characters that are the IV, and the
+/// whole string is base64 whose first fifteen bytes are that header; the rest is the ciphertext.
+fn decrypt_v25(stored: &str, key: &[u8; 32]) -> Result<ImportedSecret, DecryptError> {
+    let stored = stored.trim();
+    let iv: [u8; 16] = stored.as_bytes().get(2..18).and_then(|b| b.try_into().ok()).ok_or(DecryptError::NotEncrypted)?;
+    let data = from_b64(stored)?;
+    let body = data.get(15..).filter(|b| !b.is_empty() && b.len() <= 1024).ok_or(DecryptError::NotEncrypted)?;
+    as_secret(&cfb8(key, iv, body, true))
+}
+
+/// What MobaXterm writes for a password under a master password before version 25; for the tests, and to show the
+/// scheme is the same both ways.
 pub fn encrypt(plain: &str, key: &[u8; 32]) -> String {
-    B64.encode(cfb8(key, plain.as_bytes(), false).as_slice())
+    use base64::engine::general_purpose::STANDARD;
+    STANDARD.encode(cfb8(key, fixed_iv(key), plain.as_bytes(), false).as_slice())
+}
+
+// -- no master password: the substitution table ------------------------------------------------------------------
+
+const TABLE_SEED: &[u8; 16] = b"0d5e9n1348/U2+67";
+const TABLE_LETTERS: &[u8] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz+/";
+
+/// The sixteen letters a file without a master password is written in, made from its `SessionP`: the fixed seed
+/// `0d5e9n1348/U2+67`, with the letters of `SessionP` (stretched to twenty or more by repeating it, in capitals for
+/// the even places and lower case for the odd) written over it wherever one is not in the table yet.
+fn session_table(session_p: &str) -> Option<[u8; 16]> {
+    let mut s = session_p.trim().as_bytes().to_vec();
+    if s.is_empty() {
+        return None;
+    }
+    while s.len() < 20 {
+        let again = s.clone();
+        s.extend(again);
+    }
+    let (upper, lower) = (s.to_ascii_uppercase(), s.to_ascii_lowercase());
+    let space = [&upper, &upper, &lower, &lower];
+    let mut table = *TABLE_SEED;
+    for i in 0..table.len() {
+        let b = space[(i + 1) % space.len()][i];
+        if !table.contains(&b) && TABLE_LETTERS.contains(&b) {
+            table[i] = b;
+        }
+    }
+    Some(table)
+}
+
+/// Undo the substitution: keep the letters that are in the table, read them in pairs (low half first, then high), and
+/// turn the table by one place after each letter. Everything else in the value is filler.
+fn table_decrypt(stored: &str, table: &[u8; 16]) -> Vec<u8> {
+    let mut table = *table;
+    let letters: Vec<u8> = stored.bytes().filter(|b| table.contains(b)).collect();
+    if !letters.len().is_multiple_of(2) {
+        return Vec::new();
+    }
+    let place = |table: &[u8; 16], letter: u8| table.iter().position(|&t| t == letter).expect("the letter was kept because it is in the table") as u8;
+    letters
+        .chunks(2)
+        .map(|pair| {
+            let low = place(&table, pair[0]);
+            table.rotate_right(1);
+            let high = place(&table, pair[1]);
+            table.rotate_right(1);
+            high * 16 + low
+        })
+        .collect()
+}
+
+/// A value from a file with no master password.
+fn decrypt_keyless(stored: &str, table: &[u8; 16]) -> Result<ImportedSecret, DecryptError> {
+    as_secret(&table_decrypt(stored, table))
+}
+
+// -- deciding which scheme a value is in -------------------------------------------------------------------------
+
+/// What can open a saved value: the key a master password makes, if one was given, and the table `SessionP` makes.
+struct Keys {
+    aes: Option<Zeroizing<[u8; 32]>>,
+    table: Option<[u8; 16]>,
+}
+
+impl Keys {
+    fn new(master: Option<&str>, session_p: Option<&str>) -> Keys {
+        Keys { aes: master.map(str::trim).filter(|m| !m.is_empty()).map(derive_key), table: session_p.and_then(session_table) }
+    }
+
+    /// A saved value as text. A value that is in the newer layout can only be a master password's. Otherwise the master
+    /// password's scheme is tried first (the keyless one would "decrypt" nearly anything into something), then the keyless one.
+    fn open(&self, stored: &str) -> Result<ImportedSecret, DecryptError> {
+        let stored = stored.trim();
+        if stored.starts_with("_@") {
+            return match &self.aes {
+                Some(key) => decrypt_v25(stored, key),
+                None => Err(DecryptError::NeedsMaster),
+            };
+        }
+        if let Some(key) = &self.aes {
+            if let Ok(secret) = decrypt(stored, key) {
+                return Ok(secret);
+            }
+        }
+        if let Some(table) = &self.table {
+            if let Ok(secret) = decrypt_keyless(stored, table) {
+                return Ok(secret);
+            }
+        }
+        Err(if self.aes.is_some() { DecryptError::WrongKey } else { DecryptError::NeedsMaster })
+    }
+}
+
+/// How an attempt to attach the saved passwords went.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Attached {
+    /// Hosts that now carry their password.
+    pub attached: usize,
+    /// Hosts whose saved password could not be read, and so were left without one.
+    pub failed: usize,
 }
 
 /// Decrypt the saved password of every host that has one and put it on the host (and the user name it belongs to,
-/// when the session named none). Returns how many. Nothing is attached unless every password decrypts: a key that
-/// is wrong for one is wrong for all.
-pub fn attach_passwords(hosts: &mut [ImportedHost], secrets: &Secrets, key: &[u8; 32]) -> Result<usize, DecryptError> {
+/// when the session named none). `master` is the master password, if MobaXterm has one; a file without one needs
+/// nothing. A host whose password does not decrypt is left without it. If none decrypts, that is an error, since
+/// that is what a missing or wrong master password looks like, and nothing is attached.
+pub fn attach_passwords(hosts: &mut [ImportedHost], secrets: &Secrets, master: Option<&str>) -> Result<Attached, DecryptError> {
+    let keys = Keys::new(master, secrets.session_p.as_deref());
     let mut found: Vec<(usize, Found, ImportedSecret)> = Vec::new();
+    let mut failed = 0usize;
+    let mut first_error = None;
     for (i, h) in hosts.iter().enumerate() {
-        if let Some(f) = secrets.find(h) {
-            let secret = decrypt(&f.cipher, key)?;
-            found.push((i, f, secret));
+        let Some(f) = secrets.find(h) else { continue };
+        match keys.open(&f.cipher) {
+            Ok(secret) => found.push((i, f, secret)),
+            Err(e) => {
+                failed += 1;
+                first_error.get_or_insert(e);
+            }
         }
     }
-    let n = found.len();
+    if found.is_empty() {
+        if let Some(e) = first_error {
+            return Err(e);
+        }
+    }
+    let attached = found.len();
     for (i, f, secret) in found {
         let h = &mut hosts[i];
         if h.user.is_none() {
@@ -380,14 +594,7 @@ pub fn attach_passwords(hosts: &mut [ImportedHost], secrets: &Secrets, key: &[u8
         h.password = Some(secret);
         h.has_password = true;
     }
-    Ok(n)
-}
-
-/// What MobaXterm uses as the master password when none was set: the Windows user and computer names.
-pub fn default_master() -> Option<String> {
-    let user = std::env::var("USERNAME").ok().filter(|u| !u.is_empty())?;
-    let computer = std::env::var("COMPUTERNAME").ok().filter(|c| !c.is_empty())?;
-    Some(format!("{user}@{computer}"))
+    Ok(Attached { attached, failed })
 }
 
 pub struct MobaXterm;
@@ -400,7 +607,7 @@ impl HostFormat for MobaXterm {
         "MobaXterm"
     }
     fn extensions(&self) -> &'static [&'static str] {
-        &["mxtsessions", "ini"]
+        &["mxtsessions", "ini", "mobaconf"]
     }
     fn parse(&self, text: &str, ctx: &ImportContext) -> Parsed {
         parse(text, ctx.profile_dir.as_deref())
@@ -484,6 +691,64 @@ broken=#109#0%%22%x
         ImportedHost { alias: alias.into(), hostname: hostname.into(), port, user: user.map(str::to_string), ..Default::default() }
     }
 
+    /// What MobaXterm writes with no master password: the table, and random letters from outside it between the pairs.
+    fn keyless(plain: &str, session_p: &str) -> String {
+        let mut table = session_table(session_p).unwrap();
+        let filler: Vec<char> = "ghijklmopqrstvwxyzGHIJKLMOPQRSTVWXYZ".chars().filter(|c| !table.contains(&(*c as u8))).collect();
+        let mut out = String::new();
+        for (n, b) in plain.bytes().enumerate() {
+            out.push(table[(b & 15) as usize] as char);
+            table.rotate_right(1);
+            out.push(table[(b >> 4) as usize] as char);
+            table.rotate_right(1);
+            out.push(filler[(n * 7) % filler.len()]);
+        }
+        out
+    }
+
+    /// A value in the layout of MobaXterm 25: `_@`, the sixteen IV characters, two more, then the base64 ciphertext.
+    fn v25(plain: &str, key: &[u8; 32], iv: &str) -> String {
+        use base64::engine::general_purpose::STANDARD;
+        assert_eq!(iv.len(), 16);
+        let body = STANDARD.encode(cfb8(key, iv.as_bytes().try_into().unwrap(), plain.as_bytes(), false).as_slice());
+        format!("_@{iv}AA{body}").replace('+', "@").replace('/', "_")
+    }
+
+    #[test]
+    fn the_published_examples_decrypt() {
+        // From the HyperSine notes on how MobaXterm encrypts passwords (master password 12345678, SessionP 165821882556840).
+        let key = derive_key("12345678");
+        assert_eq!(decrypt("0XROpGmLAYVx", &key).unwrap().0.as_str(), "HyperSine");
+        assert_eq!(decrypt("1du11XKQBOxud/FWh4ouWA==", &key).unwrap().0.as_str(), "Lw3+cZ2s.w@U@f]U");
+        let table = session_table("165821882556840").unwrap();
+        let cipher = "bSj4VWbHezNH3tTY9Nil2RzJX57p7/S6KqMw8VsiT/WH+I8p03pqnInAu";
+        assert_eq!(decrypt_keyless(cipher, &table).unwrap().0.as_str(), "HyperSine");
+        // The same value through the front door, with and without a master password typed in.
+        assert_eq!(Keys::new(None, Some("165821882556840")).open(cipher).unwrap().0.as_str(), "HyperSine");
+        assert_eq!(Keys::new(Some("12345678"), Some("165821882556840")).open(cipher).unwrap().0.as_str(), "HyperSine");
+    }
+
+    #[test]
+    fn the_table_is_made_from_session_p() {
+        assert_eq!(session_table(""), None);
+        assert_eq!(session_table("   "), None);
+        // A numeric SessionP, as MobaXterm writes it, has only digits, and the seed already holds every digit.
+        let t = session_table("165821882556840").unwrap();
+        assert_eq!(&t, TABLE_SEED);
+        // Letters are written over the seed where they are not in the table yet: capitals for the even places, lower case
+        // for the odd. (Worked out by a second implementation of the published steps; there is no published example.)
+        assert_eq!(&session_table("pT9vbXd2a1").unwrap(), b"Pt5VBxd3A1pT9vbX");
+        // Sixteen different letters from the alphabet: the table is a permutation, so every nibble has a letter.
+        let mut seen = t.to_vec();
+        seen.sort_unstable();
+        seen.dedup();
+        assert_eq!(seen.len(), 16);
+        assert!(t.iter().all(|b| TABLE_LETTERS.contains(b)));
+        assert_ne!(session_table("a"), session_table("b"));
+        // A short SessionP is repeated, so "ab" and "ababababababababababab" give one table.
+        assert_eq!(session_table("ab"), session_table(&"ab".repeat(10)));
+    }
+
     #[test]
     fn the_cipher_round_trips_and_a_wrong_key_is_noticed() {
         let key = derive_key("my master password");
@@ -498,6 +763,44 @@ broken=#109#0%%22%x
         // The key is the first half of SHA-512, so different passwords give different keys.
         assert_ne!(*derive_key("a"), *derive_key("b"));
         assert_eq!(derive_key("a").len(), 32);
+    }
+
+    #[test]
+    fn the_keyless_scheme_round_trips_with_filler_in_it() {
+        for plain in ["hunter2", "p@ss wörd ✓", "x", &"long".repeat(50)] {
+            let c = keyless(plain, "pT9vbXd2a1");
+            assert_eq!(Keys::new(None, Some("pT9vbXd2a1")).open(&c).unwrap().0.as_str(), plain);
+        }
+        // Another SessionP is another table: it never gives the password back, though it may give some text.
+        let c = keyless("correct horse battery staple", "pT9vbXd2a1");
+        assert_ne!(Keys::new(None, Some("zzzzzzzzzz")).open(&c).ok().map(|s| s.0.as_str().to_string()), Some("correct horse battery staple".into()));
+    }
+
+    #[test]
+    fn a_file_with_no_master_password_needs_none() {
+        // What a default MobaXterm writes: a SessionP, and passwords that are not encrypted with anything.
+        let sp = "165821882556840";
+        let ini = format!(
+            "[Misc]\r\nSessionP={sp}\r\n\r\n[Bookmarks]\r\nSubRep=\r\nweb=#109#0%10.0.0.5%22%ops%%-1\r\nci=#109#0%10.0.0.7%22%<example.com>%%-1\r\nbare=#109#0%10.0.0.8%22%%%-1\r\n\r\n[Passwords]\r\nssh22:ops@10.0.0.5={}\r\nssh22:root@10.0.0.8={}\r\n\r\n[Credentials]\r\nexample.com=root:bSj4VWbHezNH3tTY9Nil2RzJX57p7/S6KqMw8VsiT/WH+I8p03pqnInAu\r\n",
+            keyless("web-pass", sp),
+            keyless("bare-pass", sp)
+        );
+        let secrets = Secrets::parse(&ini);
+        assert_eq!(secrets.len(), 3);
+        let mut hosts = parse(&ini, None).hosts;
+        assert_eq!(hosts.len(), 3);
+        mark_passwords(&mut hosts, &secrets);
+        assert!(hosts.iter().all(|h| h.has_password && h.password.is_none()));
+        assert_eq!(attach_passwords(&mut hosts, &secrets, None), Ok(Attached { attached: 3, failed: 0 }));
+        let pw = |i: usize| hosts[i].password.as_ref().unwrap().0.as_str().to_string();
+        assert_eq!(pw(0), "web-pass");
+        assert_eq!(pw(1), "HyperSine", "a saved credential, by its name");
+        assert_eq!(pw(2), "bare-pass");
+        assert_eq!(hosts[2].user.as_deref(), Some("root"), "a session with no user takes the password's");
+        // A master password typed in for a file that has none changes nothing.
+        let mut again = parse(&ini, None).hosts;
+        assert_eq!(attach_passwords(&mut again, &secrets, Some("whatever")), Ok(Attached { attached: 3, failed: 0 }));
+        assert_eq!(again[0].password.as_ref().unwrap().0.as_str(), "web-pass");
     }
 
     #[test]
@@ -525,7 +828,7 @@ broken=#109#0%%22%x
         assert_eq!(hosts.iter().map(|h| h.has_password).collect::<Vec<_>>(), [true, true, true, true, true, false]);
         assert!(hosts.iter().all(|h| h.password.is_none()), "marking decrypts nothing");
 
-        assert_eq!(attach_passwords(&mut hosts, &s, &key).unwrap(), 5);
+        assert_eq!(attach_passwords(&mut hosts, &s, Some("m")), Ok(Attached { attached: 5, failed: 0 }));
         let pw = |i: usize| hosts[i].password.as_ref().unwrap().0.as_str().to_string();
         assert_eq!(pw(0), "web-pass", "the entry on the session's port");
         assert_eq!(pw(1), "other-port");
@@ -548,13 +851,97 @@ broken=#109#0%%22%x
         let ini = format!("[Passwords]\nssh22:ops@h={}\nssh22:ops@h2={}\n", encrypt("one", &key), encrypt("a much longer password here", &key));
         let s = Secrets::parse(&ini);
         let mut hosts = vec![host("h", "h", 22, Some("ops")), host("h2", "h2", 22, Some("ops"))];
-        assert_eq!(attach_passwords(&mut hosts, &s, &derive_key("wrong")), Err(DecryptError::WrongKey));
+        assert_eq!(attach_passwords(&mut hosts, &s, Some("wrong")), Err(DecryptError::WrongKey));
         assert!(hosts.iter().all(|h| h.password.is_none()));
+        // And with none typed in, the file says what it needs.
+        assert_eq!(attach_passwords(&mut hosts, &s, None), Err(DecryptError::NeedsMaster));
+        assert_eq!(attach_passwords(&mut hosts, &s, Some("  ")), Err(DecryptError::NeedsMaster), "blank is none");
+        assert!(hosts.iter().all(|h| h.password.is_none()));
+        assert_eq!(attach_passwords(&mut hosts, &s, Some("right")), Ok(Attached { attached: 2, failed: 0 }));
+    }
+
+    #[test]
+    fn mobaxterm_25_values_need_the_master_password_and_carry_their_own_iv() {
+        let key = derive_key("right");
+        let ini = format!("[Passwords]\nssh22:ops@h={}\nssh22:ops@h2={}\n", v25("one", &key, "AbCdEfGh12345678"), v25("a much longer password here", &key, "ZyXwVuTs87654321"));
+        let s = Secrets::parse(&ini);
+        let hosts = || vec![host("h", "h", 22, Some("ops")), host("h2", "h2", 22, Some("ops"))];
+        let mut a = hosts();
+        assert_eq!(attach_passwords(&mut a, &s, Some("right")), Ok(Attached { attached: 2, failed: 0 }));
+        assert_eq!(a[0].password.as_ref().unwrap().0.as_str(), "one");
+        assert_eq!(a[1].password.as_ref().unwrap().0.as_str(), "a much longer password here");
+        assert_eq!(attach_passwords(&mut hosts(), &s, Some("wrong")), Err(DecryptError::WrongKey));
+        assert_eq!(attach_passwords(&mut hosts(), &s, None), Err(DecryptError::NeedsMaster));
+        // The same password under two IVs is two different values, which the fixed IV of the older scheme was not.
+        assert_ne!(v25("same", &key, "AbCdEfGh12345678"), v25("same", &key, "ZyXwVuTs87654321"));
+        assert_eq!(decrypt_v25("_@short", &key), Err(DecryptError::NotEncrypted));
+    }
+
+    #[test]
+    fn one_password_that_cannot_be_read_does_not_stop_the_others() {
+        let sp = "pT9vbXd2a1";
+        let ini = format!("[Misc]\nSessionP={sp}\n[Passwords]\nssh22:ops@h={}\nssh22:ops@h2=!!!!\nssh22:ops@h3={}\n", keyless("one", sp), keyless("three", sp));
+        let s = Secrets::parse(&ini);
+        let mut hosts = vec![host("h", "h", 22, Some("ops")), host("h2", "h2", 22, Some("ops")), host("h3", "h3", 22, Some("ops"))];
+        assert_eq!(attach_passwords(&mut hosts, &s, None), Ok(Attached { attached: 2, failed: 1 }));
+        assert_eq!(hosts[0].password.as_ref().unwrap().0.as_str(), "one");
+        assert!(hosts[1].password.is_none());
+        assert_eq!(hosts[2].password.as_ref().unwrap().0.as_str(), "three");
+    }
+
+    #[test]
+    fn session_p_is_found_whatever_its_case_and_section() {
+        assert_eq!(Secrets::parse("[Misc]\nSessionP=abc123\n").session_p.as_deref(), Some("abc123"));
+        assert_eq!(Secrets::parse("[Misc]\nsessionp = abc123 \n").session_p.as_deref(), Some("abc123"));
+        assert_eq!(Secrets::parse("[Other]\nSessionP=abc123\n").session_p.as_deref(), Some("abc123"));
+        assert_eq!(Secrets::parse("[Misc]\nSessionP=\n").session_p, None);
+        assert_eq!(Secrets::parse("[Misc]\nFoo=bar\n").session_p, None);
     }
 
     #[test]
     fn an_exported_sessions_file_has_no_passwords() {
         assert!(Secrets::parse(INI).is_empty());
-        assert_eq!(default_master().is_some(), std::env::var("USERNAME").is_ok() && std::env::var("COMPUTERNAME").is_ok());
+    }
+
+    #[test]
+    fn a_byte_order_mark_does_not_hide_the_sessions_or_the_passwords() {
+        let sp = "165821882556840";
+        let ini = format!("\u{feff}[Bookmarks]\nSubRep=\nweb=#109#0%10.0.0.5%22%ops%%-1\n[Misc]\nSessionP={sp}\n[Passwords]\nssh22:ops@10.0.0.5={}\n", keyless("web-pass", sp));
+        let mut p = parse(&ini, None);
+        assert_eq!(p.hosts.len(), 1, "the first section was not read: {p:?}");
+        let s = Secrets::parse(&ini);
+        assert_eq!(attach_passwords(&mut p.hosts, &s, None), Ok(Attached { attached: 1, failed: 0 }));
+        assert_eq!(p.hosts[0].password.as_ref().unwrap().0.as_str(), "web-pass");
+    }
+
+    #[test]
+    fn a_file_is_read_whatever_its_encoding() {
+        let text = "[Bookmarks]\r\nSubRep=Caf\u{e9}\r\nweb=#109#0%h%22%ops\r\n";
+        assert_eq!(decode_text(text.as_bytes()), text);
+        assert_eq!(decode_text(&[&[0xEF, 0xBB, 0xBF][..], text.as_bytes()].concat()), text, "a UTF-8 byte-order mark is dropped");
+        let le: Vec<u8> = [0xFF, 0xFE].into_iter().chain(text.encode_utf16().flat_map(u16::to_le_bytes)).collect();
+        let be: Vec<u8> = [0xFE, 0xFF].into_iter().chain(text.encode_utf16().flat_map(u16::to_be_bytes)).collect();
+        assert_eq!(decode_text(&le), text);
+        assert_eq!(decode_text(&be), text);
+        // Windows' ANSI code page: an accented letter is the single byte E9, which is not UTF-8.
+        let ansi: Vec<u8> = text.chars().map(|c| c as u32 as u8).collect();
+        assert!(std::str::from_utf8(&ansi).is_err());
+        assert_eq!(decode_text(&ansi), text);
+        assert_eq!(parse(&decode_text(&ansi), None).hosts[0].group.as_deref(), Some("Caf\u{e9}"));
+    }
+
+    #[test]
+    fn a_configuration_without_passwords_says_which_sections_it_has() {
+        let ini = "\u{feff}[Misc]\nSessionP=1\n[Bookmarks]\nSubRep=\n[Bookmarks_1]\n[Display]\n[Misc]\n";
+        assert_eq!(no_passwords_note(ini).as_deref(), Some("No saved passwords were found in this file. Its sections: Misc, Display."));
+        assert_eq!(no_passwords_note(INI.replace("[Misc]", "[Bookmarks_9]").as_str()), None, "a plain bookmarks file has nothing to explain");
+        let many: String = (0..30).map(|n| format!("[S{n}]\n")).collect();
+        assert!(no_passwords_note(&many).unwrap().ends_with("S23 and 6 more."));
+    }
+
+    #[test]
+    fn a_mobaconf_file_is_one_of_the_formats_files() {
+        assert!(MobaXterm.extensions().contains(&"mobaconf"));
+        assert_eq!(MobaXterm.extensions()[0], "mxtsessions", "the first is what an export is saved as");
     }
 }
