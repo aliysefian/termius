@@ -1,5 +1,6 @@
 <script lang="ts">
   import SafetySettingsSection from "./SafetySettingsSection.svelte";
+  import NotifyChannelsSettings from "./NotifyChannelsSettings.svelte";
   import HighlightRules from "./HighlightRules.svelte";
   import specSource from "$lib/completion/specs/SOURCE.json";
   import { ChevronDown, ChevronUp, Copy, Download, ExternalLink, Loader2, Lock, Palette, RefreshCw, RotateCcw, Search, ShieldAlert, SquareTerminal, TerminalSquare, X } from "lucide-svelte";
@@ -73,6 +74,7 @@
 
   const SIDEBAR_KEYWORDS = "sidebar rail icons labels hide show reorder order pin manage layout";
   const OPS_KEYWORDS = "alerts alert notify notification host down cpu memory disk threshold quiet hours mute monitoring history charts keep week day operations";
+  const NOTIFY_KEYWORDS = "notification channels telegram bale email smtp bot token chat id messages send test monitoring alerts";
   const SMART_COMPLETION_KEYWORDS = "smart completion autocomplete auto complete suggestions suggest ghost inline tab history snippets options paths";
 
   // Mirrors the keyword strings each section's `visible()` guard uses, just
@@ -85,6 +87,7 @@
     "local terminal shell bash zsh fish powershell wsl start folder cwd",
     SMART_COMPLETION_KEYWORDS,
     OPS_KEYWORDS,
+    NOTIFY_KEYWORDS,
     SIDEBAR_KEYWORDS,
     "connections auto-reconnect notify background command history remember restore session reopen tabs last time production paste trailing newline",
     "command line cli scripting sshvault run list connect",
@@ -911,6 +914,14 @@ sshvault run web-01 db-01 --json -- df -h /</pre>
         </div>
       {/if}
       {@render msgBox(exportMsg)}
+    </section>
+    {/if}
+
+    {#if visible("integrations", NOTIFY_KEYWORDS)}
+    <section class="rounded-xl border border-line bg-panel p-5">
+      <h2 class="mb-1 text-sm font-semibold">Notification channels</h2>
+      <p class="mb-3 text-xs text-fg-muted">Where the Monitoring page sends its alerts: Telegram, Bale or email.</p>
+      <NotifyChannelsSettings />
     </section>
     {/if}
 

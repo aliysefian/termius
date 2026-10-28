@@ -1,7 +1,7 @@
 <script lang="ts">
   import {
     Activity, Network, Search, Container, Database, FileOutput, History, Keyboard, SquareTerminal, ArrowLeftRight, ServerCog, Code, FileInput, FolderSync, KeyRound, Lock, Play, Plus, Server, Settings, ShieldAlert, SquareSplitHorizontal, SquareSplitVertical, Zap,
-      Wrench, ListChecks,
+      Wrench, ListChecks, HeartPulse,
     Ship,
 } from "lucide-svelte";
   import * as api from "$lib/api";
@@ -242,6 +242,7 @@
       ["Go to Topology (how hosts, proxies, tunnels and databases connect)", Network, go("topology")],
       ["Go to Operations (logs, services, alerts)", Wrench, go("ops")],
       ["Go to Runbooks (saved steps to run on hosts)", ListChecks, go("runbooks")],
+      ["Go to Monitoring (ping, ports, CPU, alerts to Telegram, Bale, email)", HeartPulse, go("monitoring")],
       ["Go to Kubernetes", Ship, go("kubernetes")],
       ["Go to Databases", Database, go("databases")],
       ["Go to Containers", Container, go("containers")],

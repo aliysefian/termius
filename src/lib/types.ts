@@ -231,6 +231,9 @@ export type Collection =
   | "workspaces"
   | "runbooks"
   | "databases"
+  | "monitors"
+  | "alert_rules"
+  | "notify_channels"
   | "settings"
   | "devices";
 

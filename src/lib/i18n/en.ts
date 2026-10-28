@@ -12,6 +12,7 @@ export const en = {
   "rail.containers": "Containers",
   "rail.ops": "Ops",
   "rail.runbooks": "Runbooks",
+  "rail.monitoring": "Monitoring",
   "rail.manage": "Manage",
   "rail.settings": "Settings",
   "rail.lock": "Lock vault",

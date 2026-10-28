@@ -507,12 +507,55 @@ ask for a password and nothing is installed on the host.
   to normal. They show a notice, an operating-system notification when the window isn't in
   front, and a list on the Alerts tab. Quiet hours keep alerts off the screen (they still
   reach the list); any host can be muted. Alerts are not saved and nothing leaves this
-  computer, and they do not run when the app is closed.
+  computer, and they do not run when the app is closed. (To be told on Telegram, Bale or
+  email, use **Monitoring**, below.)
 
 **Longer charts.** The monitoring charts show the last 15 minutes. Under **Settings →
 Alerts and monitoring history** you can keep one-minute averages for a day or a week
 instead; the host's detail view then offers 24 h and 7 days. They are stored on this
 computer, not synced, and not encrypted; choosing 15 minutes again deletes them.
+
+## Monitoring: ping, ports, CPU and alerts to Telegram, Bale and email
+
+**Monitoring** in the sidebar watches hosts in the background and tells you when one changes state. It is
+separate from the Alerts tab under Ops: it has its own list of hosts, its own rules, and it can send messages out.
+
+**Hosts.** Add the hosts to watch on the **Hosts** tab. They don't have to be saved SSH hosts; a router will do.
+Each has an address, tags, how often to check (at least every 10 seconds), and any of these checks:
+
+- **Ping.** Uses the computer's own `ping` program: whether the host answers, what share of the packets is lost,
+  and how long they take.
+- **TCP ports.** Whether something accepts a connection on each port you list (22, 443…). Nothing is sent; the
+  service sees only a connection that closes.
+- **CPU, memory and disk**, read over SSH with a saved host's credentials, every 30 seconds at most. It never asks
+  for a password and never asks about a host key: a host key you haven't trusted yet is refused, so connect to the host once
+  first. Memory and CPU are read on Linux; a host that doesn't report them shows "unknown", never 0.
+
+**Rules.** The **Rules** tab says when a reading is a problem: for example ping loss above 0% (warning) and 50% (critical),
+latency above 200 ms, a closed port, CPU above 90%. A rule can apply to all hosts, to hosts with a tag, or to one host.
+A state changes only after the rule's number of checks *in a row* agree (3 by default), so one lost packet doesn't send
+anything. Getting better is not delayed. You are told **once, when the state changes** (OK, warning, critical, and back
+to OK), not on every check. A check that could not run is shown as unknown and sends nothing.
+
+**Notifications.** Under **Settings → Integrations → Notification channels**, switch on any of:
+
+- **Telegram** and **Bale**: a bot token and a chat ID. Bale's bot API is Telegram's with another address
+  (`tapi.bale.ai`). If you reach either through a mirror or a proxy, enter its `https://` address.
+- **Email**: an SMTP server, port, security (STARTTLS, TLS, or none for this computer only), user name, password,
+  and where to send. The password is only ever sent over an encrypted connection (or to this computer): with STARTTLS, a
+  server that doesn't offer it is refused, and "None" with a password is refused unless the server is this computer.
+
+Each channel has a **Send test message** button. A rule can limit itself to some channels; by default it uses every
+channel that is switched on. A channel is sent at most 20 messages a minute; the next message says how many were held back.
+
+**What leaves this computer.** Only when a channel is switched on: the host's name, the rule and the reading ("CPU use is 95%"),
+and the host's address only if you tick *Include the host's address*. Bot tokens and the SMTP password are stored in the
+encrypted vault and are never sent back to the window after saving. Nothing is sent otherwise.
+
+**When it runs.** Only while the vault is unlocked and SSHVault is running (closing the window to the tray keeps it
+running). Locking the vault, including auto-lock after inactivity, stops all checks and alerts, and what was read is
+forgotten. If you rely on alerts, turn auto-lock off or set it long. If SSHVault is open and unlocked on two computers that
+share the vault, each one runs the checks and sends its own alert, so you get two.
 
 ## Runbooks and automation
 

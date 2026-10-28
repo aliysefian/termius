@@ -50,6 +50,7 @@ pub mod models;
 pub mod monitor;
 pub mod multiplexer;
 pub mod mobaxterm;
+pub mod monitoring;
 pub mod putty;
 pub mod rawterm;
 pub mod rdp;
@@ -154,6 +155,17 @@ pub fn run() {
             commands::interchange::interchange_formats,
             commands::interchange::interchange_preview,
             commands::interchange::interchange_export,
+            commands::alerting::list_monitors,
+            commands::alerting::save_monitor,
+            commands::alerting::delete_monitor,
+            commands::alerting::list_alert_rules,
+            commands::alerting::save_alert_rule,
+            commands::alerting::delete_alert_rule,
+            commands::alerting::get_notify_channels,
+            commands::alerting::save_notify_channels,
+            commands::alerting::notify_test,
+            commands::alerting::monitor_snapshot,
+            commands::alerting::monitor_run_now,
             commands::list_groups,
             commands::save_group,
             commands::delete_group,

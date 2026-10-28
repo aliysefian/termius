@@ -786,6 +786,67 @@ fn database_connections_are_encrypted_sync_back_up_and_old_vaults_still_open() {
 }
 
 #[test]
+fn monitoring_records_are_encrypted_sync_back_up_and_old_vaults_still_open() {
+    use crate::monitoring::model::{AlertRule, CheckSpec, Metric, MonitorTarget, NotifyChannels, Op, Scope, NOTIFY_ID};
+    let target = MonitorTarget {
+        label: "label-marker-host".into(),
+        address: "10.9.8.7".into(),
+        tags: vec![],
+        enabled: true,
+        interval_secs: 60,
+        checks: vec![CheckSpec::Tcp { port: 22 }],
+        ssh_host_id: None,
+        notes: String::new(),
+    };
+    let rule = AlertRule { name: "rule-marker".into(), enabled: true, metric: Metric::PingLoss, op: Op::Gt, warn: Some(0.0), crit: None, attempts: 3, scope: Scope::All, channels: vec![] };
+    let mut channels = NotifyChannels::default();
+    channels.telegram.bot_token = "999:token-marker".into();
+    channels.email.password = "smtp-marker".into();
+
+    let (_d, a) = new_vault();
+    let b = second_device(&a, "PC-B");
+    let t = a.insert(Collection::Monitors, &target).unwrap();
+    let r = a.insert(Collection::AlertRules, &rule).unwrap();
+    a.put(Collection::NotifyChannels, NOTIFY_ID, &channels, Base::New).unwrap();
+
+    // Nothing readable on disk: not the names, the address, or either secret.
+    let root = a.root().to_path_buf();
+    for (name, bytes) in snapshot(&root) {
+        let text = String::from_utf8_lossy(&bytes);
+        for marker in ["label-marker-host", "10.9.8.7", "rule-marker", "token-marker", "smtp-marker"] {
+            assert!(!text.contains(marker), "{name} holds {marker} in plain text");
+        }
+    }
+
+    // The other device reads all three back whole.
+    assert_eq!(b.get::<MonitorTarget>(Collection::Monitors, t.id).unwrap().data.unwrap(), target);
+    assert_eq!(b.get::<AlertRule>(Collection::AlertRules, r.id).unwrap().data.unwrap(), rule);
+    assert_eq!(b.get::<NotifyChannels>(Collection::NotifyChannels, NOTIFY_ID).unwrap().data.unwrap(), channels);
+
+    // They are part of backups, and a restore brings them back.
+    let backup = a.create_backup("manual", 10).unwrap();
+    assert_eq!(backup.records, 3);
+    a.delete(Collection::Monitors, t.id, Base::Rev(1)).unwrap();
+    a.restore_backup(&backup.file_name, 10).unwrap();
+    assert_eq!(a.get::<MonitorTarget>(Collection::Monitors, t.id).unwrap().data.unwrap(), target);
+
+    // A vault made before these collections existed has no folders for them. Opening it must work.
+    a.insert(Collection::Hosts, &host("web-01")).unwrap();
+    drop(a);
+    drop(b);
+    for dir in ["monitors", "alert_rules", "notify_channels"] {
+        std::fs::remove_dir_all(root.join(dir)).unwrap();
+    }
+    let v = Vault::open(&root, Unlock::Password(b"hunter2"), DeviceInfo::new("PC-C")).unwrap();
+    for dir in ["monitors", "alert_rules", "notify_channels"] {
+        assert!(root.join(dir).is_dir(), "{dir}");
+    }
+    assert_eq!(v.list::<Host>(Collection::Hosts).unwrap().records.len(), 1);
+    assert!(v.list::<MonitorTarget>(Collection::Monitors).unwrap().records.is_empty());
+    assert!(v.verify_integrity().errors.is_empty(), "{:?}", v.verify_integrity().errors);
+}
+
+#[test]
 fn corrupted_or_foreign_backups_are_never_restored() {
     let (_d, v) = new_vault();
     v.insert(Collection::Hosts, &host("web-01")).unwrap();

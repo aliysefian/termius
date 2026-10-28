@@ -25,8 +25,8 @@ describe("the rail", () => {
   });
 
   it("takes hidden entries out and hands them back, keeps a group's line only while it has entries", () => {
-    const r = arrange(RAIL_GROUPS, [], ["databases", "containers", "ops", "runbooks", "favorites", "fleetlist"]);
-    expect(r.away.map((i) => i.view)).toEqual(["favorites", "fleetlist", "databases", "containers", "ops", "runbooks"]);
+    const r = arrange(RAIL_GROUPS, [], ["databases", "containers", "ops", "runbooks", "monitoring", "favorites", "fleetlist"]);
+    expect(r.away.map((i) => i.view)).toEqual(["favorites", "fleetlist", "databases", "containers", "ops", "runbooks", "monitoring"]);
     expect(names(r.groups)).toEqual([["dashboard", "hosts"], ["snippets", "sftp", "forwarding"]]);
   });
 
@@ -47,7 +47,7 @@ describe("the rail", () => {
     expect(move(RAIL_GROUPS, order, "sftp", 1)).toBe(order);
     // Another group's order is kept.
     order = move(RAIL_GROUPS, order, "ops", -1);
-    expect(names(arrange(RAIL_GROUPS, order, []).groups)).toEqual([["dashboard", "hosts", "favorites", "fleetlist"], ["forwarding", "snippets", "sftp"], ["databases", "ops", "containers", "runbooks"]]);
+    expect(names(arrange(RAIL_GROUPS, order, []).groups)).toEqual([["dashboard", "hosts", "favorites", "fleetlist"], ["forwarding", "snippets", "sftp"], ["databases", "ops", "containers", "runbooks", "monitoring"]]);
     expect(move(RAIL_GROUPS, ["x"], "unknown" as never, 1)).toEqual(["x"]);
   });
 });

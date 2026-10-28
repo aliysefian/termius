@@ -164,6 +164,12 @@ pub enum Collection {
     Runbooks,
     /// Saved database connections (the Databases view).
     Databases,
+    /// Hosts the monitoring engine watches (the Monitoring view).
+    Monitors,
+    /// Rules that turn the engine's readings into alerts.
+    AlertRules,
+    /// Where alerts are sent: Telegram, Bale, email. Holds secrets.
+    NotifyChannels,
     Settings,
     Devices,
     /// Advisory "open on this device" markers. Not backed up.
@@ -171,7 +177,7 @@ pub enum Collection {
 }
 
 impl Collection {
-    pub const ALL: [Collection; 14] = [
+    pub const ALL: [Collection; 17] = [
         Collection::Hosts,
         Collection::Identities,
         Collection::Snippets,
@@ -183,6 +189,9 @@ impl Collection {
         Collection::Workspaces,
         Collection::Runbooks,
         Collection::Databases,
+        Collection::Monitors,
+        Collection::AlertRules,
+        Collection::NotifyChannels,
         Collection::Settings,
         Collection::Devices,
         Collection::Locks,
@@ -201,6 +210,9 @@ impl Collection {
             Collection::Workspaces => "workspaces",
             Collection::Runbooks => "runbooks",
             Collection::Databases => "databases",
+            Collection::Monitors => "monitors",
+            Collection::AlertRules => "alert_rules",
+            Collection::NotifyChannels => "notify_channels",
             Collection::Settings => "settings",
             Collection::Devices => "devices",
             Collection::Locks => "locks",

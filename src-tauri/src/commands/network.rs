@@ -114,7 +114,7 @@ pub async fn ssh_agent_forwarding_set(state: State<'_, AppState>, pane_id: Strin
 }
 
 /// Hosts' diagnoses never ask about host keys (nobody is watching a dialog) and never forward the agent.
-fn quiet(target: &mut crate::ssh::Target) {
+pub(crate) fn quiet(target: &mut crate::ssh::Target) {
     target.host_keys.prompter = None;
     target.agent_gate = None;
     target.forward_agent = false;

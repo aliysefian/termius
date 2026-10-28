@@ -25,6 +25,11 @@
   import FleetView from "$lib/components/FleetView.svelte";
   import TopologyView from "$lib/components/TopologyView.svelte";
   import OpsView from "$lib/components/OpsView.svelte";
+  import MonitoringView from "$lib/components/MonitoringView.svelte";
+  import MonitorTargetForm from "$lib/components/MonitorTargetForm.svelte";
+  import AlertRuleForm from "$lib/components/AlertRuleForm.svelte";
+  // The monitoring page's data follows the vault in the background, and counts new alerts for the rail.
+  import "$lib/stores/monitoring.svelte";
   import { startScheduler } from "$lib/stores/scheduler.svelte";
   import RunbooksView from "$lib/components/RunbooksView.svelte";
   import KubernetesView from "$lib/components/KubernetesView.svelte";
@@ -84,7 +89,7 @@
   /** The name of the page being shown, for screen readers (pages that draw their own heading say it twice, which is harmless). */
   const VIEW_TITLES: Record<string, string> = {
     hosts: "Hosts", favorites: "Favorite hosts", fleetlist: "Fleet", keychain: "Credentials", snippets: "Snippets", forwarding: "Tunnels", sftp: "Files", databases: "Databases",
-    containers: "Containers", kubernetes: "Kubernetes", ops: "Operations", runbooks: "Runbooks", fleet: "Fleet", settings: "Settings", keys: "Keys", groups: "Groups and proxies",
+    containers: "Containers", kubernetes: "Kubernetes", ops: "Operations", monitoring: "Monitoring", runbooks: "Runbooks", fleet: "Fleet", settings: "Settings", keys: "Keys", groups: "Groups and proxies",
     knownhosts: "Known hosts", vault: "Vault", "security-review": "Security review", changelog: "Changelog",
   };
 
@@ -333,6 +338,8 @@
       <RunbooksView />
     {:else if ui.view === "ops"}
       <OpsView />
+    {:else if ui.view === "monitoring"}
+      <MonitoringView />
     {:else if ui.view === "kubernetes"}
       <KubernetesView />
     {:else if ui.view === "databases"}
@@ -362,6 +369,14 @@
   {:else if ui.modal?.kind === "forward"}
     {#key ui.modal.id}
       <ForwardForm id={ui.modal.id} />
+    {/key}
+  {:else if ui.modal?.kind === "monitor-target"}
+    {#key ui.modal.id}
+      <MonitorTargetForm id={ui.modal.id} />
+    {/key}
+  {:else if ui.modal?.kind === "alert-rule"}
+    {#key ui.modal.id}
+      <AlertRuleForm id={ui.modal.id} />
     {/key}
   {:else if ui.modal?.kind === "db-connection"}
     {#key ui.modal.id}

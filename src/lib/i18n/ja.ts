@@ -14,6 +14,7 @@ export const ja: Partial<Record<Key, string>> = {
   "rail.containers": "コンテナ",
   "rail.ops": "運用",
   "rail.runbooks": "ランブック",
+  "rail.monitoring": "監視",
   "rail.manage": "管理",
   "rail.settings": "設定",
   "rail.lock": "保管庫をロック",

@@ -2,6 +2,7 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
+import type { AlertEntry, AlertRule, ChannelKind, ChannelsRecord, MonitorTarget, NotifyChannels, Snapshot, TargetStatus } from "./monitoring";
 import type {
   AgentForwardState,
   AgentPrompt,
@@ -486,6 +487,28 @@ export const interchange = {
   /** Returns how many hosts were written. `group` limits it to one folder and below. */
   exportHosts: (formatId: string, path: string, group: string | null = null) =>
     invoke<number>("interchange_export", { formatId, path, group }),
+};
+
+/** The monitoring engine: hosts to watch, alert rules, notification channels. Checks run in the backend while the vault is unlocked. */
+export const monitoring = {
+  listTargets: () => invoke<VaultRecord<MonitorTarget>[]>("list_monitors"),
+  saveTarget: (id: Uuid | null, baseRev: number | null, monitor: MonitorTarget) =>
+    invoke<VaultRecord<MonitorTarget>>("save_monitor", { id, baseRev, monitor }),
+  deleteTarget: (id: Uuid, baseRev: number | null) => invoke<void>("delete_monitor", { id, baseRev }),
+  listRules: () => invoke<VaultRecord<AlertRule>[]>("list_alert_rules"),
+  saveRule: (id: Uuid | null, baseRev: number | null, rule: AlertRule) =>
+    invoke<VaultRecord<AlertRule>>("save_alert_rule", { id, baseRev, rule }),
+  deleteRule: (id: Uuid, baseRev: number | null) => invoke<void>("delete_alert_rule", { id, baseRev }),
+  /** Tokens and the password come back blank; `token_set` / `password_set` say whether one is saved. */
+  getChannels: () => invoke<ChannelsRecord>("get_notify_channels"),
+  /** A blank token or password keeps the one saved. */
+  saveChannels: (baseRev: number, channels: NotifyChannels) => invoke<ChannelsRecord>("save_notify_channels", { baseRev, channels }),
+  /** Sends a test message with the saved settings. */
+  testChannel: (channel: ChannelKind) => invoke<void>("notify_test", { channel }),
+  snapshot: () => invoke<Snapshot>("monitor_snapshot"),
+  runNow: (id: Uuid) => invoke<void>("monitor_run_now", { id }),
+  onStatus: (handler: (s: TargetStatus) => void): Promise<UnlistenFn> => listen<TargetStatus>("monitor:status", (e) => handler(e.payload)),
+  onAlert: (handler: (a: AlertEntry) => void): Promise<UnlistenFn> => listen<AlertEntry>("monitor:alert", (e) => handler(e.payload)),
 };
 
 export const putty = {

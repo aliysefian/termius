@@ -57,6 +57,8 @@ pub mod hostexport;
 pub use hostexport::*;
 pub mod interchange;
 pub use interchange::*;
+pub mod alerting;
+pub use alerting::*;
 pub mod confighistory;
 pub mod sshconfig;
 pub use sshconfig::*;
@@ -108,6 +110,9 @@ pub struct AppState {
     pub kube: Arc<crate::kube::KubeManager>,
     /// Open detail-monitoring connections (one per host being watched).
     pub monitors: Arc<crate::monitor::MonitorManager>,
+    /// The monitoring engine: runs checks on the hosts in the Monitoring view and sends alerts. Runs only while the
+    /// vault is unlocked.
+    pub alerting: Arc<crate::monitoring::engine::Engine>,
     pub edits: Arc<crate::remoteedit::EditManager>,
     /// Where remote files are downloaded for editing.
     pub edit_dir: PathBuf,
@@ -536,6 +541,7 @@ pub fn create_vault(
 ) -> ApiResult<CreateResult> {
     let password = Zeroizing::new(password);
     check_new_password(&password)?;
+    let app_for_alerts = app.clone();
     let mut cfg = AppConfig::load(&state.config_dir)?;
     let root = configured_root(&cfg)?;
     let device = cfg.device(&state.config_dir)?;
@@ -555,6 +561,12 @@ pub fn create_vault(
         None
     };
     let cfg = AppConfig::load(&state.config_dir)?;
+    // This command is not async, so the engine is started from a task. A new vault has nothing to watch yet, but the
+    // engine should already be running when the first host is added.
+    tauri::async_runtime::spawn(async move {
+        let state = app_for_alerts.state::<AppState>();
+        alerting::start_alerting(&app_for_alerts, &state).await;
+    });
     Ok(CreateResult {
         status: status_of(&state, &cfg),
         recovery_key: rk.map(|k| k.display().to_string()),
@@ -600,6 +612,7 @@ pub async fn unlock_vault(
     let cfg = AppConfig::load(&state.config_dir)?;
     autostart_agent(&app_for_agent, &state);
     autostart_cli(&app_for_agent, &state);
+    alerting::start_alerting(&app_for_agent, &state).await;
     Ok(UnlockResult {
         status: status_of(&state, &cfg),
         report,
@@ -649,6 +662,7 @@ pub async fn unlock_with_device(
     purge_old_tombstones(&state);
     autostart_agent(&app_for_agent, &state);
     autostart_cli(&app_for_agent, &state);
+    alerting::start_alerting(&app_for_agent, &state).await;
     Ok(UnlockResult {
         status: status_of(&state, &cfg),
         report,
@@ -684,6 +698,7 @@ pub async fn unlock_with_recovery(
     let cfg = AppConfig::load(&state.config_dir)?;
     autostart_agent(&app_for_agent, &state);
     autostart_cli(&app_for_agent, &state);
+    alerting::start_alerting(&app_for_agent, &state).await;
     Ok(UnlockResult {
         status: status_of(&state, &cfg),
         report,
@@ -744,6 +759,8 @@ pub async fn close_everything(state: &AppState) {
     state.dbs.close_all().await;
     state.containers.close_all().await;
     state.kube.close_all().await;
+    // The monitoring engine first: it logs in through `monitors` and must not reopen what is about to be closed.
+    state.alerting.stop();
     state.monitors.close_all().await;
     state.edits.stop_all();
     // The agent serves vault keys, so it goes when the vault locks, and
@@ -998,7 +1015,7 @@ pub fn list_conflicts(
         v.conflicts()
     })?;
     for c in &mut list {
-        if c.collection == Collection::Identities || c.collection == Collection::Keys {
+        if c.collection == Collection::Identities || c.collection == Collection::Keys || c.collection == Collection::NotifyChannels {
             for r in [&mut c.current, &mut c.other] {
                 r.data = r.data.take().map(redact_secrets);
             }
@@ -1014,6 +1031,7 @@ fn redact_secrets(mut v: serde_json::Value) -> serde_json::Value {
         "private_key",
         "passphrase",
         "certificate_private",
+        "bot_token",
     ];
     fn walk(v: &mut serde_json::Value) {
         match v {
@@ -2915,6 +2933,7 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         containers: Arc::new(crate::containers::ContainerManager::new()),
         kube: Arc::new(crate::kube::KubeManager::new()),
         monitors: Arc::new(crate::monitor::MonitorManager::new()),
+        alerting: Arc::new(crate::monitoring::engine::Engine::new()),
         edits: Arc::new(crate::remoteedit::EditManager::new()),
         edit_dir,
         reveal: Default::default(),

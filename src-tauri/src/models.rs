@@ -693,6 +693,7 @@ pub fn redact_record(c: crate::vault::Collection, v: serde_json::Value) -> Optio
         Collection::Keys => via::<SshKey>(v, SshKey::redacted),
         Collection::Proxies => via::<Proxy>(v, Proxy::redacted),
         Collection::Databases => via::<DbConnection>(v, DbConnection::redacted),
+        Collection::NotifyChannels => via::<crate::monitoring::model::NotifyChannels>(v, crate::monitoring::model::NotifyChannels::redacted),
         // Locks are internal; the rest hold no secrets.
         Collection::Locks => None,
         _ => Some(v),
@@ -938,4 +939,18 @@ mod tests {
         let back: AuthMethod = serde_json::from_str(&json).unwrap();
         assert_eq!(back, a);
     }
+    #[test]
+    fn notification_secrets_never_reach_the_window_in_live_updates() {
+        use crate::monitoring::model::NotifyChannels;
+        let mut c = NotifyChannels::default();
+        c.telegram.bot_token = "123:TOKEN-marker".into();
+        c.email.password = "pw-marker".into();
+        let out = redact_record(crate::vault::Collection::NotifyChannels, serde_json::to_value(&c).unwrap()).unwrap();
+        let text = out.to_string();
+        assert!(!text.contains("TOKEN-marker") && !text.contains("pw-marker"), "{text}");
+        assert_eq!(out["telegram"]["token_set"], true);
+        // What can't be read is dropped rather than passed along unredacted.
+        assert!(redact_record(crate::vault::Collection::NotifyChannels, serde_json::json!({"telegram": 5})).is_none());
+    }
+
 }

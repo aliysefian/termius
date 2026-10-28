@@ -14,6 +14,7 @@ export const ru: Partial<Record<Key, string>> = {
   "rail.containers": "Контейнеры",
   "rail.ops": "Ops",
   "rail.runbooks": "Ранбуки",
+  "rail.monitoring": "Мониторинг",
   "rail.manage": "Управление",
   "rail.settings": "Настройки",
   "rail.lock": "Заблокировать хранилище",

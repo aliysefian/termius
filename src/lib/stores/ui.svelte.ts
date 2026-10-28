@@ -25,6 +25,7 @@ export type View =
   | "fleetlist"
   | "topology"
   | "ops"
+  | "monitoring"
   | "runbooks"
   | "kubernetes"
   | "databases"
@@ -33,7 +34,7 @@ export type View =
   | "changelog";
 
 /** Views that fill the window instead of sitting beside the terminals. */
-export const PAGE_VIEWS: View[] = ["dashboard", "groups", "keys", "knownhosts", "vault", "security-review", "fleet", "topology", "ops", "runbooks", "databases", "containers", "kubernetes", "settings", "changelog"];
+export const PAGE_VIEWS: View[] = ["dashboard", "groups", "keys", "knownhosts", "vault", "security-review", "fleet", "topology", "ops", "monitoring", "runbooks", "databases", "containers", "kubernetes", "settings", "changelog"];
 
 /** What a pane connects to: a saved host, or an unsaved quick connection. */
 export type PaneTarget =
@@ -95,6 +96,8 @@ export type Modal =
   | { kind: "identity"; id: Uuid | null }
   | { kind: "snippet"; id: Uuid | null }
   | { kind: "forward"; id: Uuid | null }
+  | { kind: "monitor-target"; id: Uuid | null }
+  | { kind: "alert-rule"; id: Uuid | null }
   | { kind: "db-connection"; id: Uuid | null }
   | { kind: "container-logs"; sourceKey: string; id: string; name: string }
   | { kind: "container-inspect"; sourceKey: string; id: string; name: string }

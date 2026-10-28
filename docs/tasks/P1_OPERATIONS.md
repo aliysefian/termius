@@ -69,6 +69,12 @@ computer (off by default, saved with the other settings, never in the vault; swi
 `ops.test.ts`. **Not done, on purpose:** webhook, email or chat adapters, because they send host names off this computer and
 need your decision first; alerts while the app is closed (needs the controller, SSHV-021); the shown list is still capped at 100.
 
+**Update (2026-10-28).** The owner decided to send alerts out. A separate Monitoring page now has its own engine in the backend
+(`src-tauri/src/monitoring/`): hosts independent of SSH, ping / TCP / SSH-metric checks, rules with OK / WARNING / CRITICAL states that
+notify only on a confirmed change, and Telegram, Bale and email channels whose secrets are stored in the encrypted vault. It runs only
+while the vault is unlocked and the app is running, so alerts while the app is closed or the vault is locked are still not covered
+(that is the controller's problem). The Alerts tab under Ops is unchanged and still sends nothing off this computer. See `docs/USAGE.md`.
+
 ## SSHV-015 Automation engine
 ```yaml
 id: SSHV-015

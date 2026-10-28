@@ -14,6 +14,7 @@ export const fa: Partial<Record<Key, string>> = {
   "rail.containers": "کانتینرها",
   "rail.ops": "عملیات",
   "rail.runbooks": "ران‌بوک",
+  "rail.monitoring": "پایش",
   "rail.manage": "مدیریت",
   "rail.settings": "تنظیمات",
   "rail.lock": "قفل کردن گاوصندوق",

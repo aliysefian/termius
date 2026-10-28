@@ -46,6 +46,10 @@ send the notifications the owner configured; exist as the only way to use the ap
 
 ## Decisions needed from the owner
 
+*Recorded 2026-10-28:* notifications to Telegram, Bale and email were built **inside the desktop app** (`src-tauri/src/monitoring/`), not as a
+controller. They run only while the vault is unlocked and the app is running; the vault is never handed to another process. A controller is
+still what would be needed for alerts while nobody has the vault open.
+
 1. Is a controller in scope at all, or is "keep the app open" acceptable? Phase 1 alone is a substantial project (a service, an
    enrollment protocol, packaging for several systems).
 2. If yes: which credential option, B first as recommended?
