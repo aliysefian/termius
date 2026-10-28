@@ -141,6 +141,6 @@ pub fn collect(vault: &Vault, group: Option<&str>) -> Result<Vec<ExportHost>, Va
             }
         })
         .collect();
-    out.sort_by(|a, b| (a.group.to_lowercase(), a.name.to_lowercase()).cmp(&(b.group.to_lowercase(), b.name.to_lowercase())));
+    out.sort_by_key(|h| (h.group.to_lowercase(), h.name.to_lowercase()));
     Ok(out)
 }
