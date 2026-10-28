@@ -261,6 +261,17 @@ host it found. Pick the ones you want and choose a group.
 - Hosts that already exist are skipped. `Match`, `Include` and multi-hop
   `ProxyJump` are reported as warnings instead of imported.
 
+## Importing from MobaXterm
+
+In the same import window, **MobaXterm…** reads a `MobaXterm.ini` or an exported `.mxtsessions` file: the SSH
+bookmarks with their folders, ports, users and key files. Saved passwords are only in `MobaXterm.ini`
+(`%APPDATA%\MobaXterm\MobaXterm.ini`, or next to `MobaXterm.exe` for the portable edition), encrypted. Choose that
+file and the preview says which hosts have one; enter the MobaXterm master password and they are decrypted on this
+computer and stored in the vault with their hosts, as each host's own credential. If you never set a master password,
+MobaXterm uses your Windows user name and computer name, `user@computer`, which is filled in for you on Windows. A
+master password that does not fit imports nothing, rather than hosts with wrong passwords. The password you type is
+the only secret that passes through the window: the decrypted passwords never do.
+
 ## Keys
 
 The **Keys** screen is the Key Manager: generate Ed25519, ECDSA or RSA keys,

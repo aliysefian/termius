@@ -43,6 +43,13 @@
 
   let source = $state<"ssh" | "ansible" | "putty" | "csv" | "mobaxterm" | "asbru">("ssh");
 
+  // MobaXterm keeps passwords encrypted in MobaXterm.ini; with the master password the backend stores them with
+  // their hosts. The password typed here is the only secret that passes through this window.
+  let mobaPath = $state("");
+  let masterPassword = $state("");
+  let importPasswords = $state(true);
+  const passwordsFound = $derived(source === "mobaxterm" ? (preview?.hosts.filter((h) => h.has_password).length ?? 0) : 0);
+
   async function chooseMobaxterm() {
     const f = await open({
       multiple: false,
@@ -52,11 +59,16 @@
     });
     if (typeof f !== "string") return;
     source = "mobaxterm";
+    mobaPath = f;
     loading = true;
     error = null;
     try {
-      show(await api.interchange.preview("mobaxterm", f));
+      show(await api.mobaxterm.preview(f));
       if (!preview?.hosts.length) error = "No SSH bookmarks were found in that file.";
+      if (preview?.hosts.some((h) => h.has_password) && !masterPassword) {
+        const d = await api.mobaxterm.defaultMaster().catch(() => null);
+        if (d) masterPassword = d;
+      }
     } catch (e) {
       error = errorMessage(e);
       preview = null;
@@ -198,7 +210,10 @@
     error = null;
     try {
       const hosts = preview.hosts.filter((h) => picked.has(h.alias));
-      summary = await api.sshConfig.import(hosts, group, keyImport);
+      summary =
+        source === "mobaxterm"
+          ? await api.mobaxterm.import(mobaPath, hosts, group, keyImport, importPasswords && passwordsFound > 0 ? masterPassword : null)
+          : await api.sshConfig.import(hosts, group, keyImport);
       // CSV tags and notes have no ssh-config equivalent; apply them now.
       if (source === "csv") {
         await vaultStore.reloadAll();
@@ -222,7 +237,9 @@
     <div class="space-y-3 text-sm">
       <p>
         Imported <strong>{summary.hosts_created}</strong> host{summary.hosts_created === 1 ? "" : "s"} and created
-        <strong>{summary.identities_created}</strong> credential{summary.identities_created === 1 ? "" : "s"}{summary.keys_imported
+        <strong>{summary.identities_created}</strong> credential{summary.identities_created === 1 ? "" : "s"}{summary.passwords_imported
+          ? ` (${summary.passwords_imported} with a saved password)`
+          : ""}{summary.keys_imported
           ? `, copied ${summary.keys_imported} key(s) into the vault`
           : ""}{summary.forwards_created ? `, ${summary.forwards_created} tunnel(s)` : ""}{summary.proxies_created
           ? `, ${summary.proxies_created} ProxyCommand(s)`
@@ -299,6 +316,7 @@
                   <th class="px-2 py-1.5 font-medium">User</th>
                   <th class="px-2 py-1.5 font-medium">Key / jump</th>
                   {#if source === "ansible" || source === "mobaxterm" || source === "asbru"}<th class="px-2 py-1.5 font-medium">Group</th>{/if}
+                  {#if source === "mobaxterm"}<th class="px-2 py-1.5 font-medium">Password</th>{/if}
                 </tr>
               </thead>
               <tbody>
@@ -320,11 +338,38 @@
                       {/if}
                     </td>
                     {#if source === "ansible" || source === "mobaxterm" || source === "asbru"}<td class="px-2 py-1.5 text-fg-muted">{h.group ?? "—"}</td>{/if}
+                    {#if source === "mobaxterm"}<td class="px-2 py-1.5 text-fg-muted">{h.has_password ? "saved" : "—"}</td>{/if}
                   </tr>
                 {/each}
               </tbody>
             </table>
           </div>
+
+          {#if source === "mobaxterm"}
+            {#if passwordsFound > 0}
+              <div class="space-y-2 rounded-lg border border-line p-3 text-sm">
+                <label class="flex items-center gap-2">
+                  <input type="checkbox" class="accent-input" bind:checked={importPasswords} />
+                  Import the {passwordsFound} saved password{passwordsFound === 1 ? "" : "s"} too
+                </label>
+                {#if importPasswords}
+                  <div>
+                    <label class="label" for="imp-master">MobaXterm master password</label>
+                    <input id="imp-master" class="input font-mono text-xs" type="password" autocomplete="off" bind:value={masterPassword} spellcheck="false" />
+                    <p class="mt-1 text-xs text-fg-muted">
+                      The passwords are decrypted on this computer and stored in the vault with their hosts. If you never set a master password, MobaXterm uses your Windows
+                      user name and computer name: type them as <span class="font-mono">user@computer</span> (filled in for you on Windows).
+                    </p>
+                  </div>
+                {/if}
+              </div>
+            {:else}
+              <p class="text-xs text-fg-muted">
+                This file holds no saved passwords. MobaXterm keeps them in <span class="font-mono">MobaXterm.ini</span> (<span class="font-mono">%APPDATA%\MobaXterm</span>, or next to
+                MobaXterm.exe for the portable edition): choose that file to import hosts with their passwords.
+              </p>
+            {/if}
+          {/if}
 
           <div class="flex items-end gap-3">
             <div class="flex-1">

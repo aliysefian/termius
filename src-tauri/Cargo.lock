@@ -7130,6 +7130,7 @@ dependencies = [
 name = "sshvault"
 version = "0.42.0"
 dependencies = [
+ "aes 0.9.3",
  "argon2 0.5.3",
  "async-trait",
  "base64 0.22.1",

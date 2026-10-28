@@ -14,6 +14,24 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+/// A password an importer found. It is never serialized, so it never reaches the window, and it is never printed.
+#[derive(Clone, Default)]
+pub struct ImportedSecret(pub zeroize::Zeroizing<String>);
+
+impl PartialEq for ImportedSecret {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.as_str() == other.0.as_str()
+    }
+}
+
+impl Eq for ImportedSecret {}
+
+impl std::fmt::Debug for ImportedSecret {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ImportedSecret(***)")
+    }
+}
+
 /// One importable host, fully resolved.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ImportedHost {
@@ -44,6 +62,12 @@ pub struct ImportedHost {
     /// `LocalForward`, `RemoteForward` and `DynamicForward` lines.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub forwards: Vec<crate::models::ForwardKind>,
+    /// A password to save with the host (from MobaXterm's password store). Filled in by the backend only.
+    #[serde(skip)]
+    pub password: Option<ImportedSecret>,
+    /// The source holds a (still encrypted) password for this host.
+    #[serde(default)]
+    pub has_password: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -379,6 +403,8 @@ pub struct ImportSummary {
     pub proxies_created: usize,
     #[serde(default)]
     pub forwards_created: usize,
+    #[serde(default)]
+    pub passwords_imported: usize,
     pub skipped_existing: Vec<String>,
     pub warnings: Vec<String>,
 }
@@ -468,9 +494,25 @@ pub fn import_into_vault(
                 key_id.map(|key_id| (path.clone(), AuthMethod::Key { key_id }))
             }
         };
-        let identity_id = match &user {
-            None => None,
-            Some(user) => {
+        let identity_id = match (&user, &h.password) {
+            (None, _) => None,
+            // A saved password is the host's own: one identity per host, which goes with it.
+            (Some(user), Some(secret)) => {
+                let rec = vault.insert(
+                    Collection::Identities,
+                    &Identity {
+                        label: format!("{user} @ {}", h.alias),
+                        username: user.clone(),
+                        auth: AuthMethod::Password { password: secret.0.as_str().to_owned() },
+                        notes: "Imported with the host".into(),
+                        for_host: Some(*id),
+                    },
+                )?;
+                summary.identities_created += 1;
+                summary.passwords_imported += 1;
+                Some(rec.id)
+            }
+            (Some(user), None) => {
                 let key = (user.clone(), key_file.as_ref().map(|(p, _)| p.clone()));
                 if let Some(existing) = identities.get(&key) {
                     Some(*existing)

@@ -616,6 +616,8 @@ export interface ImportedHost {
   forward_x11: boolean;
   /** Folder inside the import group, e.g. an Ansible group path. */
   group?: string | null;
+  /** The source holds an encrypted password for this host (MobaXterm). The password itself is never sent here. */
+  has_password?: boolean;
   /** Imported unapproved; never runs until approved in Proxies. */
   proxy_command?: string | null;
   keepalive_secs?: number | null;
@@ -801,6 +803,8 @@ export interface ImportSummary {
   keys_imported: number;
   proxies_created: number;
   forwards_created: number;
+  /** Passwords stored with their hosts (MobaXterm import). */
+  passwords_imported?: number;
   skipped_existing: string[];
   warnings: string[];
 }

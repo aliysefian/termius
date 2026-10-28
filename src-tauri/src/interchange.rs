@@ -5,9 +5,9 @@
 //! [`ExportHost`]s back into the client's file. Supporting another client (SecureCRT, …) means writing one
 //! `HostFormat` and adding it to [`formats`].
 //!
-//! Secrets never pass through here. Parsers don't read passwords out of the foreign file (they warn that some were
-//! left behind), and exports carry user names and key *paths* only: the collector below never copies a password,
-//! private key or passphrase out of the vault.
+//! Exports carry user names and key *paths* only: the collector below never copies a password, private key or
+//! passphrase out of the vault. Parsers here read no passwords either (Ásbrú's are left behind with a warning); the
+//! one importer that can, MobaXterm's, does it in its own command, with the passwords decrypted in the backend.
 
 use std::collections::HashSet;
 

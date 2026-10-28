@@ -475,6 +475,11 @@ export function diagnoseHost(hostId: Uuid, onEvent: (e: DiagEvent) => void) {
 
 export const mobaxterm = {
   preview: (path: string) => invoke<SshConfigPreview>("mobaxterm_preview", { path }),
+  /** With a master password, the saved passwords are decrypted in the backend and stored with their hosts. */
+  import: (path: string, hosts: ImportedHost[], group: string, keyImport: KeyImport, masterPassword: string | null) =>
+    invoke<ImportSummary>("mobaxterm_import", { path, hosts, group, keyImport, masterPassword }),
+  /** `user@computer`, what MobaXterm uses when no master password was set (Windows only). */
+  defaultMaster: () => invoke<string | null>("mobaxterm_default_master"),
 };
 
 /** Another SSH client whose host files can be imported and exported (MobaXterm, Ásbrú). */
