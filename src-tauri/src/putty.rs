@@ -63,6 +63,7 @@ pub fn session_to_host(name: &str, kv: &BTreeMap<String, String>) -> Option<Impo
         },
         keepalive_secs: get("PingInterval").and_then(|p| parse_num(&p)).filter(|p| *p > 0).and_then(|p| u32::try_from(p).ok()),
         forwards: Vec::new(),
+        ..Default::default()
     })
 }
 

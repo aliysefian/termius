@@ -331,6 +331,7 @@ pub fn parse(text: &str, home: &Path) -> ParseResult {
             proxy_command,
             keepalive_secs,
             forwards,
+            ..Default::default()
         });
     }
     result
