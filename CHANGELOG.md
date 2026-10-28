@@ -4,6 +4,10 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## 0.43.0 - 2026-10-28
+
+- **New:** importing from MobaXterm can bring the **saved passwords** along. Choose `MobaXterm.ini` (not an exported `.mxtsessions` file, which holds none), and the preview shows which hosts have one. Enter the MobaXterm master password and the passwords are decrypted on this computer and stored in the vault as each host's own credential. If you never set a master password, MobaXterm uses your Windows user name and computer name, `user@computer`, which is filled in for you on Windows. A master password that does not fit imports nothing. The decrypted passwords never pass through the window.
+
 ## 0.42.0 - 2026-10-28
 
 - **New:** **website checks** on the Monitoring page. Add web addresses to a host, one per line, and it checks that each answers with the right status (any 2xx or 3xx unless you name one), how long it takes to start answering, and, for https, how many days the certificate has left. You can also require some text on the page. New rules: **site down**, **site response time** and **certificate expiring**. Redirects are not followed, so a site that answers `301` shows `301`.
