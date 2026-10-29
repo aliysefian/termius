@@ -33,6 +33,7 @@ use base64::{
     Engine,
 };
 use sha2::{Digest, Sha512};
+use std::collections::{BTreeMap, HashMap};
 use zeroize::Zeroizing;
 
 use crate::interchange::{ExportHost, HostFormat, ImportContext};
@@ -71,16 +72,25 @@ fn key_path(fields: &[&str], profile_dir: Option<&str>) -> Option<String> {
     })
 }
 
+/// `[Bookmarks]`, `[Bookmarks_1]`…: where MobaXterm keeps its sessions, one section per folder.
+fn is_bookmarks(section: &str) -> bool {
+    section.get(..9).is_some_and(|p| p.eq_ignore_ascii_case("bookmarks"))
+}
+
 pub fn parse(text: &str, profile_dir: Option<&str>) -> Parsed {
     let text = text.strip_prefix('\u{feff}').unwrap_or(text);
     let mut out = Parsed::default();
     let mut in_bookmarks = false;
     let mut folder = String::new();
     let mut skipped_other = 0usize;
+    let mut bookmark_sections = 0usize;
+    let mut unreadable = 0usize;
+    let mut other_kinds: BTreeMap<String, usize> = BTreeMap::new();
     for raw in text.lines() {
         let line = raw.trim();
         if line.starts_with('[') && line.ends_with(']') {
-            in_bookmarks = line[1..line.len() - 1].starts_with("Bookmarks");
+            in_bookmarks = is_bookmarks(&line[1..line.len() - 1]);
+            bookmark_sections += usize::from(in_bookmarks);
             folder.clear();
             continue;
         }
@@ -97,10 +107,13 @@ pub fn parse(text: &str, profile_dir: Option<&str>) -> Parsed {
             _ => {}
         }
         // "#109#0%host%port%user%…"
-        let Some(rest) = value.strip_prefix('#') else { continue };
-        let Some((kind, params)) = rest.split_once('#') else { continue };
+        let Some((kind, params)) = value.strip_prefix('#').and_then(|rest| rest.split_once('#')) else {
+            unreadable += 1;
+            continue;
+        };
         if kind != SSH {
             skipped_other += 1;
+            *other_kinds.entry(kind.to_string()).or_default() += 1;
             continue;
         }
         let fields: Vec<&str> = params.split('%').collect();
@@ -126,7 +139,63 @@ pub fn parse(text: &str, profile_dir: Option<&str>) -> Parsed {
             "{skipped_other} non-SSH bookmark(s) (RDP, VNC, serial, …) were skipped"
         ));
     }
+    let renamed = tell_repeats_apart(&mut out.hosts);
+    if renamed > 0 {
+        out.warnings.push(format!("{renamed} session(s) share a name with another one, so their names now say which folder they are in"));
+    }
+    if out.hosts.is_empty() {
+        out.warnings.push(why_no_hosts(text, bookmark_sections, unreadable, &other_kinds));
+    }
     out
+}
+
+/// MobaXterm needs a session's name to be unique only within its folder, so `web-01` can be in `Prod/EU` and in
+/// `Stage/EU`. A host is known by its name alone from here on (it is the label in the vault, and the import skips a
+/// label that is taken), so a name that repeats gets its folder added: `web-01 (Prod/EU)`. Two of one name in one
+/// folder, which only a hand-merged file can have, are numbered. Returns how many hosts were renamed.
+fn tell_repeats_apart(hosts: &mut [ImportedHost]) -> usize {
+    let mut uses: HashMap<String, usize> = HashMap::new();
+    for h in hosts.iter() {
+        *uses.entry(h.alias.to_lowercase()).or_default() += 1;
+    }
+    let mut renamed = 0;
+    for h in hosts.iter_mut().filter(|h| uses[&h.alias.to_lowercase()] > 1) {
+        h.alias = format!("{} ({})", h.alias, h.group.as_deref().unwrap_or("top level"));
+        renamed += 1;
+    }
+    let mut seen: HashMap<String, usize> = HashMap::new();
+    for h in hosts.iter_mut() {
+        let n = seen.entry(h.alias.to_lowercase()).or_default();
+        *n += 1;
+        if *n > 1 {
+            h.alias = format!("{} #{n}", h.alias);
+            renamed += 1;
+        }
+    }
+    renamed
+}
+
+/// Said when a file gave no SSH bookmark, so it is plain which part of the file this app could not use. It names
+/// sections and session type numbers only, never a host, user or password.
+fn why_no_hosts(text: &str, bookmark_sections: usize, unreadable: usize, other_kinds: &BTreeMap<String, usize>) -> String {
+    if bookmark_sections == 0 {
+        let sections = section_list(text).unwrap_or_else(|| "It has no [sections] at all, so it does not look like a MobaXterm file.".into());
+        return format!("This file has no [Bookmarks] section, which is where MobaXterm keeps its sessions; it may have been exported without them. {sections}");
+    }
+    let mut why = Vec::new();
+    if !other_kinds.is_empty() {
+        let kinds: Vec<String> = other_kinds.iter().map(|(k, n)| format!("#{k} ×{n}")).collect();
+        why.push(format!("its sessions are all of other types ({}), and an SSH session is #{SSH}", kinds.join(", ")));
+    }
+    if unreadable > 0 {
+        why.push(format!("{unreadable} line(s) in its [Bookmarks] sections are not in the form name=#{SSH}#0%host%22%user…"));
+    }
+    if why.is_empty() {
+        why.push("its [Bookmarks] sections hold no sessions".into());
+    }
+    let mut why = why.join("; ");
+    why[..1].make_ascii_uppercase();
+    format!("{why}.")
 }
 
 /// The inverse of [`unescape`], and `=` / line breaks, which would end the name early.
@@ -196,14 +265,33 @@ pub fn decode_text(bytes: &[u8]) -> String {
     }
 }
 
-/// What to say when a file that is more than a list of bookmarks has no saved passwords in it: the sections it does
-/// have, so it is plain whether they are somewhere this app does not look. Names only, never a value.
-pub fn no_passwords_note(text: &str) -> Option<String> {
+/// What this is, if the file is an archive or other binary rather than the text MobaXterm writes (a zip's first bytes
+/// would otherwise just read as "no sessions"). UTF-16 text is full of zero bytes and is not this.
+pub fn not_text(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.starts_with(b"PK\x03\x04") {
+        return Some("a zip archive");
+    }
+    if bytes.starts_with(&[0x1F, 0x8B]) {
+        return Some("a gzip archive");
+    }
+    if bytes.starts_with(b"7z\xBC\xAF") {
+        return Some("a 7-Zip archive");
+    }
+    // What MobaXterm 25 and later writes in front of anything it encrypts with a password, here the whole file.
+    if bytes.starts_with(b"_@") {
+        return Some("an encrypted export (it starts with _@)");
+    }
+    let utf16 = bytes.starts_with(&[0xFF, 0xFE]) || bytes.starts_with(&[0xFE, 0xFF]);
+    (!utf16 && bytes.iter().take(4096).any(|&b| b == 0)).then_some("a binary file")
+}
+
+/// The sections of a file other than the bookmark ones, as "Its sections: A, B and 3 more". Names only, never a value.
+fn section_list(text: &str) -> Option<String> {
     let text = text.strip_prefix('\u{feff}').unwrap_or(text);
     let mut names: Vec<&str> = Vec::new();
     for line in text.lines() {
         let name = line.trim().strip_prefix('[').and_then(|l| l.strip_suffix(']'));
-        if let Some(name) = name.filter(|n| !n.starts_with("Bookmarks") && !names.contains(n)) {
+        if let Some(name) = name.filter(|n| !is_bookmarks(n) && !names.contains(n)) {
             names.push(name);
         }
     }
@@ -212,7 +300,13 @@ pub fn no_passwords_note(text: &str) -> Option<String> {
     }
     let more = names.len().saturating_sub(24);
     names.truncate(24);
-    Some(format!("No saved passwords were found in this file. Its sections: {}{}.", names.join(", "), if more > 0 { format!(" and {more} more") } else { String::new() }))
+    Some(format!("Its sections: {}{}.", names.join(", "), if more > 0 { format!(" and {more} more") } else { String::new() }))
+}
+
+/// What to say when a file that is more than a list of bookmarks has no saved passwords in it: the sections it does
+/// have, so it is plain whether they are somewhere this app does not look.
+pub fn no_passwords_note(text: &str) -> Option<String> {
+    section_list(text).map(|sections| format!("No saved passwords were found in this file. {sections}"))
 }
 
 // -- the password store ------------------------------------------------------------------------------------------
@@ -937,6 +1031,67 @@ broken=#109#0%%22%x
         assert_eq!(no_passwords_note(INI.replace("[Misc]", "[Bookmarks_9]").as_str()), None, "a plain bookmarks file has nothing to explain");
         let many: String = (0..30).map(|n| format!("[S{n}]\n")).collect();
         assert!(no_passwords_note(&many).unwrap().ends_with("S23 and 6 more."));
+    }
+
+    #[test]
+    fn a_file_with_no_ssh_bookmark_says_why() {
+        let note = |ini: &str| {
+            let p = parse(ini, None);
+            assert!(p.hosts.is_empty());
+            p.warnings.join(" | ")
+        };
+        let w = note("[Misc]\nSessionP=1\n[Passwords]\nssh22:ops@h=x\n");
+        assert!(w.contains("no [Bookmarks] section") && w.contains("Its sections: Misc, Passwords."), "{w}");
+        assert!(note("just some text\n").contains("no [sections] at all"));
+        assert_eq!(note("[Bookmarks]\nSubRep=\nImgNum=42\n[Bookmarks_1]\nSubRep=x\n"), "Its [Bookmarks] sections hold no sessions.");
+        let w = note("[bookmarks]\nSubRep=\nrdp=#91#4%h%3389%u\nrdp2=#91#4%h%3389%u\nvnc=#128#5%h%5900\n");
+        assert!(w.contains("3 non-SSH") && w.contains("#128 ×1, #91 ×2") && w.contains("an SSH session is #109"), "{w}");
+        let w = note("[Bookmarks]\nweb=10.0.0.5\n");
+        assert!(w.contains("1 line(s)") && w.contains("name=#109#0%host%22%user"), "{w}");
+        assert!(!w.contains("10.0.0.5"), "a value must not be repeated: {w}");
+        // Nothing to explain once a host was found.
+        assert!(!parse(INI, None).warnings.iter().any(|w| w.contains("[Bookmarks]")));
+    }
+
+    #[test]
+    fn the_same_name_in_two_folders_stays_two_hosts() {
+        let ini = "[Bookmarks_1]\nSubRep=Prod\\EU\\Web\nweb-01=#109#0%10.0.0.1%22%ops\nweb-02=#109#0%10.0.0.2%22%ops\n\
+                   [Bookmarks_2]\nSubRep=Stage\\EU\nWeb-01=#109#0%10.1.0.1%22%ops\n\
+                   [Bookmarks]\nSubRep=\nweb-01=#109#0%10.2.0.1%22%ops\n";
+        let p = parse(ini, None);
+        let names: Vec<&str> = p.hosts.iter().map(|h| h.alias.as_str()).collect();
+        assert_eq!(names, ["web-01 (Prod/EU/Web)", "web-02", "Web-01 (Stage/EU)", "web-01 (top level)"]);
+        let hosts: Vec<&str> = p.hosts.iter().map(|h| h.hostname.as_str()).collect();
+        assert_eq!(hosts, ["10.0.0.1", "10.0.0.2", "10.1.0.1", "10.2.0.1"], "every host keeps its own address");
+        assert!(p.warnings.iter().any(|w| w.starts_with("3 session(s) share a name")), "{:?}", p.warnings);
+        let unique: std::collections::HashSet<String> = p.hosts.iter().map(|h| h.alias.to_lowercase()).collect();
+        assert_eq!(unique.len(), p.hosts.len());
+    }
+
+    #[test]
+    fn two_of_one_name_in_one_folder_are_numbered() {
+        let p = parse("[Bookmarks]\nSubRep=A\nweb=#109#0%h1%22%u\nweb=#109#0%h2%22%u\nother=#109#0%h3%22%u\n", None);
+        let names: Vec<&str> = p.hosts.iter().map(|h| h.alias.as_str()).collect();
+        assert_eq!(names, ["web (A)", "web (A) #2", "other"]);
+    }
+
+    #[test]
+    fn names_that_do_not_repeat_are_left_alone() {
+        let p = parse(INI, Some("C:\\Users\\me"));
+        assert_eq!(p.hosts[0].alias, "web-01");
+        assert!(!p.warnings.iter().any(|w| w.contains("share a name")), "{:?}", p.warnings);
+    }
+
+    #[test]
+    fn an_archive_is_not_taken_for_an_empty_bookmarks_file() {
+        assert_eq!(not_text(b"PK\x03\x04\x14\x00rest"), Some("a zip archive"));
+        assert_eq!(not_text(&[0x1F, 0x8B, 8, 0]), Some("a gzip archive"));
+        assert_eq!(not_text(b"7z\xBC\xAF\x27\x1C"), Some("a 7-Zip archive"));
+        assert_eq!(not_text(b"_@etAbCdEfGhIjKlMnAA"), Some("an encrypted export (it starts with _@)"));
+        assert_eq!(not_text(b"[Bookmarks]\r\nSubRep=\r\n\x00"), Some("a binary file"));
+        assert_eq!(not_text(b"[Bookmarks]\r\nSubRep=\r\n"), None);
+        let utf16: Vec<u8> = [0xFF, 0xFE].into_iter().chain("[Bookmarks]".encode_utf16().flat_map(u16::to_le_bytes)).collect();
+        assert_eq!(not_text(&utf16), None, "UTF-16 text has zero bytes and is still text");
     }
 
     #[test]

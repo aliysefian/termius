@@ -2792,6 +2792,9 @@ pub fn csv_preview(path: String) -> ApiResult<crate::csvimport::CsvTable> {
 fn read_mobaxterm_file(path: &str) -> ApiResult<String> {
     let p = PathBuf::from(crate::sshconfig::expand_path(path, &sftp::local::home()));
     let bytes = crate::vault::read_regular_file(&p, 16 * 1024 * 1024).map_err(|e| ApiError::new("io", format!("{}: {e}", p.display())))?;
+    if let Some(what) = crate::mobaxterm::not_text(&bytes) {
+        return Err(ApiError::new("bad_export", format!("{}: this is {what}, not the text file MobaXterm writes (MobaXterm.ini, or a .mobaconf or .mxtsessions export).", p.display())));
+    }
     Ok(crate::mobaxterm::decode_text(&bytes))
 }
 
