@@ -1055,6 +1055,9 @@
           void copySelection();
           return false;
         case "KeyV":
+          // Returning false only stops xterm; the webview's own Ctrl+Shift+V would still fire a native paste
+          // event, and the paste listener below would paste the text a second time.
+          e.preventDefault();
           void paste();
           return false;
         case "KeyF":

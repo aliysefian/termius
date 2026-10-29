@@ -122,6 +122,8 @@
         return false;
       }
       if (e.code === "KeyV") {
+        // Otherwise the webview also fires a native paste event, which xterm pastes a second time.
+        e.preventDefault();
         void readText().then((t) => t && term?.paste(t));
         return false;
       }
