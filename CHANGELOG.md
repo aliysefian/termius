@@ -4,6 +4,14 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## 0.44.0 - 2026-10-29
+
+- **New:** **two-factor codes.** Some servers ask for a "Verification code" after your password or key. SSHVault can now answer that question for you from a secret saved on a credential (the Base32 secret your authenticator app showed, or the `otpauth://` link from its QR code). **It is off until you turn it on**, under **Settings → Connections → Two-factor codes**, and that applies to this computer only. With it off, or with no secret saved, the server's question reaches you as before and you type the code yourself. The credential form shows the code it makes right now, so you can check it against your app before saving.
+- It works for a password followed by a code, and for a key followed by a code. A code goes only to a question that asks for one, and the password only to a password question. Duo, push approvals and PINs are not answered. If a server asks for a password after a key login, nothing is sent.
+- A second factor saved next to the first protects less: anyone who can open your vault can log in without your phone. Leave the secret out for any server where that matters. The secret is shown only after your master password, and it is left out of host exports unless you include secrets.
+- A server refuses a code it has already accepted, so a second connection to the same host and user within the same 30 seconds waits for the next code.
+- Not yet tried against a real server with `pam_google_authenticator`; it is tested against a test server that asks the same questions.
+
 ## 0.43.3 - 2026-10-29
 
 - **Fixed:** pasting with **Ctrl+Shift+V** in a terminal put the text in twice. It now pastes once, in both normal terminals and tmux panes.
