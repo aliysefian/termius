@@ -4,6 +4,10 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## 0.43.3 - 2026-10-29
+
+- **Fixed:** pasting with **Ctrl+Shift+V** in a terminal put the text in twice. It now pastes once, in both normal terminals and tmux panes.
+
 ## 0.43.2 - 2026-10-28
 
 - **Fixed:** importing from MobaXterm failed for the usual setup, a MobaXterm with no master password. Its saved passwords could not be read, and the import stopped with nothing imported, hosts included. Those passwords now come along without typing anything. If you did set a master password, enter it in the box: the import says when a file needs one and imports nothing until it has it, and one password that cannot be read no longer stops the rest. Passwords that MobaXterm 25 or later protects with a master password use a newer layout that this app reads from a third-party description, not yet tried on a real file.
