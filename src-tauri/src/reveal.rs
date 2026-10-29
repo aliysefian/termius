@@ -121,6 +121,9 @@ pub struct Revealed {
     pub password: Option<String>,
     pub private_key: Option<String>,
     pub passphrase: Option<String>,
+    /// The one-time-code secret, when the identity has one.
+    #[serde(default)]
+    pub totp: Option<String>,
 }
 
 impl From<&AuthMethod> for Revealed {

@@ -202,6 +202,9 @@ pub struct Target {
     /// Lets the person switch agent forwarding off or on for a time while the session runs, and sees each signature
     /// the remote host asks for. Only meaningful with `forward_agent`; none means forwarding runs as it always has.
     pub agent_gate: Option<Arc<crate::agentgate::AgentGate>>,
+    /// Secret for answering a server's one-time-code prompt. None unless the person switched two-factor codes on for
+    /// this computer and the credential has a secret; see `totp`.
+    pub totp: Option<crate::totp::Totp>,
 }
 
 /// A host key recorded for the first time during a connection.
@@ -1239,7 +1242,7 @@ async fn authenticate(handle: &mut Handle<ClientHandler>, params: &Target) -> Re
                 return Ok(());
             }
             // Many servers only offer keyboard-interactive for passwords.
-            if keyboard_interactive(handle, user, &password).await? {
+            if keyboard_interactive(handle, params, Some(&password)).await? {
                 return Ok(());
             }
             Err(fail("password"))
@@ -1301,32 +1304,65 @@ async fn key_login(
         }
     };
     if result.success() {
-        Ok(())
-    } else {
-        Err(SshError::AuthFailed {
-            user: params.username.clone(),
-            host: params.hostname.clone(),
-            method: if certificate.is_some() { "certificate" } else { "private key" },
-        })
+        return Ok(());
+    }
+    // A server set to `AuthenticationMethods publickey,keyboard-interactive` accepts the key and then asks for a code.
+    // Without a saved secret there is nothing to answer it with, as before. With one, only a code is ever sent here:
+    // if the server asks for a password instead, the exchange is dropped unanswered.
+    if params.totp.is_some() && offers_keyboard_interactive(&result) && keyboard_interactive(handle, params, None).await? {
+        return Ok(());
+    }
+    Err(SshError::AuthFailed {
+        user: params.username.clone(),
+        host: params.hostname.clone(),
+        method: if certificate.is_some() { "certificate" } else { "private key" },
+    })
+}
+
+/// The server would take keyboard-interactive next. OpenSSH also says `partial_success` when the key was accepted, but
+/// that is not relied on: a wrongly rejected key costs only a question that is not answered (see `keyboard_interactive`).
+fn offers_keyboard_interactive(result: &russh::client::AuthResult) -> bool {
+    match result {
+        russh::client::AuthResult::Failure { remaining_methods, .. } => remaining_methods.contains(&russh::MethodKind::KeyboardInteractive),
+        russh::client::AuthResult::Success => false,
     }
 }
 
+/// Answer a server's keyboard-interactive questions. `password` is for password questions; with `None` (a login that
+/// has no password, such as a key) the exchange is dropped, unanswered, if the server asks for one.
 async fn keyboard_interactive(
     handle: &mut Handle<ClientHandler>,
-    user: &str,
-    password: &str,
+    params: &Target,
+    password: Option<&str>,
 ) -> Result<bool, SshError> {
+    use crate::kbdint::{classify, Ask};
     use russh::client::KeyboardInteractiveAuthResponse as R;
     let mut resp = handle
-        .authenticate_keyboard_interactive_start(user, None)
+        .authenticate_keyboard_interactive_start(params.username.as_str(), None)
         .await?;
     for _ in 0..5 {
         match resp {
             R::Success => return Ok(true),
             R::Failure { .. } => return Ok(false),
             R::InfoRequest { prompts, .. } => {
-                // The password goes only to password questions (see `kbdint`), never to a one-time-code prompt.
-                let answers: Vec<String> = prompts.iter().map(|p| crate::kbdint::answer(&p.prompt, p.echo, password)).collect();
+                // The password goes only to password questions (see `kbdint`), never to a one-time-code prompt, and a
+                // code only to a prompt that asks for one, and only when a secret is saved and switched on.
+                if password.is_none() && prompts.iter().any(|p| classify(&p.prompt, p.echo) == Ask::Password) {
+                    return Ok(false);
+                }
+                let password = password.unwrap_or("");
+                let mut code: Option<String> = None;
+                let mut answers = Vec::with_capacity(prompts.len());
+                for p in &prompts {
+                    answers.push(match (classify(&p.prompt, p.echo), params.totp.as_ref()) {
+                        (Ask::Password, _) => password.to_string(),
+                        (Ask::Code, Some(totp)) => match &code {
+                            Some(c) => c.clone(),
+                            None => code.insert(totp.next_code(&format!("{}@{}:{}", params.username, params.hostname, params.port)).await).clone(),
+                        },
+                        _ => String::new(),
+                    });
+                }
                 resp = handle
                     .authenticate_keyboard_interactive_respond(answers)
                     .await?;
@@ -1548,6 +1584,7 @@ pub(crate) mod testutil {
             keepalive_secs: None,
             legacy_algorithms: false,
             agent_gate: None,
+            totp: None,
         }
     }
 }
@@ -1569,6 +1606,7 @@ pub fn testutil_target() -> Target {
         keepalive_secs: None,
         legacy_algorithms: false,
         agent_gate: None,
+        totp: None,
     }
 }
 

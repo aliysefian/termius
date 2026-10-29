@@ -154,6 +154,7 @@ async fn two_pcs_share_a_vault_through_a_synced_folder() {
                 auth: AuthMethod::Key { key_id },
                 notes: String::new(),
                 for_host: None,
+                totp: None,
             },
         )
         .unwrap()

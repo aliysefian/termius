@@ -42,6 +42,47 @@ attempts block reveals for 30 seconds, and the wait doubles with each further
 round of failures. Shown secrets hide themselves after a minute. Copied
 secrets are cleared from the clipboard after 30 seconds, if nothing else has
 been copied since.
+
+## Two-factor codes (one-time codes)
+
+Some servers ask for a **Verification code** after your password or key (Google
+Authenticator, `pam_google_authenticator`, and most "2FA for SSH" setups).
+SSHVault can answer that question for you from a secret saved on a credential.
+It is **off until you turn it on**, and you can always keep typing the code
+yourself: with it off, or with no secret saved, the server's question simply
+reaches you as it did before.
+
+1. **Settings → Connections → Two-factor codes → Turn on.** This applies to
+   this computer only.
+2. Open the credential (**Credentials**), and paste the **One-time code secret**.
+   Use the Base32 secret your authenticator app showed when you set it up (spaces
+   and dashes are fine), or the whole `otpauth://totp/…` link from the QR code. The
+   form shows the code it makes right now; it should match your app.
+3. Connect. When the server asks for a verification code, SSHVault sends the
+   current one.
+
+What it does and does not do:
+
+- A code is sent only to a question that asks for a code. The password is sent
+  only to a password question, and never to a code question.
+- It works for **password then code** and **key then code**
+  (`AuthenticationMethods publickey,keyboard-interactive`). For a key login it only ever
+  sends a code: if the server asks for a password after the key, nothing is sent.
+- Codes of 6 to 8 digits, any period, and SHA-1, SHA-256 or SHA-512 work (the link
+  can set them). Duo, push approvals and PINs are not answered.
+- The secret is stored in the encrypted vault like the password beside it, and is shown only
+  after your master password, like a password. It is left out of host exports unless you
+  include secrets. It is kept with the credential, so it is also in your synced vault; turning
+  the setting off on a computer stops that computer from using it.
+- **Keep in mind:** a second factor saved next to the first protects less. Anyone who can open
+  your vault can log in without your phone. If that matters for a server, leave its secret out
+  and type the code.
+- A server refuses a code it has already accepted. If you open a second connection to the
+  same host and user within the same 30 seconds (an SFTP pane, a tunnel), SSHVault waits for
+  the next code, so it can take up to half a minute.
+- The secret is added on the credential, not in the host form. A login typed into a host's own
+  form is listed under **Credentials → Saved with hosts**; edit it there. Editing the host
+  afterwards keeps the secret.
 - Put hosts in nested groups by typing a path such as `Production/Databases`
   in the **Group** field.
 - **Double-click** a host to open it in a new terminal tab. Hosts you

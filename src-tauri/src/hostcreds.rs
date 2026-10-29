@@ -279,6 +279,7 @@ pub fn save_host_with_credentials(
                             auth,
                             notes: String::new(),
                             for_host: None,
+                            totp: owned.as_ref().and_then(|(_, _, d)| d.totp.clone()),
                         },
                     ));
                     release = owned.as_ref().map(|(iid, _, _)| *iid);
@@ -298,6 +299,7 @@ pub fn save_host_with_credentials(
                             auth,
                             notes,
                             for_host: Some(host_id),
+                            totp: owned.as_ref().and_then(|(_, _, d)| d.totp.clone()),
                         },
                     ));
                     Some(iid)
@@ -584,6 +586,7 @@ mod tests {
                     auth: AuthMethod::Agent,
                     notes: String::new(),
                     for_host: None,
+                    totp: None,
                 },
             )
             .unwrap();

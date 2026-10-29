@@ -31,6 +31,7 @@ export const SETTING_ENTRIES: SettingEntry[] = [
   { label: "Remember commands and history", query: "remember", words: "command history" },
   { label: "Reopen tabs from last time", query: "restore session", words: "reopen tabs" },
   { label: "Paste protection", query: "paste", words: "newline confirm multi-line" },
+  { label: "Two-factor codes (one-time codes)", query: "two-factor", words: "totp 2fa mfa otp authenticator verification code" },
   { label: "Command line (CLI)", query: "command line", words: "cli scripting sshvault" },
   { label: "Shell integration", query: "shell integration", words: "osc 133 prompt directory" },
   { label: "Safety: destructive command patterns", query: "destructive", words: "production confirm" },

@@ -16,6 +16,8 @@ import type {
   HostsImportResult,
   HostsResolution,
   CliStatus,
+  TotpPreview,
+  TotpStatus,
   ComposeVerb,
   ContainerAction,
   ContainerListing,
@@ -184,6 +186,14 @@ export const agent = {
     invoke<VaultRecord<SshKey>>("set_key_agent", { id, baseRev, mode }),
   onPrompt: (handler: (p: AgentPrompt) => void): Promise<UnlistenFn> =>
     listen<AgentPrompt>("agent:prompt", (e) => handler(e.payload)),
+};
+
+/** Two-factor codes (TOTP) for servers that ask for a verification code. Off until switched on. */
+export const totp = {
+  status: () => invoke<TotpStatus>("totp_status"),
+  setEnabled: (enabled: boolean) => invoke<TotpStatus>("totp_set_enabled", { enabled }),
+  /** The code a typed secret gives right now, to compare with the authenticator app. */
+  preview: (secret: string) => invoke<TotpPreview>("totp_preview", { secret }),
 };
 
 /** Command-line control (`sshvault list/connect/run`). */

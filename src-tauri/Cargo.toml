@@ -51,6 +51,8 @@ base64 = "0.22"
 uuid = { version = "1", features = ["v4", "serde"] }
 thiserror = "2"
 sha2 = "0.10"
+# SHA-1 for one-time codes (RFC 6238); every authenticator app and PAM module defaults to it.
+sha1 = "0.10"
 # Stays on 0.12 while sha2 is on 0.10: hmac 0.13 needs sha2 0.11 (digest 0.11), and russh/ssh-key use sha2 0.10.
 hmac = "0.12"
 # OS RNG for ssh-key generation (RSA/ECDSA), which uses rand_core 0.10.
