@@ -317,7 +317,7 @@
                 </tr>
               </thead>
               <tbody>
-                {#each preview.hosts as h (h.alias)}
+                {#each preview.hosts as h, i (i)}
                   {@const exists = preview.existing.includes(h.alias)}
                   <tr class="border-b border-line/50 {exists ? 'opacity-50' : ''}">
                     <td class="px-2 py-1.5">
