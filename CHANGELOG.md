@@ -4,6 +4,12 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## 0.44.1 - 2026-10-29
+
+- **Fixed:** importing from MobaXterm sat on "Reading config…" forever when the same session name was used in more than one folder (for example `web-01` under both `Prod` and `Stage`), which a file with several folder levels often has. Every host is now imported, and a name used more than once gets its folder added, such as `web-01 (Prod/EU/Web)`; the import window says how many were renamed. Before this fix, the repeated names would also have been skipped as "already exists".
+- **Fixed:** if a MobaXterm file gives no SSH hosts, the import window now says why: which sections the file has, or that it only holds other kinds of session (RDP, VNC, …).
+- **Fixed:** a MobaXterm configuration export that was saved with a password (the file starts with `_@`) is now named as encrypted instead of looking empty. This app cannot open those yet: export the sessions again without a password, or use **Export sessions** to make a `.mxtsessions` file.
+
 ## 0.44.0 - 2026-10-29
 
 - **New:** **two-factor codes.** Some servers ask for a "Verification code" after your password or key. SSHVault can now answer that question for you from a secret saved on a credential (the Base32 secret your authenticator app showed, or the `otpauth://` link from its QR code). **It is off until you turn it on**, under **Settings → Connections → Two-factor codes**, and that applies to this computer only. With it off, or with no secret saved, the server's question reaches you as before and you type the code yourself. The credential form shows the code it makes right now, so you can check it against your app before saving.
