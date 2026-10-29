@@ -10,6 +10,7 @@ import {
   isApiError,
   type AgentStatus,
   type CliStatus,
+  type TotpStatus,
   type Collection,
   type CreateResult,
   type HostGroup,
@@ -89,6 +90,8 @@ class VaultStore {
   /** Shared so every view (Keys, Settings, the status bar) agrees without re-fetching. */
   agentStatus = $state<AgentStatus | null>(null);
   cliStatus = $state<CliStatus | null>(null);
+  /** Null until loaded; null and off look the same to the UI. */
+  totpStatus = $state<TotpStatus | null>(null);
   loading = $state(false);
   error = $state<string | null>(null);
 
@@ -198,6 +201,7 @@ class VaultStore {
         this.runbooks,
         this.agentStatus,
         this.cliStatus,
+        this.totpStatus,
       ] = await Promise.all([
         api.hosts.list(),
         api.identities.list(),
@@ -213,6 +217,7 @@ class VaultStore {
         api.runbooks.list(),
         api.agent.status(),
         api.cli.status(),
+        api.totp.status(),
       ]);
       this.error = null;
     } catch (e) {
@@ -240,6 +245,7 @@ class VaultStore {
     this.health = {};
     this.agentStatus = null;
     this.cliStatus = null;
+    this.totpStatus = null;
   }
 
   /** Called for every record the Rust watcher sees change on disk. */
@@ -305,6 +311,10 @@ class VaultStore {
 
   async setCliEnabled(enabled: boolean) {
     this.cliStatus = await api.cli.setEnabled(enabled);
+  }
+
+  async setTotpEnabled(enabled: boolean) {
+    this.totpStatus = await api.totp.setEnabled(enabled);
   }
 
   async setPath(path: string) {

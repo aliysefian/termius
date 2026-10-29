@@ -29,6 +29,11 @@ export interface Identity {
   notes: string;
   /** Set when the credentials were entered in that host's own form. */
   for_host?: Uuid;
+  /**
+   * Secret for one-time codes (Base32 or an otpauth:// link). Lists carry "" when one is saved; empty keeps the
+   * saved one, leaving it out removes it. Only used when two-factor codes are switched on for this computer.
+   */
+  totp?: string;
 }
 
 /** An identity's secrets, shown after the master password is confirmed. */
@@ -36,6 +41,7 @@ export interface Revealed {
   password: string | null;
   private_key: string | null;
   passphrase: string | null;
+  totp: string | null;
 }
 
 /** Secret-free auth sent from the host form. Empty secrets keep the stored ones. */
@@ -424,6 +430,16 @@ export interface AgentStatus {
   /** Socket path (or named pipe on Windows) for SSH_AUTH_SOCK. */
   path: string | null;
   enabled: boolean;
+}
+
+/** Answering a server's "Verification code" prompt from an identity's saved secret. Off until switched on. */
+export interface TotpStatus {
+  enabled: boolean;
+}
+
+export interface TotpPreview {
+  code: string;
+  seconds_left: number;
 }
 
 export interface CliStatus {

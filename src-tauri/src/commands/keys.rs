@@ -245,6 +245,8 @@ pub fn save_identity(
                 })?;
         identity.auth = crate::reveal::merge_auth(identity.auth, stored.as_ref().map(|s| &s.auth))
             .map_err(|m| ApiError::new("validation", m))?;
+        identity.totp = crate::totp::merge_secret(identity.totp.take(), stored.as_ref().and_then(|s| s.totp.as_deref()))
+            .map_err(|e| ApiError::new("validation", e.to_string()))?;
         // Keep host ownership: the form doesn't send it.
         if identity.for_host.is_none() {
             identity.for_host = stored.and_then(|s| s.for_host);
@@ -252,6 +254,8 @@ pub fn save_identity(
     } else {
         identity.auth = crate::reveal::merge_auth(identity.auth, None)
             .map_err(|m| ApiError::new("validation", m))?;
+        identity.totp = crate::totp::merge_secret(identity.totp.take(), None)
+            .map_err(|e| ApiError::new("validation", e.to_string()))?;
     }
     // Return the redacted form.
     let mut rec = save_record(&state, Collection::Identities, id, base_rev, identity)?;

@@ -2,6 +2,8 @@
 
 #[cfg(test)]
 mod acceptance_tests;
+#[cfg(test)]
+mod twofactor_tests;
 pub mod agent;
 pub mod agentgate;
 pub mod algorithms;
@@ -69,6 +71,7 @@ pub mod spawnlint;
 pub mod ssh;
 pub mod sshconfig;
 pub mod sync;
+pub mod totp;
 pub mod tray;
 pub mod unlockguard;
 pub mod vault;
@@ -325,6 +328,9 @@ pub fn run() {
             commands::cli_set_enabled,
             commands::answer_cli_request,
             commands::agent_set_enabled,
+            commands::totp_status,
+            commands::totp_set_enabled,
+            commands::totp_preview,
             commands::answer_agent_request,
             commands::set_key_agent,
             commands::transfer_resume,

@@ -507,6 +507,7 @@ pub fn import_into_vault(
                         auth: AuthMethod::Password { password: secret.0.as_str().to_owned() },
                         notes: "Imported with the host".into(),
                         for_host: Some(*id),
+                        totp: None,
                     },
                 )?;
                 summary.identities_created += 1;
@@ -536,6 +537,7 @@ pub fn import_into_vault(
                             auth,
                             notes: "Imported from ssh config".into(),
                             for_host: None,
+                            totp: None,
                         },
                     )?;
                     summary.identities_created += 1;
@@ -1095,6 +1097,7 @@ Host *
                 auth: AuthMethod::Agent,
                 notes: String::new(),
                 for_host: None,
+                totp: None,
             },
         )]);
         let text = export(&hosts, &ids);

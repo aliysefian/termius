@@ -3,7 +3,7 @@
   import NotifyChannelsSettings from "./NotifyChannelsSettings.svelte";
   import HighlightRules from "./HighlightRules.svelte";
   import specSource from "$lib/completion/specs/SOURCE.json";
-  import { ChevronDown, ChevronUp, Copy, Download, ExternalLink, Loader2, Lock, Palette, RefreshCw, RotateCcw, Search, ShieldAlert, SquareTerminal, TerminalSquare, X } from "lucide-svelte";
+  import { ChevronDown, ChevronUp, Copy, Download, ExternalLink, Loader2, Lock, Palette, RefreshCw, RotateCcw, Search, ShieldAlert, ShieldCheck, SquareTerminal, TerminalSquare, X } from "lucide-svelte";
   import { onMount } from "svelte";
     import { RELEASES_URL, formatSize, installHint, installUpdate, updates } from "$lib/stores/updates.svelte";
   import { openUrl } from "@tauri-apps/plugin-opener";
@@ -75,6 +75,7 @@
   const SIDEBAR_KEYWORDS = "sidebar rail icons labels hide show reorder order pin manage layout";
   const OPS_KEYWORDS = "alerts alert notify notification host down cpu memory disk threshold quiet hours mute monitoring history charts keep week day operations";
   const NOTIFY_KEYWORDS = "notification channels telegram bale email smtp bot token chat id messages send test monitoring alerts";
+  const TOTP_KEYWORDS = "two-factor codes totp one-time verification code authenticator 2fa mfa otp";
   const SMART_COMPLETION_KEYWORDS = "smart completion autocomplete auto complete suggestions suggest ghost inline tab history snippets options paths";
 
   // Mirrors the keyword strings each section's `visible()` guard uses, just
@@ -86,6 +87,7 @@
     "layout density compact comfortable focus mode shortcuts",
     "local terminal shell bash zsh fish powershell wsl start folder cwd",
     SMART_COMPLETION_KEYWORDS,
+    TOTP_KEYWORDS,
     OPS_KEYWORDS,
     NOTIFY_KEYWORDS,
     SIDEBAR_KEYWORDS,
@@ -106,6 +108,7 @@
   // (a shared one used to surface far from whatever action set it).
   let themeMsg = $state<Msg>(null);
   let cliMsg = $state<Msg>(null);
+  let totpMsg = $state<Msg>(null);
   let exportMsg = $state<Msg>(null);
   let safetyMsg = $state<Msg>(null);
 
@@ -138,6 +141,17 @@
   const aliasLine = $derived(
     cli?.executable ? (isWindows ? `Set-Alias sshvault "${cli.executable}"` : `alias sshvault='${cli.executable.replace(/'/g, "'\\''")}'`) : "",
   );
+
+  // -- two-factor codes ----------------------------------------------------------
+  const totpOn = $derived(vaultStore.totpStatus?.enabled ?? false);
+  async function toggleTotp() {
+    totpMsg = null;
+    try {
+      await vaultStore.setTotpEnabled(!totpOn);
+    } catch (e) {
+      totpMsg = { ok: false, text: errorMessage(e) };
+    }
+  }
 
   async function toggleCli() {
     try {
@@ -648,6 +662,37 @@
           <span class="block text-xs text-fg-muted">Copying a line from a file or editor often adds a trailing newline; without this, pasting it submits an extra blank line.</span>
         </span>
       </label>
+    </section>
+    {/if}
+
+    {#if visible("connections", TOTP_KEYWORDS)}
+    <section class="rounded-xl border border-line bg-panel p-5">
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <h2 class="mb-1 flex items-center gap-2 text-sm font-semibold"><ShieldCheck size={15} class="text-accent" /> Two-factor codes</h2>
+          <p class="text-xs text-fg-muted">
+            Answer a server's "Verification code" question for you, from a secret saved on a credential. Off by default: nothing is
+            sent until you turn this on and add a secret to a credential, and you can keep typing codes by hand on any host.
+          </p>
+        </div>
+        <button class="btn-{totpOn ? 'ghost border border-line' : 'primary'} shrink-0" onclick={toggleTotp}>{totpOn ? "Turn off" : "Turn on"}</button>
+      </div>
+      {@render msgBox(totpMsg)}
+      {#if totpOn}
+        <p class="mt-3 text-xs text-fg-muted">
+          Open a credential under <strong>Credentials</strong> and paste the secret (or the <code>otpauth://</code> link) your authenticator
+          app gave you. A code is sent only to a question that asks for one, never to a password question.
+        </p>
+        <p class="mt-2 rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-fg-muted">
+          With the secret saved here, anyone who opens this vault can log in without your phone. The vault is encrypted and the
+          secret is stored like the password beside it, but a second factor kept next to the first no longer protects against
+          someone who gets into the vault. This setting applies to this computer only.
+        </p>
+        <p class="mt-2 text-xs text-fg-muted">
+          Opening a second connection to the same host in the same 30 seconds waits for the next code, because servers refuse a code they
+          have already accepted.
+        </p>
+      {/if}
     </section>
     {/if}
 

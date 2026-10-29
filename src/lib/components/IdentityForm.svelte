@@ -7,7 +7,7 @@
   import * as api from "$lib/api";
   import { ui } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
-  import { emptyIdentity, errorMessage, type AuthMethod, type Identity, type Uuid } from "$lib/types";
+  import { emptyIdentity, errorMessage, type AuthMethod, type Identity, type TotpPreview, type Uuid } from "$lib/types";
 
   let { id }: { id: Uuid | null } = $props();
 
@@ -35,7 +35,52 @@
 
   const savedPassword = stored?.auth.type === "password";
 
-  const fingerprint = () => JSON.stringify([$state.snapshot(form), authType, password, privateKey, passphrase, keyId, keyPath]);
+  // Two-factor codes: only shown when switched on for this computer (Settings → Connections). A secret saved earlier
+  // is left alone either way: leaving the field empty keeps it.
+  const totpOn = $derived(vaultStore.totpStatus?.enabled ?? false);
+  const savedTotp = stored?.totp !== undefined;
+  let totpSecret = $state("");
+  let showTotp = $state(false);
+  let removeTotp = $state(false);
+  let totpPreview = $state<TotpPreview | null>(null);
+  let totpError = $state<string | null>(null);
+
+  // Show what the typed secret gives right now, so it can be compared with the authenticator app before saving.
+  $effect(() => {
+    const secret = totpSecret.trim();
+    totpPreview = null;
+    totpError = null;
+    if (!secret) return;
+    let cancelled = false;
+    const refresh = () =>
+      api.totp
+        .preview(secret)
+        .then((p) => {
+          if (!cancelled) totpPreview = p;
+        })
+        .catch((e) => {
+          if (!cancelled) {
+            totpPreview = null;
+            totpError = errorMessage(e);
+          }
+        });
+    void refresh();
+    const timer = setInterval(() => void refresh(), 1000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  });
+
+  /** What to send: "" keeps the saved secret, nothing removes it. */
+  function totpToSave(): string | undefined {
+    if (removeTotp) return undefined;
+    const typed = totpSecret.trim();
+    if (typed) return typed;
+    return savedTotp ? "" : undefined;
+  }
+
+  const fingerprint = () => JSON.stringify([$state.snapshot(form), authType, password, privateKey, passphrase, keyId, keyPath, totpSecret, removeTotp]);
   const initial = fingerprint();
   const dirty = $derived(fingerprint() !== initial);
   const savedKey = stored?.auth.type === "private_key";
@@ -52,6 +97,10 @@
       }
       if (s.private_key !== null) privateKey = s.private_key;
       if (s.passphrase) passphrase = s.passphrase;
+      if (s.totp) {
+        totpSecret = s.totp;
+        showTotp = true;
+      }
     } finally {
       revealing = false;
     }
@@ -105,7 +154,7 @@
         default:
           auth = { type: "agent" };
       }
-      await vaultStore.saveIdentity(id, { ...$state.snapshot(form), auth }, baseRev);
+      await vaultStore.saveIdentity(id, { ...$state.snapshot(form), auth, totp: totpToSave() }, baseRev);
       ui.modal = null;
     } catch (err) {
       error = errorMessage(err);
@@ -227,6 +276,51 @@
         </div>
       {:else}
         <p class="text-sm text-fg-muted">Keys are supplied by the local ssh-agent on each computer.</p>
+      {/if}
+
+      {#if totpOn && authType !== "agent"}
+        <div>
+          <div class="mb-1 flex items-end justify-between">
+            <label class="label mb-0" for="i-totp">One-time code secret (optional)</label>
+            {#if savedTotp && !totpSecret && !removeTotp}
+              <span class="flex items-center gap-1">
+                <button type="button" class="btn-ghost py-0.5 text-xs" onclick={reveal} disabled={revealing}>
+                  {#if revealing}<Loader2 size={12} class="animate-spin" />{:else}<Eye size={12} />{/if} Reveal saved
+                </button>
+                <button type="button" class="btn-ghost py-0.5 text-xs text-danger" onclick={() => (removeTotp = true)}>Remove</button>
+              </span>
+            {/if}
+          </div>
+          {#if removeTotp}
+            <p class="text-xs text-fg-muted">
+              The saved secret is removed when you save.
+              <button type="button" class="text-accent hover:underline" onclick={() => (removeTotp = false)}>Undo</button>
+            </p>
+          {:else}
+            <input
+              id="i-totp"
+              class="input font-mono"
+              type={showTotp ? "text" : "password"}
+              bind:value={totpSecret}
+              autocomplete="off"
+              spellcheck="false"
+              placeholder={savedTotp ? "Saved. Leave empty to keep it." : "Base32 secret, or the otpauth:// link"}
+            />
+            {#if totpError}
+              <p class="mt-1 text-xs text-danger">{totpError}</p>
+            {:else if totpPreview}
+              <p class="mt-1 text-xs text-fg-muted">
+                Code now: <span class="font-mono text-fg">{totpPreview.code}</span> · changes in {totpPreview.seconds_left} s. It should match your authenticator app.
+              </p>
+            {:else}
+              <p class="mt-1 text-xs text-fg-muted">
+                Sent only when the server asks for a verification code, after the {authType === "password" ? "password" : "key"}. Never sent to a password question.
+              </p>
+            {/if}
+          {/if}
+        </div>
+      {:else if savedTotp}
+        <p class="text-xs text-fg-muted">This credential has a one-time code secret. It is not used while two-factor codes are off (Settings → Connections).</p>
       {/if}
 
       <div>

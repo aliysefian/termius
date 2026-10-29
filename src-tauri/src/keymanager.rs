@@ -296,7 +296,8 @@ fn load_proxy(vault: &Vault, id: Option<Uuid>) -> std::result::Result<Option<cra
         .ok_or_else(|| ResolveError::NotFound("the proxy this host uses was deleted".into()))
 }
 
-fn login(vault: &Vault, e: &Effective) -> std::result::Result<Option<(String, AuthMethod)>, ResolveError> {
+/// The username, how to authenticate, and (only when `with_totp`) the identity's one-time-code secret.
+fn login(vault: &Vault, e: &Effective, with_totp: bool) -> std::result::Result<Option<(String, AuthMethod, Option<crate::totp::Totp>)>, ResolveError> {
     let Some(identity_id) = e.identity_id else {
         return Ok(None);
     };
@@ -305,7 +306,9 @@ fn login(vault: &Vault, e: &Effective) -> std::result::Result<Option<(String, Au
         .ok()
         .and_then(|r| r.data)
         .ok_or_else(|| ResolveError::NotFound("the credential this host uses was deleted".into()))?;
-    Ok(Some((identity.username, resolve_auth(vault, identity.auth)?)))
+    // A secret that no longer parses (edited by hand, or from a newer version) is left out rather than stopping the login.
+    let totp = identity.totp.as_deref().filter(|_| with_totp).and_then(|s| crate::totp::Totp::parse(s).ok());
+    Ok(Some((identity.username, resolve_auth(vault, identity.auth)?, totp)))
 }
 
 /// One place on the way to a host, as the diagnostics name it.
@@ -361,6 +364,18 @@ pub fn resolve_target(
     credentials: Option<(String, String)>,
     host_keys: crate::ssh::HostKeyPolicy,
 ) -> std::result::Result<crate::ssh::Target, ResolveError> {
+    resolve_target_with(vault, host_id, credentials, host_keys, false)
+}
+
+/// As [`resolve_target`]; `with_totp` is the computer's "two-factor codes" setting. When it is off (the default) no
+/// one-time-code secret is read into the target, so nothing downstream can send a code.
+pub fn resolve_target_with(
+    vault: &Vault,
+    host_id: Uuid,
+    credentials: Option<(String, String)>,
+    host_keys: crate::ssh::HostKeyPolicy,
+    with_totp: bool,
+) -> std::result::Result<crate::ssh::Target, ResolveError> {
     use crate::ssh::Target;
     let host = load_host(vault, host_id)?;
     let groups = load_groups(vault)?;
@@ -385,7 +400,7 @@ pub fn resolve_target(
             None if Some(jid) == outermost => target_proxy.clone(),
             None => None,
         };
-        let (username, auth) = login(vault, &je)?.ok_or_else(|| {
+        let (username, auth, totp) = login(vault, &je, with_totp)?.ok_or_else(|| {
             ResolveError::CredentialsRequired(format!("jump host \"{}\" needs a credential attached", jh.label))
         })?;
         jump = Some(Box::new(Target {
@@ -402,12 +417,14 @@ pub fn resolve_target(
             keepalive_secs: jh.keepalive_secs,
             legacy_algorithms: jh.legacy_algorithms,
             agent_gate: None,
+            totp,
         }));
     }
 
-    let (username, auth) = match credentials {
-        Some((username, password)) => (username, AuthMethod::Password { password }),
-        None => login(vault, &eff)?
+    let (username, auth, totp) = match credentials {
+        // Credentials typed in for this connection have no saved one-time-code secret behind them.
+        Some((username, password)) => (username, AuthMethod::Password { password }, None),
+        None => login(vault, &eff, with_totp)?
             .ok_or_else(|| ResolveError::CredentialsRequired("this host has no credential; supply one".into()))?,
     };
     let proxy = if jump.is_none() { target_proxy } else { None };
@@ -425,6 +442,7 @@ pub fn resolve_target(
         keepalive_secs: host.keepalive_secs,
         legacy_algorithms: host.legacy_algorithms,
         agent_gate: None,
+        totp,
     })
 }
 
@@ -442,6 +460,7 @@ mod tests {
             auth: AuthMethod::Key { key_id },
             notes: String::new(),
             for_host: None,
+            totp: None,
         }
     }
 
@@ -654,5 +673,44 @@ mod tests {
         assert_eq!(r.jumps.iter().map(|j| (j.label.as_str(), j.port)).collect::<Vec<_>>(), [("edge", 2222), ("inner", 22)], "outermost first: the one this computer dials");
         assert_eq!(route_of(&v, plain).unwrap().jumps, vec![]);
         assert!(matches!(route_of(&v, Uuid::new_v4()), Err(ResolveError::NotFound(_))));
+    }
+
+    #[test]
+    fn a_saved_one_time_code_secret_is_read_only_when_two_factor_codes_are_on() {
+        let (_d, v) = new_vault();
+        let policy = || crate::ssh::HostKeyPolicy::tofu_file(std::path::PathBuf::new());
+        let identity = |label: &str, totp: Option<&str>| {
+            v.insert(
+                Collection::Identities,
+                &Identity { label: label.into(), username: "alice".into(), auth: AuthMethod::Password { password: "pw".into() }, notes: String::new(), for_host: None, totp: totp.map(str::to_string) },
+            )
+            .unwrap()
+            .id
+        };
+        let with = identity("with", Some("GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"));
+        let without = identity("without", None);
+        let broken = identity("broken", Some("not a secret!"));
+        let bastion = v.insert(Collection::Hosts, &Host { label: "bastion".into(), hostname: "b.example".into(), identity_id: Some(with), ..Default::default() }).unwrap().id;
+        let host = |label: &str, id: Uuid, jump: Option<Uuid>| {
+            v.insert(Collection::Hosts, &Host { label: label.into(), hostname: format!("{label}.example"), identity_id: Some(id), jump_host_id: jump, ..Default::default() }).unwrap().id
+        };
+        let app = host("app", with, Some(bastion));
+        let plain = host("plain", without, None);
+        let odd = host("odd", broken, None);
+
+        // The default: nothing is read into the target, for the host or for its jump hosts.
+        let t = resolve_target(&v, app, None, policy()).unwrap();
+        assert!(t.totp.is_none() && t.jump.as_ref().unwrap().totp.is_none());
+        let t = resolve_target_with(&v, app, None, policy(), false).unwrap();
+        assert!(t.totp.is_none() && t.jump.as_ref().unwrap().totp.is_none());
+
+        // Switched on: the secret comes along, on every hop that has one.
+        let t = resolve_target_with(&v, app, None, policy(), true).unwrap();
+        assert!(t.totp.is_some() && t.jump.as_ref().unwrap().totp.is_some());
+        assert!(resolve_target_with(&v, plain, None, policy(), true).unwrap().totp.is_none(), "no secret saved, none used");
+        assert!(resolve_target_with(&v, odd, None, policy(), true).unwrap().totp.is_none(), "a secret that does not parse is left out, the login still works");
+        // Credentials typed in for the connection have no saved secret.
+        let typed = resolve_target_with(&v, app, Some(("bob".into(), "x".into())), policy(), true).unwrap();
+        assert!(typed.totp.is_none());
     }
 }

@@ -4,12 +4,32 @@
 //! questions. The saved password is for password questions only: sent to a "Verification code:" prompt it would be
 //! wrong (and costs an attempt), and it would hand the password to whatever the server chose to ask.
 
-/// What to send for one prompt: the password if it is asking for one, otherwise nothing.
-pub fn answer(prompt: &str, echo: bool, password: &str) -> String {
+/// What a prompt is asking for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Ask {
+    Password,
+    /// A one-time code from an authenticator app (see `totp`).
+    Code,
+    Other,
+}
+
+/// A prompt that reads as a password question is one, whatever else it mentions ("Password (MFA):").
+pub fn classify(prompt: &str, echo: bool) -> Ask {
     if is_password_prompt(prompt, echo) {
-        password.to_string()
+        Ask::Password
+    } else if crate::totp::is_code_prompt(prompt) {
+        Ask::Code
     } else {
-        String::new()
+        Ask::Other
+    }
+}
+
+/// What to send for one prompt: the password if it is asking for one, otherwise nothing. Codes are answered by the
+/// caller (it has to wait for a fresh one), and only when two-factor codes are switched on.
+pub fn answer(prompt: &str, echo: bool, password: &str) -> String {
+    match classify(prompt, echo) {
+        Ask::Password => password.to_string(),
+        Ask::Code | Ask::Other => String::new(),
     }
 }
 
@@ -43,5 +63,16 @@ mod tests {
             assert_eq!(answer(p, false, "s3cret"), "", "{p:?}");
         }
         assert_eq!(answer("Password: ", true, "s3cret"), "", "a prompt that echoes is not a password");
+    }
+
+    #[test]
+    fn tells_passwords_codes_and_the_rest_apart() {
+        assert_eq!(classify("Password: ", false), Ask::Password);
+        assert_eq!(classify("Verification code: ", false), Ask::Code);
+        assert_eq!(classify("Verification code: ", true), Ask::Code, "a code may be shown as it is typed");
+        assert_eq!(classify("One-time password (OTP):", false), Ask::Code);
+        assert_eq!(classify("Duo passcode or option (1-3):", false), Ask::Other);
+        assert_eq!(classify("Username: ", true), Ask::Other);
+        assert_eq!(classify("Password (MFA): ", false), Ask::Password, "a password question gets the password, never a code");
     }
 }

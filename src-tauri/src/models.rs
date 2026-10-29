@@ -49,6 +49,10 @@ pub struct Identity {
     /// it is updated from the host form and removed with the host.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub for_host: Option<Uuid>,
+    /// Secret for one-time codes (Base32, or the `otpauth://` link from the QR code). Only used when two-factor codes
+    /// are switched on for the computer that connects; see `totp`. Kept out of the webview like the other secrets.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub totp: Option<String>,
 }
 
 impl Identity {
@@ -75,6 +79,8 @@ impl Identity {
         };
         Self {
             auth,
+            // Present-but-hidden, like a key file's passphrase: the form can tell one is saved.
+            totp: self.totp.as_ref().map(|_| String::new()),
             ..self.clone()
         }
     }
@@ -813,6 +819,7 @@ mod tests {
             auth: AuthMethod::Password { password: "pw!".into() },
             notes: String::new(),
             for_host: None,
+            totp: None,
         };
         let out = redact_record(Collection::Identities, serde_json::to_value(&ident).unwrap()).unwrap();
         assert!(!out.to_string().contains("pw!"));
@@ -905,6 +912,7 @@ mod tests {
             },
             notes: "n".into(),
             for_host: None,
+            totp: None,
         };
         let r = serde_json::to_string(&with_key.redacted()).unwrap();
         assert!(!r.contains("SECRET") && !r.contains("PASS"));

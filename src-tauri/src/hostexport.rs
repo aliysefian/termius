@@ -166,6 +166,7 @@ fn with_ancestors(path: &str) -> Vec<String> {
 }
 
 fn strip_identity(i: &mut Identity) {
+    i.totp = None;
     match &mut i.auth {
         AuthMethod::Password { password } => password.clear(),
         AuthMethod::PrivateKey { private_key, passphrase, .. } => {
@@ -652,8 +653,8 @@ mod tests {
     /// A small estate: nested groups with defaults, a jump host, shared and host-owned logins, a key and a proxy.
     fn estate(v: &Vault) {
         let key = put(v, Collection::Keys, &SshKey { name: "ops key".into(), algorithm: "ssh-ed25519".into(), public_key: "ssh-ed25519 AAAA ops".into(), fingerprint: "SHA256:abc".into(), private_key: Some("PRIVATE-KEY-TEXT".into()), passphrase: Some("key-pass".into()), ..Default::default() });
-        let shared = put(v, Collection::Identities, &Identity { label: "deploy".into(), username: "deploy".into(), auth: AuthMethod::Password { password: "s3cret-pw".into() }, notes: String::new(), for_host: None });
-        let keyed = put(v, Collection::Identities, &Identity { label: "ops".into(), username: "ops".into(), auth: AuthMethod::Key { key_id: key }, notes: String::new(), for_host: None });
+        let shared = put(v, Collection::Identities, &Identity { label: "deploy".into(), username: "deploy".into(), auth: AuthMethod::Password { password: "s3cret-pw".into() }, notes: String::new(), for_host: None, totp: None });
+        let keyed = put(v, Collection::Identities, &Identity { label: "ops".into(), username: "ops".into(), auth: AuthMethod::Key { key_id: key }, notes: String::new(), for_host: None, totp: None });
         let proxy = put(v, Collection::Proxies, &Proxy { name: "corp".into(), spec: ProxySpec::Socks5 { host: "p".into(), port: 1080, username: Some("u".into()), password: Some("proxy-pw".into()) } });
         let cmd_proxy = put(v, Collection::Proxies, &Proxy { name: "cmd".into(), spec: ProxySpec::Command { command: "nc %h %p".into(), approved: true } });
         put(v, Collection::Groups, &HostGroup { path: "Prod".into(), default_identity_id: Some(shared), proxy_id: Some(proxy), notes: "production".into(), ..Default::default() });
@@ -662,7 +663,7 @@ mod tests {
         let bastion = put(v, Collection::Hosts, &Host { identity_id: Some(keyed), ..host("bastion", "Infra") });
         let web = Host { identity_id: Some(shared), jump_host_id: Some(bastion), proxy_id: Some(cmd_proxy), tags: vec!["web".into()], notes: "n".into(), favorite: true, ..host("web-01", "Prod") };
         let web_id = put(v, Collection::Hosts, &web);
-        let own = put(v, Collection::Identities, &Identity { label: "web-01".into(), username: "root".into(), auth: AuthMethod::Password { password: "own-pw".into() }, notes: String::new(), for_host: Some(web_id) });
+        let own = put(v, Collection::Identities, &Identity { label: "web-01".into(), username: "root".into(), auth: AuthMethod::Password { password: "own-pw".into() }, notes: String::new(), for_host: Some(web_id), totp: None });
         put(v, Collection::Hosts, &Host { identity_id: Some(own), jump_host_id: Some(web_id), ..host("db-01", "Prod/DB") });
         put(v, Collection::Hosts, &host("loose", ""));
     }

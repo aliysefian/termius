@@ -41,6 +41,8 @@ pub mod editing;
 pub use editing::*;
 pub mod keys;
 pub use keys::*;
+pub mod twofactor;
+pub use twofactor::*;
 pub mod knownhosts;
 pub use knownhosts::*;
 pub mod localterm;
@@ -1032,6 +1034,7 @@ fn redact_secrets(mut v: serde_json::Value) -> serde_json::Value {
         "passphrase",
         "certificate_private",
         "bot_token",
+        "totp",
     ];
     fn walk(v: &mut serde_json::Value) {
         match v {
@@ -1985,10 +1988,9 @@ pub async fn reveal_identity(
         .unwrap_or_else(|p| p.into_inner())
         .remaining(Instant::now())
         .as_secs();
-    Ok(RevealResponse {
-        secret: crate::reveal::Revealed::from(&identity.auth),
-        grace_secs,
-    })
+    let mut secret = crate::reveal::Revealed::from(&identity.auth);
+    secret.totp = identity.totp.clone();
+    Ok(RevealResponse { secret, grace_secs })
 }
 
 /// End the reveal grace window early ("Hide" in the UI).
@@ -2061,9 +2063,11 @@ fn resolve_target(
 ) -> ApiResult<Target> {
     let creds = credentials.map(|c| (c.username, c.password));
     let policy = state.host_keys.clone();
+    // Saved one-time-code secrets are read only when this computer has two-factor codes switched on (off by default).
+    let with_totp = twofactor::totp_enabled(state);
     let resolved = state
         .session
-        .with_vault(|v| Ok(crate::keymanager::resolve_target(v, host_id, creds, policy)))?;
+        .with_vault(|v| Ok(crate::keymanager::resolve_target_with(v, host_id, creds, policy, with_totp)))?;
     // With the vault agent on, forwarded agents offer vault keys (with the
     // same per-key approval) instead of the system agent.
     let agent_on = state.agent.lock().unwrap_or_else(|p| p.into_inner()).is_some();
