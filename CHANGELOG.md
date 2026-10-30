@@ -4,7 +4,7 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
-## Unreleased
+## 0.47.0 - 2026-10-30
 
 - **New:** **terminal workbench layout.** A top bar with a search box (Ctrl+K), quick actions and layout switches, host tabs drawn as pills, and two panels that open around the terminal and put away again: a **right panel** (**Files** of the host you are on, **Session** details, **Snippets**) and a **bottom panel** with its own real terminals (a new shell on the focused host), the list of open sessions and the connection log. Panels are independent, resizable (drag the edge, double-click to reset) and remember their size, tab and whether they were open. **Ctrl+Alt+B** toggles the right panel, **Ctrl+Alt+J** the bottom panel, **Ctrl+Alt+T** opens a terminal in the bottom panel, and **Ctrl+Alt+\\** is **Shell focus**: every panel hides, and pressing it again restores exactly what was showing. Shells in the bottom panel stay connected while it is hidden. On a small window a panel that would squeeze the terminal is left out. The right panel also has a **Processes** tab: the busiest processes on the host you are on, read every five seconds over SSH while the tab is in front. The host list puts **Favorites** at the top, shows each host with a green dot while a terminal to it is open, and keeps its header to three buttons (check reachability, a menu with sort and import/export, and New host). The status bar now says "Connected to host (address)" with the protocol, latency, terminal size and the time beside it.
 
