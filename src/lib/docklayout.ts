@@ -1,6 +1,6 @@
 // Size rules for the right and bottom docks around the terminal. The terminal comes first: a dock never takes
 // more than a share of the window, and on a small window it is left out of the layout (its state is kept).
-export const RIGHT_DEFAULT = 320;
+export const RIGHT_DEFAULT = 340;
 export const RIGHT_MIN = 240;
 export const RIGHT_MAX = 640;
 export const BOTTOM_DEFAULT = 260;

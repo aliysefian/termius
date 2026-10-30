@@ -791,7 +791,7 @@ connection too. Outside a terminal, **Ctrl+K** also opens it.
 | Ctrl+Shift+L | Lock vault |
 | Ctrl+Shift+B | Type into all panes of the tab (toggle) |
 | Ctrl+Shift+H | Hide or show the list panel |
-| Ctrl+Alt+B | Hide or show the right panel (Files, Session, Snippets) |
+| Ctrl+Alt+B | Hide or show the right panel (Files, Processes, Session, Snippets) |
 | Ctrl+Alt+J | Hide or show the bottom panel (terminals, sessions, connection log) |
 | Ctrl+Alt+\ | Shell focus: hide every panel, then restore exactly what was showing |
 | Ctrl+Alt+T | New terminal in the bottom panel, on the focused host |

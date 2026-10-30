@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ChevronDown, Plus, Trash2, X } from "lucide-svelte";
+  import { ChevronDown, History, List, Plus, SquareTerminal, Trash2, X } from "lucide-svelte";
   import TerminalPane from "./TerminalPane.svelte";
   import { BOTTOM_DEFAULT, BOTTOM_MIN, bottomHeight, bottomMax } from "$lib/docklayout";
   import { connectionLog } from "$lib/stores/connectionlog.svelte";
@@ -12,9 +12,9 @@
   const height = $derived(bottomHeight(settings.prefs.bottomPanelHeight, windowHeight));
   const GUTTER = 6;
   const tabs = [
-    { id: "terminal", label: "Terminal" },
-    { id: "sessions", label: "Sessions" },
-    { id: "connections", label: "Connections" },
+    { id: "terminal", label: "Terminal", icon: SquareTerminal },
+    { id: "sessions", label: "Sessions", icon: List },
+    { id: "connections", label: "Connections", icon: History },
   ] as const;
 
   let dragging = $state(false);
@@ -91,7 +91,7 @@
           class="flex h-7 items-center gap-1.5 rounded-md px-3 text-xs {settings.prefs.bottomPanelTab === t.id ? 'bg-accent/15 font-medium text-accent' : 'text-fg-muted hover:bg-panel-hover hover:text-fg'}"
           role="tab"
           aria-selected={settings.prefs.bottomPanelTab === t.id}
-          onclick={() => (settings.prefs.bottomPanelTab = t.id)}>{t.label}{#if t.id === "terminal" && ui.dockTerminals.length}<span class="rounded bg-fg-muted/15 px-1 text-[10px] tabular-nums">{ui.dockTerminals.length}</span>{/if}</button
+          onclick={() => (settings.prefs.bottomPanelTab = t.id)}><t.icon size={13} />{t.label}{#if t.id === "terminal" && ui.dockTerminals.length}<span class="rounded bg-fg-muted/15 px-1 text-[10px] tabular-nums">{ui.dockTerminals.length}</span>{/if}</button
         >
       {/each}
       <div class="flex-1"></div>

@@ -733,6 +733,20 @@ class UiStore {
     settings.prefs.sidebarHidden = !settings.prefs.sidebarHidden;
   }
 
+  /** Whether a terminal to this host is open now: "connected", "connecting" (or reconnecting), or null for none. */
+  hostSessionStatus(hostId: Uuid): "connected" | "connecting" | null {
+    let connecting = false;
+    for (const t of this.tabs) {
+      for (const p of t.panes) {
+        if (p.target.kind !== "host" || p.target.hostId !== hostId) continue;
+        const k = this.paneInfo[p.id]?.status;
+        if (k === "connected") return "connected";
+        if (k === "connecting" || k === "new_host_key") connecting = true;
+      }
+    }
+    return connecting ? "connecting" : null;
+  }
+
   /** Hide or show the right dock. Leaves Shell focus, since the person asked to see something. */
   toggleRightPanel() {
     settings.prefs.shellFocus = false;

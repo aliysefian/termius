@@ -62,7 +62,7 @@ export interface Prefs {
   rightPanelOpen: boolean;
   /** Its width in pixels. */
   rightPanelWidth: number;
-  rightPanelTab: "files" | "session" | "snippets";
+  rightPanelTab: "files" | "processes" | "session" | "snippets";
   /** The bottom dock (open sessions, connection log) is open (Ctrl+Alt+J). */
   bottomPanelOpen: boolean;
   /** Its height in pixels. */
@@ -224,7 +224,7 @@ export const DEFAULT_PREFS: Prefs = {
   sidebarHidden: false,
   sidebarWidth: 288,
   rightPanelOpen: false,
-  rightPanelWidth: 320,
+  rightPanelWidth: 340,
   rightPanelTab: "files",
   bottomPanelOpen: false,
   bottomPanelHeight: 260,

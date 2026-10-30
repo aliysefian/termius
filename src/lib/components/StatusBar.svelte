@@ -41,6 +41,13 @@
     const state = info.status === "connected" ? "Connected to" : info.status === "connecting" ? "Connecting to" : info.status === "error" ? "Connection failed:" : info.status === "disconnected" ? "Disconnected from" : "Waiting for host key of";
     return t.kind === "local" ? "Local shell" : `${state} ${name}${addr}`;
   });
+  // The clock, to the minute, like an editor's status bar.
+  let now = $state(new Date());
+  $effect(() => {
+    const t = setInterval(() => (now = new Date()), 15_000);
+    return () => clearInterval(t);
+  });
+  const clock = $derived(now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
   const chip = "flex h-5 items-center gap-1.5 rounded px-1.5 hover:bg-panel-hover hover:text-fg";
 </script>
 
@@ -96,5 +103,7 @@
     <button class="{chip} {ui.view === 'forwarding' ? 'text-accent' : ''}" title="{activeTunnels} active tunnel{activeTunnels === 1 ? '' : 's'}" onclick={() => goTo("forwarding")}>
       <ArrowLeftRight size={12} /><span>{activeTunnels}<span class="hidden lg:inline">&nbsp;tunnel{activeTunnels === 1 ? "" : "s"}</span></span>
     </button>
+    <span class="mx-1 h-3.5 w-px bg-line" aria-hidden="true"></span>
+    <span class="{chip} cursor-default tabular-nums" title={now.toLocaleDateString()}>{clock}</span>
   </footer>
 {/if}

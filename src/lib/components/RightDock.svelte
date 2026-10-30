@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { FolderSync, History, X } from "lucide-svelte";
+  import { Activity, Code, FolderSync, FolderTree, History, Info, X } from "lucide-svelte";
+  import ProcessesPanel from "./ProcessesPanel.svelte";
   import Badge from "./Badge.svelte";
   import FilesBrowser from "./FilesBrowser.svelte";
   import SnippetsPanel from "./SnippetsPanel.svelte";
@@ -17,9 +18,10 @@
   const open = $derived(settings.prefs.rightPanelOpen);
   const width = $derived(rightWidth(settings.prefs.rightPanelWidth, windowWidth, leftUsed));
   const tabs = [
-    { id: "files", label: "Files" },
-    { id: "session", label: "Session" },
-    { id: "snippets", label: "Snippets" },
+    { id: "files", label: "Files", icon: FolderTree },
+    { id: "processes", label: "Processes", icon: Activity },
+    { id: "session", label: "Session", icon: Info },
+    { id: "snippets", label: "Snippets", icon: Code },
   ] as const;
 
   let dragging = $state(false);
@@ -94,10 +96,11 @@
     <div class="flex h-10 shrink-0 items-center gap-1 border-b border-line px-2" role="tablist" aria-label="Right panel">
       {#each tabs as t (t.id)}
         <button
-          class="h-7 rounded-md px-2.5 text-xs {settings.prefs.rightPanelTab === t.id ? 'bg-accent/15 font-medium text-accent' : 'text-fg-muted hover:bg-panel-hover hover:text-fg'}"
+          class="flex h-7 items-center gap-1.5 rounded-md px-2 text-xs {settings.prefs.rightPanelTab === t.id ? 'bg-accent/15 font-medium text-accent' : 'text-fg-muted hover:bg-panel-hover hover:text-fg'}"
           role="tab"
           aria-selected={settings.prefs.rightPanelTab === t.id}
-          onclick={() => (settings.prefs.rightPanelTab = t.id)}>{t.label}</button
+          title={t.label}
+          onclick={() => (settings.prefs.rightPanelTab = t.id)}><t.icon size={13} /><span class="@max-[20rem]:sr-only">{t.label}</span></button
         >
       {/each}
       <div class="flex-1"></div>
@@ -107,6 +110,8 @@
     <div class="min-h-0 flex-1 overflow-y-auto">
       {#if settings.prefs.rightPanelTab === "files"}
         <FilesBrowser active={open && settings.prefs.rightPanelTab === "files"} />
+      {:else if settings.prefs.rightPanelTab === "processes"}
+        <ProcessesPanel active={open && settings.prefs.rightPanelTab === "processes"} />
       {:else if settings.prefs.rightPanelTab === "snippets"}
         <div class="flex h-full"><SnippetsPanel /></div>
       {:else if !pane || !facts}
