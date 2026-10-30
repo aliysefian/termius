@@ -3,6 +3,7 @@
   import { ArrowDown, ArrowUp, Copy, Loader2, OctagonX, Pause, Play, RefreshCw, Skull } from "lucide-svelte";
   import { writeText } from "@tauri-apps/plugin-clipboard-manager";
   import Badge from "./Badge.svelte";
+  import HostAudit from "./HostAudit.svelte";
   import HostChart from "./HostChart.svelte";
   import Modal from "./Modal.svelte";
   import * as api from "$lib/api";
@@ -19,7 +20,7 @@
 
   let { id }: { id: Uuid } = $props();
 
-  type Tab = "overview" | "processes" | "ports" | "interfaces" | "system";
+  type Tab = "overview" | "processes" | "ports" | "interfaces" | "system" | "security";
   const INTERVALS = [3, 5, 10, 30] as const;
   const MAX_ROWS = 150;
 
@@ -252,7 +253,7 @@
 
       <div class="flex items-center gap-2">
         <div class="flex overflow-hidden rounded-md border border-line text-xs" role="tablist" aria-label="Monitor sections">
-          {#each [["overview", "Overview"], ["processes", `Processes (${detail.processes.length})`], ["ports", `Ports (${detail.ports.items.length})`], ["interfaces", `Interfaces (${detail.interfaces.length})`], ["system", "System"]] as [v, text] (v)}
+          {#each [["overview", "Overview"], ["processes", `Processes (${detail.processes.length})`], ["ports", `Ports (${detail.ports.items.length})`], ["interfaces", `Interfaces (${detail.interfaces.length})`], ["system", "System"], ["security", "Security"]] as [v, text] (v)}
             <button role="tab" aria-selected={tab === v} class="px-3 py-1 {tab === v ? 'bg-accent text-white' : 'text-fg-muted hover:bg-panel-hover'}" onclick={() => (tab = v as Tab)}>{text}</button>
           {/each}
         </div>
@@ -378,6 +379,8 @@
               {/each}
             </tbody>
           </table>
+        {:else if tab === "security"}
+          <HostAudit {sessionId} {label} />
         {:else if tab === "system"}
           <div class="space-y-3 p-1">
             <div class="flex flex-wrap items-center gap-2">

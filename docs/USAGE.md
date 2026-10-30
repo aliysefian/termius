@@ -1264,6 +1264,41 @@ already in the vault; nothing is sent anywhere, and nothing is fixed
 automatically. The connection log on the **Vault** screen (local to this
 computer, never synced) shows when and how long each session lasted.
 
+## Auditing a server's hardening
+
+Open a host's detail view (the **Monitor** button in Topology, the gauge icon on a host's card in Fleet, or **Open detail
+view…** in a host's details; the host needs saved credentials) and choose the **Security** tab. Nothing runs until you
+press **Run the audit**. It is a read-only check of that Linux server, made with the same saved credentials as the rest of
+the window. It looks at six things:
+
+- **SSH:** root login, password logins, empty passwords, public keys, attempts per connection, X11 forwarding, idle
+  timeouts, who is allowed to log in, and old ciphers, MACs and key exchanges.
+- **Network:** databases, caches and the Docker API open to the network, other services listening on every interface, and
+  whether a firewall is on and denies incoming traffic by default. When it can read the firewall's rules it also knows
+  whether a listening port is let through, and does not report one the firewall blocks.
+- **Privileges and users:** accounts with root's user id or with no password, who can read the password hashes, passwordless
+  or wildcard `sudo` rules, service accounts with a login shell, set-uid programs that should not be, and command
+  directories other people can write to.
+- **Kernel:** packet forwarding, source routing, redirects, SYN cookies, reverse-path filtering, link protections, and what
+  ordinary users may read of the kernel log and addresses.
+- **Containers:** the Docker socket's permissions, published ports that skip the host firewall, privileged containers and
+  containers running as root (rootless Docker is recognised).
+- **Updates and logging:** automatic security updates, security updates waiting, a log collector, `auditd`, and
+  `fail2ban` or CrowdSec, including whether the SSH jail watches the port sshd really uses.
+
+Each check **passes**, **fails** or is **not checked**. A failure has a severity (critical, high, medium, low), the file or
+setting it is about, what was found, the risk, and the fix as text to read and apply yourself. The fixes are written to be
+safe to try (for example a reload that keeps your session, a runtime change before a permanent one), but SSHVault never
+applies them. The score is the share of the checks that could be judged; checks that could not be made are never counted
+as passed, and the score shows the range it could fall in once they are known. **Copy as text** gives the whole report for
+a ticket.
+
+The audit runs as the account the window connected as and never uses `sudo` or asks for a password. A normal account cannot
+read the SSH drop-in files, `sudoers`, the firewall's rules or `/etc/shadow`, so those checks come back as *not checked*
+together with the exact command for someone with root to run. Connect as root, or have root run them, to complete the
+picture. It sends nothing off the server except what it reads back to this window, installs nothing, and never prints a
+password hash. **What it runs** shows the script.
+
 ## Known hosts
 
 The first connection to a server shows its fingerprint and asks whether to
