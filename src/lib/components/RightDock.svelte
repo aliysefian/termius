@@ -1,6 +1,7 @@
 <script lang="ts">
   import { FolderSync, History, X } from "lucide-svelte";
   import Badge from "./Badge.svelte";
+  import FilesBrowser from "./FilesBrowser.svelte";
   import SnippetsPanel from "./SnippetsPanel.svelte";
   import { RIGHT_DEFAULT, RIGHT_MIN, rightMax, rightWidth } from "$lib/docklayout";
   import { sessionFacts } from "$lib/sessioninfo";
@@ -9,11 +10,14 @@
   import { vaultStore } from "$lib/stores/vault.svelte";
   import { envInfo } from "$lib/types";
 
-  let { windowWidth }: { windowWidth: number } = $props();
+  let { windowWidth, leftUsed }: { windowWidth: number; leftUsed: number } = $props();
+  /** The gap between this panel and the terminal, inside the dock so it closes with it. */
+  const GUTTER = 6;
 
   const open = $derived(settings.prefs.rightPanelOpen);
-  const width = $derived(rightWidth(settings.prefs.rightPanelWidth, windowWidth));
+  const width = $derived(rightWidth(settings.prefs.rightPanelWidth, windowWidth, leftUsed));
   const tabs = [
+    { id: "files", label: "Files" },
     { id: "session", label: "Session" },
     { id: "snippets", label: "Snippets" },
   ] as const;
@@ -38,7 +42,7 @@
     // The handle is on the left edge: dragging left makes the dock wider.
     const raw = startWidth - (e.clientX - startX);
     cancelAnimationFrame(frame);
-    frame = requestAnimationFrame(() => dragging && (settings.prefs.rightPanelWidth = rightWidth(raw, windowWidth)));
+    frame = requestAnimationFrame(() => dragging && (settings.prefs.rightPanelWidth = rightWidth(raw, windowWidth, leftUsed)));
   }
   function stop() {
     cancelAnimationFrame(frame);
@@ -50,7 +54,7 @@
     const step = e.shiftKey ? 48 : 16;
     if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
       e.preventDefault();
-      settings.prefs.rightPanelWidth = rightWidth(width + (e.key === "ArrowLeft" ? step : -step), windowWidth);
+      settings.prefs.rightPanelWidth = rightWidth(width + (e.key === "ArrowLeft" ? step : -step), windowWidth, leftUsed);
     } else if (e.key === "Home" || e.key === "Enter") {
       e.preventDefault();
       settings.prefs.rightPanelWidth = RIGHT_DEFAULT;
@@ -79,16 +83,15 @@
 </script>
 
 <aside
-  class="relative shrink-0 overflow-hidden border-l border-line bg-panel {dragging ? '' : 'transition-[width] duration-150 ease-out'}"
-  style:width="{open ? width : 0}px"
-  style:border-left-width={open ? "1px" : "0"}
-  aria-label="Side panel"
+  class="relative shrink-0 overflow-hidden {dragging ? '' : 'transition-[width] duration-150 ease-out'}"
+  style:width="{open ? width + GUTTER : 0}px"
+  aria-label="Right panel"
   aria-hidden={!open}
   inert={!open}
 >
   <!-- Content keeps its width and is clipped while the dock opens or closes, so it slides instead of squashing. -->
-  <div class="@container flex h-full flex-col" style:width="{width}px">
-    <div class="flex h-9 shrink-0 items-center gap-1 border-b border-line px-2" role="tablist" aria-label="Side panel">
+  <div class="@container ml-1.5 flex h-full flex-col overflow-hidden rounded-lg border border-line bg-panel" style:width="{width}px">
+    <div class="flex h-10 shrink-0 items-center gap-1 border-b border-line px-2" role="tablist" aria-label="Right panel">
       {#each tabs as t (t.id)}
         <button
           class="h-7 rounded-md px-2.5 text-xs {settings.prefs.rightPanelTab === t.id ? 'bg-accent/15 font-medium text-accent' : 'text-fg-muted hover:bg-panel-hover hover:text-fg'}"
@@ -98,11 +101,13 @@
         >
       {/each}
       <div class="flex-1"></div>
-      <button class="icon-btn h-6 w-6" title="Hide side panel (Ctrl+Alt+B)" aria-label="Hide side panel" onclick={() => ui.toggleRightPanel()}><X size={14} /></button>
+      <button class="icon-btn h-6 w-6" title="Hide right panel (Ctrl+Alt+B)" aria-label="Hide right panel" onclick={() => ui.toggleRightPanel()}><X size={14} /></button>
     </div>
 
     <div class="min-h-0 flex-1 overflow-y-auto">
-      {#if settings.prefs.rightPanelTab === "snippets"}
+      {#if settings.prefs.rightPanelTab === "files"}
+        <FilesBrowser active={open && settings.prefs.rightPanelTab === "files"} />
+      {:else if settings.prefs.rightPanelTab === "snippets"}
         <div class="flex h-full"><SnippetsPanel /></div>
       {:else if !pane || !facts}
         <p class="p-4 text-sm text-fg-muted">Open a terminal to see its session here.</p>
@@ -137,12 +142,12 @@
   {#if open}
     <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
     <div
-      class="absolute left-0 top-0 z-20 h-full w-2 cursor-col-resize outline-none
+      class="absolute left-0.5 top-0 z-20 h-full w-2 cursor-col-resize outline-none
         after:absolute after:left-0 after:top-0 after:h-full after:w-0.5 after:transition-colors
         {dragging ? 'after:bg-accent' : 'hover:after:bg-accent/60 focus-visible:after:bg-accent'}"
       role="separator"
       aria-orientation="vertical"
-      aria-label="Resize the side panel"
+      aria-label="Resize the right panel"
       aria-valuenow={width}
       aria-valuemin={RIGHT_MIN}
       aria-valuemax={rightMax(windowWidth)}

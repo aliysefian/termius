@@ -271,3 +271,8 @@ body {
   white-space: nowrap;
   border: 0;
 }
+
+/* The terminal workbench: panels are cards on a slightly darker ground, so each edge reads at a glance. */
+.workbench {
+  background: color-mix(in srgb, var(--color-base) 55%, black);
+}

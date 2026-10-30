@@ -6,7 +6,7 @@
   import { writeText } from "@tauri-apps/plugin-clipboard-manager";
   import { sshCommand } from "$lib/sshcmd";
   import { ACTIONS, comboFor } from "$lib/shortcuts";
-  import { ArrowLeftRight, BellRing, Check, ChevronDown, Circle, Columns2, History, Command, Copy, Ellipsis, FolderSync, Keyboard, List, Loader2, Maximize2, Minimize2, PanelBottom, PanelRight, Plus, RefreshCw, Rows2, Search, SquareTerminal, Terminal, TextSelect, X, Zap } from "lucide-svelte";
+  import { ArrowLeftRight, BellRing, Check, ChevronDown, Circle, Columns2, History, Command, Copy, Ellipsis, FolderSync, Keyboard, List, Loader2, Maximize2, Minimize2, Plus, RefreshCw, Rows2, Search, SquareTerminal, Terminal, TextSelect, X, Zap } from "lucide-svelte";
   import Badge from "./Badge.svelte";
   import Kbd from "./Kbd.svelte";
   import { save } from "@tauri-apps/plugin-dialog";
@@ -31,11 +31,8 @@
   import MultiplexerHeaderBar from "./MultiplexerHeaderBar.svelte";
   import TmuxNativeView from "./TmuxNativeView.svelte";
   import { multiplexers } from "$lib/tmux/useRemoteMultiplexer.svelte";
-  import { bottomFits, rightFits } from "$lib/docklayout";
 
   const tab = $derived(ui.activeTab);
-  let winW = $state(typeof window === "undefined" ? 1600 : window.innerWidth);
-  let winH = $state(typeof window === "undefined" ? 900 : window.innerHeight);
   let renaming = $state<string | null>(null);
   let renameValue = $state("");
   let tabMenu = $state<{ id: string; x: number; y: number } | null>(null);
@@ -366,8 +363,6 @@
 {/if}
 
 <svelte:window
-  bind:innerWidth={winW}
-  bind:innerHeight={winH}
   onkeydown={(e) => {
     if (e.key !== "Escape") return;
     if (dividerCancel) dividerCancel();
@@ -378,18 +373,18 @@
   onresize={() => { tabMenu = null; tabListOpen = null; paneMenu = null; checkScroll(); }}
 />
 
-<section class="flex min-w-0 flex-1 flex-col bg-base">
+<section class="flex min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-line bg-base">
   {#if ui.tabs.length > 0 && !settings.prefs.focusMode}
     <div class="flex h-10 items-stretch border-b border-line bg-panel">
     <div class="relative min-w-0 flex-1">
-    <div bind:this={tabStrip} class="flex h-10 items-end gap-0.5 overflow-x-auto px-2" role="presentation" ondrop={onTabDrop} ondragover={(e) => dragTab && e.preventDefault()}>
+    <div bind:this={tabStrip} class="flex h-10 items-center gap-1 overflow-x-auto px-2" role="presentation" ondrop={onTabDrop} ondragover={(e) => dragTab && e.preventDefault()}>
       <!-- Only the tabs are in the tab list; the buttons after them are not tabs. -->
-      <div class="flex items-end gap-0.5" role="tablist" aria-label="Open terminals">
+      <div class="flex items-center gap-1" role="tablist" aria-label="Open terminals">
       {#each ui.tabs as t, i (t.id)}
         {@const color = tabColor(t)}
         <div
-          class="group relative flex h-9 max-w-56 shrink-0 items-center gap-2 rounded-t-md px-3 text-sm
-            {t.id === ui.activeTabId ? 'bg-base text-fg' : 'text-fg-muted hover:bg-panel-hover'}
+          class="group relative flex h-8 max-w-56 shrink-0 items-center gap-2 rounded-md border px-3 text-sm
+            {t.id === ui.activeTabId ? 'border-accent/70 bg-accent/10 text-fg' : 'border-transparent text-fg-muted hover:bg-panel-hover'}
             {dragTab === t.id ? 'opacity-40' : ''}"
           role="presentation"
           title={i < 9 ? `Ctrl+${i + 1}` : undefined}
@@ -418,8 +413,8 @@
           {#if dropIndex === i + 1 && i === ui.tabs.length - 1 && dragTab && dragTab !== t.id}
             <span class="absolute -right-0.5 top-1 bottom-1 w-0.5 rounded bg-accent"></span>
           {/if}
-          {#if t.id === ui.activeTabId}
-            <span class="absolute inset-x-2 top-0 h-0.5 rounded-b" style:background={color ?? "var(--color-accent)"}></span>
+          {#if color}
+            <span class="absolute inset-x-3 bottom-0 h-0.5 rounded-t" style:background={color}></span>
           {/if}
           <div
             class="flex h-full min-w-0 flex-1 items-center gap-2 rounded outline-none focus-visible:ring-1 focus-visible:ring-accent"
@@ -476,14 +471,14 @@
         </div>
       {/each}
       </div>
-      <button class="icon-btn mb-1 h-7 w-7 shrink-0" title="New connection (Ctrl+Shift+T)" onclick={() => (ui.modal = { kind: "quick-connect" })}>
+      <button class="icon-btn h-7 w-7 shrink-0" title="New connection (Ctrl+Shift+T)" onclick={() => (ui.modal = { kind: "quick-connect" })}>
         <Plus size={15} />
       </button>
-      <button class="icon-btn mb-1 h-7 w-7 shrink-0" title="Local terminal (Ctrl+Shift+`)" onclick={() => ui.openLocal()}>
+      <button class="icon-btn h-7 w-7 shrink-0" title="Local terminal (Ctrl+Shift+`)" onclick={() => ui.openLocal()}>
         <SquareTerminal size={15} />
       </button>
       <button
-        class="icon-btn mb-1 -ml-1 h-7 w-4 shrink-0"
+        class="icon-btn -ml-1 h-7 w-4 shrink-0"
         title="Choose a shell"
         aria-label="Choose a shell for a new local terminal"
         aria-haspopup="menu"
@@ -501,39 +496,13 @@
     {/if}
     </div>
     {#if overflowing}
-      <button class="icon-btn mb-1 h-7 w-7 shrink-0 self-end" title="List all tabs" aria-label="List all tabs" onclick={openTabList}>
+      <button class="icon-btn h-7 w-7 shrink-0 self-end" title="List all tabs" aria-label="List all tabs" onclick={openTabList}>
         <List size={15} />
       </button>
     {/if}
     <div class="flex h-10 shrink-0 items-center gap-0.5 px-1">
       <button class="icon-btn h-8 w-8" title="Command palette (Ctrl+Shift+P)" onclick={() => (ui.paletteOpen = true)}><Command size={15} /></button>
       <SnippetPicker />
-      <!-- Layout: the bottom and right docks, and the switch between Shell focus and Workspace. -->
-      <span class="mx-1 h-4 w-px bg-line" aria-hidden="true"></span>
-      <button
-        class="icon-btn h-8 w-8 {settings.prefs.bottomPanelOpen ? 'text-accent' : ''}"
-        title={bottomFits(winH) ? "Bottom panel (Ctrl+Alt+J)" : "The window is too short for the bottom panel"}
-        aria-label="Toggle the bottom panel"
-        aria-pressed={settings.prefs.bottomPanelOpen}
-        disabled={!bottomFits(winH)}
-        onclick={() => ui.toggleBottomPanel()}><PanelBottom size={15} /></button
-      >
-      <button
-        class="icon-btn h-8 w-8 {settings.prefs.rightPanelOpen ? 'text-accent' : ''}"
-        title={rightFits(winW) ? "Side panel (Ctrl+Alt+B)" : "The window is too narrow for the side panel"}
-        aria-label="Toggle the side panel"
-        aria-pressed={settings.prefs.rightPanelOpen}
-        disabled={!rightFits(winW)}
-        onclick={() => ui.toggleRightPanel()}><PanelRight size={15} /></button
-      >
-      <button
-        class="icon-btn h-8 w-8"
-        title={ui.layoutMode === "focus" ? "Shell focus: switch to Workspace (Ctrl+Alt+Z)" : "Workspace: switch to Shell focus (Ctrl+Alt+Z)"}
-        aria-label={ui.layoutMode === "focus" ? "Switch to Workspace layout" : "Switch to Shell focus layout"}
-        onclick={() => ui.toggleLayoutMode()}
-      >
-        {#if ui.layoutMode === "focus"}<Minimize2 size={15} />{:else}<Maximize2 size={15} />{/if}
-      </button>
     </div>
     </div>
   {/if}
@@ -700,6 +669,7 @@
             style:width="{full ? 100 : r.w}%"
             style:height="{full ? 100 : r.h}%"
             role="presentation"
+            data-active-pane={pane.id === t.activePaneId && t.id === ui.activeTabId}
             onmousedown={() => (t.activePaneId = pane.id)}
           >
             <div

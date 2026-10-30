@@ -3,16 +3,16 @@
 export const RIGHT_DEFAULT = 320;
 export const RIGHT_MIN = 240;
 export const RIGHT_MAX = 640;
-export const BOTTOM_DEFAULT = 220;
+export const BOTTOM_DEFAULT = 260;
 export const BOTTOM_MIN = 120;
 export const BOTTOM_MAX = 600;
 
-/** Below this window width a right dock would squeeze the terminal too much to be worth showing. */
-export const RIGHT_MIN_WINDOW = 820;
+/** The terminal never gets less than this much width because of the right dock. */
+export const TERMINAL_MIN_WIDTH = 520;
+/** The activity bar plus the gutters around the workbench. */
+const CHROME_WIDTH = 68 + 12;
 /** Below this window height a bottom dock would leave too few terminal rows. */
 export const BOTTOM_MIN_WINDOW = 520;
-
-export type LayoutMode = "focus" | "workspace";
 
 /** Widest the right dock may be: at most 40% of the window. */
 export function rightMax(windowWidth: number): number {
@@ -26,10 +26,16 @@ export function bottomMax(windowHeight: number): number {
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
-/** A stored (or dragged) width made valid for this window. */
-export function rightWidth(stored: number | undefined, windowWidth: number): number {
+/** The most the right dock can take while the terminal keeps its minimum, with `leftUsed` px taken by the list panel. */
+function roomRight(windowWidth: number, leftUsed: number): number {
+  return windowWidth - leftUsed - CHROME_WIDTH - TERMINAL_MIN_WIDTH;
+}
+
+/** A stored (or dragged) width made valid for this window and for what the list panel already takes. */
+export function rightWidth(stored: number | undefined, windowWidth: number, leftUsed = 0): number {
   const w = Number.isFinite(stored) ? (stored as number) : RIGHT_DEFAULT;
-  return Math.round(clamp(w, RIGHT_MIN, rightMax(windowWidth)));
+  const hi = Math.min(rightMax(windowWidth), Math.max(RIGHT_MIN, roomRight(windowWidth, leftUsed)));
+  return Math.round(clamp(w, RIGHT_MIN, hi));
 }
 
 /** A stored (or dragged) height made valid for this window. */
@@ -38,24 +44,21 @@ export function bottomHeight(stored: number | undefined, windowHeight: number): 
   return Math.round(clamp(h, BOTTOM_MIN, bottomMax(windowHeight)));
 }
 
-export const rightFits = (windowWidth: number) => windowWidth >= RIGHT_MIN_WINDOW;
+/** Whether the right dock can show without squeezing the terminal below its minimum. */
+export const rightFits = (windowWidth: number, leftUsed = 0) => roomRight(windowWidth, leftUsed) >= RIGHT_MIN;
 export const bottomFits = (windowHeight: number) => windowHeight >= BOTTOM_MIN_WINDOW;
 
-/** Shell focus is "no dock open"; any open dock is the workspace. */
-export function layoutMode(rightOpen: boolean, bottomOpen: boolean): LayoutMode {
-  return rightOpen || bottomOpen ? "workspace" : "focus";
-}
-
-export interface DockState {
+/** Which parts of the workbench are showing: the list panel, the right dock and the bottom dock. */
+export interface Visibility {
+  left: boolean;
   right: boolean;
   bottom: boolean;
 }
 
-/** Where the mode switch lands: out of focus it restores what was open before (both docks the first time). */
-export function switchMode(current: DockState, remembered: DockState): { open: DockState; remembered: DockState } {
-  if (layoutMode(current.right, current.bottom) === "workspace") {
-    return { open: { right: false, bottom: false }, remembered: current };
-  }
-  const back = remembered.right || remembered.bottom ? remembered : { right: true, bottom: true };
-  return { open: back, remembered: back };
+export const ALL_HIDDEN: Visibility = { left: false, right: false, bottom: false };
+
+/** Focus mode hides every panel. Leaving it brings back exactly what was showing before, not everything. */
+export function toggleFocus(focused: boolean, now: Visibility, saved: Visibility): { focused: boolean; show: Visibility; saved: Visibility } {
+  if (focused) return { focused: false, show: saved, saved };
+  return { focused: true, show: ALL_HIDDEN, saved: now };
 }

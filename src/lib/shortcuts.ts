@@ -53,7 +53,8 @@ export const ACTIONS: Action[] = [
   { id: "sidebar", label: "Hide or show the list panel", combo: "Ctrl+Shift+H", run: () => ui.toggleSidebar() },
   { id: "right-panel", label: "Hide or show the side panel", combo: "Ctrl+Alt+B", run: () => ui.toggleRightPanel() },
   { id: "bottom-panel", label: "Hide or show the bottom panel", combo: "Ctrl+Alt+J", run: () => ui.toggleBottomPanel() },
-  { id: "layout-mode", label: "Switch between Shell focus and Workspace", combo: "Ctrl+Alt+Z", run: () => ui.toggleLayoutMode() },
+  { id: "shell-focus", label: "Shell focus (hide every panel, then restore them)", combo: "Ctrl+Alt+\\", run: () => ui.toggleShellFocus() },
+  { id: "dock-terminal", label: "New terminal in the bottom panel", combo: "Ctrl+Alt+T", run: () => ui.addDockTerminal() },
   { id: "focus-mode", label: "Focus mode (toggle)", combo: "Ctrl+Shift+U", run: () => void (settings.prefs.focusMode = !settings.prefs.focusMode) },
   { id: "local-terminal", label: "New local terminal", combo: "Ctrl+Shift+`", run: () => ui.openLocal() },
   // Alt+Shift, not plain Alt: bare Alt+Left/Right is readline's back/forward

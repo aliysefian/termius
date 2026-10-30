@@ -62,14 +62,16 @@ export interface Prefs {
   rightPanelOpen: boolean;
   /** Its width in pixels. */
   rightPanelWidth: number;
-  rightPanelTab: "session" | "snippets";
+  rightPanelTab: "files" | "session" | "snippets";
   /** The bottom dock (open sessions, connection log) is open (Ctrl+Alt+J). */
   bottomPanelOpen: boolean;
   /** Its height in pixels. */
   bottomPanelHeight: number;
-  bottomPanelTab: "sessions" | "connections";
-  /** Which docks the Workspace layout brings back when leaving Shell focus (Ctrl+Alt+Z). */
-  workspaceDocks: { right: boolean; bottom: boolean };
+  bottomPanelTab: "terminal" | "sessions" | "connections";
+  /** Shell focus mode (Ctrl+Alt+\\): every panel hidden so the terminal has the whole window. */
+  shellFocus: boolean;
+  /** What was showing before Shell focus, brought back when it ends. */
+  focusRestore: { left: boolean; right: boolean; bottom: boolean };
   /** Reconnect by itself when a connection drops (not when you exit). */
   autoReconnect: boolean;
   /** Reopen the tabs that were open when the vault was last locked or the app quit. */
@@ -223,11 +225,12 @@ export const DEFAULT_PREFS: Prefs = {
   sidebarWidth: 288,
   rightPanelOpen: false,
   rightPanelWidth: 320,
-  rightPanelTab: "session",
+  rightPanelTab: "files",
   bottomPanelOpen: false,
-  bottomPanelHeight: 220,
-  bottomPanelTab: "sessions",
-  workspaceDocks: { right: true, bottom: true },
+  bottomPanelHeight: 260,
+  bottomPanelTab: "terminal",
+  shellFocus: false,
+  focusRestore: { left: true, right: false, bottom: false },
   autoReconnect: true,
   restoreLastSession: true,
   restoreSkipProduction: true,

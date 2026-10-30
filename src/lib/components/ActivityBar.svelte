@@ -22,7 +22,6 @@
     UserRound,
     Vault,
   } from "lucide-svelte";
-  import Logo from "./Logo.svelte";
   import { RAIL_GROUPS, arrange } from "$lib/railitems";
   import { t, type Key } from "$lib/i18n/index.svelte";
   import { PAGE_VIEWS, ui, type View } from "$lib/stores/ui.svelte";
@@ -113,11 +112,7 @@
 
 <svelte:window onpointerdown={outside} />
 
-<nav class="flex {settings.prefs.railLabels ? 'w-[68px]' : 'w-14'} flex-col items-center overflow-y-auto border-r border-line bg-panel py-3" aria-label={t("rail.sections")}>
-  <button class="mb-3 shrink-0 rounded-xl transition-transform hover:scale-105" onclick={() => go("hosts")} title="SSHVault" aria-label="SSHVault: go to hosts">
-    <Logo size={34} />
-  </button>
-
+<nav class="flex {settings.prefs.railLabels ? 'w-[68px]' : 'w-14'} flex-col items-center overflow-y-auto border-r border-line bg-panel py-2" aria-label={t("rail.sections")}>
   {#each groups as group, g (g)}
     {#if g > 0}<div class="my-1.5 h-px w-8 shrink-0 bg-line" role="separator"></div>{/if}
     {#each group as item (item.view)}

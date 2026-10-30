@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { Trash2, X } from "lucide-svelte";
+  import { ChevronDown, Plus, Trash2, X } from "lucide-svelte";
+  import TerminalPane from "./TerminalPane.svelte";
   import { BOTTOM_DEFAULT, BOTTOM_MIN, bottomHeight, bottomMax } from "$lib/docklayout";
   import { connectionLog } from "$lib/stores/connectionlog.svelte";
   import { settings } from "$lib/stores/settings.svelte";
@@ -9,7 +10,9 @@
 
   const open = $derived(settings.prefs.bottomPanelOpen);
   const height = $derived(bottomHeight(settings.prefs.bottomPanelHeight, windowHeight));
+  const GUTTER = 6;
   const tabs = [
+    { id: "terminal", label: "Terminal" },
     { id: "sessions", label: "Sessions" },
     { id: "connections", label: "Connections" },
   ] as const;
@@ -60,36 +63,76 @@
     return s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
   }
 
+  // A first shell is started when the panel is first opened on a terminal tab, but not again after it is closed.
+  let autoStarted = false;
+  $effect(() => {
+    if (open && settings.prefs.bottomPanelTab === "terminal" && !autoStarted && ui.dockTerminals.length === 0 && ui.activeTab) {
+      autoStarted = true;
+      ui.addDockTerminal();
+    }
+  });
+  const termActive = $derived(open && settings.prefs.bottomPanelTab === "terminal");
+
   /** Every pane in every tab, so a session in a background tab is one click away. */
   const sessions = $derived(ui.tabs.flatMap((t) => t.panes.map((p) => ({ tab: t, pane: p }))));
 </script>
 
 <section
-  class="relative shrink-0 overflow-hidden border-t border-line bg-panel {dragging ? '' : 'transition-[height] duration-150 ease-out'}"
-  style:height="{open ? height : 0}px"
-  style:border-top-width={open ? "1px" : "0"}
+  class="relative shrink-0 overflow-hidden {dragging ? '' : 'transition-[height] duration-150 ease-out'}"
+  style:height="{open ? height + GUTTER : 0}px"
   aria-label="Bottom panel"
   aria-hidden={!open}
   inert={!open}
 >
-  <div class="flex flex-col" style:height="{height}px">
-    <div class="flex h-8 shrink-0 items-center gap-1 border-b border-line px-2" role="tablist" aria-label="Bottom panel">
+  <div class="mt-1.5 flex flex-col overflow-hidden rounded-lg border border-line bg-panel" style:height="{height}px">
+    <div class="flex h-10 shrink-0 items-center gap-1 border-b border-line px-2" role="tablist" aria-label="Bottom panel">
       {#each tabs as t (t.id)}
         <button
-          class="h-6 rounded-md px-2.5 text-xs {settings.prefs.bottomPanelTab === t.id ? 'bg-accent/15 font-medium text-accent' : 'text-fg-muted hover:bg-panel-hover hover:text-fg'}"
+          class="flex h-7 items-center gap-1.5 rounded-md px-3 text-xs {settings.prefs.bottomPanelTab === t.id ? 'bg-accent/15 font-medium text-accent' : 'text-fg-muted hover:bg-panel-hover hover:text-fg'}"
           role="tab"
           aria-selected={settings.prefs.bottomPanelTab === t.id}
-          onclick={() => (settings.prefs.bottomPanelTab = t.id)}>{t.label}</button
+          onclick={() => (settings.prefs.bottomPanelTab = t.id)}>{t.label}{#if t.id === "terminal" && ui.dockTerminals.length}<span class="rounded bg-fg-muted/15 px-1 text-[10px] tabular-nums">{ui.dockTerminals.length}</span>{/if}</button
         >
       {/each}
       <div class="flex-1"></div>
       {#if settings.prefs.bottomPanelTab === "connections" && connectionLog.entries.length}
         <button class="icon-btn h-6 w-6" title="Clear the connection log" aria-label="Clear the connection log" onclick={() => connectionLog.clear()}><Trash2 size={13} /></button>
       {/if}
-      <button class="icon-btn h-6 w-6" title="Hide bottom panel (Ctrl+Alt+J)" aria-label="Hide bottom panel" onclick={() => ui.toggleBottomPanel()}><X size={14} /></button>
+      {#if settings.prefs.bottomPanelTab === "terminal"}
+        <button class="icon-btn h-7 w-7" title="New terminal here (Ctrl+Alt+T)" aria-label="New terminal in the bottom panel" disabled={!ui.activeTab} onclick={() => ui.addDockTerminal()}><Plus size={14} /></button>
+      {/if}
+      <button class="icon-btn h-7 w-7" title="Hide bottom panel (Ctrl+Alt+J)" aria-label="Hide bottom panel" onclick={() => ui.toggleBottomPanel()}><ChevronDown size={15} /></button>
     </div>
 
-    <div class="min-h-0 flex-1 overflow-auto text-xs">
+    <!-- The shells stay mounted (and connected) whichever tab is in front or whether the panel is open. -->
+    <div class="min-h-0 flex-1 flex-col {settings.prefs.bottomPanelTab === 'terminal' ? 'flex' : 'hidden'}">
+      {#if ui.dockTerminals.length > 1}
+        <div class="flex h-7 shrink-0 items-center gap-1 overflow-x-auto border-b border-line px-2 text-xs">
+          {#each ui.dockTerminals as d (d.pane.id)}
+            <div class="flex h-6 shrink-0 items-center gap-1.5 rounded px-2 {d.pane.id === ui.activeDockTerminal ? 'bg-panel-hover text-fg' : 'text-fg-muted hover:bg-panel-hover'}">
+              <button class="flex items-center gap-1.5" onclick={() => (ui.activeDockTerminal = d.pane.id)}>
+                <span class="h-1.5 w-1.5 rounded-full {STATUS_DOT[ui.paneInfo[d.pane.id]?.status ?? 'connecting']}"></span>{d.title}
+              </button>
+              <button class="rounded hover:text-fg" aria-label="Close this terminal" onclick={() => ui.closeDockTerminal(d.pane.id)}><X size={11} /></button>
+            </div>
+          {/each}
+        </div>
+      {/if}
+      <div class="relative min-h-0 flex-1">
+        {#each ui.dockTerminals as d (d.pane.id)}
+          <div class="absolute inset-0 flex flex-col {d.pane.id === ui.activeDockTerminal ? '' : 'invisible'}">
+            <TerminalPane pane={d.pane} active={termActive && d.pane.id === ui.activeDockTerminal} />
+          </div>
+        {/each}
+        {#if ui.dockTerminals.length === 0}
+          <div class="flex h-full flex-col items-center justify-center gap-2 text-xs text-fg-muted">
+            <span>No terminal in this panel.</span>
+            <button class="btn-secondary" disabled={!ui.activeTab} onclick={() => ui.addDockTerminal()}><Plus size={14} /> New terminal</button>
+          </div>
+        {/if}
+      </div>
+    </div>
+    <div class="min-h-0 flex-1 overflow-auto text-xs {settings.prefs.bottomPanelTab === 'terminal' ? 'hidden' : ''}">
       {#if settings.prefs.bottomPanelTab === "connections"}
         {#each connectionLog.entries.slice(0, 200) as e (e.id)}
           <div class="flex items-center gap-3 border-b border-line/50 px-3 py-1.5">
@@ -127,7 +170,7 @@
   {#if open}
     <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
     <div
-      class="absolute left-0 top-0 z-20 h-2 w-full cursor-row-resize outline-none
+      class="absolute left-0 top-0.5 z-20 h-2 w-full cursor-row-resize outline-none
         after:absolute after:left-0 after:top-0 after:h-0.5 after:w-full after:transition-colors
         {dragging ? 'after:bg-accent' : 'hover:after:bg-accent/60 focus-visible:after:bg-accent'}"
       role="separator"

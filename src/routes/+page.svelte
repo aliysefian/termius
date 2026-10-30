@@ -13,9 +13,11 @@
   import SftpView from "$lib/components/SftpView.svelte";
   import HostForm from "$lib/components/HostForm.svelte";
   import HostTree from "$lib/components/HostTree.svelte";
+  import TopBar from "$lib/components/TopBar.svelte";
   import RightDock from "$lib/components/RightDock.svelte";
   import BottomDock from "$lib/components/BottomDock.svelte";
   import { bottomFits, rightFits } from "$lib/docklayout";
+  import { effectiveWidth } from "$lib/sidebarsize";
   import ResizablePanel from "$lib/components/ResizablePanel.svelte";
   import IdentityForm from "$lib/components/IdentityForm.svelte";
   import KeychainPanel from "$lib/components/KeychainPanel.svelte";
@@ -92,6 +94,9 @@
   let windowWidth = $state(typeof window === "undefined" ? 1600 : window.innerWidth);
   let windowHeight = $state(typeof window === "undefined" ? 900 : window.innerHeight);
   /** The docks belong to the terminals; pages and the file browser use the whole area. */
+  const LIST_VIEWS = ["hosts", "favorites", "fleetlist", "keychain", "snippets", "forwarding"];
+  /** Width the list panel takes now, so the right dock leaves the terminal its room. */
+  const leftUsed = $derived(!settings.prefs.sidebarHidden && !settings.prefs.focusMode && LIST_VIEWS.includes(ui.view) ? effectiveWidth(settings.prefs.sidebarWidth, windowWidth) : 0);
   const terminalView = $derived(!PAGE_VIEWS.includes(ui.view) && ui.view !== "sftp");
 
   /** The name of the page being shown, for screen readers (pages that draw their own heading say it twice, which is harmless). */
@@ -292,12 +297,15 @@
         title="Leave focus mode (Ctrl+Shift+U)">Exit focus</button
       >
     {/if}
+    {#if !settings.prefs.focusMode}
+      <TopBar {windowWidth} {windowHeight} {leftUsed} />
+    {/if}
     <div class="flex min-h-0 flex-1 overflow-hidden">
     {#if !settings.prefs.focusMode}
       <ActivityBar />
     {/if}
 
-    {#if !settings.prefs.sidebarHidden && !settings.prefs.focusMode && ["hosts", "favorites", "fleetlist", "keychain", "snippets", "forwarding"].includes(ui.view)}
+    {#if !settings.prefs.sidebarHidden && !settings.prefs.focusMode && LIST_VIEWS.includes(ui.view)}
       <ResizablePanel>
         {#if ui.view === "hosts"}
           <HostTree />
@@ -316,9 +324,9 @@
     {/if}
 
     <!-- Terminals and SFTP stay mounted while hidden so their sessions survive view switches. -->
-    <main class="flex min-w-0 flex-1" aria-label="SSHVault">
+    <main class="flex min-w-0 flex-1 flex-col {terminalView && !settings.prefs.focusMode ? 'workbench p-1.5' : ''}" aria-label="SSHVault">
     <h1 class="sr-only">{VIEW_TITLES[ui.view] ?? "SSHVault"}</h1>
-    <div class="flex min-w-0 flex-1 flex-col">
+    <div class="flex min-h-0 min-w-0 flex-1">
     <div class="flex min-h-0 min-w-0 flex-1">
     <div class="min-w-0 flex-1 {PAGE_VIEWS.includes(ui.view) || ui.view === 'sftp' ? 'hidden' : 'flex'}">
       <TerminalArea />
@@ -362,12 +370,12 @@
       <ChangelogView />
     {/if}
     </div>
-    {#if terminalView && !settings.prefs.focusMode && bottomFits(windowHeight)}
-      <BottomDock {windowHeight} />
+    {#if terminalView && !settings.prefs.focusMode && rightFits(windowWidth, leftUsed)}
+      <RightDock {windowWidth} {leftUsed} />
     {/if}
     </div>
-    {#if terminalView && !settings.prefs.focusMode && rightFits(windowWidth)}
-      <RightDock {windowWidth} />
+    {#if terminalView && !settings.prefs.focusMode && bottomFits(windowHeight)}
+      <BottomDock {windowHeight} />
     {/if}
     </main>
     </div>

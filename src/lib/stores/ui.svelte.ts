@@ -1,6 +1,6 @@
 // Ephemeral UI state: which sidebar view is active, open tabs, modals.
 import { MAX_PANES, grid, layoutRects, leaf, paneIds, remove, setRatio, split, type LayoutNode } from "$lib/layout";
-import { layoutMode, switchMode, type LayoutMode } from "$lib/docklayout";
+import { toggleFocus } from "$lib/docklayout";
 import * as api from "$lib/api";
 import { ask, askRemember } from "$lib/dialogs.svelte";
 import { fingerprint, renderCommand } from "$lib/commandhost";
@@ -729,37 +729,71 @@ class UiStore {
   }
 
   toggleSidebar() {
+    settings.prefs.shellFocus = false;
     settings.prefs.sidebarHidden = !settings.prefs.sidebarHidden;
   }
 
-  /** Shell focus (no dock open) or Workspace (a dock open). */
-  get layoutMode(): LayoutMode {
-    return layoutMode(settings.prefs.rightPanelOpen, settings.prefs.bottomPanelOpen);
-  }
-
-  /** Hide or show the right dock; showing it from a page view returns to the terminals so it is seen. */
+  /** Hide or show the right dock. Leaves Shell focus, since the person asked to see something. */
   toggleRightPanel() {
+    settings.prefs.shellFocus = false;
     settings.prefs.rightPanelOpen = !settings.prefs.rightPanelOpen;
-    this.revealTerminals();
+    this.#revealTerminals();
   }
 
   toggleBottomPanel() {
+    settings.prefs.shellFocus = false;
     settings.prefs.bottomPanelOpen = !settings.prefs.bottomPanelOpen;
-    this.revealTerminals();
+    this.#revealTerminals();
   }
 
-  /** Shell focus ⇄ Workspace: closes both docks, or brings back the ones that were open. */
-  toggleLayoutMode() {
+  /** Shell focus: every panel hidden. Ending it restores what was showing before, not everything. */
+  toggleShellFocus() {
     const p = settings.prefs;
-    const next = switchMode({ right: p.rightPanelOpen, bottom: p.bottomPanelOpen }, p.workspaceDocks);
-    p.workspaceDocks = next.remembered;
-    p.rightPanelOpen = next.open.right;
-    p.bottomPanelOpen = next.open.bottom;
-    this.revealTerminals();
+    const next = toggleFocus(p.shellFocus, { left: !p.sidebarHidden, right: p.rightPanelOpen, bottom: p.bottomPanelOpen }, p.focusRestore);
+    p.focusRestore = next.saved;
+    p.shellFocus = next.focused;
+    p.sidebarHidden = !next.show.left;
+    p.rightPanelOpen = next.show.right;
+    p.bottomPanelOpen = next.show.bottom;
+    this.#revealTerminals();
   }
 
-  private revealTerminals() {
-    if ((settings.prefs.rightPanelOpen || settings.prefs.bottomPanelOpen) && (PAGE_VIEWS.includes(this.view) || this.view === "sftp")) this.view = "hosts";
+  /** Panels belong to the terminals: show those, not a page, so the change is seen. */
+  #revealTerminals() {
+    if (PAGE_VIEWS.includes(this.view) || this.view === "sftp") this.view = "hosts";
+    // The shortcut must not take the keyboard away from the shell.
+    setTimeout(() => document.querySelector<HTMLElement>("[data-active-pane='true'] .xterm-helper-textarea")?.focus(), 0);
+  }
+
+  // -- terminals in the bottom panel: their own sessions, kept while the panel is hidden ----------------
+
+  dockTerminals = $state<{ pane: Pane; title: string }[]>([]);
+  activeDockTerminal = $state<string | null>(null);
+
+  /** A new shell in the bottom panel, on the host (or local shell) of the focused pane. */
+  addDockTerminal() {
+    const src = this.activeTab?.panes.find((p) => p.id === this.activeTab?.activePaneId)?.target;
+    let target: PaneTarget = { kind: "local" } as PaneTarget;
+    let title = "Local";
+    if (src && (src.kind === "host" || src.kind === "adhoc" || src.kind === "local")) {
+      // Never repeat a one-off command the tab was opened with.
+      target = src.kind === "host" ? { kind: "host", hostId: src.hostId } : ({ ...src } as PaneTarget);
+      title = paneLabel(src).split(" · ")[0];
+    }
+    const pane: Pane = { id: nextId("dock"), target };
+    this.dockTerminals.push({ pane, title });
+    this.activeDockTerminal = pane.id;
+    settings.prefs.bottomPanelTab = "terminal";
+    settings.prefs.bottomPanelOpen = true;
+    settings.prefs.shellFocus = false;
+  }
+
+  closeDockTerminal(id: string) {
+    const i = this.dockTerminals.findIndex((d) => d.pane.id === id);
+    if (i < 0) return;
+    this.dockTerminals.splice(i, 1);
+    delete this.paneInfo[id];
+    if (this.activeDockTerminal === id) this.activeDockTerminal = this.dockTerminals[Math.max(0, i - 1)]?.pane.id ?? null;
   }
 }
 
