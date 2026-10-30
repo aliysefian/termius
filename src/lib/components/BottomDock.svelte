@@ -93,7 +93,7 @@
       {#if settings.prefs.bottomPanelTab === "connections"}
         {#each connectionLog.entries.slice(0, 200) as e (e.id)}
           <div class="flex items-center gap-3 border-b border-line/50 px-3 py-1.5">
-            <span class="w-12 shrink-0 tabular-nums text-fg-muted">{time(e.startedAt)}</span>
+            <span class="w-[4.5rem] shrink-0 whitespace-nowrap tabular-nums text-fg-muted">{time(e.startedAt)}</span>
             <span class="min-w-0 flex-1 truncate">{e.label}</span>
             <span class="shrink-0 text-fg-muted">{e.kind}</span>
             <span class="w-14 shrink-0 text-right tabular-nums text-fg-muted">{took(e)}</span>
