@@ -4,6 +4,12 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## 0.46.0 - 2026-10-30
+
+- **New:** **security audit of a Linux server.** Open a host's detail view (the **Monitor** button in Topology, the gauge on a host's card in Fleet, or **Open detail view…** in a host's details) and choose the new **Security** tab. Press **Run the audit** and SSHVault reads the server and tells you what is weak: SSH settings (root and password logins, empty passwords, who may log in, old ciphers), databases and the Docker API open to the network, the firewall, accounts and `sudo` rules, set-uid programs, kernel settings, Docker containers, automatic security updates and security updates waiting, and whether logging and `fail2ban` are running.
+- Each finding has a severity, the file or setting it is about, what was found, the risk, and the fix as text to read and apply yourself. **Nothing is changed on the server**, nothing is installed, and nothing runs until you press the button. **Copy as text** gives the whole report for a ticket.
+- It runs as the account the window connected as and never uses `sudo` or asks for a password, so what that account cannot read (the SSH drop-in files, `sudoers`, the firewall rules, `/etc/shadow`) is shown as **not checked** with the command for someone with root to run. Those checks are never counted as passed, and the score shows the range it could fall in once they are known. **What it runs** shows the exact script.
+
 ## 0.45.0 - 2026-10-30
 
 - **New:** **Telegram and Bale alerts can go through a proxy.** If your network blocks Telegram (or Bale), open **Settings → Notification channels**, and under Telegram or Bale pick a **Proxy**. The list is the SOCKS5 and HTTP proxies you already saved under **Groups and Proxies**; a proxy that runs a command can't carry alerts.

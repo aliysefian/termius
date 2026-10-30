@@ -7128,7 +7128,7 @@ dependencies = [
 
 [[package]]
 name = "sshvault"
-version = "0.45.0"
+version = "0.46.0"
 dependencies = [
  "aes 0.9.3",
  "argon2 0.5.3",
