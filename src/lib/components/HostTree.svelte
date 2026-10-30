@@ -1,6 +1,6 @@
 <script lang="ts">
   import Illustration from "./Illustration.svelte";
-  import { Activity, ArrowDownUp, Check, ChevronDown, ChevronRight, Clock, Cloud, Ellipsis, FileInput, FoldVertical, Plus, Search, Server, Star, UnfoldVertical } from "lucide-svelte";
+  import { Activity, ArrowDownUp, Check, ChevronDown, ChevronRight, Clock, Cloud, FileInput, FoldVertical, ListFilter, Plus, Search, Server, Star, UnfoldVertical } from "lucide-svelte";
   import { settings } from "$lib/stores/settings.svelte";
   import HostRow from "./HostRow.svelte";
   import Spinner from "./Spinner.svelte";
@@ -242,70 +242,69 @@
 <svelte:window onpointerdown={outsideMenu} />
 
 <aside class="flex min-w-0 flex-1 flex-col border-r border-line bg-panel">
-  <div class="flex items-center justify-between gap-1 px-4 pt-3 pb-2 @max-[16rem]:px-3">
-    <h2 class="min-w-0 truncate text-sm font-semibold">{favoritesOnly ? t("hosts.favorites") : t("hosts.title")}</h2>
-    <div class="flex shrink-0 items-center gap-0.5 [&>.icon-btn]:@max-[16rem]:h-7 [&>.icon-btn]:@max-[16rem]:w-7">
-      <button class="icon-btn" title="Check which hosts are reachable" disabled={vaultStore.checking} onclick={() => vaultStore.checkHealth()}>
-        <Activity size={16} class={vaultStore.checking ? "animate-pulse text-accent" : ""} />
-      </button>
-      <button bind:this={menuBtn} class="icon-btn" title="Sort, import and export" aria-label="More host list actions" aria-haspopup="menu" aria-expanded={menuOpen} onclick={toggleMenu}>
-        <Ellipsis size={16} />
-      </button>
-      <button class="ml-0.5 flex h-7 w-7 items-center justify-center rounded-md bg-accent text-white hover:bg-accent-hover" title="New host" aria-label="New host" onclick={() => (ui.modal = { kind: "host", id: null })}>
-        <Plus size={15} />
-      </button>
+  <!-- Icon-first header: search, add, and one filter menu that holds everything else about the list. -->
+  <div class="flex items-center gap-1.5 px-3 pb-2 pt-3">
+    <div class="relative min-w-0 flex-1">
+      <Search size={15} class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-muted" />
+      <input class="input h-8 py-0 pl-8 pr-2" placeholder={favoritesOnly ? t("hosts.favorites") : "Search"} aria-label={t("hosts.search")} title={t("hosts.search")} bind:value={ui.search} />
     </div>
+    <button class="icon-btn h-8 w-8 shrink-0 border border-line bg-base" title="New host" aria-label="New host" onclick={() => (ui.modal = { kind: "host", id: null })}><Plus size={16} /></button>
+    <button
+      bind:this={menuBtn}
+      class="icon-btn relative h-8 w-8 shrink-0 border border-line bg-base {menuOpen || envFilter || tagFilter ? 'text-accent' : ''}"
+      title="Filter, sort, import and export"
+      aria-label="Filter, sort, import and export"
+      aria-haspopup="menu"
+      aria-expanded={menuOpen}
+      onclick={toggleMenu}
+    >
+      <ListFilter size={16} />
+      {#if envFilter || tagFilter}<span class="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-accent"></span>{/if}
+    </button>
   </div>
   {#if menuOpen}
-    <div bind:this={menuEl} class="anim-pop fixed left-20 z-40 w-72 rounded-xl border border-line bg-panel p-1 text-sm shadow-xl" style:top="{menuTop}px" role="menu" aria-label="Host list actions" tabindex="-1" onkeydown={(e) => e.key === "Escape" && (menuOpen = false, menuBtn?.focus())}>
-      <p class="px-2 pb-1 pt-1.5 text-[11px] font-medium uppercase tracking-wide text-fg-muted">Sort by</p>
+    {@const item = "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-panel-hover"}
+    <div bind:this={menuEl} class="anim-pop fixed left-20 z-40 max-h-[calc(100vh-6rem)] w-72 overflow-y-auto rounded-xl border border-line bg-panel p-1 text-sm shadow-xl" style:top="{menuTop}px" role="menu" aria-label="Host list options" tabindex="-1" onkeydown={(e) => e.key === "Escape" && ((menuOpen = false), menuBtn?.focus())}>
+      {#if envChoices.length}
+        <p class="px-2 pb-1 pt-1.5 text-[11px] font-medium uppercase tracking-wide text-fg-muted">Environment</p>
+        {#each ["", ...envChoices] as e (e)}
+          <button class={item} role="menuitemradio" aria-checked={envFilter === e} onclick={() => { envFilter = e; menuOpen = false; }}>
+            <span class="w-3.5">{#if envFilter === e}<Check size={13} class="text-accent" />{/if}</span>
+            <span class="capitalize">{e === "" ? t("hosts.env.all") : e === "production" ? t("hosts.env.production") : e === "development" ? t("hosts.env.development") : e === "staging" ? t("hosts.env.staging") : e}</span>
+          </button>
+        {/each}
+        <div class="my-1 h-px bg-line"></div>
+      {/if}
+      {#if allTags.length}
+        <label class="flex items-center gap-2 px-2 py-1 text-xs text-fg-muted">Tag
+          <select class="input flex-1 py-1 text-xs" bind:value={tagFilter} aria-label="Filter by tag">
+            <option value="">Any</option>
+            {#each allTags as tg (tg)}<option value={tg}>{tg}</option>{/each}
+          </select>
+        </label>
+        <div class="my-1 h-px bg-line"></div>
+      {/if}
+      <p class="px-2 pb-1 pt-1 text-[11px] font-medium uppercase tracking-wide text-fg-muted">Sort by</p>
       {#each SORTS as [v, label] (v)}
-        <button class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-panel-hover" role="menuitemradio" aria-checked={sortBy === v} onclick={() => { sortBy = v; menuOpen = false; }}>
+        <button class={item} role="menuitemradio" aria-checked={sortBy === v} onclick={() => { sortBy = v; menuOpen = false; }}>
           <span class="w-3.5">{#if sortBy === v}<Check size={13} class="text-accent" />{/if}</span>{label}
         </button>
       {/each}
       <div class="my-1 h-px bg-line"></div>
       {#if paths.length}
         {#if anyExpanded}
-          <button class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-panel-hover" role="menuitem" onclick={() => { ui.collapseGroups(paths); menuOpen = false; }}><FoldVertical size={14} /> Collapse all groups</button>
+          <button class={item} role="menuitem" onclick={() => { ui.collapseGroups(paths); menuOpen = false; }}><FoldVertical size={14} /> Collapse all groups</button>
         {:else}
-          <button class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-panel-hover" role="menuitem" onclick={() => { ui.expandAllGroups(); menuOpen = false; }}><UnfoldVertical size={14} /> Expand all groups</button>
+          <button class={item} role="menuitem" onclick={() => { ui.expandAllGroups(); menuOpen = false; }}><UnfoldVertical size={14} /> Expand all groups</button>
         {/if}
-        <div class="my-1 h-px bg-line"></div>
       {/if}
-      <button class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-panel-hover" role="menuitem" onclick={() => { menuOpen = false; ui.modal = { kind: "import-ssh-config" }; }}><FileInput size={14} /> Import from SSH config, PuTTY, MobaXterm, Ásbrú…</button>
-      <button class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-panel-hover" role="menuitem" onclick={() => { menuOpen = false; ui.modal = { kind: "import-inventory" }; }}><Cloud size={14} /> Import from a cloud or Kubernetes…</button>
-      <button class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-panel-hover" role="menuitem" onclick={() => { menuOpen = false; ui.modal = { kind: "hosts-transfer" }; }}><ArrowDownUp size={14} /> Export or import as a file…</button>
+      <button class={item} role="menuitem" disabled={vaultStore.checking} onclick={() => { menuOpen = false; void vaultStore.checkHealth(); }}><Activity size={14} /> Check which hosts are reachable</button>
+      <div class="my-1 h-px bg-line"></div>
+      <button class={item} role="menuitem" onclick={() => { menuOpen = false; ui.modal = { kind: "import-ssh-config" }; }}><FileInput size={14} /> Import from SSH config, PuTTY, MobaXterm, Ásbrú…</button>
+      <button class={item} role="menuitem" onclick={() => { menuOpen = false; ui.modal = { kind: "import-inventory" }; }}><Cloud size={14} /> Import from a cloud or Kubernetes…</button>
+      <button class={item} role="menuitem" onclick={() => { menuOpen = false; ui.modal = { kind: "hosts-transfer" }; }}><ArrowDownUp size={14} /> Export or import as a file…</button>
     </div>
   {/if}
-
-  <div class="px-3 pb-2">
-    <div class="relative">
-      <Search size={14} class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-muted" />
-      <input class="input py-1.5 pl-8" placeholder={t("hosts.search")} bind:value={ui.search} />
-    </div>
-    <div class="mt-1.5 flex flex-wrap gap-1.5">
-      {#if envChoices.length}
-        <!-- One tap per environment instead of a drop-down: what is in production is the thing to see at a glance. -->
-        <div class="flex w-full gap-1 rounded-lg border border-line bg-base p-0.5 text-[11px]" role="group" aria-label="Filter by environment">
-          {#each ["", ...envChoices] as e (e)}
-            <button
-              type="button"
-              class="min-w-0 flex-1 truncate rounded-md px-1.5 py-1 font-medium capitalize transition-colors {envFilter === e ? 'bg-accent text-white shadow-sm' : 'text-fg-muted hover:bg-panel-hover hover:text-fg'}"
-              aria-pressed={envFilter === e}
-              onclick={() => (envFilter = e)}
-            >{e === "" ? t("hosts.env.all") : e === "production" ? t("hosts.env.production") : e === "development" ? t("hosts.env.development") : e === "staging" ? t("hosts.env.staging") : e}</button>
-          {/each}
-        </div>
-      {/if}
-      {#if allTags.length}
-        <select class="input min-w-[6.5rem] flex-1 py-1 text-xs" bind:value={tagFilter} aria-label="Filter by tag">
-          <option value="">Any tag</option>
-          {#each allTags as t (t)}<option value={t}>{t}</option>{/each}
-        </select>
-      {/if}
-    </div>
-  </div>
 
   {#if ui.selectedHosts.size}
     <div class="mx-3 mb-2 flex flex-wrap items-center gap-2 rounded-md border border-accent/40 bg-accent/10 px-2 py-1.5 text-xs">
@@ -371,7 +370,7 @@
           <button class="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-sm text-fg-muted hover:bg-panel-hover" aria-expanded={!favoritesFolded} onclick={() => ui.toggleGroup(FAV_KEY)}>
             {#if favoritesFolded}<ChevronRight size={14} />{:else}<ChevronDown size={14} />{/if}
             <Star size={13} class="text-warning" fill="currentColor" />
-            <span class="font-medium text-fg">{t("hosts.favorites")}</span>
+            <span class="sr-only">{t("hosts.favorites")}</span>
             <span class="text-xs">{favorites.length}</span>
           </button>
           {#if !favoritesFolded}
@@ -384,7 +383,7 @@
       {#if recentShown.length && !ui.search.trim() && !favoritesOnly}
         <div class="mb-2">
           <div class="flex items-center gap-1.5 px-2 pb-1 pt-1 text-[11px] font-medium uppercase tracking-wide text-fg-muted">
-            <Clock size={11} /> {t("hosts.recent")}
+            <Clock size={12} aria-hidden="true" /><span class="sr-only">{t("hosts.recent")}</span>
           </div>
           {#each recentShown as host (host.id)}
             <HostRow {host} depth={0} treeKey="r:{host.id}" focused={`r:${host.id}` === effectiveFocusedKey} />

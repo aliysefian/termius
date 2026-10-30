@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Activity, Copy, CopyPlus, FolderSync, History, Info, Pencil, Play, Server, Star, TerminalSquare, Trash2 } from "lucide-svelte";
+  import { Activity, Copy, CopyPlus, FolderSync, History, Info, Monitor, Pencil, Play, Star, TerminalSquare, Trash2 } from "lucide-svelte";
   import Badge from "./Badge.svelte";
   import { writeText } from "@tauri-apps/plugin-clipboard-manager";
   import { settings } from "$lib/stores/settings.svelte";
@@ -64,6 +64,12 @@
   const dotTitle = $derived(
     session === "connected" ? "Connected" : session === "connecting" ? "Connecting…" : health?.state === "up" ? `Reachable (${health.latency_ms} ms)` : health?.state === "down" ? `Unreachable: ${health.reason}` : "Not connected",
   );
+  /** The host the focused terminal is on: the row is outlined, like a selected tab. */
+  const current = $derived.by(() => {
+    const t = ui.activeTab;
+    const target = t?.panes.find((p) => p.id === t.activePaneId)?.target;
+    return target?.kind === "host" && target.hostId === host.id;
+  });
   const address = $derived(`${d.hostname}${d.port !== 22 ? `:${d.port}` : ""}`);
 
   /** Ctrl/Shift+click ticks hosts for bulk edit; a plain click clears. */
@@ -97,8 +103,9 @@
      (HostTree.svelte), which sees this row's keydowns bubble up to it. -->
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <div
-  class="host-row group relative flex cursor-pointer items-center gap-2 rounded-md py-1.5 pr-1.5 {selected ? 'bg-accent/15 ring-1 ring-inset ring-accent/40' : session ? 'bg-panel-hover/60 hover:bg-panel-hover' : 'hover:bg-panel-hover'}"
+  class="host-row group relative flex cursor-pointer items-center gap-2 rounded-lg py-1.5 pr-1.5 {selected ? 'bg-accent/15 ring-1 ring-inset ring-accent/40' : current ? 'bg-accent/10 ring-1 ring-inset ring-accent/60' : 'hover:bg-panel-hover'}"
   aria-selected={selected}
+  aria-current={current ? "true" : undefined}
   aria-level={depth + 1}
   data-tree-key={treeKey}
   onclick={click}
@@ -108,20 +115,15 @@
   draggable="true"
   ondragstart={(e) => hostDragStart(e, host.id)}
   ondblclick={connect}
-  title="Double-click to connect, Space for details, Ctrl+click to select. {identity ? `Logs in as ${identity.username}. ` : ''}{usageText}"
+  title="{d.label} · {address}{identity ? ` · ${identity.username}` : ''}{jump ? ` · via ${jump.label}` : ''}. Double-click to connect, Space for details, Ctrl+click to select. {usageText}"
 >
   <!-- The host's colour tag is an edge bar; the dot is an open session, else what the last reachability probe saw. -->
   {#if d.color}<span class="absolute inset-y-1 left-0 w-0.5 rounded-full" style:background={d.color} aria-hidden="true"></span>{/if}
-  <span class="ml-3 h-2 w-2 shrink-0 rounded-full {dot}" title={dotTitle} aria-hidden="true"></span>
-  <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-line bg-base text-fg-muted" aria-hidden="true"><Server size={14} /></span>
-  <div class="min-w-0 flex-1">
-    <div class="truncate text-[13px] font-medium leading-5 {session === 'connected' ? 'text-fg' : ''}">{d.label}</div>
-    <div class="flex items-baseline gap-1.5 text-[11px] leading-4 text-fg-muted">
-      <span class="min-w-0 shrink truncate font-mono">{address}</span>
-      <!-- The address is what you scan for, so "via …" gives way first. -->
-      {#if jump}<span class="min-w-0 shrink-[100] truncate">via {jump.label}</span>{/if}
-    </div>
-  </div>
+  <span class="ml-3 h-2.5 w-2.5 shrink-0 rounded-full {dot}" title={dotTitle} aria-hidden="true"></span>
+  <Monitor size={16} class="shrink-0 text-fg-muted" aria-hidden="true" />
+  <span class="min-w-0 flex-1 truncate text-[13px] leading-5 {session === 'connected' || current ? 'font-medium text-fg' : ''}">{d.label}</span>
+  <!-- The address is secondary: it shows for the host you are on, and in the tooltip for the rest. -->
+  {#if current}<span class="hidden min-w-0 shrink truncate font-mono text-[11px] text-fg-muted @min-[18rem]:inline">{address}</span>{/if}
   {#if env.value}
     <span class="shrink-0 group-hover:invisible group-focus-within:invisible"><Badge tone={env.tone}>{env.short ?? ""}</Badge></span>
   {/if}

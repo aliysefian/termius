@@ -3,20 +3,21 @@
 /* Termius-inspired dark palette, exposed as Tailwind utilities
    (bg-base, bg-panel, text-accent, border-line, ...) */
 @theme {
-  --color-base: #18191e;
-  --color-panel: #20222b;
-  --color-panel-hover: #262833;
-  --color-line: #2c2f3a;
+  /* The dark workbench: a deep navy ground, cards one step lighter, and a restrained violet accent. */
+  --color-base: #0d1420;
+  --color-panel: #151e2d;
+  --color-panel-hover: #1b2636;
+  --color-line: #243047;
   /* The accent as text and icons on the dark panels (6:1), and as a solid fill under white text (5:1). */
   --color-accent: #a592ff;
-  --color-accent-hover: #5d41e6;
-  --color-accent-solid: #6c50f5;
-  --color-fg: #e6e6ea;
-  --color-fg-muted: #9b9daa;
-  --color-danger: #ff7a7a;
+  --color-accent-hover: #6547e6;
+  --color-accent-solid: #7657f5;
+  --color-fg: #e8edf5;
+  --color-fg-muted: #91a0b5;
+  --color-danger: #f5707f;
   --color-danger-solid: #c92a2f;
-  --color-success: #3ddc84;
-  --color-warning: #ffb020;
+  --color-success: #2dd59a;
+  --color-warning: #f5b942;
   /* The dashboard's usage bars: yellow when moderate, orange when high (green is --color-success). */
   --color-usage-moderate: #ffd54a;
   --color-usage-high: #ff8a3d;
@@ -272,7 +273,7 @@ body {
   border: 0;
 }
 
-/* The terminal workbench: panels are cards on a slightly darker ground, so each edge reads at a glance. */
+/* The terminal workbench: panels are rounded cards with hairline borders on the base ground. */
 .workbench {
-  background: color-mix(in srgb, var(--color-base) 55%, black);
+  background: var(--color-base);
 }

@@ -776,7 +776,7 @@ class UiStore {
   #revealTerminals() {
     if (PAGE_VIEWS.includes(this.view) || this.view === "sftp") this.view = "hosts";
     // The shortcut must not take the keyboard away from the shell.
-    setTimeout(() => document.querySelector<HTMLElement>("[data-active-pane='true'] .xterm-helper-textarea")?.focus(), 0);
+    if (typeof document !== "undefined") setTimeout(() => document.querySelector<HTMLElement>("[data-active-pane='true'] .xterm-helper-textarea")?.focus(), 0);
   }
 
   // -- terminals in the bottom panel: their own sessions, kept while the panel is hidden ----------------
@@ -791,7 +791,7 @@ class UiStore {
     let title = "Local";
     if (src && (src.kind === "host" || src.kind === "adhoc" || src.kind === "local")) {
       // Never repeat a one-off command the tab was opened with.
-      target = src.kind === "host" ? { kind: "host", hostId: src.hostId } : ({ ...src } as PaneTarget);
+      target = src.kind === "host" ? { kind: "host", hostId: src.hostId } : src.kind === "local" ? { kind: "local", ...(src.shellId ? { shellId: src.shellId } : {}) } : ({ ...src } as PaneTarget);
       title = paneLabel(src).split(" · ")[0];
     }
     const pane: Pane = { id: nextId("dock"), target };

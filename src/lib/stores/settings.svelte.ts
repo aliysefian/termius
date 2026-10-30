@@ -259,7 +259,7 @@ export const DEFAULT_PREFS: Prefs = {
   alertHistory: [],
   metricsKeep: "off",
   crashSeenAt: 0,
-  railLabels: true,
+  railLabels: false,
   terminalImages: true,
   highlightRules: [],
   commandBlocks: true,
