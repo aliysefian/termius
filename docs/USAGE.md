@@ -791,6 +791,9 @@ connection too. Outside a terminal, **Ctrl+K** also opens it.
 | Ctrl+Shift+L | Lock vault |
 | Ctrl+Shift+B | Type into all panes of the tab (toggle) |
 | Ctrl+Shift+H | Hide or show the list panel |
+| Ctrl+Alt+B | Hide or show the side panel (session details, snippets) |
+| Ctrl+Alt+J | Hide or show the bottom panel (open sessions, connection log) |
+| Ctrl+Alt+Z | Switch between Shell focus (both closed) and Workspace (both back as you left them) |
 | Ctrl+Shift+Enter | Maximize or restore the active pane |
 | Ctrl+Shift+U | Focus mode: only the terminal |
 | Ctrl+Shift+/ | Keyboard shortcuts (and rebinding them) |

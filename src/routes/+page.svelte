@@ -13,6 +13,9 @@
   import SftpView from "$lib/components/SftpView.svelte";
   import HostForm from "$lib/components/HostForm.svelte";
   import HostTree from "$lib/components/HostTree.svelte";
+  import RightDock from "$lib/components/RightDock.svelte";
+  import BottomDock from "$lib/components/BottomDock.svelte";
+  import { bottomFits, rightFits } from "$lib/docklayout";
   import ResizablePanel from "$lib/components/ResizablePanel.svelte";
   import IdentityForm from "$lib/components/IdentityForm.svelte";
   import KeychainPanel from "$lib/components/KeychainPanel.svelte";
@@ -86,6 +89,10 @@
   import { networkStore } from "$lib/stores/network.svelte";
 
   let ready = $state(false);
+  let windowWidth = $state(typeof window === "undefined" ? 1600 : window.innerWidth);
+  let windowHeight = $state(typeof window === "undefined" ? 900 : window.innerHeight);
+  /** The docks belong to the terminals; pages and the file browser use the whole area. */
+  const terminalView = $derived(!PAGE_VIEWS.includes(ui.view) && ui.view !== "sftp");
 
   /** The name of the page being shown, for screen readers (pages that draw their own heading say it twice, which is harmless). */
   const VIEW_TITLES: Record<string, string> = {
@@ -270,6 +277,8 @@
   });
 </script>
 
+<svelte:window bind:innerWidth={windowWidth} bind:innerHeight={windowHeight} />
+
 {#if !ready}
   <div class="flex h-screen items-center justify-center"><Spinner label="Starting…" /></div>
 {:else if !vaultStore.unlocked}
@@ -309,6 +318,8 @@
     <!-- Terminals and SFTP stay mounted while hidden so their sessions survive view switches. -->
     <main class="flex min-w-0 flex-1" aria-label="SSHVault">
     <h1 class="sr-only">{VIEW_TITLES[ui.view] ?? "SSHVault"}</h1>
+    <div class="flex min-w-0 flex-1 flex-col">
+    <div class="flex min-h-0 min-w-0 flex-1">
     <div class="min-w-0 flex-1 {PAGE_VIEWS.includes(ui.view) || ui.view === 'sftp' ? 'hidden' : 'flex'}">
       <TerminalArea />
     </div>
@@ -349,6 +360,14 @@
       <ContainersView />
     {:else if ui.view === "changelog"}
       <ChangelogView />
+    {/if}
+    </div>
+    {#if terminalView && !settings.prefs.focusMode && bottomFits(windowHeight)}
+      <BottomDock {windowHeight} />
+    {/if}
+    </div>
+    {#if terminalView && !settings.prefs.focusMode && rightFits(windowWidth)}
+      <RightDock {windowWidth} />
     {/if}
     </main>
     </div>

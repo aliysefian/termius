@@ -4,6 +4,10 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## Unreleased
+
+- **New:** **terminal-first layout.** Two panels can be opened around the terminal and put away again: a **side panel** on the right (the focused session's details, and your snippets) and a **bottom panel** (every open session, and the connection log). Both start closed so the terminal has the whole window. Toggle them from the buttons at the right end of the tab strip, or with **Ctrl+Alt+B** (side), **Ctrl+Alt+J** (bottom) and **Ctrl+Alt+Z**, which switches between **Shell focus** (both closed) and **Workspace** (both back as you left them). Drag a panel's edge to resize it; size, open state and tab are remembered. On a small window a panel that would crowd the terminal is left out.
+
 ## 0.46.0 - 2026-10-30
 
 - **New:** **security audit of a Linux server.** Open a host's detail view (the **Monitor** button in Topology, the gauge on a host's card in Fleet, or **Open detail view…** in a host's details) and choose the new **Security** tab. Press **Run the audit** and SSHVault reads the server and tells you what is weak: SSH settings (root and password logins, empty passwords, who may log in, old ciphers), databases and the Docker API open to the network, the firewall, accounts and `sudo` rules, set-uid programs, kernel settings, Docker containers, automatic security updates and security updates waiting, and whether logging and `fail2ban` are running.

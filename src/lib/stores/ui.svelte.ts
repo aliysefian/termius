@@ -1,5 +1,6 @@
 // Ephemeral UI state: which sidebar view is active, open tabs, modals.
 import { MAX_PANES, grid, layoutRects, leaf, paneIds, remove, setRatio, split, type LayoutNode } from "$lib/layout";
+import { layoutMode, switchMode, type LayoutMode } from "$lib/docklayout";
 import * as api from "$lib/api";
 import { ask, askRemember } from "$lib/dialogs.svelte";
 import { fingerprint, renderCommand } from "$lib/commandhost";
@@ -729,6 +730,36 @@ class UiStore {
 
   toggleSidebar() {
     settings.prefs.sidebarHidden = !settings.prefs.sidebarHidden;
+  }
+
+  /** Shell focus (no dock open) or Workspace (a dock open). */
+  get layoutMode(): LayoutMode {
+    return layoutMode(settings.prefs.rightPanelOpen, settings.prefs.bottomPanelOpen);
+  }
+
+  /** Hide or show the right dock; showing it from a page view returns to the terminals so it is seen. */
+  toggleRightPanel() {
+    settings.prefs.rightPanelOpen = !settings.prefs.rightPanelOpen;
+    this.revealTerminals();
+  }
+
+  toggleBottomPanel() {
+    settings.prefs.bottomPanelOpen = !settings.prefs.bottomPanelOpen;
+    this.revealTerminals();
+  }
+
+  /** Shell focus ⇄ Workspace: closes both docks, or brings back the ones that were open. */
+  toggleLayoutMode() {
+    const p = settings.prefs;
+    const next = switchMode({ right: p.rightPanelOpen, bottom: p.bottomPanelOpen }, p.workspaceDocks);
+    p.workspaceDocks = next.remembered;
+    p.rightPanelOpen = next.open.right;
+    p.bottomPanelOpen = next.open.bottom;
+    this.revealTerminals();
+  }
+
+  private revealTerminals() {
+    if ((settings.prefs.rightPanelOpen || settings.prefs.bottomPanelOpen) && (PAGE_VIEWS.includes(this.view) || this.view === "sftp")) this.view = "hosts";
   }
 }
 

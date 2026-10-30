@@ -58,6 +58,18 @@ export interface Prefs {
   sidebarHidden: boolean;
   /** Its width in pixels (drag its edge; double-click resets). */
   sidebarWidth: number;
+  /** The right dock (session details, snippets) is open (Ctrl+Alt+B). */
+  rightPanelOpen: boolean;
+  /** Its width in pixels. */
+  rightPanelWidth: number;
+  rightPanelTab: "session" | "snippets";
+  /** The bottom dock (open sessions, connection log) is open (Ctrl+Alt+J). */
+  bottomPanelOpen: boolean;
+  /** Its height in pixels. */
+  bottomPanelHeight: number;
+  bottomPanelTab: "sessions" | "connections";
+  /** Which docks the Workspace layout brings back when leaving Shell focus (Ctrl+Alt+Z). */
+  workspaceDocks: { right: boolean; bottom: boolean };
   /** Reconnect by itself when a connection drops (not when you exit). */
   autoReconnect: boolean;
   /** Reopen the tabs that were open when the vault was last locked or the app quit. */
@@ -209,6 +221,13 @@ export const DEFAULT_PREFS: Prefs = {
   appTheme: "dark",
   sidebarHidden: false,
   sidebarWidth: 288,
+  rightPanelOpen: false,
+  rightPanelWidth: 320,
+  rightPanelTab: "session",
+  bottomPanelOpen: false,
+  bottomPanelHeight: 220,
+  bottomPanelTab: "sessions",
+  workspaceDocks: { right: true, bottom: true },
   autoReconnect: true,
   restoreLastSession: true,
   restoreSkipProduction: true,

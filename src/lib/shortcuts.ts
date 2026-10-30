@@ -51,6 +51,9 @@ export const ACTIONS: Action[] = [
   { id: "lock", label: "Lock the vault", combo: "Ctrl+Shift+L", run: () => void vaultStore.lock() },
   { id: "sync-input", label: "Type into all panes (toggle)", combo: "Ctrl+Shift+B", run: () => void ui.syncRequest++ },
   { id: "sidebar", label: "Hide or show the list panel", combo: "Ctrl+Shift+H", run: () => ui.toggleSidebar() },
+  { id: "right-panel", label: "Hide or show the side panel", combo: "Ctrl+Alt+B", run: () => ui.toggleRightPanel() },
+  { id: "bottom-panel", label: "Hide or show the bottom panel", combo: "Ctrl+Alt+J", run: () => ui.toggleBottomPanel() },
+  { id: "layout-mode", label: "Switch between Shell focus and Workspace", combo: "Ctrl+Alt+Z", run: () => ui.toggleLayoutMode() },
   { id: "focus-mode", label: "Focus mode (toggle)", combo: "Ctrl+Shift+U", run: () => void (settings.prefs.focusMode = !settings.prefs.focusMode) },
   { id: "local-terminal", label: "New local terminal", combo: "Ctrl+Shift+`", run: () => ui.openLocal() },
   // Alt+Shift, not plain Alt: bare Alt+Left/Right is readline's back/forward

@@ -6,7 +6,7 @@
   import { writeText } from "@tauri-apps/plugin-clipboard-manager";
   import { sshCommand } from "$lib/sshcmd";
   import { ACTIONS, comboFor } from "$lib/shortcuts";
-  import { ArrowLeftRight, BellRing, Check, ChevronDown, Circle, Columns2, History, Command, Copy, Ellipsis, FolderSync, Keyboard, List, Loader2, Maximize2, Minimize2, Plus, RefreshCw, Rows2, Search, SquareTerminal, Terminal, TextSelect, X, Zap } from "lucide-svelte";
+  import { ArrowLeftRight, BellRing, Check, ChevronDown, Circle, Columns2, History, Command, Copy, Ellipsis, FolderSync, Keyboard, List, Loader2, Maximize2, Minimize2, PanelBottom, PanelRight, Plus, RefreshCw, Rows2, Search, SquareTerminal, Terminal, TextSelect, X, Zap } from "lucide-svelte";
   import Badge from "./Badge.svelte";
   import Kbd from "./Kbd.svelte";
   import { save } from "@tauri-apps/plugin-dialog";
@@ -31,8 +31,11 @@
   import MultiplexerHeaderBar from "./MultiplexerHeaderBar.svelte";
   import TmuxNativeView from "./TmuxNativeView.svelte";
   import { multiplexers } from "$lib/tmux/useRemoteMultiplexer.svelte";
+  import { bottomFits, rightFits } from "$lib/docklayout";
 
   const tab = $derived(ui.activeTab);
+  let winW = $state(typeof window === "undefined" ? 1600 : window.innerWidth);
+  let winH = $state(typeof window === "undefined" ? 900 : window.innerHeight);
   let renaming = $state<string | null>(null);
   let renameValue = $state("");
   let tabMenu = $state<{ id: string; x: number; y: number } | null>(null);
@@ -363,6 +366,8 @@
 {/if}
 
 <svelte:window
+  bind:innerWidth={winW}
+  bind:innerHeight={winH}
   onkeydown={(e) => {
     if (e.key !== "Escape") return;
     if (dividerCancel) dividerCancel();
@@ -503,6 +508,32 @@
     <div class="flex h-10 shrink-0 items-center gap-0.5 px-1">
       <button class="icon-btn h-8 w-8" title="Command palette (Ctrl+Shift+P)" onclick={() => (ui.paletteOpen = true)}><Command size={15} /></button>
       <SnippetPicker />
+      <!-- Layout: the bottom and right docks, and the switch between Shell focus and Workspace. -->
+      <span class="mx-1 h-4 w-px bg-line" aria-hidden="true"></span>
+      <button
+        class="icon-btn h-8 w-8 {settings.prefs.bottomPanelOpen ? 'text-accent' : ''}"
+        title={bottomFits(winH) ? "Bottom panel (Ctrl+Alt+J)" : "The window is too short for the bottom panel"}
+        aria-label="Toggle the bottom panel"
+        aria-pressed={settings.prefs.bottomPanelOpen}
+        disabled={!bottomFits(winH)}
+        onclick={() => ui.toggleBottomPanel()}><PanelBottom size={15} /></button
+      >
+      <button
+        class="icon-btn h-8 w-8 {settings.prefs.rightPanelOpen ? 'text-accent' : ''}"
+        title={rightFits(winW) ? "Side panel (Ctrl+Alt+B)" : "The window is too narrow for the side panel"}
+        aria-label="Toggle the side panel"
+        aria-pressed={settings.prefs.rightPanelOpen}
+        disabled={!rightFits(winW)}
+        onclick={() => ui.toggleRightPanel()}><PanelRight size={15} /></button
+      >
+      <button
+        class="icon-btn h-8 w-8"
+        title={ui.layoutMode === "focus" ? "Shell focus: switch to Workspace (Ctrl+Alt+Z)" : "Workspace: switch to Shell focus (Ctrl+Alt+Z)"}
+        aria-label={ui.layoutMode === "focus" ? "Switch to Workspace layout" : "Switch to Shell focus layout"}
+        onclick={() => ui.toggleLayoutMode()}
+      >
+        {#if ui.layoutMode === "focus"}<Minimize2 size={15} />{:else}<Maximize2 size={15} />{/if}
+      </button>
     </div>
     </div>
   {/if}
