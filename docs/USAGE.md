@@ -610,7 +610,10 @@ time, and only on a host that is in the list, using the address saved with it. O
 **Notifications.** Under **Settings → Integrations → Notification channels**, switch on any of:
 
 - **Telegram** and **Bale**: a bot token and a chat ID. Bale's bot API is Telegram's with another address
-  (`tapi.bale.ai`). If you reach either through a mirror or a proxy, enter its `https://` address.
+  (`tapi.bale.ai`). If you reach either through a mirror or a relay of your own, enter its `https://` address.
+  If your network blocks the service, pick a **Proxy**: any SOCKS5 or HTTP proxy you saved under **Groups and Proxies**
+  (a proxy that runs a command can't be used). Alerts then go out only through it, with the proxy looking up the
+  service's name, and if the proxy is down or was deleted the alert is reported as failed instead of being sent directly.
 - **Email**: an SMTP server, port, security (STARTTLS, TLS, or none for this computer only), user name, password,
   and where to send. The password is only ever sent over an encrypted connection (or to this computer): with STARTTLS, a
   server that doesn't offer it is refused, and "None" with a password is refused unless the server is this computer.

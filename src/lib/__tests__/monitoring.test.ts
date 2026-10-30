@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
+import type { Proxy, VaultRecord } from "../types";
 import {
   PRESETS,
   ago,
+  botProxyChoices,
   checkRule,
   checkTarget,
   describeDeliveries,
   describeLimits,
   describeScope,
+  emptyChannels,
   emptyTarget,
   formatValue,
   hostOf,
@@ -159,6 +162,23 @@ describe("what the status page shows", () => {
     expect(ago(now / 1000 - 7300, now)).toBe("2 h ago");
     expect(ago(now / 1000 - 200000, now)).toBe("2 d ago");
     expect(ago(now / 1000 + 50, now)).toBe("0 s ago");
+  });
+
+  it("offers only the saved proxies an alert bot can use", () => {
+    const rec = (id: string, data: Proxy | undefined): VaultRecord<Proxy> => ({ id, rev: 1, updated_at: 0, deleted: !data, device_id: "d", data });
+    const list = [
+      rec("c", { name: "Jump script", spec: { kind: "command", command: "nc %h %p", approved: true } }),
+      rec("h", { name: "Office", spec: { kind: "http", host: "10.0.0.2", port: 3128 } }),
+      rec("gone", undefined),
+      rec("s", { name: "Home VPN", spec: { kind: "socks5", host: "127.0.0.1", port: 1080, username: "me" } }),
+    ];
+    expect(botProxyChoices(list)).toEqual([
+      { id: "s", label: "Home VPN (SOCKS5 127.0.0.1:1080)" },
+      { id: "h", label: "Office (HTTP 10.0.0.2:3128)" },
+    ]);
+    expect(botProxyChoices([])).toEqual([]);
+    expect(emptyChannels().telegram.proxy_id).toBeNull();
+    expect(emptyChannels().bale.proxy_id).toBeNull();
   });
 
   it("says who got an alert and who did not", () => {

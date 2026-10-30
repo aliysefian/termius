@@ -326,6 +326,10 @@ pub struct BotConfig {
     /// Another Bot API address (a mirror or a proxy). `https://` only. Empty uses the service's own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub base_url: Option<String>,
+    /// A saved proxy (SOCKS5 or HTTP) to reach the service through, for a network that blocks it. It is looked up
+    /// when a message is sent; one that has been deleted is an error, never a quiet direct connection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proxy_id: Option<Uuid>,
     /// Set only on what the window receives: a token is saved but not shown.
     #[serde(default)]
     pub token_set: bool,
@@ -377,6 +381,7 @@ impl std::fmt::Debug for BotConfig {
             .field("bot_token", &if self.bot_token.is_empty() { "" } else { "***" })
             .field("chat_id", &self.chat_id)
             .field("base_url", &self.base_url)
+            .field("proxy_id", &self.proxy_id)
             .finish()
     }
 }
@@ -699,6 +704,21 @@ mod tests {
         let text = format!("{c:?}");
         assert!(!text.contains("marker"), "{text}");
         assert!(text.contains("***"));
+    }
+
+    #[test]
+    fn a_chosen_proxy_is_kept_and_settings_saved_before_proxies_existed_still_load() {
+        let id = Uuid::new_v4();
+        let mut c = NotifyChannels::default();
+        c.telegram.proxy_id = Some(id);
+        let json = serde_json::to_value(&c).unwrap();
+        assert_eq!(json["telegram"]["proxy_id"], id.to_string());
+        assert!(json["bale"].get("proxy_id").is_none(), "nothing chosen writes nothing");
+        assert_eq!(serde_json::from_value::<NotifyChannels>(json).unwrap(), c);
+        let old: NotifyChannels = serde_json::from_str(r#"{"telegram":{"enabled":true,"bot_token":"1:a","chat_id":"5"}}"#).unwrap();
+        assert_eq!(old.telegram.proxy_id, None);
+        // The window gets it back as it was chosen, and saving without a token keeps the choice too.
+        assert_eq!(c.redacted().telegram.proxy_id, Some(id));
     }
 
     #[test]

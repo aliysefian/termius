@@ -1,7 +1,8 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import { CHANNEL_NAMES, SMTP_PORTS, emptyChannels, type BotConfig, type ChannelKind, type NotifyChannels, type SmtpSecurity } from "$lib/monitoring";
+  import { CHANNEL_NAMES, SMTP_PORTS, botProxyChoices, emptyChannels, type BotConfig, type ChannelKind, type NotifyChannels, type SmtpSecurity } from "$lib/monitoring";
   import { monitoring } from "$lib/stores/monitoring.svelte";
+  import { vaultStore } from "$lib/stores/vault.svelte";
   import { errorMessage } from "$lib/types";
 
   let draft = $state<NotifyChannels>(emptyChannels());
@@ -61,6 +62,10 @@
     { kind: "bale", hint: "Create a bot with the Bale bot father, then use its token and your chat ID. Bale's API is Telegram's.", base: "https://tapi.bale.ai" },
   ];
   const bot = (k: "telegram" | "bale"): BotConfig => draft[k];
+
+  const proxyChoices = $derived(botProxyChoices(vaultStore.proxies));
+  // A choice whose proxy was deleted (or changed to a command) stays visible, so it can be seen and replaced.
+  const proxyMissing = (id: string | null) => !!id && !proxyChoices.some((p) => p.id === id);
 </script>
 
 <div class="space-y-5" data-testid="notify-channels">
@@ -83,8 +88,27 @@
           <input id="n-{b.kind}-chat" class="input font-mono text-xs" bind:value={draft[b.kind].chat_id} placeholder="-1001234567890 or @channel" spellcheck="false" />
         </div>
         <div class="col-span-2">
-          <label class="label" for="n-{b.kind}-base">Bot address (only if you reach it through a mirror or proxy)</label>
+          <label class="label" for="n-{b.kind}-base">Bot address (only if you reach it through a mirror or relay of your own)</label>
           <input id="n-{b.kind}-base" class="input font-mono text-xs" value={draft[b.kind].base_url ?? ""} oninput={(e) => (draft[b.kind].base_url = e.currentTarget.value.trim() || null)} placeholder={b.base} spellcheck="false" />
+        </div>
+        <div class="col-span-2">
+          <label class="label" for="n-{b.kind}-proxy">Proxy (if {CHANNEL_NAMES[b.kind]} is blocked on your network)</label>
+          <select id="n-{b.kind}-proxy" class="input text-xs" value={draft[b.kind].proxy_id ?? ""} onchange={(e) => (draft[b.kind].proxy_id = e.currentTarget.value || null)}>
+            <option value="">None, connect directly</option>
+            {#each proxyChoices as p (p.id)}
+              <option value={p.id}>{p.label}</option>
+            {/each}
+            {#if proxyMissing(draft[b.kind].proxy_id)}
+              <option value={draft[b.kind].proxy_id}>A proxy that is no longer saved (or is not SOCKS5 or HTTP)</option>
+            {/if}
+          </select>
+          <p class="mt-1 text-xs text-fg-muted">
+            {#if proxyChoices.length === 0}
+              No SOCKS5 or HTTP proxy is saved yet. Add one under Groups and Proxies, then choose it here.
+            {:else}
+              Alerts go out through it, and are not sent at all if it can't be reached. SOCKS5 and HTTP proxies are listed; they are kept under Groups and Proxies.
+            {/if}
+          </p>
         </div>
       </div>
       <p class="text-xs text-fg-muted">{b.hint}</p>
