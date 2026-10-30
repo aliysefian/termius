@@ -373,18 +373,18 @@
   onresize={() => { tabMenu = null; tabListOpen = null; paneMenu = null; checkScroll(); }}
 />
 
-<section class="flex min-w-0 flex-1 flex-col bg-base">
+<section class="flex min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-line bg-base">
   {#if ui.tabs.length > 0 && !settings.prefs.focusMode}
     <div class="flex h-10 items-stretch border-b border-line bg-panel">
     <div class="relative min-w-0 flex-1">
-    <div bind:this={tabStrip} class="flex h-10 items-end gap-0.5 overflow-x-auto px-2" role="presentation" ondrop={onTabDrop} ondragover={(e) => dragTab && e.preventDefault()}>
+    <div bind:this={tabStrip} class="flex h-10 items-center gap-1 overflow-x-auto px-2" role="presentation" ondrop={onTabDrop} ondragover={(e) => dragTab && e.preventDefault()}>
       <!-- Only the tabs are in the tab list; the buttons after them are not tabs. -->
-      <div class="flex items-end gap-0.5" role="tablist" aria-label="Open terminals">
+      <div class="flex items-center gap-1" role="tablist" aria-label="Open terminals">
       {#each ui.tabs as t, i (t.id)}
         {@const color = tabColor(t)}
         <div
-          class="group relative flex h-9 max-w-56 shrink-0 items-center gap-2 rounded-t-md px-3 text-sm
-            {t.id === ui.activeTabId ? 'bg-base text-fg' : 'text-fg-muted hover:bg-panel-hover'}
+          class="group relative flex h-8 max-w-56 shrink-0 items-center gap-2 rounded-md border px-3 text-sm
+            {t.id === ui.activeTabId ? 'border-accent/70 bg-accent/10 text-fg' : 'border-transparent text-fg-muted hover:bg-panel-hover'}
             {dragTab === t.id ? 'opacity-40' : ''}"
           role="presentation"
           title={i < 9 ? `Ctrl+${i + 1}` : undefined}
@@ -413,8 +413,8 @@
           {#if dropIndex === i + 1 && i === ui.tabs.length - 1 && dragTab && dragTab !== t.id}
             <span class="absolute -right-0.5 top-1 bottom-1 w-0.5 rounded bg-accent"></span>
           {/if}
-          {#if t.id === ui.activeTabId}
-            <span class="absolute inset-x-2 top-0 h-0.5 rounded-b" style:background={color ?? "var(--color-accent)"}></span>
+          {#if color}
+            <span class="absolute inset-x-3 bottom-0 h-0.5 rounded-t" style:background={color}></span>
           {/if}
           <div
             class="flex h-full min-w-0 flex-1 items-center gap-2 rounded outline-none focus-visible:ring-1 focus-visible:ring-accent"
@@ -471,14 +471,14 @@
         </div>
       {/each}
       </div>
-      <button class="icon-btn mb-1 h-7 w-7 shrink-0" title="New connection (Ctrl+Shift+T)" onclick={() => (ui.modal = { kind: "quick-connect" })}>
+      <button class="icon-btn h-7 w-7 shrink-0" title="New connection (Ctrl+Shift+T)" onclick={() => (ui.modal = { kind: "quick-connect" })}>
         <Plus size={15} />
       </button>
-      <button class="icon-btn mb-1 h-7 w-7 shrink-0" title="Local terminal (Ctrl+Shift+`)" onclick={() => ui.openLocal()}>
+      <button class="icon-btn h-7 w-7 shrink-0" title="Local terminal (Ctrl+Shift+`)" onclick={() => ui.openLocal()}>
         <SquareTerminal size={15} />
       </button>
       <button
-        class="icon-btn mb-1 -ml-1 h-7 w-4 shrink-0"
+        class="icon-btn -ml-1 h-7 w-4 shrink-0"
         title="Choose a shell"
         aria-label="Choose a shell for a new local terminal"
         aria-haspopup="menu"
@@ -496,7 +496,7 @@
     {/if}
     </div>
     {#if overflowing}
-      <button class="icon-btn mb-1 h-7 w-7 shrink-0 self-end" title="List all tabs" aria-label="List all tabs" onclick={openTabList}>
+      <button class="icon-btn h-7 w-7 shrink-0 self-end" title="List all tabs" aria-label="List all tabs" onclick={openTabList}>
         <List size={15} />
       </button>
     {/if}
@@ -669,6 +669,7 @@
             style:width="{full ? 100 : r.w}%"
             style:height="{full ? 100 : r.h}%"
             role="presentation"
+            data-active-pane={pane.id === t.activePaneId && t.id === ui.activeTabId}
             onmousedown={() => (t.activePaneId = pane.id)}
           >
             <div

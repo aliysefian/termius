@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Activity, Copy, CopyPlus, FolderSync, History, Info, Pencil, Play, Star, TerminalSquare, Trash2 } from "lucide-svelte";
+  import { Activity, Copy, CopyPlus, FolderSync, History, Info, Pencil, Play, Server, Star, TerminalSquare, Trash2 } from "lucide-svelte";
   import Badge from "./Badge.svelte";
   import { writeText } from "@tauri-apps/plugin-clipboard-manager";
   import { settings } from "$lib/stores/settings.svelte";
@@ -56,6 +56,15 @@
   }
 
   const selected = $derived(ui.selectedHosts.has(host.id));
+  /** An open terminal to this host wins over the reachability probe: green means "you are on it". */
+  const session = $derived(ui.hostSessionStatus(host.id));
+  const dot = $derived(
+    session === "connected" ? "bg-success" : session === "connecting" ? "bg-warning animate-pulse" : health?.state === "up" ? "bg-success/60" : health?.state === "down" ? "bg-danger" : "bg-fg-muted/30",
+  );
+  const dotTitle = $derived(
+    session === "connected" ? "Connected" : session === "connecting" ? "Connecting…" : health?.state === "up" ? `Reachable (${health.latency_ms} ms)` : health?.state === "down" ? `Unreachable: ${health.reason}` : "Not connected",
+  );
+  const address = $derived(`${d.hostname}${d.port !== 22 ? `:${d.port}` : ""}`);
 
   /** Ctrl/Shift+click ticks hosts for bulk edit; a plain click clears. */
   function click(e: MouseEvent) {
@@ -88,7 +97,7 @@
      (HostTree.svelte), which sees this row's keydowns bubble up to it. -->
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <div
-  class="host-row group relative flex cursor-pointer items-center gap-2.5 rounded-md py-1.5 pr-1 {selected ? 'bg-accent/15 ring-1 ring-inset ring-accent/40' : 'hover:bg-panel-hover'}"
+  class="host-row group relative flex cursor-pointer items-center gap-2 rounded-md py-1.5 pr-1.5 {selected ? 'bg-accent/15 ring-1 ring-inset ring-accent/40' : session ? 'bg-panel-hover/60 hover:bg-panel-hover' : 'hover:bg-panel-hover'}"
   aria-selected={selected}
   aria-level={depth + 1}
   data-tree-key={treeKey}
@@ -99,40 +108,23 @@
   draggable="true"
   ondragstart={(e) => hostDragStart(e, host.id)}
   ondblclick={connect}
-  title="Double-click to connect, Space for details, Ctrl+click to select. {usageText}"
+  title="Double-click to connect, Space for details, Ctrl+click to select. {identity ? `Logs in as ${identity.username}. ` : ''}{usageText}"
 >
-  <!-- The host's colour tag is an edge bar; the dot is what the last reachability probe saw. -->
+  <!-- The host's colour tag is an edge bar; the dot is an open session, else what the last reachability probe saw. -->
   {#if d.color}<span class="absolute inset-y-1 left-0 w-0.5 rounded-full" style:background={d.color} aria-hidden="true"></span>{/if}
-  <span
-    class="ml-4 h-2 w-2 shrink-0 rounded-full {health?.state === 'up' ? 'bg-success' : health?.state === 'down' ? 'bg-danger' : 'bg-fg-muted/40'}"
-    title={health?.state === "up" ? "Reachable" : health?.state === "down" ? "Unreachable" : "Not probed"}
-    aria-hidden="true"
-  ></span>
+  <span class="ml-3 h-2 w-2 shrink-0 rounded-full {dot}" title={dotTitle} aria-hidden="true"></span>
+  <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-line bg-base text-fg-muted" aria-hidden="true"><Server size={14} /></span>
   <div class="min-w-0 flex-1">
-    <div class="flex items-center gap-1.5">
-      <span class="truncate text-sm">{d.label}</span>
-      {#if env.value}
-        <Badge tone={env.tone}>{env.short ?? ""}</Badge>
-      {/if}
-    </div>
-    <div class="flex items-baseline gap-1.5 text-xs text-fg-muted">
-      <span class="min-w-0 shrink truncate font-mono">{identity ? `${identity.username}@` : ""}{d.hostname}{d.port !== 22 ? `:${d.port}` : ""}</span>
+    <div class="truncate text-[13px] font-medium leading-5 {session === 'connected' ? 'text-fg' : ''}">{d.label}</div>
+    <div class="flex items-baseline gap-1.5 text-[11px] leading-4 text-fg-muted">
+      <span class="min-w-0 shrink truncate font-mono">{address}</span>
       <!-- The address is what you scan for, so "via …" gives way first. -->
       {#if jump}<span class="min-w-0 shrink-[100] truncate">via {jump.label}</span>{/if}
-      {#if health}
-        <span
-          class="ml-auto shrink-0 pr-1 font-mono tabular-nums {health.state === 'up' ? 'text-success' : health.state === 'down' ? 'text-danger' : ''}"
-          title={health.state === "up"
-            ? `Reachable in ${health.latency_ms} ms${health.banner ? `\n${health.banner}` : ""}`
-            : health.state === "down"
-              ? `Unreachable: ${health.reason}`
-              : "Behind a jump host, not probed"}
-        >
-          {health.state === "up" ? `${health.latency_ms}ms` : health.state === "down" ? "down" : "jump"}
-        </span>
-      {/if}
     </div>
   </div>
+  {#if env.value}
+    <span class="shrink-0 group-hover:invisible group-focus-within:invisible"><Badge tone={env.tone}>{env.short ?? ""}</Badge></span>
+  {/if}
   {#if d.favorite}
     <!-- Always visible, so favorites stand out even at narrow widths. -->
     <Star size={12} class="shrink-0 text-warning group-hover:invisible group-focus-within:invisible" fill="currentColor" aria-label="Favorite" />

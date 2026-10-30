@@ -58,6 +58,20 @@ export interface Prefs {
   sidebarHidden: boolean;
   /** Its width in pixels (drag its edge; double-click resets). */
   sidebarWidth: number;
+  /** The right dock (session details, snippets) is open (Ctrl+Alt+B). */
+  rightPanelOpen: boolean;
+  /** Its width in pixels. */
+  rightPanelWidth: number;
+  rightPanelTab: "files" | "processes" | "session" | "snippets";
+  /** The bottom dock (open sessions, connection log) is open (Ctrl+Alt+J). */
+  bottomPanelOpen: boolean;
+  /** Its height in pixels. */
+  bottomPanelHeight: number;
+  bottomPanelTab: "terminal" | "sessions" | "connections";
+  /** Shell focus mode (Ctrl+Alt+\\): every panel hidden so the terminal has the whole window. */
+  shellFocus: boolean;
+  /** What was showing before Shell focus, brought back when it ends. */
+  focusRestore: { left: boolean; right: boolean; bottom: boolean };
   /** Reconnect by itself when a connection drops (not when you exit). */
   autoReconnect: boolean;
   /** Reopen the tabs that were open when the vault was last locked or the app quit. */
@@ -209,6 +223,14 @@ export const DEFAULT_PREFS: Prefs = {
   appTheme: "dark",
   sidebarHidden: false,
   sidebarWidth: 288,
+  rightPanelOpen: false,
+  rightPanelWidth: 340,
+  rightPanelTab: "files",
+  bottomPanelOpen: false,
+  bottomPanelHeight: 260,
+  bottomPanelTab: "terminal",
+  shellFocus: false,
+  focusRestore: { left: true, right: false, bottom: false },
   autoReconnect: true,
   restoreLastSession: true,
   restoreSkipProduction: true,
