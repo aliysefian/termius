@@ -4,6 +4,11 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## 0.45.0 - 2026-10-30
+
+- **New:** **Telegram and Bale alerts can go through a proxy.** If your network blocks Telegram (or Bale), open **Settings → Notification channels**, and under Telegram or Bale pick a **Proxy**. The list is the SOCKS5 and HTTP proxies you already saved under **Groups and Proxies**; a proxy that runs a command can't carry alerts.
+- Alerts then go out only through that proxy, and the proxy looks up the service's name, so nothing on this computer resolves it. If the proxy is down, refuses its login or was deleted, the alert is shown as failed instead of being sent directly, and the message says which proxy it was. The proxy's password is never shown in an error. Saving checks that the chosen proxy still exists, and **Send test message** uses it too.
+
 ## 0.44.1 - 2026-10-29
 
 - **Fixed:** importing from MobaXterm sat on "Reading config…" forever when the same session name was used in more than one folder (for example `web-01` under both `Prod` and `Stage`), which a file with several folder levels often has. Every host is now imported, and a name used more than once gets its folder added, such as `web-01 (Prod/EU/Web)`; the import window says how many were renamed. Before this fix, the repeated names would also have been skipped as "already exists".
