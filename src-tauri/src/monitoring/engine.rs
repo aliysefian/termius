@@ -24,7 +24,7 @@ use super::metrics;
 use super::model::{AlertRule, ChannelKind, CheckSpec, Metric, MonitorTarget, NotifyChannels, MIN_SSH_INTERVAL_SECS};
 use super::notify::bot::BotChannel;
 use super::notify::smtp::SmtpChannel;
-use super::notify::{BoxFuture, Channel, Delivery, Dispatcher, Notification};
+use super::notify::{BoxFuture, Channel, Delivery, Dispatcher, Notification, Proxies};
 use super::ping;
 use super::rules::{classify, describe, Evaluator, StateKey, Status, Transition};
 
@@ -146,21 +146,25 @@ pub trait EngineHost: Send + Sync + 'static {
     /// Run `script` on the saved SSH host and return what it printed. The connection is the host's job to keep.
     fn ssh_exec<'a>(&'a self, host_id: Uuid, script: &'a str, limit: Duration) -> BoxFuture<'a, Result<String, String>>;
     fn emit(&self, event: EngineEvent);
+    /// The saved proxies a bot channel may be set to go out through.
+    fn proxies(&self) -> Proxies {
+        Proxies::new()
+    }
     /// The channels to send on, and the ones that are switched on but cannot be built (so the failure is shown).
     fn channels(&self, cfg: &NotifyChannels) -> (Vec<Arc<dyn Channel>>, Vec<Delivery>) {
-        build_channels(cfg)
+        build_channels(cfg, &self.proxies())
     }
 }
 
 /// The real channels for what is switched on.
-pub fn build_channels(cfg: &NotifyChannels) -> (Vec<Arc<dyn Channel>>, Vec<Delivery>) {
+pub fn build_channels(cfg: &NotifyChannels, proxies: &Proxies) -> (Vec<Arc<dyn Channel>>, Vec<Delivery>) {
     let mut ok: Vec<Arc<dyn Channel>> = Vec::new();
     let mut failed: Vec<Delivery> = Vec::new();
     for (kind, bot) in [(ChannelKind::Telegram, &cfg.telegram), (ChannelKind::Bale, &cfg.bale)] {
         if !bot.enabled {
             continue;
         }
-        match BotChannel::new(kind, bot) {
+        match BotChannel::new(kind, bot, proxies) {
             Ok(c) => ok.push(Arc::new(c)),
             Err(e) => failed.push(Delivery { channel: kind, error: Some(e.0) }),
         }
@@ -175,10 +179,10 @@ pub fn build_channels(cfg: &NotifyChannels) -> (Vec<Arc<dyn Channel>>, Vec<Deliv
 }
 
 /// Send a test message on one channel, whether or not it is switched on, to see that the settings work.
-pub async fn send_test(cfg: &NotifyChannels, kind: ChannelKind) -> Result<(), String> {
+pub async fn send_test(cfg: &NotifyChannels, kind: ChannelKind, proxies: &Proxies) -> Result<(), String> {
     let channel: Arc<dyn Channel> = match kind {
-        ChannelKind::Telegram => Arc::new(BotChannel::new(kind, &cfg.telegram).map_err(|e| e.0)?),
-        ChannelKind::Bale => Arc::new(BotChannel::new(kind, &cfg.bale).map_err(|e| e.0)?),
+        ChannelKind::Telegram => Arc::new(BotChannel::new(kind, &cfg.telegram, proxies).map_err(|e| e.0)?),
+        ChannelKind::Bale => Arc::new(BotChannel::new(kind, &cfg.bale, proxies).map_err(|e| e.0)?),
         ChannelKind::Email => Arc::new(SmtpChannel::new(&cfg.email).map_err(|e| e.0)?),
     };
     let n = Notification {
@@ -877,7 +881,7 @@ mod tests {
     fn switched_on_channels_that_cannot_be_built_are_reported_not_skipped() {
         let mut cfg = NotifyChannels::default();
         cfg.email.enabled = true;
-        let (ok, failed) = build_channels(&cfg);
+        let (ok, failed) = build_channels(&cfg, &Proxies::new());
         assert!(ok.is_empty());
         assert_eq!(failed.len(), 1);
         assert_eq!(failed[0].channel, ChannelKind::Email);
@@ -885,8 +889,22 @@ mod tests {
         cfg.bale.enabled = true;
         cfg.bale.bot_token = "1:a".into();
         cfg.bale.chat_id = "5".into();
-        let (ok, failed) = build_channels(&cfg);
+        let (ok, failed) = build_channels(&cfg, &Proxies::new());
         assert_eq!((ok.len(), failed.len()), (1, 0));
         assert_eq!(ok[0].kind(), ChannelKind::Bale);
+    }
+
+    #[test]
+    fn a_bot_whose_proxy_is_gone_is_reported_not_sent_directly() {
+        let mut cfg = NotifyChannels::default();
+        cfg.telegram.enabled = true;
+        cfg.telegram.bot_token = "1:a".into();
+        cfg.telegram.chat_id = "5".into();
+        cfg.telegram.proxy_id = Some(Uuid::new_v4());
+        let (ok, failed) = build_channels(&cfg, &Proxies::new());
+        assert!(ok.is_empty(), "no channel that would send without the proxy");
+        assert_eq!(failed.len(), 1);
+        assert_eq!(failed[0].channel, ChannelKind::Telegram);
+        assert!(failed[0].error.as_deref().unwrap().contains("no longer saved"), "{:?}", failed[0].error);
     }
 }

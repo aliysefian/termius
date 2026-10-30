@@ -1,6 +1,6 @@
 // Types and plain helpers for the monitoring engine (the Rust side is src-tauri/src/monitoring). Nothing here
 // touches the window or the backend, so the rules the forms check and the words the page shows are tested.
-import type { Uuid } from "$lib/types";
+import type { Proxy, Uuid, VaultRecord } from "$lib/types";
 
 export type CheckSpec =
   | { kind: "ping"; count: number; timeout_ms: number }
@@ -96,6 +96,8 @@ export interface BotConfig {
   bot_token: string;
   chat_id: string;
   base_url: string | null;
+  /** A saved proxy (SOCKS5 or HTTP) to reach the service through. */
+  proxy_id: Uuid | null;
   /** Set by the backend: a token is saved (it is never sent back). */
   token_set: boolean;
 }
@@ -332,13 +334,24 @@ export function describeDeliveries(d: Delivery[]): string {
 }
 
 export function emptyChannels(): NotifyChannels {
-  const bot = (): BotConfig => ({ enabled: false, bot_token: "", chat_id: "", base_url: null, token_set: false });
+  const bot = (): BotConfig => ({ enabled: false, bot_token: "", chat_id: "", base_url: null, proxy_id: null, token_set: false });
   return {
     telegram: bot(),
     bale: bot(),
     email: { enabled: false, server: "", port: 587, security: "start_tls", username: "", password: "", from: "", to: "", password_set: false },
     include_address: false,
   };
+}
+
+/** The saved proxies an alert bot can go out through, by name. A proxy that runs a command can't carry it. */
+export function botProxyChoices(list: VaultRecord<Proxy>[]): { id: Uuid; label: string }[] {
+  const out: { id: Uuid; label: string }[] = [];
+  for (const r of list) {
+    const spec = r.data?.spec;
+    if (!r.data || !spec || spec.kind === "command") continue;
+    out.push({ id: r.id, label: `${r.data.name} (${spec.kind === "socks5" ? "SOCKS5" : "HTTP"} ${spec.host}:${spec.port})` });
+  }
+  return out.sort((a, b) => a.label.localeCompare(b.label));
 }
 
 export const SMTP_PORTS: Record<SmtpSecurity, number> = { start_tls: 587, tls: 465, plain: 25 };

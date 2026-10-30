@@ -74,7 +74,7 @@
 
   const SIDEBAR_KEYWORDS = "sidebar rail icons labels hide show reorder order pin manage layout";
   const OPS_KEYWORDS = "alerts alert notify notification host down cpu memory disk threshold quiet hours mute monitoring history charts keep week day operations";
-  const NOTIFY_KEYWORDS = "notification channels telegram bale email smtp bot token chat id messages send test monitoring alerts";
+  const NOTIFY_KEYWORDS = "notification channels telegram bale email smtp bot token chat id messages send test monitoring alerts proxy socks socks5 blocked";
   const TOTP_KEYWORDS = "two-factor codes totp one-time verification code authenticator 2fa mfa otp";
   const SMART_COMPLETION_KEYWORDS = "smart completion autocomplete auto complete suggestions suggest ghost inline tab history snippets options paths";
 

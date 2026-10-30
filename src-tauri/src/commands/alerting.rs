@@ -9,7 +9,7 @@ use std::time::Duration;
 use super::*;
 use crate::monitoring::engine::{Config, EngineEvent, EngineHost, Snapshot};
 use crate::monitoring::model::{AlertRule, ChannelKind, MonitorTarget, NotifyChannels, NOTIFY_ID};
-use crate::monitoring::notify::BoxFuture;
+use crate::monitoring::notify::{BoxFuture, Proxies};
 
 // -- the engine's view of the app ------------------------------------------------------------------------------------
 
@@ -72,6 +72,10 @@ impl EngineHost for AlertHost {
             .map_err(|e| e.to_string())
     }
 
+    fn proxies(&self) -> Proxies {
+        saved_proxies(&self.app.state::<AppState>())
+    }
+
     fn ssh_exec<'a>(&'a self, host_id: Uuid, script: &'a str, limit: Duration) -> BoxFuture<'a, Result<String, String>> {
         Box::pin(async move {
             let session = self.session_for(host_id).await?;
@@ -103,6 +107,13 @@ impl EngineHost for AlertHost {
             }
         }
     }
+}
+
+/// The saved proxies by id. Empty while the vault is locked, when nothing is sent anyway.
+fn saved_proxies(state: &AppState) -> Proxies {
+    list_records::<crate::models::Proxy>(state, Collection::Proxies)
+        .map(|rs| rs.into_iter().filter_map(|r| r.data.map(|p| (r.id, p))).collect())
+        .unwrap_or_default()
 }
 
 /// Start the engine for the vault that was just unlocked.
@@ -201,6 +212,11 @@ pub fn save_notify_channels(state: State<'_, AppState>, base_rev: u64, channels:
     channels.email.server = channels.email.server.trim().to_string();
     channels.email.username = channels.email.username.trim().to_string();
     channels.validate().map_err(|m| ApiError::new("validation", m))?;
+    // A proxy that is chosen has to exist and be one a bot can use, so a typo shows now rather than at the first alert.
+    let proxies = saved_proxies(&state);
+    for (kind, bot) in [(ChannelKind::Telegram, &channels.telegram), (ChannelKind::Bale, &channels.bale)] {
+        crate::monitoring::notify::bot::proxy_for(kind, bot, &proxies).map_err(|e| ApiError::new("validation", e.0))?;
+    }
     let base = if base_rev == 0 { crate::vault::Base::New } else { crate::vault::Base::Rev(base_rev) };
     let rec = state.session.with_vault(|v| v.put(Collection::NotifyChannels, NOTIFY_ID, &channels, base))?;
     state.alerting.reload();
@@ -219,7 +235,8 @@ pub async fn notify_test(state: State<'_, AppState>, channel: ChannelKind) -> Ap
     if incomplete {
         return Err(ApiError::new("validation", format!("Save the {} settings first.", channel.label())));
     }
-    crate::monitoring::engine::send_test(&cfg, channel).await.map_err(|m| ApiError::new("notify", m))
+    let proxies = saved_proxies(&state);
+    crate::monitoring::engine::send_test(&cfg, channel, &proxies).await.map_err(|m| ApiError::new("notify", m))
 }
 
 // -- the engine ------------------------------------------------------------------------------------------------------------

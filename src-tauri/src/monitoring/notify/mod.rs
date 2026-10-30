@@ -15,11 +15,16 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
+use uuid::Uuid;
 
 use super::model::ChannelKind;
 use super::rules::Status;
+use crate::models::Proxy;
 
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+
+/// The saved proxies by id, which a bot channel may be set to go out through.
+pub type Proxies = HashMap<Uuid, Proxy>;
 
 /// Why a message did not go out. Never holds a token or a password.
 #[derive(Debug, Clone, PartialEq, Eq)]

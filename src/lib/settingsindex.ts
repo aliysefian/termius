@@ -25,7 +25,7 @@ export const SETTING_ENTRIES: SettingEntry[] = [
   { label: "Local terminal shell", query: "local terminal", words: "bash zsh fish powershell wsl" },
   { label: "Smart completion", query: "smart completion", words: "autocomplete suggestions ghost" },
   { label: "Alerts and monitoring history", query: "alerts", words: "notify cpu memory disk quiet hours charts" },
-  { label: "Notification channels (Telegram, Bale, email)", query: "telegram", words: "bale email smtp bot token chat monitoring alerts messages" },
+  { label: "Notification channels (Telegram, Bale, email)", query: "telegram", words: "bale email smtp bot token chat monitoring alerts messages proxy socks socks5 http blocked" },
   { label: "Auto-reconnect", query: "auto-reconnect", words: "connection drop" },
   { label: "Keep running in the tray when the window is closed", query: "tray", words: "system tray minimize close window background exit quit notification area" },
   { label: "Remember commands and history", query: "remember", words: "command history" },
