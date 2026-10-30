@@ -257,7 +257,7 @@
     </div>
   </div>
   {#if menuOpen}
-    <div bind:this={menuEl} class="anim-pop fixed left-20 z-40 w-56 rounded-xl border border-line bg-panel p-1 text-sm shadow-xl" style:top="{menuTop}px" role="menu" aria-label="Host list actions" tabindex="-1" onkeydown={(e) => e.key === "Escape" && (menuOpen = false, menuBtn?.focus())}>
+    <div bind:this={menuEl} class="anim-pop fixed left-20 z-40 w-72 rounded-xl border border-line bg-panel p-1 text-sm shadow-xl" style:top="{menuTop}px" role="menu" aria-label="Host list actions" tabindex="-1" onkeydown={(e) => e.key === "Escape" && (menuOpen = false, menuBtn?.focus())}>
       <p class="px-2 pb-1 pt-1.5 text-[11px] font-medium uppercase tracking-wide text-fg-muted">Sort by</p>
       {#each SORTS as [v, label] (v)}
         <button class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-panel-hover" role="menuitemradio" aria-checked={sortBy === v} onclick={() => { sortBy = v; menuOpen = false; }}>
@@ -273,7 +273,7 @@
         {/if}
         <div class="my-1 h-px bg-line"></div>
       {/if}
-      <button class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-panel-hover" role="menuitem" onclick={() => { menuOpen = false; ui.modal = { kind: "import-ssh-config" }; }}><FileInput size={14} /> Import ~/.ssh/config or Ansible…</button>
+      <button class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-panel-hover" role="menuitem" onclick={() => { menuOpen = false; ui.modal = { kind: "import-ssh-config" }; }}><FileInput size={14} /> Import from SSH config, PuTTY, MobaXterm, Ásbrú…</button>
       <button class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-panel-hover" role="menuitem" onclick={() => { menuOpen = false; ui.modal = { kind: "import-inventory" }; }}><Cloud size={14} /> Import from a cloud or Kubernetes…</button>
       <button class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-panel-hover" role="menuitem" onclick={() => { menuOpen = false; ui.modal = { kind: "hosts-transfer" }; }}><ArrowDownUp size={14} /> Export or import as a file…</button>
     </div>
