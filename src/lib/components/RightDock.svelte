@@ -96,11 +96,12 @@
     <div class="flex h-10 shrink-0 items-center gap-1 border-b border-line px-2" role="tablist" aria-label="Right panel">
       {#each tabs as t (t.id)}
         <button
-          class="flex h-7 items-center gap-1.5 rounded-md px-2 text-xs {settings.prefs.rightPanelTab === t.id ? 'bg-accent/15 font-medium text-accent' : 'text-fg-muted hover:bg-panel-hover hover:text-fg'}"
+          class="flex h-8 w-10 items-center justify-center rounded-lg {settings.prefs.rightPanelTab === t.id ? 'bg-accent/15 text-accent ring-1 ring-inset ring-accent/60' : 'text-fg-muted hover:bg-panel-hover hover:text-fg'}"
           role="tab"
           aria-selected={settings.prefs.rightPanelTab === t.id}
+          aria-label={t.label}
           title={t.label}
-          onclick={() => (settings.prefs.rightPanelTab = t.id)}><t.icon size={13} /><span class="@max-[20rem]:sr-only">{t.label}</span></button
+          onclick={() => (settings.prefs.rightPanelTab = t.id)}><t.icon size={18} /></button
         >
       {/each}
       <div class="flex-1"></div>

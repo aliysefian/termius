@@ -78,12 +78,12 @@
 
 <section
   aria-label="List panel"
-  class="relative flex shrink-0 {dragging && !collapsing ? '' : 'transition-[width] duration-150 ease-out'}"
+  class="relative flex shrink-0 py-1.5 {dragging && !collapsing ? '' : 'transition-[width] duration-150 ease-out'}"
   style:width="{collapsing ? 0 : width}px"
 >
   <!-- Content keeps its minimum width and is clipped while collapsing, so it
        slides away instead of squashing into an unreadable column. -->
-  <div class="flex min-w-0 flex-1 overflow-hidden">
+  <div class="flex min-w-0 flex-1 overflow-hidden rounded-xl border border-line bg-panel [&_aside]:border-r-0">
     <div class="@container flex flex-1" style:min-width="{SIDEBAR_MIN}px">
       {@render children()}
     </div>

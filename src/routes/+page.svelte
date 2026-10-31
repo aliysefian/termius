@@ -301,7 +301,8 @@
       <TopBar {windowWidth} {windowHeight} {leftUsed} />
     {/if}
     <div class="flex min-h-0 flex-1 overflow-hidden">
-    {#if !settings.prefs.focusMode}
+    <!-- Shell focus also puts the rail away: the toolbar stays, and its focus button is the way back. -->
+    {#if !settings.prefs.focusMode && !settings.prefs.shellFocus}
       <ActivityBar />
     {/if}
 

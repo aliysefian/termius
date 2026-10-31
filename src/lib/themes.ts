@@ -12,9 +12,9 @@ export const themes: TerminalTheme[] = [
     id: "sshvault",
     name: "SSHVault",
     theme: {
-      background: "#18191e", foreground: "#e6e6ea", cursor: "#7b61ff", cursorAccent: "#18191e",
-      selectionBackground: "rgba(123, 97, 255, 0.35)",
-      black: "#20222b", red: "#ff5c5c", green: "#3ddc84", yellow: "#ffb020",
+      background: "#0d1420", foreground: "#e8edf5", cursor: "#7657f5", cursorAccent: "#0d1420",
+      selectionBackground: "rgba(118, 87, 245, 0.38)",
+      black: "#151e2d", red: "#ff5c5c", green: "#2dd59a", yellow: "#ffb020",
       blue: "#5b8def", magenta: "#b678ff", cyan: "#38bdf8", white: "#e6e6ea",
       brightBlack: "#8b8d98", brightRed: "#ff7b7b", brightGreen: "#5ff29c", brightYellow: "#ffc855",
       brightBlue: "#7fa8ff", brightMagenta: "#cf9dff", brightCyan: "#6ad4ff", brightWhite: "#ffffff",

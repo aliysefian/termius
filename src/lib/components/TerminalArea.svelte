@@ -501,7 +501,6 @@
       </button>
     {/if}
     <div class="flex h-10 shrink-0 items-center gap-0.5 px-1">
-      <button class="icon-btn h-8 w-8" title="Command palette (Ctrl+Shift+P)" onclick={() => (ui.paletteOpen = true)}><Command size={15} /></button>
       <SnippetPicker />
     </div>
     </div>
@@ -660,6 +659,7 @@
         {@const env = paneEnv(pane)}
         {#if r}
           {@const full = zoomed === pane.id}
+          {@const showHeader = multi && !settings.prefs.focusMode}
           <div
             class="@container absolute flex flex-col overflow-hidden
               {zoomed && !full ? 'invisible' : ''}
@@ -673,7 +673,7 @@
             onmousedown={() => (t.activePaneId = pane.id)}
           >
             <div
-              class="{settings.prefs.focusMode ? 'hidden' : 'flex'} h-7 shrink-0 items-center gap-2 border-b px-3 text-xs text-fg-muted
+              class="{showHeader ? 'flex' : 'hidden'} h-7 shrink-0 items-center gap-2 border-b px-3 text-xs text-fg-muted
                 {env.value === 'production' ? 'border-danger/40 bg-danger/10' : 'border-line bg-panel/40'}"
               role="presentation"
               ondblclick={() => multi && ui.toggleZoom(t.id, pane.id)}
@@ -733,10 +733,31 @@
               <!-- A tmux session shown natively covers the shell, which stays connected underneath. -->
               {@const tmuxClient = multiplexers.get(pane.id).native ? multiplexers.client(pane.id) : undefined}
               {#if tmuxClient?.ready}
-                <div class="absolute inset-x-0 bottom-0 z-10 {settings.prefs.focusMode ? 'top-0' : 'top-7'}">
+                <div class="absolute inset-x-0 bottom-0 z-10 {showHeader ? 'top-7' : 'top-0'}">
                   <TmuxNativeView paneId={pane.id} client={tmuxClient} active={pane.id === t.activePaneId && t.id === ui.activeTabId} />
                 </div>
               {/if}
+            {/if}
+            <!-- One pane: no header row. Its actions float in the corner, so the terminal gets the whole card. -->
+            {#if !multi && !settings.prefs.focusMode && t.id === ui.activeTabId}
+              <div class="pointer-events-none absolute right-3 top-3 z-20 flex items-start gap-2">
+                <div class="pointer-events-auto flex items-center gap-1 rounded-lg border border-line bg-panel/90 empty:hidden">{#if pane.target.kind === "host" && isSshHost(pane.target.hostId)}<PaneForwards paneId={pane.id} /><AgentControl paneId={pane.id} />{/if}</div>
+                <div class="pointer-events-auto flex flex-col gap-0.5 rounded-xl border border-line bg-panel/90 p-1 shadow-lg backdrop-blur" role="toolbar" aria-label="Terminal actions" aria-orientation="vertical">
+                  <button class="icon-btn h-8 w-8" title="Find in terminal (Ctrl+Shift+F)" aria-label="Find in terminal" onclick={() => ui.findRequest++}><Search size={16} /></button>
+                  {#if t.panes.length < MAX_PANES}
+                    <button class="icon-btn h-8 w-8" title="Split right (Ctrl+Shift+D)" aria-label="Split right" onclick={() => { t.activePaneId = pane.id; ui.splitActive("vertical"); }}><Columns2 size={16} /></button>
+                    <button class="icon-btn h-8 w-8" title="Split down (Ctrl+Shift+E)" aria-label="Split down" onclick={() => { t.activePaneId = pane.id; ui.splitActive("horizontal"); }}><Rows2 size={16} /></button>
+                  {/if}
+                  {#if pane.target.kind === "host" && isSshHost(pane.target.hostId)}
+                    {@const hid = pane.target.hostId}
+                    <button class="icon-btn h-8 w-8" title="Config Time-Machine" aria-label="Config Time-Machine" onclick={() => (ui.configHistory = { hostId: hid })}><History size={16} /></button>
+                  {/if}
+                  <button class="icon-btn relative h-8 w-8" title="More actions" aria-label="More pane actions" onclick={(e) => openPaneMenu(e, t.id, pane.id)}>
+                    <Ellipsis size={16} />
+                    {#if info?.recording}<span class="absolute right-1 top-1 h-2 w-2 animate-pulse rounded-full bg-danger" title="Recording"></span>{/if}
+                  </button>
+                </div>
+              </div>
             {/if}
           </div>
         {/if}

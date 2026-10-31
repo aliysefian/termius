@@ -508,7 +508,7 @@
     <section class="rounded-xl border border-line bg-panel p-5">
       <div class="mb-1 flex items-center justify-between">
         <h2 class="text-sm font-semibold">Sidebar</h2>
-        <button class="btn-ghost py-1 text-xs" onclick={() => { settings.prefs.railOrder = []; settings.prefs.railHidden = []; settings.prefs.railLabels = true; }}>Reset</button>
+        <button class="btn-ghost py-1 text-xs" onclick={() => { settings.prefs.railOrder = []; settings.prefs.railHidden = []; settings.prefs.railLabels = false; }}>Reset</button>
       </div>
       <p class="mb-3 text-xs text-fg-muted">Choose what the icons on the left show and in what order. An entry you hide moves into the <strong>Manage</strong> menu, so it is still one click away. Hosts always stays.</p>
       <label class="mb-3 flex items-center gap-2 text-sm"><input type="checkbox" class="accent-input" bind:checked={settings.prefs.railLabels} /> Show a name under each icon</label>
