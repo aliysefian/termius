@@ -4,7 +4,7 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
-## Unreleased
+## 0.48.0 - 2026-10-31
 
 - **New:** **icon-first workbench.** The left rail is icons only (the "names under icons" switch in Settings is now off by default), the hosts list is a rounded card with one search box, a **+** and one **filter** menu (environment, tag, sort, reachability check, import and export), Favorites come first, and each host is one line: status dot, name, and its DEV/STG/PROD badge. The address shows for the host you are on and in the tooltip for the rest, and the host you are connected to is outlined. With one pane, the terminal has no header row: **find, split, Config Time-Machine and more** sit in a small icon bar in its corner, with port-forward and agent-forwarding badges beside it. The right panel's tabs are icons, its **Files** tab has back, forward and up with a ⋮ menu on each row, and the bottom panel keeps **side-by-side terminals**, each with its own header. The status bar shows the environment, host, address, latency and protocol, with icons for the agent, command line and tunnels. **Shell focus** (Ctrl+Alt+\\) now also puts the rail away. New darker navy palette.
 
