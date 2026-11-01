@@ -131,6 +131,8 @@ export interface Host {
   wol_mac?: string;
   /** Where the wake-up goes: absent for the whole local network, or a subnet's broadcast address. */
   wol_broadcast?: string;
+  /** A knock sequence sent before each SSH or SFTP connection, for a firewall that hides the SSH port. */
+  port_knocking?: import("./portknock").PortKnocking;
 }
 
 export interface ExpectStep {

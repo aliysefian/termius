@@ -2,6 +2,7 @@
   import * as api from "$lib/api";
   import { allThemes } from "$lib/themes";
   import { normalizeMac, validBroadcast } from "$lib/wol";
+  import { INTER_KNOCK_DEFAULT, INTER_KNOCK_MAX, INTER_KNOCK_MIN, POST_KNOCK_DEFAULT, POST_KNOCK_MAX, formatSequence, knockProblems, parseSequence } from "$lib/portknock";
   import { MAX_TIMEOUT as EXPECT_MAX_TIMEOUT, problem as expectProblem } from "$lib/expect";
   import { PRESETS as COMMAND_PRESETS, renderCommand } from "$lib/commandhost";
   import { settings } from "$lib/stores/settings.svelte";
@@ -271,6 +272,39 @@
   let profSize = $state<number | null>(existing?.profile?.font_size ?? null);
   let profScroll = $state<number | null>(existing?.profile?.scrollback ?? null);
 
+  // Port knocking: the sequence is typed as text ("7000, 8000:udp") and stored as steps.
+  const knockFrom = existing?.port_knocking;
+  let knockOn = $state(knockFrom?.enabled ?? false);
+  let knockText = $state(formatSequence(knockFrom?.sequence ?? []));
+  let knockInter = $state<number | string>(knockFrom?.inter_knock_delay_ms ?? INTER_KNOCK_DEFAULT);
+  let knockPost = $state<number | string>(knockFrom?.post_knock_delay_ms ?? POST_KNOCK_DEFAULT);
+  const knockErrors = $derived(knockProblems(knockText, knockInter, knockPost, knockOn));
+  const knockSeqError = $derived(knockOn && knockText.trim() !== "" ? (parseSequence(knockText).ok ? null : (parseSequence(knockText) as { error: string }).error) : null);
+  const knockApplies = $derived(form.protocol !== "telnet" && form.protocol !== "rdp" && form.protocol !== "ftp" && form.protocol !== "command" && form.protocol !== "vnc");
+  // A test is sent straight from this computer, so it says nothing about a host reached through a proxy or a jump host.
+  const knockTestBlocked = $derived(!form.hostname.trim() ? "Enter the host's address first" : form.proxy_id || form.jump_host_id ? "A test is sent directly from this computer, so it can't check a host reached through a proxy or a jump host" : knockErrors.length ? knockErrors[0] : "");
+  let knockLog = $state<string[]>([]);
+  let knockTesting = $state(false);
+  let knockResult = $state<{ ok: boolean; text: string } | null>(null);
+  async function testKnock() {
+    const parsed = parseSequence(knockText);
+    if (!parsed.ok) return;
+    const context = `knock-test-${crypto.randomUUID()}`;
+    knockLog = [];
+    knockResult = null;
+    knockTesting = true;
+    const un = await api.onKnockProgress((p) => p.context === context && (knockLog = [...knockLog, p.message]));
+    try {
+      await api.testPortKnock(context, form.hostname, { enabled: true, sequence: parsed.steps, inter_knock_delay_ms: Number(knockInter), post_knock_delay_ms: Number(knockPost) });
+      knockResult = { ok: true, text: "The sequence was sent. Now try connecting: a knock can't tell whether the firewall opened the port." };
+    } catch (e) {
+      knockResult = { ok: false, text: errorMessage(e) };
+    } finally {
+      un();
+      knockTesting = false;
+    }
+  }
+
   let wakeNote = $state("");
   async function sendWake() {
     wakeNote = "";
@@ -314,6 +348,19 @@
         // The command is checked as it will be run, with placeholder values, so a typo shows now and not at connect time.
         const probe = renderCommand(form.connect_command ?? "", { host: "host.example", user: "user", id: "id-1" });
         if (!probe.ok) throw new Error(probe.error.replace("This host has no", "This command needs the"));
+      }
+      {
+        const seq = parseSequence(knockText);
+        if (knockOn && knockErrors.length) throw new Error(`Port knocking: ${knockErrors[0]}`);
+        // Switched off, a well-formed sequence is kept for later; one that isn't is dropped rather than saved broken.
+        form.port_knocking = knockApplies && (knockOn || (seq.ok && knockText.trim()))
+          ? {
+              enabled: knockOn,
+              sequence: seq.ok ? seq.steps : [],
+              inter_knock_delay_ms: Number(knockInter) >= INTER_KNOCK_MIN && Number(knockInter) <= INTER_KNOCK_MAX ? Number(knockInter) : INTER_KNOCK_DEFAULT,
+              post_knock_delay_ms: Number(knockPost) >= 0 && Number(knockPost) <= POST_KNOCK_MAX ? Number(knockPost) : POST_KNOCK_DEFAULT,
+            }
+          : undefined;
       }
       form.vnc = form.protocol === "vnc" ? { ssh_tunnel: form.vnc?.ssh_tunnel ?? true, ssh_port: form.vnc?.ssh_port || 22 } : undefined;
       const mac = form.wol_mac?.trim() ? normalizeMac(form.wol_mac) : null;
@@ -837,6 +884,67 @@
             </span>
           </span>
         </label>
+        {#if knockApplies}
+          <div data-testid="host-knock" class="col-span-2 space-y-2 rounded-lg border border-line bg-base/40 p-3">
+            <div class="flex items-center gap-3">
+              <span class="label !mb-0 flex-1" id="h-knock-label">Port knocking</span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={knockOn}
+                aria-labelledby="h-knock-label"
+                data-testid="knock-toggle"
+                class="relative h-5 w-9 shrink-0 rounded-full border transition-colors {knockOn ? 'border-accent bg-accent' : 'border-line bg-base'}"
+                onclick={() => (knockOn = !knockOn)}
+              >
+                <span aria-hidden="true" class="absolute top-1/2 h-3.5 w-3.5 -translate-y-1/2 rounded-full transition-all {knockOn ? 'left-[1.1rem] bg-white' : 'left-0.5 bg-fg-muted'}"></span>
+              </button>
+            </div>
+            {#if knockOn}
+              <div>
+                <label class="mb-0.5 block text-xs text-fg-muted" for="h-knock-seq">Knock sequence</label>
+                <input
+                  id="h-knock-seq"
+                  class="input font-mono text-xs"
+                  bind:value={knockText}
+                  placeholder="e.g., 7000, 8000:udp, 9000"
+                  spellcheck="false"
+                  autocomplete="off"
+                  aria-invalid={knockSeqError ? "true" : undefined}
+                  aria-describedby="h-knock-help"
+                />
+                {#if knockSeqError}<p class="mt-1 text-xs text-danger" role="alert">{knockSeqError}</p>{/if}
+                <p id="h-knock-help" class="mt-1 text-xs text-fg-muted">Ports are knocked in order, over TCP unless you add <code>:udp</code>. For servers that open SSH only after a <code>knockd</code>, <code>fwknop</code> or iptables knock.</p>
+              </div>
+              <div class="grid grid-cols-2 gap-2">
+                <div>
+                  <label class="mb-0.5 block text-xs text-fg-muted" for="h-knock-inter">Delay between knocks (ms)</label>
+                  <input id="h-knock-inter" type="number" class="input font-mono text-xs" min={INTER_KNOCK_MIN} max={INTER_KNOCK_MAX} step="10" bind:value={knockInter} aria-invalid={knockErrors.some((e) => e.startsWith("The delay")) ? "true" : undefined} />
+                </div>
+                <div>
+                  <label class="mb-0.5 block text-xs text-fg-muted" for="h-knock-post">Wait before SSH connect (ms)</label>
+                  <input id="h-knock-post" type="number" class="input font-mono text-xs" min="0" max={POST_KNOCK_MAX} step="50" bind:value={knockPost} aria-invalid={knockErrors.some((e) => e.startsWith("The wait")) ? "true" : undefined} />
+                </div>
+              </div>
+              {#if knockErrors.length && !knockSeqError}<p class="text-xs text-danger" role="alert">{knockErrors[0]}</p>{/if}
+              <div class="flex items-center gap-3 text-xs text-fg-muted">
+                <button type="button" class="btn-ghost py-1 text-xs" disabled={knockTesting || !!knockTestBlocked} title={knockTestBlocked || "Send the knock sequence now, without connecting"} onclick={() => void testKnock()} data-testid="knock-test">
+                  {#if knockTesting}<Loader2 size={12} class="animate-spin" />{/if} Test knock
+                </button>
+                {#if knockTestBlocked}<span>{knockTestBlocked}</span>{/if}
+              </div>
+              {#if knockLog.length || knockResult}
+                <div class="rounded-md border border-line bg-base p-2 font-mono text-[11px] leading-5 text-fg-muted" role="log" aria-live="polite">
+                  {#each knockLog as line, i (i)}<div>{line}</div>{/each}
+                  {#if knockResult}<div class={knockResult.ok ? "text-success" : "text-danger"} role={knockResult.ok ? "status" : "alert"}>{knockResult.text}</div>{/if}
+                </div>
+              {/if}
+              <p class="text-xs text-fg-muted">Sent from this computer right before an SSH or file connection that reaches the host directly. Through a SOCKS5 or HTTP proxy, TCP knocks go through the proxy; UDP knocks can't. A host reached through a jump host is not knocked.</p>
+            {:else}
+              <p class="text-xs text-fg-muted">Open a firewall that hides the SSH port by knocking on closed ports first.</p>
+            {/if}
+          </div>
+        {/if}
       </div>
       {/if}
 

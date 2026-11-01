@@ -100,7 +100,7 @@
       <button class="btn-secondary" onclick={() => { if (wanted) { conn.cancelCreds(); ui.openSftpAt(wanted, ""); } }}><FolderSync size={14} /> Open in the Files view</button>
     </div>
   {:else if conn.connecting}
-    <p class="flex items-center gap-2 p-4 text-fg-muted"><Loader2 size={14} class="animate-spin" /> Connecting…</p>
+    <p class="flex items-center gap-2 p-4 text-fg-muted"><Loader2 size={14} class="animate-spin" /> {conn.knockNote || "Connecting…"}</p>
   {:else if conn.connectError}
     <div class="space-y-2 p-4">
       <p class="text-danger">{conn.connectError}</p>

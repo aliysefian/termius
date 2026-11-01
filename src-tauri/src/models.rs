@@ -192,6 +192,82 @@ impl Default for VncOptions {
     }
 }
 
+/// Port knocking for a host: a sequence of connection attempts to closed ports that opens the SSH port for this
+/// computer's address (`knockd`, `fwknop`, iptables rules). Sent before every SSH or SFTP connection that dials the host
+/// directly. See `portknock`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PortKnocking {
+    #[serde(default)]
+    pub enabled: bool,
+    /// The ports to knock, in order. A saved record always holds a list of steps; a hand-written or imported one
+    /// may give the compact text instead (`"7000, 8000:udp, 9000"`).
+    #[serde(default, deserialize_with = "lenient_sequence")]
+    pub sequence: Vec<KnockStep>,
+    /// Wait between one knock and the next, in milliseconds (10 to 5000).
+    #[serde(default = "default_inter_knock_delay_ms")]
+    pub inter_knock_delay_ms: u32,
+    /// Wait after the last knock before connecting, so the firewall has applied its rule (0 to 10000).
+    #[serde(default = "default_post_knock_delay_ms")]
+    pub post_knock_delay_ms: u32,
+}
+
+impl Default for PortKnocking {
+    fn default() -> Self {
+        Self { enabled: false, sequence: Vec::new(), inter_knock_delay_ms: default_inter_knock_delay_ms(), post_knock_delay_ms: default_post_knock_delay_ms() }
+    }
+}
+
+fn default_inter_knock_delay_ms() -> u32 {
+    150
+}
+
+fn default_post_knock_delay_ms() -> u32 {
+    500
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum KnockProtocol {
+    #[default]
+    Tcp,
+    Udp,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct KnockStep {
+    pub port: u16,
+    /// TCP when a record doesn't say.
+    #[serde(default)]
+    pub protocol: KnockProtocol,
+}
+
+/// A sequence written as a list of steps, a list of `"8000:udp"` texts, or one compact text.
+fn lenient_sequence<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<KnockStep>, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Item {
+        Step(KnockStep),
+        Text(String),
+    }
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Seq {
+        Text(String),
+        List(Vec<Item>),
+    }
+    match Seq::deserialize(d)? {
+        Seq::Text(t) if t.trim().is_empty() => Ok(Vec::new()),
+        Seq::Text(t) => crate::portknock::parse_sequence(&t).map_err(serde::de::Error::custom),
+        Seq::List(items) => items
+            .into_iter()
+            .map(|i| match i {
+                Item::Step(s) => Ok(s),
+                Item::Text(t) => crate::portknock::parse_step(t.trim()).map_err(serde::de::Error::custom),
+            })
+            .collect(),
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Host {
     pub label: String,
@@ -305,6 +381,9 @@ pub struct Host {
     /// "telnet" for Telnet hosts (network gear); empty means SSH.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub protocol: String,
+    /// Open a firewall that hides the SSH port by knocking on closed ports first.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub port_knocking: Option<PortKnocking>,
     /// Free-form key/value metadata, e.g. owner, ticket, cost centre.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub custom: std::collections::BTreeMap<String, String>,
@@ -720,6 +799,35 @@ mod tests {
         let back: Host = serde_json::from_str(&serde_json::to_string(&host).unwrap()).unwrap();
         assert_eq!(back.profile, host.profile);
         assert!(!serde_json::to_string(&host).unwrap().contains("scrollback"));
+    }
+
+    #[test]
+    fn port_knocking_is_optional_and_old_hosts_still_load() {
+        let old: Host = serde_json::from_str(r#"{"label":"a","hostname":"h"}"#).unwrap();
+        assert_eq!(old.port_knocking, None);
+        assert!(!serde_json::to_string(&old).unwrap().contains("knock"), "nothing is written for a host without it");
+        // Only what is set is needed; the delays and protocol have their defaults.
+        let h: Host = serde_json::from_str(r#"{"label":"a","hostname":"h","port_knocking":{"enabled":true,"sequence":[{"port":7000},{"port":8000,"protocol":"udp"}]}}"#).unwrap();
+        let k = h.port_knocking.clone().unwrap();
+        assert_eq!((k.enabled, k.inter_knock_delay_ms, k.post_knock_delay_ms), (true, 150, 500));
+        assert_eq!(k.sequence, vec![KnockStep { port: 7000, protocol: KnockProtocol::Tcp }, KnockStep { port: 8000, protocol: KnockProtocol::Udp }]);
+        // It round-trips through the vault's JSON, and a record written by this version is a list of steps.
+        let back: Host = serde_json::from_str(&serde_json::to_string(&h).unwrap()).unwrap();
+        assert_eq!(back.port_knocking, h.port_knocking);
+        assert!(serde_json::to_string(&h).unwrap().contains(r#""sequence":[{"port":7000,"protocol":"tcp"}"#));
+    }
+
+    #[test]
+    fn a_knock_sequence_may_also_be_written_as_text() {
+        let from = |seq: &str| -> Result<Vec<KnockStep>, serde_json::Error> {
+            serde_json::from_str::<PortKnocking>(&format!(r#"{{"enabled":true,"sequence":{seq}}}"#)).map(|k| k.sequence)
+        };
+        let want = vec![KnockStep { port: 7000, protocol: KnockProtocol::Tcp }, KnockStep { port: 8000, protocol: KnockProtocol::Udp }];
+        assert_eq!(from(r#""7000, 8000:udp""#).unwrap(), want);
+        assert_eq!(from(r#"["7000", "8000:udp"]"#).unwrap(), want);
+        assert_eq!(from(r#""""#).unwrap(), vec![]);
+        assert!(from(r#""70000""#).is_err(), "an out-of-range port is refused, not guessed at");
+        assert!(from(r#"[{"port":70000}]"#).is_err());
     }
 
     #[test]

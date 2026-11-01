@@ -79,6 +79,30 @@ pub const EVENT_SSH_STATUS: &str = "ssh:status";
 /// Event name for port-forward status changes. Payload: [`ForwardStatusEvent`].
 pub const EVENT_FORWARD_STATUS: &str = "forward:status";
 
+/// Event name for port-knock progress while a connection opens. Payload: [`KnockProgressEvent`].
+pub const EVENT_KNOCK_PROGRESS: &str = "knock:progress";
+
+#[derive(Clone, Serialize)]
+pub struct KnockProgressEvent {
+    /// What is connecting: a file session's id, or the id the window gave a "Test knock".
+    pub context: String,
+    pub message: String,
+}
+
+/// Progress lines for the window, for a connection that has no terminal to write them to.
+fn knock_event_notifier(app: &AppHandle, context: String) -> crate::portknock::KnockNotify {
+    let app = app.clone();
+    Arc::new(move |message: &str| {
+        let _ = app.emit(EVENT_KNOCK_PROGRESS, KnockProgressEvent { context: context.clone(), message: message.to_string() });
+    })
+}
+
+/// Progress lines written into the pane's own terminal, dimmed, so the person sees why the tab is still connecting.
+fn knock_terminal_notifier(sink: &Arc<PaneSink>) -> crate::portknock::KnockNotify {
+    let sink = Arc::clone(sink);
+    Arc::new(move |message: &str| sink.data(format!("\x1b[2m[port knock] {message}\x1b[0m\r\n").as_bytes()))
+}
+
 /// Event name for remote-edit uploads. Payload: [`EditEventPayload`].
 pub const EVENT_SFTP_EDIT: &str = "sftp:edit";
 
@@ -255,6 +279,7 @@ impl From<SshError> for ApiError {
             SshError::Connect { source, .. } => crate::neterr::kind(source).code(),
             SshError::Timeout(_) => "timeout",
             SshError::Proxy { .. } => "proxy",
+            SshError::Knock(_) => "knock",
             _ => "ssh",
         };
         Self::new(code, e.to_string())
@@ -1776,6 +1801,9 @@ pub fn save_host(
             "label and hostname are required",
         ));
     }
+    if let Some(k) = &host.port_knocking {
+        crate::portknock::validate(k).map_err(|e| ApiError::new("validation", format!("port knocking: {e}")))?;
+    }
     // Reject loops and dangling references before they reach the vault.
     let hosts = host_jump_map(&state)?;
     jump_chain(id, host.jump_host_id, MAX_JUMPS, |h| hosts.get(&h).copied())
@@ -1798,6 +1826,9 @@ pub fn save_host_with_credentials(
             "validation",
             "label and hostname are required",
         ));
+    }
+    if let Some(k) = &host.port_knocking {
+        crate::portknock::validate(k).map_err(|e| ApiError::new("validation", format!("port knocking: {e}")))?;
     }
     let hosts = host_jump_map(&state)?;
     jump_chain(id, host.jump_host_id, MAX_JUMPS, |h| hosts.get(&h).copied())
@@ -2143,17 +2174,18 @@ pub async fn ssh_connect(
         let paused = host.is_some_and(|h| h.agent_forward_paused);
         target.agent_gate = Some(crate::agentgate::AgentGate::new(!paused, Some(observer)));
     }
-    let params = ConnectParams {
-        target,
-        cols: cols.max(2),
-        rows: rows.max(1),
-    };
     let sink = Arc::new(PaneSink {
         app,
         pane_id: pane_id.clone(),
         data: on_data,
         log: state.log_slot(&pane_id),
     });
+    target.set_knock_notify(knock_terminal_notifier(&sink));
+    let params = ConnectParams {
+        target,
+        cols: cols.max(2),
+        rows: rows.max(1),
+    };
     state.ssh.connect(pane_id, params, sink)?;
     Ok(())
 }
@@ -2573,12 +2605,14 @@ pub async fn ftp_open(
 /// Open a file pane over SCP, for a server with no SFTP. Same answer as [`sftp_open`].
 #[tauri::command]
 pub async fn scp_open(
+    app: AppHandle,
     state: State<'_, AppState>,
     session_id: String,
     host_id: Uuid,
     credentials: Option<Credentials>,
 ) -> ApiResult<SftpOpened> {
-    let target = resolve_target(&state, host_id, credentials)?;
+    let mut target = resolve_target(&state, host_id, credentials)?;
+    target.set_knock_notify(knock_event_notifier(&app, session_id.clone()));
     let (conn, new_host_keys) = crate::files::scp::ScpConn::open(&target).await?;
     let home = crate::files::FileBackend::home(&conn).await?;
     state.files.insert(session_id, Arc::new(conn)).await;
@@ -2587,17 +2621,35 @@ pub async fn scp_open(
 
 #[tauri::command]
 pub async fn sftp_open(
+    app: AppHandle,
     state: State<'_, AppState>,
     session_id: String,
     host_id: Uuid,
     credentials: Option<Credentials>,
 ) -> ApiResult<SftpOpened> {
-    let target = resolve_target(&state, host_id, credentials)?;
+    let mut target = resolve_target(&state, host_id, credentials)?;
+    target.set_knock_notify(knock_event_notifier(&app, session_id.clone()));
     let (home, new_host_keys) = state.sftp.open(session_id, &target).await?;
     Ok(SftpOpened {
         home,
         new_host_keys,
     })
+}
+
+/// Send a host's knock sequence now, on its own, to see whether it opens the port. Sent straight from this computer
+/// (the form disables the test for a host behind a proxy or a jump host). Progress comes as `knock:progress` events.
+#[tauri::command]
+pub async fn test_port_knock(app: AppHandle, context: String, hostname: String, knocking: crate::models::PortKnocking) -> ApiResult<()> {
+    let hostname = hostname.trim().to_string();
+    if hostname.is_empty() {
+        return Err(ApiError::new("validation", "enter the host's address first"));
+    }
+    // The test runs whether or not the switch is on: the person asked for it.
+    let cfg = crate::models::PortKnocking { enabled: true, ..knocking };
+    crate::portknock::validate(&cfg).map_err(|e| ApiError::new("validation", e.to_string()))?;
+    let plan = crate::portknock::Plan::from_config(&cfg).ok_or_else(|| ApiError::new("validation", "enter at least one port"))?;
+    let notify = knock_event_notifier(&app, context);
+    crate::portknock::run(&hostname, None, &plan, Some(&notify)).await.map_err(|e| ApiError::new("knock", e.to_string()))
 }
 
 // -- any file pane, by the id its window gave it ("local" is this computer) ------------------

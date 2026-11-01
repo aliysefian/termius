@@ -410,6 +410,14 @@ export const runHook = (command: string, timeoutSecs: number) => invoke<{ exit_c
 /** Send a Wake-on-LAN packet to a machine on this computer's network. */
 export const wakeOnLan = (mac: string, broadcast: string) => invoke<void>("wake_on_lan", { mac, broadcast });
 
+/** Send a host's knock sequence on its own, to see whether it opens the port. Progress arrives as `knock:progress`. */
+export const testPortKnock = (context: string, hostname: string, knocking: import("./portknock").PortKnocking) =>
+  invoke<void>("test_port_knock", { context, hostname, knocking });
+
+/** Progress lines of a port-knock sequence: for a connecting file session (its id) or a "Test knock" (its context). */
+export const onKnockProgress = (handler: (p: { context: string; message: string }) => void): Promise<UnlistenFn> =>
+  listen<{ context: string; message: string }>("knock:progress", (e) => handler(e.payload));
+
 export type RdpInput =
   | { type: "key"; code: string; down: boolean }
   | { type: "mouse_move"; x: number; y: number }

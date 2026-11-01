@@ -76,6 +76,7 @@ pub mod tray;
 pub mod unlockguard;
 pub mod vault;
 pub mod vnc;
+pub mod portknock;
 pub mod wol;
 pub mod x11;
 
@@ -222,6 +223,7 @@ pub fn run() {
             commands::rdp::vnc_input,
             commands::rdp::vnc_close,
             commands::rdp::wake_on_lan,
+            commands::test_port_knock,
             commands::rdp::run_hook,
             commands::runbooks::list_runbooks,
             commands::runbooks::save_runbook,

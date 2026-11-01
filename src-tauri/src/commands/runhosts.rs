@@ -97,6 +97,7 @@ fn adhoc_jump_chain(state: &AppState, jumps: Vec<AdhocHop>) -> ApiResult<Option<
                     legacy_algorithms: false,
                     agent_gate: None,
                     totp: None,
+                    knock: None,
                 }
             }
         };
@@ -151,6 +152,7 @@ pub async fn ssh_connect_adhoc(
             legacy_algorithms: false,
             agent_gate: None,
             totp: None,
+            knock: None,
         },
         cols: cols.max(2),
         rows: rows.max(1),
@@ -161,6 +163,8 @@ pub async fn ssh_connect_adhoc(
         data: on_data,
         log: state.log_slot(&pane_id),
     });
+    let mut params = params;
+    params.target.set_knock_notify(super::knock_terminal_notifier(&sink));
     state.ssh.connect(pane_id, params, sink)?;
     Ok(())
 }
