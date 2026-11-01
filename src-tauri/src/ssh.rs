@@ -2488,4 +2488,92 @@ mod tests {
         manager.disconnect("g").await;
         let _ = agent.kill();
     }
+
+    /// A tunnel and a terminal to the same host are separate connections: closing the terminal leaves the tunnel
+    /// carrying data, and stopping the tunnel leaves the terminal working.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn closing_a_terminal_does_not_stop_a_tunnel_and_stopping_a_tunnel_does_not_close_a_terminal() {
+        use crate::forward::{ForwardManager, ForwardStatus, StatusSink};
+        use crate::models::ForwardKind;
+        use std::io::{Read, Write};
+
+        struct Statuses(std_mpsc::Sender<ForwardStatus>);
+        impl StatusSink for Statuses {
+            fn status(&self, _: uuid::Uuid, s: ForwardStatus) {
+                let _ = self.0.send(s);
+            }
+        }
+
+        let dir = tempfile::TempDir::new().unwrap();
+        let Some(sshd) = spawn_sshd(dir.path()) else {
+            eprintln!("skipping: no usable sshd on this machine");
+            return;
+        };
+        let known_hosts = dir.path().join("app").join("known_hosts");
+        // A plain echo service for the tunnel to reach.
+        let echo = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let echo_port = echo.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            for conn in echo.incoming().flatten() {
+                std::thread::spawn(move || {
+                    let mut c = conn;
+                    let mut buf = [0u8; 64];
+                    while let Ok(n) = c.read(&mut buf) {
+                        if n == 0 || c.write_all(&buf[..n]).is_err() {
+                            break;
+                        }
+                    }
+                });
+            }
+        });
+        let through = |port: u16, msg: &'static [u8]| async move {
+            tokio::task::spawn_blocking(move || {
+                let mut c = std::net::TcpStream::connect(("127.0.0.1", port)).ok()?;
+                c.set_read_timeout(Some(Duration::from_secs(5))).ok()?;
+                c.write_all(msg).ok()?;
+                let mut buf = vec![0u8; msg.len()];
+                c.read_exact(&mut buf).ok()?;
+                Some(buf)
+            })
+            .await
+            .unwrap()
+        };
+
+        let p = params(&sshd, &sshd.client_key, known_hosts.clone());
+        let forwards = Arc::new(ForwardManager::new());
+        let (stx, srx) = std_mpsc::channel();
+        let rule = uuid::Uuid::new_v4();
+        forwards.start(rule, p.target.clone(), ForwardKind::Local { bind_addr: "127.0.0.1".into(), bind_port: 0, dest_host: "127.0.0.1".into(), dest_port: echo_port }, Arc::new(Statuses(stx))).unwrap();
+        let port = loop {
+            match srx.recv_timeout(Duration::from_secs(15)).expect("the tunnel reports") {
+                ForwardStatus::Active { port } => break port,
+                ForwardStatus::Error { message } => panic!("{message}"),
+                _ => {}
+            }
+        };
+        assert_eq!(through(port, b"one").await.as_deref(), Some(&b"one"[..]));
+
+        // A terminal to the same host, opened and then closed.
+        let manager = Arc::new(SshManager::new());
+        let (tx, rx) = std_mpsc::channel();
+        manager.connect("term".into(), params(&sshd, &sshd.client_key, known_hosts.clone()), Arc::new(TestSink(tx))).unwrap();
+        wait_status(&rx, |s| matches!(s, SessionStatus::Connected));
+        manager.disconnect("term").await;
+        wait_status(&rx, |s| matches!(s, SessionStatus::Disconnected { .. }));
+        assert!(!manager.is_connected("term"));
+        assert!(forwards.is_running(rule), "closing the terminal must not stop the tunnel");
+        assert_eq!(through(port, b"two").await.as_deref(), Some(&b"two"[..]), "and the tunnel still carries data");
+
+        // The other way round: a second terminal survives the tunnel being stopped.
+        let (tx, rx) = std_mpsc::channel();
+        manager.connect("term2".into(), params(&sshd, &sshd.client_key, known_hosts), Arc::new(TestSink(tx))).unwrap();
+        wait_status(&rx, |s| matches!(s, SessionStatus::Connected));
+        forwards.stop_and_wait(rule, Duration::from_secs(5)).await;
+        assert!(through(port, b"three").await.is_none(), "the stopped tunnel no longer listens");
+        assert!(manager.is_connected("term2"), "stopping the tunnel must not close the terminal");
+        manager.write("term2", b"printf 'A%sB\\n' _ALIVE_\n".to_vec()).await.unwrap();
+        let out = wait_output(&rx, "A_ALIVE_B");
+        assert!(out.contains("A_ALIVE_B"), "{out}");
+        manager.disconnect("term2").await;
+    }
 }

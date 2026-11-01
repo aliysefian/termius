@@ -908,7 +908,7 @@ cancel button.
 
 ## Port forwarding
 
-Open the **Tunnels** view, add a rule, and press the play button.
+Open the **Tunnels** page. It lists every tunnel with its type, port mapping, host, state and uptime, and the cards at the top count how many are active, stopped and failed. Click a tunnel to see its details beside the list: an **Overview** (state, a picture of the mapping, the route through any bastion, connection health), a **Configuration** tab to edit it, and a **Logs** tab with what the tunnel did (secrets are removed). **Create Tunnel** walks through the type, the details and a review; creating and starting are separate. Tick tunnels to start, stop or delete several at once. **Open SSH Terminal** (in a tunnel's menu) opens a terminal to its host without touching the tunnel: tunnels and terminals are separate connections, so closing one never stops the other. A tunnel that loses its SSH connection is shown as **Failed** with the reason; it doesn't reconnect by itself, so start it again. **Import / Export** moves tunnel definitions (host names and forwarding, no credentials) between computers.
 
 | Type | OpenSSH equivalent | What it does |
 |---|---|---|

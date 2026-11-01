@@ -655,6 +655,9 @@ pub struct ForwardRule {
     /// Start this rule automatically whenever the vault is unlocked.
     #[serde(default)]
     pub auto_start: bool,
+    /// What the tunnel is for, shown under its name.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub description: String,
     #[serde(flatten)]
     pub kind: ForwardKind,
 }
@@ -889,6 +892,7 @@ mod tests {
             label: "db".into(),
             host_id: Uuid::nil(),
             auto_start: true,
+            description: String::new(),
             kind: ForwardKind::Dynamic {
                 bind_addr: "127.0.0.1".into(),
                 bind_port: 1080,

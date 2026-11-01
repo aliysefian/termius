@@ -76,6 +76,7 @@ pub mod tray;
 pub mod unlockguard;
 pub mod vault;
 pub mod vnc;
+pub mod tunnelfile;
 pub mod wol;
 pub mod x11;
 
@@ -349,6 +350,11 @@ pub fn run() {
             commands::editing::files_write_as_root,
             commands::editing::files_checksum,
             commands::forwarding::forward_stop,
+            commands::forwarding::forward_restart,
+            commands::forwarding::forward_logs,
+            commands::forwarding::forward_runtime,
+            commands::forwarding::export_tunnels,
+            commands::forwarding::import_tunnels,
             commands::forwarding::forward_statuses,
         ])
         .build(tauri::generate_context!())

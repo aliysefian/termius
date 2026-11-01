@@ -286,6 +286,9 @@ async def main():
         # -- the Tunnels view --------------------------------------------------------------------------------------
         await pg.click('button[aria-label="Tunnels"]')
         await pg.wait_for_selector('text=web UI', timeout=5000)
+        # The route is in the selected tunnel's details now, beside the list.
+        await pg.click('[data-tunnel-row]:has-text("web UI")')
+        await pg.wait_for_selector('[data-testid="hop-chain"]', timeout=5000)
         tun = await pg.locator('[data-testid="hop-chain"]').last.inner_text()
         check("a rule whose host is behind a bastion shows its route", "Elastic" in tun and "Spark" in tun, tun)
         check("no page errors", not errors, errors)

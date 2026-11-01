@@ -8,8 +8,8 @@
   import { closeAction, exitAction } from "$lib/closebehavior";
   import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
   import ActivityBar from "$lib/components/ActivityBar.svelte";
-  import ForwardForm from "$lib/components/ForwardForm.svelte";
-  import ForwardingPanel from "$lib/components/ForwardingPanel.svelte";
+  import CreateTunnelDialog from "$lib/components/tunnels/CreateTunnelDialog.svelte";
+  import TunnelsView from "$lib/components/tunnels/TunnelsView.svelte";
   import SftpView from "$lib/components/SftpView.svelte";
   import HostForm from "$lib/components/HostForm.svelte";
   import HostTree from "$lib/components/HostTree.svelte";
@@ -94,7 +94,7 @@
   let windowWidth = $state(typeof window === "undefined" ? 1600 : window.innerWidth);
   let windowHeight = $state(typeof window === "undefined" ? 900 : window.innerHeight);
   /** The docks belong to the terminals; pages and the file browser use the whole area. */
-  const LIST_VIEWS = ["hosts", "favorites", "fleetlist", "keychain", "snippets", "forwarding"];
+  const LIST_VIEWS = ["hosts", "favorites", "fleetlist", "keychain", "snippets"];
   /** Width the list panel takes now, so the right dock leaves the terminal its room. */
   const leftUsed = $derived(!settings.prefs.sidebarHidden && !settings.prefs.focusMode && LIST_VIEWS.includes(ui.view) ? effectiveWidth(settings.prefs.sidebarWidth, windowWidth) : 0);
   const terminalView = $derived(!PAGE_VIEWS.includes(ui.view) && ui.view !== "sftp");
@@ -318,8 +318,6 @@
           <KeychainPanel />
         {:else if ui.view === "snippets"}
           <SnippetsPanel />
-        {:else if ui.view === "forwarding"}
-          <ForwardingPanel />
         {/if}
       </ResizablePanel>
     {/if}
@@ -339,6 +337,8 @@
     {/if}
     {#if ui.view === "dashboard"}
       <DashboardView />
+    {:else if ui.view === "forwarding"}
+      <TunnelsView />
     {:else if ui.view === "settings"}
       <SettingsPanel />
     {:else if ui.view === "keys"}
@@ -397,7 +397,7 @@
     {/key}
   {:else if ui.modal?.kind === "forward"}
     {#key ui.modal.id}
-      <ForwardForm id={ui.modal.id} />
+      <CreateTunnelDialog id={ui.modal.id} template={ui.modal.template} />
     {/key}
   {:else if ui.modal?.kind === "monitor-target"}
     {#key ui.modal.id}
