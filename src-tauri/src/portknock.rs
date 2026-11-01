@@ -354,16 +354,32 @@ mod tests {
         assert_eq!(order.iter().map(|(_, n)| *n).collect::<Vec<_>>(), ["tcp1", "udp", "tcp2"]);
     }
 
+    /// UDP knocks, so the only time spent is the waits themselves: a TCP knock to a closed port takes as long as the
+    /// OS takes to refuse it (the whole 400 ms timeout on Windows), which would drown the delays being measured.
     #[tokio::test]
     async fn waits_between_knocks_and_after_the_last() {
-        let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
-        let plan = Plan { steps: vec![step(closed, KnockProtocol::Tcp); 3], inter_knock_ms: 100, post_knock_ms: 200 };
+        let sink = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let port = sink.local_addr().unwrap().port();
+        let plan = Plan { steps: vec![step(port, KnockProtocol::Udp); 3], inter_knock_ms: 300, post_knock_ms: 300 };
         let started = Instant::now();
         run("127.0.0.1", None, &plan, None).await.unwrap();
-        // Two gaps and the final wait: at least 400 ms, and not the 600+ it would be with a gap after the last knock too.
+        // Two gaps and the final wait: at least 900 ms, and clearly short of the 1200 ms it would be with a gap after
+        // the last knock too. The 250 ms of room above the minimum is for a slow machine.
         let took = started.elapsed();
-        assert!(took >= Duration::from_millis(400), "{took:?}");
-        assert!(took < Duration::from_millis(1500), "{took:?}");
+        assert!(took >= Duration::from_millis(900), "{took:?}");
+        assert!(took < Duration::from_millis(1150), "{took:?}");
+    }
+
+    /// A TCP knock never holds the sequence up for more than its short timeout, whatever the OS does with a closed
+    /// port (an instant refusal on Linux, a slow one on Windows).
+    #[tokio::test]
+    async fn a_tcp_knock_is_cut_off_at_its_timeout() {
+        let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+        let plan = Plan { steps: vec![step(closed, KnockProtocol::Tcp); 3], inter_knock_ms: 10, post_knock_ms: 0 };
+        let started = Instant::now();
+        run("127.0.0.1", None, &plan, None).await.unwrap();
+        // Three knocks of at most 400 ms each, plus two 10 ms gaps, plus slack.
+        assert!(started.elapsed() < Duration::from_millis(1200 + 20 + 1500), "{:?}", started.elapsed());
     }
 
     #[tokio::test]
