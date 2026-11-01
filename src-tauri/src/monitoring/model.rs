@@ -180,6 +180,10 @@ pub enum Metric {
     HttpTime,
     /// Days until an https site's certificate ends. Use "below".
     CertDays,
+    /// Download speed (bytes received per second) of the host's main network interface, in megabytes per second.
+    NetRx,
+    /// Upload speed (bytes sent per second) of the host's main network interface, in megabytes per second.
+    NetTx,
 }
 
 impl Metric {
@@ -194,6 +198,8 @@ impl Metric {
             Metric::HttpDown => "Site down",
             Metric::HttpTime => "Site response time",
             Metric::CertDays => "Certificate days left",
+            Metric::NetRx => "Download speed (RX)",
+            Metric::NetTx => "Upload speed (TX)",
         }
     }
 
@@ -203,6 +209,7 @@ impl Metric {
             Metric::PingLatency | Metric::HttpTime => " ms",
             Metric::PortClosed | Metric::HttpDown => "",
             Metric::CertDays => " days",
+            Metric::NetRx | Metric::NetTx => " MB/s",
         }
     }
 }

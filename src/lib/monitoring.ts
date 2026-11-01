@@ -20,7 +20,7 @@ export interface MonitorTarget {
   notes: string;
 }
 
-export type Metric = "ping_loss" | "ping_latency" | "port_closed" | "cpu" | "mem" | "disk" | "http_down" | "http_time" | "cert_days";
+export type Metric = "ping_loss" | "ping_latency" | "port_closed" | "cpu" | "mem" | "disk" | "http_down" | "http_time" | "cert_days" | "net_rx" | "net_tx";
 export type Op = "gt" | "lt";
 export type Scope = { type: "all" } | { type: "tags"; tags: string[] } | { type: "target"; id: Uuid };
 export type ChannelKind = "telegram" | "bale" | "email";
@@ -55,7 +55,15 @@ export interface TargetStatus {
   ports: { port: number; open: boolean; latency_ms: number | null; error: string | null }[];
   /** One per web check. The address is shown without its query. */
   web: { url: string; status: number | null; ok: boolean; time_ms: number | null; cert_days: number | null; error: string | null }[];
-  metrics: { cpu: number | null; mem: number | null; disk: number | null } | null;
+  metrics: {
+    cpu: number | null;
+    mem: number | null;
+    disk: number | null;
+    /** Interface traffic, when the host's counters could be read (Linux). */
+    net: import("./netdata").NetReading | null;
+    /** The interface the headline speed is read from. */
+    net_headline: string | null;
+  } | null;
   states: StateView[];
   errors: string[];
 }
@@ -140,6 +148,8 @@ export const METRICS: Record<Metric, { label: string; unit: string; hint: string
   http_down: { label: "Site down", unit: "", hint: "A web check got the wrong status, no answer, or a page without its text. Set the critical limit to 0." },
   http_time: { label: "Site response time", unit: " ms", hint: "How long the page took to start answering." },
   cert_days: { label: "Certificate days left", unit: " days", hint: "Days until an https site's certificate ends. Choose “below”." },
+  net_rx: { label: "Download speed (RX)", unit: " MB/s", hint: "Bytes received per second by the host's main network interface (the one its default route leaves by), in megabytes per second. Read over SSH." },
+  net_tx: { label: "Upload speed (TX)", unit: " MB/s", hint: "Bytes sent per second by the host's main network interface, in megabytes per second. Read over SSH." },
 };
 
 /** Starting points for the Rules tab. */
@@ -153,6 +163,8 @@ export const PRESETS: { name: string; metric: Metric; warn: number | null; crit:
   { name: "Site down", metric: "http_down", warn: null, crit: 0, attempts: 2 },
   { name: "Site response time", metric: "http_time", warn: 1500, crit: 5000, attempts: 3 },
   { name: "Certificate expiring", metric: "cert_days", warn: 21, crit: 7, attempts: 1, op: "lt" },
+  { name: "High download speed", metric: "net_rx", warn: 50, crit: 100, attempts: 3 },
+  { name: "High upload speed", metric: "net_tx", warn: 50, crit: 100, attempts: 3 },
 ];
 
 export const MIN_INTERVAL_SECS = 10;

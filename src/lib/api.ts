@@ -665,6 +665,8 @@ export const monitor = {
   exec: (sessionId: Uuid, script: string, timeoutSecs: number, stdin?: string) =>
     invoke<{ stdout: string; stderr: string; code: number | null }>("monitor_exec", { sessionId, script, timeoutSecs, stdin: stdin ?? null }),
   close: (sessionId: Uuid) => invoke<void>("monitor_close", { sessionId }),
+  /** One reading of the host's per-interface network speed and totals (about a second). Null without counters. */
+  netSample: (sessionId: Uuid) => invoke<(import("./netdata").NetReading & { headline: string | null }) | null>("monitor_net_sample", { sessionId }),
   /** Follow a script's output (logs). Resolves to an id for `streamStop`; events arrive until an "end". */
   streamStart(sessionId: Uuid, script: string, onEvent: (e: ContainerLogEvent) => void) {
     const channel = new Channel<ContainerLogEvent>(onEvent);

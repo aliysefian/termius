@@ -579,6 +579,29 @@ computer, not synced, and not encrypted; choosing 15 minutes again deletes them.
 **Monitoring** in the sidebar watches hosts in the background and tells you when one changes state. It is
 separate from the Alerts tab under Ops: it has its own list of hosts, its own rules, and it can send messages out.
 
+**The page.** The header has the **time range** of the network charts, how often the open host is read **live**, **Refresh**
+(checks every host now) and **Add Monitor**. Four cards count the hosts that are healthy, in warning, critical or offline;
+click one to filter. **Overview** is a searchable, sortable table (filter by state or tag) with each host's CPU, memory and
+current download and upload speed, and the busiest hosts' traffic above it. Click a host to open its panel beside the
+table (drag its edge to resize it; on a narrow window it slides over the table; **Esc** closes it). The panel has
+**Overview**, **Network**, **Resources**, **Checks**, **Alerts** and **History** tabs and an **Open SSH Terminal** button;
+nothing opens a terminal on its own. **Checks** and **Alerts** at the top list them across all hosts; **Hosts**, **Rules**
+and **History** are where you edit hosts and rules and read what was sent.
+
+**Network traffic.** The Network tab shows, for every interface of a host (eth0, ens18, wlan0, bond0, tun0, wg0, tailscale0…),
+the current **download (RX)** and **upload (TX)** speed, the totals since the host started, packets, errors and drops, how
+much of the link is used when the link speed is known, and a chart of both directions. RX and TX are from the monitored
+host's point of view: RX is what its interface received. Switch between **Bytes** (B/s, KB/s, MB/s, GB/s) and **Bits**
+(b/s, Kb/s, Mb/s, Gb/s); the unit is always written out. Speeds are the change of the kernel's interface counters
+(`/proc/net/dev`) over about a second, so only **Linux** hosts report them; others show "unavailable", never 0, and a
+counter that went back (a reboot, an interface reset) leaves a gap instead of a spike. The headline speed is the interface
+of the default route, so a bridge and its ports are not counted twice. While the Network tab is open (and the window is
+visible) the host is read every few seconds over one SSH connection ("Live"); otherwise only the background check, at least
+30 seconds apart, supplies readings ("Background"). The chart draws gaps as gaps and shows the highest value in each column,
+with no smoothing. The 5 min, 15 min and 1 hour ranges use what was read since you unlocked; 6 hours, 24 hours and 7 days
+need **Keep history** (Settings) to be on, and are offered only when that much is kept. Two rules can watch speed:
+**Download speed (RX)** and **Upload speed (TX)**, in MB/s.
+
 **Hosts.** Add the hosts to watch on the **Hosts** tab. They don't have to be saved SSH hosts; a router will do.
 Each has an address, tags, how often to check (at least every 10 seconds), and any of these checks:
 

@@ -25,6 +25,26 @@ pub async fn monitor_exec(
     Ok(state.monitors.exec_stdin(session_id, &script, stdin.as_ref().map(|s| s.as_bytes()), timeout).await?)
 }
 
+/// One reading of a host's network traffic over an open watch connection: each interface's download and upload speed
+/// and totals, from the host's own counters (see `monitoring::net`). Takes about a second. `None` when the host has no
+/// counters to read (anything without `/proc/net/dev`).
+#[tauri::command]
+pub async fn monitor_net_sample(state: State<'_, AppState>, session_id: Uuid) -> ApiResult<Option<NetSample>> {
+    let out = state.monitors.exec_stdin(session_id, crate::monitoring::net::SCRIPT, None, std::time::Duration::from_secs(15)).await?;
+    Ok(crate::monitoring::net::parse(&out.stdout).map(|r| {
+        let headline = crate::monitoring::net::headline(&r).map(|i| i.name.clone());
+        NetSample { reading: r, headline }
+    }))
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct NetSample {
+    #[serde(flatten)]
+    pub reading: crate::monitoring::net::NetReading,
+    /// The interface the headline speed is read from.
+    pub headline: Option<String>,
+}
+
 /// Check that a key from the Key Manager logs in to a host: connect with it, as the host's own user, and hang up.
 /// The host's own keys-and-known-hosts rules apply. Used to prove a new key works before the old one is removed.
 #[tauri::command]

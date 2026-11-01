@@ -5,6 +5,7 @@ import { untrack } from "svelte";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import * as api from "$lib/api";
 import type { AlertEntry, AlertRule, ChannelKind, ChannelsRecord, MonitorTarget, NotifyChannels, TargetStatus } from "$lib/monitoring";
+import { netStore } from "$lib/stores/netstore.svelte";
 import { vaultStore } from "$lib/stores/vault.svelte";
 import { errorMessage, type Uuid, type VaultRecord } from "$lib/types";
 
@@ -51,7 +52,10 @@ class MonitoringStore {
     if (this.#listening || !vaultStore.unlocked) return;
     this.#listening = true;
     this.#unlisten = await Promise.all([
-      api.monitoring.onStatus((s) => (this.statuses[s.id] = s)),
+      api.monitoring.onStatus((s) => {
+        this.statuses[s.id] = s;
+        netStore.ingestStatus(s, this.targets.find((t) => t.id === s.id)?.data?.ssh_host_id ?? null);
+      }),
       api.monitoring.onAlert((a) => {
         this.history = [a, ...this.history].slice(0, KEEP_ALERTS);
         this.unread += 1;
@@ -97,6 +101,8 @@ class MonitoringStore {
       this.configError = s.config_error;
       this.statuses = Object.fromEntries(s.statuses.map((t) => [t.id, t]));
       this.history = s.history;
+      // The last check of each host is its latest reading, so the Network tab has one before the next check.
+      for (const t of s.statuses) netStore.ingestStatus(t, this.targets.find((x) => x.id === t.id)?.data?.ssh_host_id ?? null, t.checked_at * 1000);
     } catch (e) {
       this.error = errorMessage(e);
     }
@@ -128,6 +134,7 @@ class MonitoringStore {
   async deleteTarget(id: Uuid, baseRev: number | null) {
     await api.monitoring.deleteTarget(id, baseRev);
     delete this.statuses[id];
+    netStore.forget(id);
     await this.refreshLists();
   }
 
