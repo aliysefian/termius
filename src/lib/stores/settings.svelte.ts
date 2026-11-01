@@ -72,6 +72,12 @@ export interface Prefs {
   shellFocus: boolean;
   /** What was showing before Shell focus, brought back when it ends. */
   focusRestore: { left: boolean; right: boolean; bottom: boolean };
+  /** The Containers table's optional columns (see containerview.ts), group-by-project switch and details drawer width. */
+  containerColumns: string[];
+  containerGrouped: boolean;
+  containerDrawerWidth: number;
+  /** Compose projects the person collapsed, per host (key from containerview.collapseKey). */
+  containerCollapsed: Record<string, boolean>;
   /** The Tunnels page's details panel width in pixels (drag its edge; double-click resets). */
   tunnelsDetailWidth: number;
   /** Reconnect by itself when a connection drops (not when you exit). */
@@ -233,6 +239,10 @@ export const DEFAULT_PREFS: Prefs = {
   bottomPanelTab: "terminal",
   shellFocus: false,
   focusRestore: { left: true, right: false, bottom: false },
+  containerColumns: ["image", "ports", "cpu", "memory", "age"],
+  containerGrouped: true,
+  containerDrawerWidth: 480,
+  containerCollapsed: {},
   tunnelsDetailWidth: 440,
   autoReconnect: true,
   restoreLastSession: true,

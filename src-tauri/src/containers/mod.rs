@@ -105,6 +105,10 @@ pub enum Action {
     Start,
     Stop,
     Restart,
+    /// Freeze every process of a running container (`docker pause`).
+    Pause,
+    /// Let a paused container run again (`docker unpause`).
+    Unpause,
     /// `force` also removes a running container.
     Remove { force: bool },
 }
@@ -135,6 +139,8 @@ pub fn action_args(action: Action, id: &str) -> ContainerResult<Vec<String>> {
         Action::Start => vec!["start".into(), id],
         Action::Stop => vec!["stop".into(), id],
         Action::Restart => vec!["restart".into(), id],
+        Action::Pause => vec!["pause".into(), id],
+        Action::Unpause => vec!["unpause".into(), id],
         Action::Remove { force: false } => vec!["rm".into(), id],
         Action::Remove { force: true } => vec!["rm".into(), "-f".into(), id],
     })
@@ -223,6 +229,17 @@ pub fn disk_usage_args() -> Vec<String> {
 
 pub fn inspect_args(id: &str) -> ContainerResult<Vec<String>> {
     Ok(vec!["inspect".into(), check_ref(id)?.to_string()])
+}
+
+/// `inspect` of an image, volume or network: the kind is named, so a container that happens to share the name is
+/// never the one shown.
+pub fn inspect_resource_args(kind: ResourceKind, id: &str) -> ContainerResult<Vec<String>> {
+    let word = match kind {
+        ResourceKind::Image => "image",
+        ResourceKind::Volume => "volume",
+        ResourceKind::Network => "network",
+    };
+    Ok(vec![word.into(), "inspect".into(), check_ref(id)?.to_string()])
 }
 
 /// What the runtime printed when it failed, with a hint for the usual causes.
@@ -394,6 +411,16 @@ impl ContainerManager {
             return Err(failure(rt, &out));
         }
         // Check it is JSON, so the window never has to guess.
+        serde_json::from_str::<serde_json::Value>(&out.stdout).map_err(|e| ContainerError::Parse(e.to_string()))?;
+        Ok(out.stdout)
+    }
+
+    /// The runtime's `inspect` output for an image, volume or network, as JSON text.
+    pub async fn inspect_resource(&self, session: Uuid, rt: Runtime, kind: ResourceKind, id: &str) -> ContainerResult<String> {
+        if kind != ResourceKind::Image {
+            Self::docker_only(rt, "Volumes and networks")?;
+        }
+        let out = self.run(session, rt, &inspect_resource_args(kind, id)?, LIST_TIMEOUT).await?;
         serde_json::from_str::<serde_json::Value>(&out.stdout).map_err(|e| ContainerError::Parse(e.to_string()))?;
         Ok(out.stdout)
     }
@@ -610,6 +637,11 @@ mod tests {
         assert_eq!(list_containers_args(Runtime::Nerdctl, false)[4], "{{json .}}");
         assert_eq!(list_images_args(Runtime::Podman), ["images", "--format", "json"]);
         assert_eq!(action_args(Action::Stop, "abc").unwrap(), ["stop", "abc"]);
+        assert_eq!(action_args(Action::Pause, "abc").unwrap(), ["pause", "abc"]);
+        assert_eq!(action_args(Action::Unpause, "abc").unwrap(), ["unpause", "abc"]);
+        assert_eq!(inspect_resource_args(ResourceKind::Volume, "data").unwrap(), ["volume", "inspect", "data"]);
+        assert_eq!(inspect_resource_args(ResourceKind::Image, "nginx:1").unwrap(), ["image", "inspect", "nginx:1"]);
+        assert!(inspect_resource_args(ResourceKind::Network, "--all").is_err(), "an option is never taken for a name");
         assert_eq!(action_args(Action::Remove { force: false }, "abc").unwrap(), ["rm", "abc"]);
         assert_eq!(action_args(Action::Remove { force: true }, "abc").unwrap(), ["rm", "-f", "abc"]);
         assert_eq!(logs_args("abc", 500, true, true).unwrap(), ["logs", "--tail", "500", "--timestamps", "--follow", "abc"]);

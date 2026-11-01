@@ -285,6 +285,7 @@ pub fn run() {
             commands::containers::containers_list,
             commands::containers::containers_act,
             commands::containers::containers_inspect,
+            commands::containers::containers_inspect_resource,
             commands::containers::containers_logs_start,
             commands::containers::containers_logs_stop,
             commands::containers::containers_stats,
