@@ -72,6 +72,8 @@ export interface Prefs {
   shellFocus: boolean;
   /** What was showing before Shell focus, brought back when it ends. */
   focusRestore: { left: boolean; right: boolean; bottom: boolean };
+  /** The Tunnels page's details panel width in pixels (drag its edge; double-click resets). */
+  tunnelsDetailWidth: number;
   /** Reconnect by itself when a connection drops (not when you exit). */
   autoReconnect: boolean;
   /** Reopen the tabs that were open when the vault was last locked or the app quit. */
@@ -231,6 +233,7 @@ export const DEFAULT_PREFS: Prefs = {
   bottomPanelTab: "terminal",
   shellFocus: false,
   focusRestore: { left: true, right: false, bottom: false },
+  tunnelsDetailWidth: 440,
   autoReconnect: true,
   restoreLastSession: true,
   restoreSkipProduction: true,

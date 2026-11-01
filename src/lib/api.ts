@@ -74,6 +74,8 @@ import type {
   PublicKeyInfo,
   SshConfigPreview,
   ForwardRule,
+  ForwardLog,
+  ForwardRuntime,
   ForwardStatus,
   Host,
   Identity,
@@ -309,7 +311,18 @@ export const forwards = {
   /** A forward that is not a saved rule (a port spotted in a terminal). Returns the id for stop() and the status events. */
   startAdhoc: (hostId: Uuid, kind: ForwardKind) => invoke<Uuid>("forward_start_adhoc", { hostId, kind }),
   stop: (id: Uuid) => invoke<void>("forward_stop", { id }),
+  /** Stop, wait until the port is really free, and start again. */
+  restart: (id: Uuid) => invoke<void>("forward_restart", { id }),
   statuses: () => invoke<Record<Uuid, ForwardStatus>>("forward_statuses"),
+  /** What each active tunnel knows about itself (when it became active). */
+  runtime: () => invoke<Record<Uuid, ForwardRuntime>>("forward_runtime"),
+  /** A tunnel's diagnostic log, oldest line first. */
+  logs: (id: Uuid) => invoke<ForwardLog[]>("forward_logs", { id }),
+  onLog: (handler: (e: { rule_id: Uuid; entry: ForwardLog }) => void): Promise<UnlistenFn> =>
+    listen<{ rule_id: Uuid; entry: ForwardLog }>("forward:log", (e) => handler(e.payload)),
+  /** Write every tunnel (by host name, no credentials) to a file; returns how many. */
+  exportFile: (path: string) => invoke<number>("export_tunnels", { path }),
+  importFile: (path: string) => invoke<{ added: number; skipped: string[] }>("import_tunnels", { path }),
   onStatus: (handler: (e: { rule_id: Uuid; status: ForwardStatus }) => void): Promise<UnlistenFn> =>
     listen<{ rule_id: Uuid; status: ForwardStatus }>("forward:status", (e) => handler(e.payload)),
 };

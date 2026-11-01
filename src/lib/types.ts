@@ -251,7 +251,21 @@ export type ForwardKind =
   | { kind: "dynamic"; bind_addr: string; bind_port: number };
 
 /** A saved port-forwarding rule. Mirrors models::ForwardRule (kind is flattened). */
-export type ForwardRule = { label: string; host_id: Uuid; auto_start: boolean } & ForwardKind;
+export type ForwardRule = { label: string; host_id: Uuid; auto_start: boolean; /** What the tunnel is for. */ description?: string } & ForwardKind;
+
+/** One line of a tunnel's diagnostic log (already scrubbed of secrets by the backend). */
+export interface ForwardLog {
+  /** Milliseconds since the Unix epoch. */
+  at_ms: number;
+  level: "info" | "warn" | "error";
+  message: string;
+}
+
+/** What an active tunnel knows about itself. */
+export interface ForwardRuntime {
+  /** When it became active, in milliseconds since the Unix epoch. */
+  active_since_ms: number | null;
+}
 
 export type ForwardStatus =
   | { state: "starting" }

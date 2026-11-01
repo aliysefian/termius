@@ -6,7 +6,7 @@ import { ask, askRemember } from "$lib/dialogs.svelte";
 import { fingerprint, renderCommand } from "$lib/commandhost";
 import { settings } from "$lib/stores/settings.svelte";
 import type { AdhocTarget, SessionStatus } from "$lib/ssh";
-import { errorMessage, type SerialConfig, type Uuid } from "$lib/types";
+import { errorMessage, type ForwardRule, type SerialConfig, type Uuid } from "$lib/types";
 import { vaultStore } from "$lib/stores/vault.svelte";
 
 export type View =
@@ -35,7 +35,7 @@ export type View =
   | "changelog";
 
 /** Views that fill the window instead of sitting beside the terminals. */
-export const PAGE_VIEWS: View[] = ["dashboard", "groups", "keys", "knownhosts", "vault", "security-review", "fleet", "topology", "ops", "monitoring", "runbooks", "databases", "containers", "kubernetes", "settings", "changelog"];
+export const PAGE_VIEWS: View[] = ["dashboard", "groups", "keys", "knownhosts", "vault", "security-review", "fleet", "topology", "ops", "monitoring", "runbooks", "databases", "containers", "kubernetes", "settings", "changelog", "forwarding"];
 
 /** What a pane connects to: a saved host, or an unsaved quick connection. */
 export type PaneTarget =
@@ -96,7 +96,7 @@ export type Modal =
   | { kind: "host"; id: Uuid | null; group?: string }
   | { kind: "identity"; id: Uuid | null }
   | { kind: "snippet"; id: Uuid | null }
-  | { kind: "forward"; id: Uuid | null }
+  | { kind: "forward"; id: Uuid | null; /** A tunnel to copy from (Duplicate): the dialog opens on its settings. */ template?: ForwardRule }
   | { kind: "monitor-target"; id: Uuid | null }
   | { kind: "port-scan"; id: Uuid }
   | { kind: "alert-rule"; id: Uuid | null }

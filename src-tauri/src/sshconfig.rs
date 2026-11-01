@@ -574,6 +574,7 @@ pub fn import_into_vault(
                     label: format!("{} #{}", h.alias, n + 1),
                     host_id: *id,
                     auto_start: false,
+                    description: String::new(),
                     kind: kind.clone(),
                 },
             )?;
