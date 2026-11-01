@@ -2,9 +2,9 @@
   import { onDestroy, onMount } from "svelte";
   import { ArrowDownToLine, ChevronDown, ChevronUp, Copy, Eraser, Pause, Play } from "lucide-svelte";
   import { writeText } from "@tauri-apps/plugin-clipboard-manager";
-  import Modal from "./Modal.svelte";
   import * as api from "$lib/api";
   import { LogBuffer, matchingLines, splitMatches } from "$lib/containerdata";
+  import { lineTone } from "$lib/containerlog";
   import { visibleRange } from "$lib/dbdata";
   import { containers } from "$lib/stores/containers.svelte";
   import { ui } from "$lib/stores/ui.svelte";
@@ -159,8 +159,7 @@
   }
 </script>
 
-<Modal title="Logs · {name}" onclose={() => (ui.modal = null)} width="max-w-6xl">
-  <div class="flex h-[68vh] min-h-72 flex-col gap-2">
+<div class="flex h-full min-h-72 flex-col gap-2">
     <div class="flex flex-wrap items-center gap-2 text-xs">
       <button class="btn-secondary py-1 text-xs" onclick={toggleFollow} title={follow ? "Stop following; show a snapshot" : "Follow new lines as they arrive"} aria-pressed={follow}>
         {#if follow}<Pause size={12} /> Following{:else}<Play size={12} /> Snapshot{/if}
@@ -177,9 +176,9 @@
       <label class="flex items-center gap-1.5 text-fg-muted" title="Hides passwords, tokens, keys and credentials in lines that arrive from now on. It recognises common shapes only; it is not a guarantee.">
         <input type="checkbox" class="accent-input" bind:checked={hideSecrets} /> Hide secrets
       </label>
-      <div class="ml-auto flex items-center gap-1.5">
+      <div class="ml-auto flex flex-wrap items-center gap-1.5">
         <input
-          class="input h-7 w-52 py-0 text-xs"
+          class="input h-7 w-40 py-0 text-xs"
           placeholder="Search the log"
           aria-label="Search the log"
           bind:value={query}
@@ -207,7 +206,7 @@
           <div style="transform: translateY({range.start * ROW_H}px)">
             {#each shown as line, k (range.start + k)}
               {@const row = range.start + k}
-              <div class="whitespace-pre px-2 {displayHits[cur] === row ? 'bg-accent/20' : ''}" style="height: {ROW_H}px; line-height: {ROW_H}px">
+              <div class="whitespace-pre px-2 {lineTone(line) === 'error' ? 'text-danger' : lineTone(line) === 'warn' ? 'text-warning' : ''} {displayHits[cur] === row ? 'bg-accent/20' : ''}" style="height: {ROW_H}px; line-height: {ROW_H}px">
                 {#if query}
                   {#each splitMatches(line, query) as part, i (i)}{#if part.hit}<mark class="rounded-sm bg-warning/40 text-fg">{part.text}</mark>{:else}{part.text}{/if}{/each}
                 {:else}{line}{/if}
@@ -228,5 +227,4 @@
       <span>{allCount.toLocaleString()} line{allCount === 1 ? "" : "s"}{buffer.dropped ? ` · the oldest ${buffer.dropped.toLocaleString()} were dropped to keep the view light` : ""}</span>
       <span class={endNote && !running ? "text-warning" : ""} role="status">{running ? (follow ? "Following…" : "Reading…") : (endNote ?? "")}</span>
     </div>
-  </div>
-</Modal>
+</div>

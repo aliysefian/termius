@@ -608,6 +608,9 @@ export const containers = {
   stats: (sessionId: Uuid, runtime: ContainerRuntime) => invoke<ContainerStat[]>("containers_stats", { sessionId, runtime }),
   /** The runtime's `inspect` output as JSON text. */
   inspect: (sessionId: Uuid, runtime: ContainerRuntime, id: string) => invoke<string>("containers_inspect", { sessionId, runtime, id }),
+  /** `inspect` of an image, volume or network, as JSON text. */
+  inspectResource: (sessionId: Uuid, runtime: ContainerRuntime, kind: ResourceKind, id: string) =>
+    invoke<string>("containers_inspect_resource", { sessionId, runtime, kind, id }),
   /** Resolves to a stream id for `logsStop`; events arrive on `onEvent` until an "end". */
   logsStart(sessionId: Uuid, runtime: ContainerRuntime, id: string, options: ContainerLogOptions, onEvent: (e: ContainerLogEvent) => void) {
     const channel = new Channel<ContainerLogEvent>(onEvent);

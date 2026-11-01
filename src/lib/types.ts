@@ -1103,7 +1103,7 @@ export interface ContainerListing {
 
 export type ContainerLogEvent = { event: "chunk"; text: string } | { event: "end"; code: number | null; error: string | null };
 
-export type ContainerAction = { action: "start" } | { action: "stop" } | { action: "restart" } | { action: "remove"; force: boolean };
+export type ContainerAction = { action: "start" } | { action: "stop" } | { action: "restart" } | { action: "pause" } | { action: "unpause" } | { action: "remove"; force: boolean };
 
 export interface ContainerLogOptions {
   tail: number;

@@ -44,8 +44,6 @@
   import DatabasesView from "$lib/components/DatabasesView.svelte";
   import ContainersView from "$lib/components/ContainersView.svelte";
   import DashboardView from "$lib/components/DashboardView.svelte";
-  import ContainerLogs from "$lib/components/ContainerLogs.svelte";
-  import ContainerInspect from "$lib/components/ContainerInspect.svelte";
   import HostMonitor from "$lib/components/HostMonitor.svelte";
   import ContainerPull from "$lib/components/ContainerPull.svelte";
   import ContainerPrune from "$lib/components/ContainerPrune.svelte";
@@ -414,14 +412,6 @@
   {:else if ui.modal?.kind === "db-connection"}
     {#key ui.modal.id}
       <DbConnectionForm id={ui.modal.id} />
-    {/key}
-  {:else if ui.modal?.kind === "container-logs"}
-    {#key ui.modal.id}
-      <ContainerLogs sourceKey={ui.modal.sourceKey} id={ui.modal.id} name={ui.modal.name} />
-    {/key}
-  {:else if ui.modal?.kind === "container-inspect"}
-    {#key ui.modal.id}
-      <ContainerInspect sourceKey={ui.modal.sourceKey} id={ui.modal.id} name={ui.modal.name} />
     {/key}
   {:else if ui.modal?.kind === "host-monitor"}
     {#key ui.modal.id}

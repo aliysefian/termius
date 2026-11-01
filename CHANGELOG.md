@@ -4,6 +4,11 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## Unreleased
+
+- **New:** **a redesigned Containers page.** A host selector and runtime box at the top, four cards counting total, running, stopped and unhealthy containers, and tabs for Containers, Images, Volumes, Networks and Compose with their counts. One toolbar has search (now also by Compose project and service), a status filter (running, stopped, paused, restarting, failed, unhealthy), Projects or Flat grouping, columns you can show and hide (remembered, and dropped automatically as the window narrows) and refresh. Rows keep to a few actions: **Stop** or **Start**, **Logs** and a menu with Restart, **Pause**, **Resume**, Open Terminal, Inspect, copy ID and name, and Delete. Compose projects are grouped with how many are running and unhealthy, can be collapsed (remembered), and have start, stop, restart, take-down and a details button.
+- **A details drawer.** Click a container to see **Overview** (ports, networks, mounts, restart policy, entrypoint), **Logs** (live, searchable, errors and warnings coloured), **Stats** (CPU, memory, network, disk with a chart, only from real readings), **Inspect** (a searchable tree that hides secret-looking environment values until you reveal them) and **Terminal** (a shell in the drawer; closing it never stops the container). A published port on a host opens through a tunnel instead of a wrong local address. Tick several containers to start, stop, restart or delete them together. Volumes, networks and images can be inspected too. Containers can now be paused and resumed.
+
 ## 0.49.1 - 2026-11-01
 
 - **Fixed:** the Windows build's checks failed on a port-knock timing test, because Windows takes the whole knock timeout to refuse a connection to a closed port. The test now measures the waits with UDP knocks. Nothing changes in the app.

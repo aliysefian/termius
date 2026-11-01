@@ -1098,66 +1098,90 @@ Containers"). It lists the containers and images of Docker, Podman or nerdctl
 on this computer or on any saved host, and nothing is installed on the host:
 it runs the runtime's own command line over your existing SSH access.
 
-**Open a source.** Use the box at the top right: **This computer**, or any
-host (type to search). The host needs saved credentials, because the
-connection is made without asking. Each source you open stays as a chip at
-the top, and its connection stays open so refreshing costs almost nothing;
-close the chip with its **×**, or lock the vault, to hang up.
+**Choose a host.** The **host selector** at the top right lists the sources
+you have open and a search to open another: **This computer**, or any host
+with saved credentials (the connection is made without asking). Opening
+one leaves the others, and your terminals and tunnels, as they were; each
+source keeps its own connection open so refreshing costs almost nothing.
+Close one with its **×** in the selector, or lock the vault. While a host
+opens you see "Connecting to …", never the previous host's containers.
 
 **Runtime.** What is installed is detected when the source opens, and the
-first one found is used. Pick another from **Runtime** at any time, including
-one marked "not found" if it lives somewhere unusual. On a host, the usual
-install folders (`/usr/local/bin`, `/opt/homebrew/bin`, `/snap/bin`) are
-searched as well as the default PATH.
+first one found is used; the **runtime** box next to the selector lists only
+what was found. On a host, the usual install folders (`/usr/local/bin`,
+`/opt/homebrew/bin`, `/snap/bin`) are searched as well as the default PATH.
 
-**The list.** Containers show name, ID, image, state and its status text,
-published ports, and age. A port published on both IPv4 and IPv6 shows once;
-a port that is exposed but not published is greyed. Compose projects and
-Podman pods appear as badges. Tick **Sizes** to ask for container sizes
-(slower on a host with many large containers). The **Images** tab lists
-images with size, age and the number of containers using each. **Search**
-matches name, image, ID, status, port, label and pod; the buttons next to it
-narrow by running or stopped.
+**The counts.** Four cards show the containers' real states: **Total**,
+**Running**, **Stopped** and **Unhealthy** (only a container whose own health
+check says so; one without a health check is not counted healthy). Click a
+card to show those containers. **Containers, Images, Volumes, Networks** and
+**Compose** are tabs with their counts (volumes and networks load when you
+open them, and are Docker only).
 
-**Refreshing.** The list refreshes every 5 seconds (2, 10 or 30 if you
-prefer), only while the window is visible. **Pause** stops the timer, and
-the refresh button still works. If a refresh fails, the old list stays on
-screen with the reason above it, and clears itself when the host answers
-again.
+**The list.** One toolbar: **search** (name, ID, image, Compose project and
+service, ports, labels, status), a **status** filter (running, stopped, paused,
+restarting, failed/exited with a non-zero code, unhealthy), **Projects / Flat**
+grouping, **Columns** and **refresh**. In **Columns** you choose Image, Ports,
+Age, Created, and CPU, Memory and Size once they are being read; columns drop out
+by themselves as the window narrows (name, state and actions always stay), and
+your choice is remembered. A port published on both IPv4 and IPv6 shows once; one
+that is only exposed is greyed. State and health are shown separately: the state
+word, with the health check's verdict beside it, and a failed container shows its
+exit code. Tick containers to **start, stop, restart or delete** several at once
+(one question, then each in turn; a failure is named, not hidden).
 
-**Actions** are on each row: logs, a shell, inspect, start or stop, restart,
-and remove. Removing always asks, and says if the container is running (it is
-then stopped first; volumes are kept). On a host marked production, every
-stop, restart, removal, take-down and prune asks you to type the host's name
-first.
+**Refreshing.** Every 5 seconds (2, 10 or 30, or paused) from the button beside
+the refresh icon, only while the window is visible. If a refresh fails, the old
+list stays with the reason above it and clears itself when the host answers.
+CPU and memory, and sizes, are only read while you switch them on in **Columns**:
+each is one more command per refresh.
 
-**Logs.** Opens the container's log in a window. **Following** keeps adding
-new lines (click it to take a snapshot instead), **Lines** picks how many
-from the end, and **Timestamps** asks the runtime to prefix each line. Search
-highlights every match, **Enter** and **Shift+Enter** jump between them, and
-**Only matches** hides the other lines. **Copy** copies what is shown
-(or only the matches). Colour codes are removed, a progress bar that rewrites
-its line reads as its final state, and only the newest 20,000 lines are kept,
-which the footer says. Closing the window ends the follow, on the host too.
+**Row actions.** A running container shows **Stop**, **Logs** and **⋯**; a
+stopped one shows **Start**, **Logs** and **⋯**. The menu (also right-click, or
+**Shift+F10** on a row) has Start, Stop, Restart, Pause, Resume, Open Logs, Open
+Terminal, Inspect, Copy ID, Copy name and Delete. What does not apply is shown
+greyed with the reason. Deleting always asks, says if the container is running
+(it is then stopped first) and that **volumes are kept**. On a host marked
+production, every stop, restart, deletion, take-down and prune asks you to type
+the host's name first.
 
-**Shell.** Opens a normal terminal tab and types
-`docker exec -it <id> sh -c '…bash, or sh if there is none'` into it: on a
-host it is that host's usual terminal, here it is a local terminal. The
-container must be running.
-
-**Inspect.** The runtime's full JSON for the container, with find and copy.
+**The details drawer.** Click a container (or press **Enter** on it) to open a
+drawer beside the list, or over it on a narrow window; **Esc** closes it, and
+dragging its edge resizes it. Nothing runs by opening it.
+- **Overview:** identity, networking (published and exposed ports, networks and
+  addresses), runtime (restart policy, entrypoint, command, working directory,
+  Compose project and service) and storage (mounts and volumes). A published port
+  has **Open**. On a host the port is on that host, so **Open via tunnel**
+  forwards it through SSHVault's own tunnels and then opens the browser; the
+  tunnel stops when you close the host or click its disconnect button.
+- **Logs:** follows the log, with timestamps, search (**Enter** / **Shift+Enter**),
+  **Only matches**, copy, and hiding of secret-looking text. Lines that say
+  error or warning are coloured; the runtime merges stdout and stderr, so they
+  can't be told apart. Closing the tab or choosing another container ends the
+  follow, on the host too.
+- **Stats:** the latest CPU, memory (with its limit), network, disk and process
+  count, and a chart once a few readings are in. Figures the runtime doesn't give
+  are shown as unavailable, never as zero. It asks you to turn monitoring on first.
+- **Inspect:** the runtime's JSON as a tree with search and copy. Environment
+  values that look like passwords, tokens or keys are hidden until you choose
+  **Reveal secrets**.
+- **Terminal:** **Start a shell** opens a terminal in the drawer that runs
+  `docker exec -it <id> sh -c '…bash, or sh if there is none'` over the host's own
+  SSH access. Closing the terminal ends only that shell: the container keeps
+  running. The container must be running.
 
 **Compose projects.** Containers started by Docker Compose are grouped under
-their project, with how many are running. The buttons on a project's header
-start, stop, restart or take down the whole project (Docker only), found by
-its name, so the compose file doesn't need to be on this computer. Hover the
-name to see where Compose was run and which files it used, on the host.
-"Take down" removes the project's containers and its networks and **keeps its
-volumes**, so its data survives; it always asks. Untick **Group by Compose
-project** for the flat list.
+their project, with how many are running and how many are unhealthy. The buttons
+on a project's header start, stop, restart or take down the whole project (Docker
+only; greyed with a reason otherwise), and the folder button shows the directory
+Compose was run in and the file it used, with copy. "Take down" removes the
+project's containers and its networks and **keeps its volumes**; it always asks.
+Collapsed projects stay collapsed through refreshes, per host. The **Compose** tab
+lists the projects with their services, state and paths.
 
 **Images.** The **Images** tab lists images with size, age and how many
-containers use each. **Pull image…** pulls a reference such as `nginx:1.27`
+containers use each; **Inspect** (also on volumes and networks) shows the
+runtime's JSON. **Pull image…** pulls a reference such as `nginx:1.27`
 or `ghcr.io/org/app@sha256:…` and shows the runtime's progress as it comes
 (Stop ends it, on the host too). The bin on a row removes that tag; if another
 tag still names the same image, only this tag goes. Removing an image a

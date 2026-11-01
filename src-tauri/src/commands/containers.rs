@@ -152,6 +152,18 @@ pub async fn containers_inspect(
     Ok(state.containers.inspect(session_id, runtime, &id).await?)
 }
 
+/// `inspect` of an image, volume or network, as JSON text.
+#[tauri::command]
+pub async fn containers_inspect_resource(
+    state: State<'_, AppState>,
+    session_id: Uuid,
+    runtime: crate::containers::Runtime,
+    kind: crate::containers::ResourceKind,
+    id: String,
+) -> ApiResult<String> {
+    Ok(state.containers.inspect_resource(session_id, runtime, kind, &id).await?)
+}
+
 pub(super) struct ChannelLogSink(pub(super) Channel<crate::containers::LogEvent>);
 impl crate::containers::LogSink for ChannelLogSink {
     fn event(&self, e: crate::containers::LogEvent) {

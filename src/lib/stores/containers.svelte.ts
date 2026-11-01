@@ -3,6 +3,8 @@
 import * as api from "$lib/api";
 import { ask } from "$lib/dialogs.svelte";
 import { isLive, shellCommand } from "$lib/containerdata";
+import { StatHistory, toSample, type PortTarget, portUrl } from "$lib/containerview";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { ui } from "$lib/stores/ui.svelte";
 import { vaultStore } from "$lib/stores/vault.svelte";
 import {
@@ -21,6 +23,7 @@ import {
 } from "$lib/types";
 
 export const LOCAL = "local";
+const PAST: Record<ContainerAction["action"], string> = { start: "Started", stop: "Stopped", restart: "Restarted", pause: "Paused", unpause: "Resumed", remove: "Removed" };
 export const REFRESH_CHOICES = [2, 5, 10, 30] as const;
 
 export interface Source {
@@ -58,6 +61,15 @@ class ContainersStore {
   intervalSecs = $state<number>(5);
   /** Container ids with an action in flight, so a button can't be pressed twice. */
   busy = $state<Record<string, boolean>>({});
+  /** The container whose details are open, by full id, on the active source. */
+  selectedId = $state<string | null>(null);
+  /** Containers ticked for a bulk action. */
+  checked = $state<Set<string>>(new Set());
+  /** Recent CPU and memory readings of the active source's containers; `statsVersion` says when it changed. */
+  #history = new Map<string, StatHistory>();
+  statsVersion = $state(0);
+  /** Tunnels opened to reach a container's published port on a host: "sourceKey:hostPort" → forward. */
+  portTunnels = $state<Record<string, { id: Uuid; port: number | null }>>({});
 
   active = $derived(this.activeKey ? (this.sources[this.activeKey] ?? null) : null);
 
@@ -76,7 +88,36 @@ class ContainersStore {
       this.connecting = {};
       this.activeKey = null;
       this.busy = {};
+      this.selectedId = null;
+      this.checked = new Set();
+      this.#history.clear();
+      this.portTunnels = {};
     }
+  }
+
+  /** Make a source the one shown (opening it if it isn't yet). What was selected on the last one is let go. */
+  async switchTo(key: string): Promise<Source | null> {
+    if (this.activeKey !== key) {
+      this.selectedId = null;
+      this.checked = new Set();
+    }
+    return this.open(key);
+  }
+
+  /** The recent stats readings of one container on a source. */
+  history(key: string, id: string) {
+    void this.statsVersion;
+    return this.#history.get(key)?.get(id) ?? [];
+  }
+
+  select(id: string | null) {
+    this.selectedId = id;
+  }
+
+  toggleChecked(id: string) {
+    const next = new Set(this.checked);
+    if (!next.delete(id)) next.add(id);
+    this.checked = next;
   }
 
   label(key: string): string {
@@ -134,7 +175,18 @@ class ContainersStore {
   async close(key: string) {
     const s = this.sources[key];
     delete this.sources[key];
-    if (this.activeKey === key) this.activeKey = null;
+    if (this.activeKey === key) {
+      this.activeKey = null;
+      this.selectedId = null;
+      this.checked = new Set();
+    }
+    this.#history.delete(key);
+    for (const [k, t] of Object.entries(this.portTunnels)) {
+      if (k.startsWith(`${key}:`)) {
+        void api.forwards.stop(t.id).catch(() => {});
+        delete this.portTunnels[k];
+      }
+    }
     if (s) await api.containers.close(s.sessionId).catch(() => {});
   }
 
@@ -185,6 +237,13 @@ class ContainersStore {
           const list = await api.containers.stats(s.sessionId, s.runtime);
           s.stats = Object.fromEntries(list.flatMap((x) => [[x.id, x], [x.id.slice(0, 12), x]]));
           s.statsError = null;
+          const hist = this.#history.get(key) ?? new StatHistory();
+          const at = Date.now();
+          const full = new Map((s.listing?.containers ?? []).map((c) => [c.id.slice(0, 12), c.id]));
+          for (const x of list) hist.push(full.get(x.id.slice(0, 12)) ?? x.id, toSample(x, at));
+          hist.keep(new Set((s.listing?.containers ?? []).map((c) => c.id)));
+          this.#history.set(key, hist);
+          this.statsVersion++;
         } catch (e) {
           s.stats = {};
           s.statsError = errorMessage(e);
@@ -242,6 +301,8 @@ class ContainersStore {
     this.busy[c.id] = true;
     try {
       await api.containers.act(s.sessionId, s.runtime, action, c.id);
+      ui.notify("info", `${PAST[action.action]} "${c.name}".`);
+      if (action.action === "remove" && this.selectedId === c.id) this.selectedId = null;
       await this.refresh(key);
       return true;
     } catch (e) {
@@ -251,6 +312,97 @@ class ContainersStore {
     } finally {
       delete this.busy[c.id];
     }
+  }
+
+  /**
+   * Start, stop, restart or remove several containers: one question (on a production host the host's name to type),
+   * then each in turn. Returns how many went through; the rest are named in one message.
+   */
+  async bulk(key: string, list: ContainerInfo[], verb: "start" | "stop" | "restart" | "remove"): Promise<number> {
+    const s = this.sources[key];
+    const todo = list.filter((c) => !this.busy[c.id]);
+    if (!s || todo.length === 0) return 0;
+    const names = todo.slice(0, 4).map((c) => `"${c.name}"`).join(", ") + (todo.length > 4 ? ` and ${todo.length - 4} more` : "");
+    const word = { start: "Start", stop: "Stop", restart: "Restart", remove: "Remove" }[verb];
+    const name = this.label(key);
+    const prod = this.isProduction(key);
+    const text =
+      verb === "remove"
+        ? `Remove ${todo.length} container${todo.length === 1 ? "" : "s"}: ${names}? Running ones are stopped first, and each is removed with its writable layer. Volumes are kept.`
+        : `${word} ${todo.length} container${todo.length === 1 ? "" : "s"}: ${names}?`;
+    if ((verb === "remove" || prod) && !(await ask(prod ? `${text}\n\nThis is a PRODUCTION host (${name}).` : text, { title: `${word} ${todo.length} containers?`, confirm: word, danger: verb === "remove" || prod, requireText: prod ? name : undefined }))) return 0;
+    const failures: string[] = [];
+    let done = 0;
+    for (const c of todo) {
+      this.busy[c.id] = true;
+      try {
+        const action: ContainerAction = verb === "remove" ? { action: "remove", force: isLive(c.state) } : { action: verb };
+        await api.containers.act(s.sessionId, s.runtime, action, c.id);
+        done++;
+      } catch (e) {
+        failures.push(`${c.name} (${errorMessage(e).split("\n")[0]})`);
+      } finally {
+        delete this.busy[c.id];
+      }
+    }
+    await this.refresh(key);
+    this.checked = new Set([...this.checked].filter((id) => this.sources[key]?.listing?.containers.some((c) => c.id === id)));
+    if (failures.length) ui.notify("error", `${word}: ${done} of ${todo.length} done. Failed: ${failures.slice(0, 3).join("; ")}${failures.length > 3 ? ` and ${failures.length - 3} more` : ""}.`);
+    else ui.notify("info", `${PAST[verb]} ${done} container${done === 1 ? "" : "s"}.`);
+    return done;
+  }
+
+  // -- reaching a published port -------------------------------------------------------------------------------
+
+  /**
+   * Open a container's published port in the browser. This computer's own runtime publishes on this computer, so the
+   * address is used as it is. A host's port is on the host, not here: it is reached through a tunnel (SSHVault's own
+   * forwarding), opened on demand and stopped with the source.
+   */
+  async openPort(key: string, t: PortTarget): Promise<void> {
+    const s = this.sources[key];
+    if (!s) return;
+    try {
+      if (!s.hostId) {
+        await openUrl(portUrl(t.hostPort, t.containerPort));
+        return;
+      }
+      const tk = `${key}:${t.hostPort}`;
+      let tunnel = this.portTunnels[tk];
+      const live = tunnel && vaultStore.forwardStatus[tunnel.id]?.state === "active";
+      if (!live) {
+        const id = await api.forwards.startAdhoc(s.hostId, { kind: "local", bind_addr: "127.0.0.1", bind_port: 0, dest_host: t.address, dest_port: t.hostPort });
+        tunnel = { id, port: null };
+        this.portTunnels[tk] = tunnel;
+        const port = await this.#waitActive(id);
+        this.portTunnels[tk] = { id, port };
+        tunnel = this.portTunnels[tk];
+      }
+      await openUrl(portUrl(tunnel.port ?? t.hostPort, t.containerPort));
+    } catch (e) {
+      delete this.portTunnels[`${key}:${t.hostPort}`];
+      ui.notify("error", `Couldn't open port ${t.hostPort}: ${errorMessage(e)}`);
+    }
+  }
+
+  /** Stop the tunnel to a port, if one was opened. */
+  async closePortTunnel(key: string, hostPort: number) {
+    const tk = `${key}:${hostPort}`;
+    const t = this.portTunnels[tk];
+    delete this.portTunnels[tk];
+    if (t) await api.forwards.stop(t.id).catch(() => {});
+  }
+
+  /** The tunnel's local port once the backend reports it active (from the status events the app already receives). */
+  async #waitActive(id: Uuid, timeoutMs = 20_000): Promise<number> {
+    const until = Date.now() + timeoutMs;
+    while (Date.now() < until) {
+      const st = vaultStore.forwardStatus[id];
+      if (st?.state === "active") return st.port;
+      if (st?.state === "error") throw new Error(st.message);
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    throw new Error("the tunnel didn't come up in time");
   }
 
   // -- images, volumes, networks -----------------------------------------------
