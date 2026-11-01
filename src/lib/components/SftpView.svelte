@@ -561,7 +561,7 @@
       if (v) void conn.pick(v);
     }}
   />
-  {#if conn.connecting}<Loader2 size={13} class="shrink-0 animate-spin text-fg-muted" />{/if}
+  {#if conn.connecting}<Loader2 size={13} class="shrink-0 animate-spin text-fg-muted" />{#if conn.knockNote}<span class="min-w-0 truncate text-xs text-fg-muted" role="status" title={conn.knockNote}>{conn.knockNote}</span>{/if}{/if}
   {#if conn.connectedHost}
     {#if conn.connectedData?.protocol === "ftp"}
       {#if (conn.connectedData.ftp?.tls ?? "explicit") === "none"}

@@ -2,6 +2,7 @@
 // (choosing, connecting, asking for credentials, falling back to SCP) and where the pane is now. Both sides are the
 // same thing, so either can be this computer or a host, and a copy between two hosts is just a copy between two panes.
 
+import * as api from "$lib/api";
 import { askAboutCertificate } from "$lib/certprompt";
 import { local, LOCAL_ID, remote, sftp, type FileSource } from "$lib/sftp";
 import { connectionLog } from "$lib/stores/connectionlog.svelte";
@@ -25,6 +26,8 @@ export class PaneConn {
   hostId = $state<Uuid | "">("");
   connectedHost = $state<Uuid | null>(null);
   connecting = $state(false);
+  /** The latest line of a port-knock sequence being sent before this pane connects, while it does. */
+  knockNote = $state("");
   connectError = $state<string | null>(null);
   /** The last connect failed because the server has SFTP turned off. */
   sftpOff = $state(false);
@@ -122,6 +125,9 @@ export class PaneConn {
     this.sftpOff = false;
     this.askCreds = false;
     const wanted = this.hostId;
+    // A host behind a knocking firewall takes a moment: say what is being sent.
+    this.knockNote = "";
+    const unKnock = await api.onKnockProgress((p) => p.context === this.sessionId && (this.knockNote = p.message)).catch(() => () => {});
     try {
       const res = await this.#openFiles(creds);
       this.connectedHost = wanted;
@@ -135,6 +141,8 @@ export class PaneConn {
       // Keep what was typed so "Use SCP" can go straight on without asking again.
       if (this.sftpOff && creds) this.#retryCreds = creds;
     } finally {
+      unKnock();
+      this.knockNote = "";
       this.connecting = false;
       this.password = "";
     }

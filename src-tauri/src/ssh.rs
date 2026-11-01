@@ -95,6 +95,9 @@ pub enum SshError {
         reason: String,
     },
 
+    #[error("port knocking failed: {0}")]
+    Knock(String),
+
     #[error("jump chain is longer than {MAX_JUMPS} hops")]
     JumpChainTooLong,
 
@@ -205,6 +208,22 @@ pub struct Target {
     /// Secret for answering a server's one-time-code prompt. None unless the person switched two-factor codes on for
     /// this computer and the credential has a secret; see `totp`.
     pub totp: Option<crate::totp::Totp>,
+    /// Port knocking to send right before this hop is dialled from this computer. Not used for a hop reached
+    /// through a jump host: the firewall would see the jump host, not this computer.
+    pub knock: Option<crate::portknock::Knock>,
+}
+
+impl Target {
+    /// Report knock progress for this hop and every jump behind it (the hops that are knocked, and the ones
+    /// skipped with a notice).
+    pub fn set_knock_notify(&mut self, notify: crate::portknock::KnockNotify) {
+        if let Some(k) = self.knock.as_mut() {
+            k.notify = Some(Arc::clone(&notify));
+        }
+        if let Some(j) = self.jump.as_mut() {
+            j.set_knock_notify(notify);
+        }
+    }
 }
 
 /// A host key recorded for the first time during a connection.
@@ -1021,6 +1040,19 @@ async fn connect_hop(
     };
     let timeout = || SshError::Timeout(addr.clone());
 
+    // A hidden SSH port is opened first, from this computer: the firewall must see the address that will connect.
+    if let Some(knock) = &target.knock {
+        match via {
+            None => crate::portknock::run(&target.hostname, target.proxy.as_ref(), &knock.plan, knock.notify.as_ref())
+                .await
+                .map_err(|e| SshError::Knock(e.to_string()))?,
+            Some((jump_name, _)) => {
+                if let Some(n) = &knock.notify {
+                    n(&format!("Skipping the port knock for {}: it is reached through {jump_name}, so a knock from here would come from the wrong address.", target.hostname));
+                }
+            }
+        }
+    }
     let mut handle = match via {
         None => {
             let stream = tokio::time::timeout(CONNECT_TIMEOUT, crate::dial::dial(target))
@@ -1585,6 +1617,7 @@ pub(crate) mod testutil {
             legacy_algorithms: false,
             agent_gate: None,
             totp: None,
+            knock: None,
         }
     }
 }
@@ -1607,6 +1640,7 @@ pub fn testutil_target() -> Target {
         legacy_algorithms: false,
         agent_gate: None,
         totp: None,
+        knock: None,
     }
 }
 
@@ -2487,5 +2521,51 @@ mod tests {
 
         manager.disconnect("g").await;
         let _ = agent.kill();
+    }
+
+    fn knock_to(port: u16) -> crate::portknock::Knock {
+        use crate::models::{KnockProtocol, KnockStep};
+        crate::portknock::Knock {
+            plan: crate::portknock::Plan { steps: vec![KnockStep { port, protocol: KnockProtocol::Tcp }], inter_knock_ms: 10, post_knock_ms: 0 },
+            notify: None,
+        }
+    }
+
+    /// The knock is sent before the hop is dialled, and a hop that can't then be reached still says so: the knock's
+    /// progress is reported first, and the failure after it.
+    #[tokio::test]
+    async fn a_hop_with_a_knock_sends_it_before_dialling() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let knock_port = listener.local_addr().unwrap().port();
+        let dead_port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+        let knocked = tokio::spawn(async move { tokio::time::timeout(std::time::Duration::from_secs(5), listener.accept()).await.is_ok() });
+
+        let lines = Arc::new(Mutex::new(Vec::<String>::new()));
+        let l2 = Arc::clone(&lines);
+        let mut target = testutil_target();
+        target.hostname = "127.0.0.1".into();
+        target.port = dead_port;
+        let mut k = knock_to(knock_port);
+        k.notify = Some(Arc::new(move |s: &str| l2.lock().unwrap().push(s.to_string())));
+        target.knock = Some(k);
+
+        let err = open_client(&target, None).await.err().expect("nothing listens on the SSH port");
+        assert!(!matches!(err, SshError::Knock(_)), "the knock itself worked: {err}");
+        assert!(knocked.await.unwrap(), "the listener never saw the knock");
+        let lines = lines.lock().unwrap().clone();
+        assert!(lines.first().is_some_and(|l| l.starts_with("Sending port knock sequence to 127.0.0.1 (1/1:")), "{lines:?}");
+        assert!(lines.last().is_some_and(|l| l.contains("completed")), "{lines:?}");
+    }
+
+    #[test]
+    fn knock_progress_reaches_every_hop_of_a_chain() {
+        let mut outer = testutil_target();
+        outer.knock = Some(knock_to(7000));
+        let mut inner = testutil_target();
+        inner.knock = Some(knock_to(8000));
+        inner.jump = Some(Box::new(outer));
+        inner.set_knock_notify(Arc::new(|_| {}));
+        assert!(inner.knock.as_ref().unwrap().notify.is_some());
+        assert!(inner.jump.as_ref().unwrap().knock.as_ref().unwrap().notify.is_some());
     }
 }

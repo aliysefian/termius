@@ -4,6 +4,10 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## Unreleased
+
+- **New:** **port knocking.** In a host's **Route** tab, switch on **Port knocking**, type the sequence (`7000, 8000:udp, 9000`: TCP unless you add `:udp`) and set the two delays. SSHVault sends the knocks right before every SSH, SFTP or file connection that reaches the host directly, so a server whose SSH port is hidden by `knockd`, `fwknop` or an iptables rule opens for this computer first. The terminal shows each knock as it goes (`Sending port knock sequence to host (1/3: 7000/tcp)...`), file connections show it while they connect, and **Test knock** sends the sequence on its own. Through a SOCKS5 or HTTP proxy the TCP knocks go through the proxy; UDP knocks can't, and a ProxyCommand isn't run for a knock. A host reached through a jump host is not knocked (the firewall would see this computer, not the jump host). Hosts saved before this keep working unchanged.
+
 ## 0.48.0 - 2026-10-31
 
 - **New:** **icon-first workbench.** The left rail is icons only (the "names under icons" switch in Settings is now off by default), the hosts list is a rounded card with one search box, a **+** and one **filter** menu (environment, tag, sort, reachability check, import and export), Favorites come first, and each host is one line: status dot, name, and its DEV/STG/PROD badge. The address shows for the host you are on and in the tooltip for the rest, and the host you are connected to is outlined. With one pane, the terminal has no header row: **find, split, Config Time-Machine and more** sit in a small icon bar in its corner, with port-forward and agent-forwarding badges beside it. The right panel's tabs are icons, its **Files** tab has back, forward and up with a ⋮ menu on each row, and the bottom panel keeps **side-by-side terminals**, each with its own header. The status bar shows the environment, host, address, latency and protocol, with icons for the agent, command line and tunnels. **Shell focus** (Ctrl+Alt+\\) now also puts the rail away. New darker navy palette.

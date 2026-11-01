@@ -403,6 +403,7 @@ pub fn resolve_target_with(
         let (username, auth, totp) = login(vault, &je, with_totp)?.ok_or_else(|| {
             ResolveError::CredentialsRequired(format!("jump host \"{}\" needs a credential attached", jh.label))
         })?;
+        let knock = crate::portknock::Knock::for_host(&jh);
         jump = Some(Box::new(Target {
             hostname: jh.hostname,
             port: jh.port,
@@ -418,6 +419,7 @@ pub fn resolve_target_with(
             legacy_algorithms: jh.legacy_algorithms,
             agent_gate: None,
             totp,
+            knock,
         }));
     }
 
@@ -428,6 +430,7 @@ pub fn resolve_target_with(
             .ok_or_else(|| ResolveError::CredentialsRequired("this host has no credential; supply one".into()))?,
     };
     let proxy = if jump.is_none() { target_proxy } else { None };
+    let knock = crate::portknock::Knock::for_host(&host);
     Ok(Target {
         hostname: host.hostname,
         port: host.port,
@@ -443,6 +446,7 @@ pub fn resolve_target_with(
         legacy_algorithms: host.legacy_algorithms,
         agent_gate: None,
         totp,
+        knock,
     })
 }
 
