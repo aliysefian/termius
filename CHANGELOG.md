@@ -4,6 +4,10 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## 0.49.1 - 2026-11-01
+
+- **Fixed:** the Windows build's checks failed on a port-knock timing test, because Windows takes the whole knock timeout to refuse a connection to a closed port. The test now measures the waits with UDP knocks. Nothing changes in the app.
+
 ## 0.49.0 - 2026-11-01
 
 - **New:** **port knocking.** In a host's **Route** tab, switch on **Port knocking**, type the sequence (`7000, 8000:udp, 9000`: TCP unless you add `:udp`) and set the two delays. SSHVault sends the knocks right before every SSH, SFTP or file connection that reaches the host directly, so a server whose SSH port is hidden by `knockd`, `fwknop` or an iptables rule opens for this computer first. The terminal shows each knock as it goes (`Sending port knock sequence to host (1/3: 7000/tcp)...`), file connections show it while they connect, and **Test knock** sends the sequence on its own. Through a SOCKS5 or HTTP proxy the TCP knocks go through the proxy; UDP knocks can't, and a ProxyCommand isn't run for a knock. A host reached through a jump host is not knocked (the firewall would see this computer, not the jump host). Hosts saved before this keep working unchanged.
