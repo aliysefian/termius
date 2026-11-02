@@ -36,6 +36,8 @@ pub struct MemoryBackend {
     reads: Mutex<Vec<(String, u64)>>,
     /// Entries a listing reports that the tree can't hold, such as names with a `/` (a hostile server).
     extra: Mutex<Vec<(String, String)>>,
+    /// Applies the naming rules of a Windows disk, as the local backend does there.
+    windows_names: bool,
 }
 
 impl Default for MemoryBackend {
@@ -47,12 +49,18 @@ impl Default for MemoryBackend {
 impl MemoryBackend {
     pub fn new() -> Self {
         let tree = Tree { nodes: BTreeMap::from([("/".to_string(), Node::Dir)]) };
-        Self { tree: Arc::new(Mutex::new(tree)), caps: Caps::files(), open_delay: Duration::ZERO, refuse: Mutex::new(Vec::new()), reads: Mutex::new(Vec::new()), extra: Mutex::new(Vec::new()) }
+        Self { tree: Arc::new(Mutex::new(tree)), caps: Caps::files(), open_delay: Duration::ZERO, refuse: Mutex::new(Vec::new()), reads: Mutex::new(Vec::new()), extra: Mutex::new(Vec::new()), windows_names: false }
     }
 
     /// Make `list(dir)` also report a file called `name`, whatever the name looks like.
     pub fn list_also(&self, dir: &str, name: &str) {
         self.extra.lock().unwrap().push((dir.to_string(), name.to_string()));
+    }
+
+    /// Refuse names a Windows disk can't hold (`C:x`, `con`, `x:stream`), like the local backend on Windows.
+    pub fn with_windows_names(mut self) -> Self {
+        self.windows_names = true;
+        self
     }
 
     pub fn with_caps(mut self, caps: Caps) -> Self {
@@ -135,6 +143,14 @@ impl AsyncWrite for MemWriter {
 impl FileBackend for MemoryBackend {
     fn caps(&self) -> Caps {
         self.caps
+    }
+
+    fn accepts_name(&self, name: &str) -> bool {
+        super::is_plain_name(name) && (!self.windows_names || super::is_windows_safe_name(name))
+    }
+
+    fn accepts_picked_name(&self, name: &str) -> bool {
+        !name.is_empty() && !name.contains(['/', '\0']) && (!self.windows_names || super::is_windows_safe_name(name))
     }
 
     async fn home(&self) -> Result<String, FileError> {

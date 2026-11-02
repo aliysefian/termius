@@ -49,6 +49,18 @@ pub fn is_plain_name(name: &str) -> bool {
     !name.is_empty() && name != "." && name != ".." && !name.contains(['/', '\\', '\0'])
 }
 
+/// Whether a Windows disk can hold `name` as an ordinary file. A POSIX server may legally name a file `C:x` (a drive
+/// path to Windows), `x:stream` (an alternate data stream), `con.txt` (a device) or `x.` (which Windows silently
+/// shortens), and none of those lands where it says. These are fine names elsewhere, so only a Windows disk asks.
+pub fn is_windows_safe_name(name: &str) -> bool {
+    if name.chars().any(|c| c.is_control() || matches!(c, ':' | '<' | '>' | '"' | '|' | '?' | '*' | '/' | '\\')) || name.ends_with(['.', ' ']) {
+        return false;
+    }
+    let stem = name.split('.').next().unwrap_or("").trim_end_matches(' ').to_ascii_uppercase();
+    let numbered = |prefix: &str| stem.strip_prefix(prefix).is_some_and(|n| matches!(n, "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "\u{b9}" | "\u{b2}" | "\u{b3}"));
+    !(matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$") || numbered("COM") || numbered("LPT"))
+}
+
 /// What a backend can do. A pane offers only these.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct Caps {
@@ -116,6 +128,19 @@ pub trait FileBackend: Send + Sync + 'static {
     async fn write(&self, path: &str, offset: u64, size: u64) -> Result<Writer, FileError>;
 
     async fn close(&self) {}
+
+    /// Whether a name from a folder listing (one inside a folder being copied) can be created here as one plain entry.
+    /// Everywhere that is "no separators"; a Windows disk has more rules ([`is_windows_safe_name`]).
+    fn accepts_name(&self, name: &str) -> bool {
+        is_plain_name(name)
+    }
+
+    /// Whether the last part of a path the person picked can be created here as one entry of a folder. A backslash or a
+    /// colon is an ordinary character on most places (a Linux file may be called `a\b` or `app-10:30.log`), so only a
+    /// Windows disk, where `Path::join` would follow them, says no.
+    fn accepts_picked_name(&self, name: &str) -> bool {
+        !name.is_empty() && !name.contains(['/', '\0'])
+    }
 
     /// The SSH connection behind this place, if it has one: what lets two such places copy straight to each other
     /// with `tar` instead of one file at a time.
@@ -316,6 +341,53 @@ mod tests {
         for bad in ["", ".", "..", "../x", "a/b", "/etc/x", "a\\b", "..\\x", "C:\\x", "a\0b"] {
             assert!(!is_plain_name(bad), "{bad:?}");
         }
+    }
+
+    #[test]
+    fn windows_disks_refuse_drive_stream_device_and_trailing_dot_names() {
+        for ok in ["a.txt", "name with spaces", ".hidden", "é.txt", "console.log", "comma.txt", "com10.txt", "lpt0", "x.tar.gz", "a-b_c (1).txt"] {
+            assert!(is_windows_safe_name(ok), "{ok:?}");
+        }
+        for bad in ["..\\x", "a\\b", "C:x", "c:", "x:stream", "a:b.log", "con", "CON.txt", "nul.tar.gz", "Aux", "prn.", "com1", "COM9.log", "lpt3.txt", "com\u{b9}", "CONIN$", "x.", "x ", "a<b", "a|b", "a?b", "a*b", "a\"b", "a\u{7}b"] {
+            assert!(!is_windows_safe_name(bad), "{bad:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_windows_disk_refuses_the_picked_entry_when_its_name_would_land_elsewhere() {
+        // A POSIX server can name a file `..\evil.bat` or `C:\Users\Public\evil.bat`; on Windows `Path::join` follows both.
+        for hostile in ["..\\evil.bat", "C:\\Users\\Public\\evil.bat", "C:evil.bat", "evil.txt:stream", "con"] {
+            let (a, b) = (MemoryBackend::new(), MemoryBackend::new().with_windows_names());
+            b.mkdirs("/in");
+            a.put(&format!("/{hostile}"), b"payload");
+            let reg = TransferRegistry::default();
+            let sink = Arc::new(Collect::default());
+            engine::transfer(&reg, "t".into(), &a, &b, &[format!("/{hostile}")], "/in", false, Conflict::Overwrite, &sink).await;
+            assert!(matches!(sink.last(), TransferProgress::Failed { .. }), "{hostile:?}: {:?}", sink.last());
+            assert!(!b.exists("/in") || b.paths().iter().all(|p| p == "/" || p == "/in"), "{hostile:?} wrote something: {:?}", b.paths());
+        }
+    }
+
+    #[tokio::test]
+    async fn colons_and_the_like_are_ordinary_names_on_every_other_destination() {
+        // Timestamps in log names are common on Linux servers; only a Windows disk can't hold them.
+        let (a, b) = (MemoryBackend::new(), MemoryBackend::new());
+        b.mkdirs("/in");
+        a.put("/app-2026-11-02T10:30.log", b"log");
+        let sink = copy(&a, &b, &["/app-2026-11-02T10:30.log"], "/in", false, Conflict::Overwrite).await;
+        assert!(matches!(sink.last(), TransferProgress::Done { files: 1, .. }), "{:?}", sink.last());
+        assert_eq!(b.get("/in/app-2026-11-02T10:30.log").unwrap(), b"log");
+    }
+
+    #[tokio::test]
+    async fn a_windows_disk_skips_such_names_inside_a_folder_and_copies_the_rest() {
+        let (a, b) = (src_tree(), MemoryBackend::new().with_windows_names());
+        b.mkdirs("/in");
+        a.list_also("/src", "C:evil.bat");
+        a.list_also("/src", "stream:x");
+        let sink = copy(&a, &b, &["/src"], "/in", false, Conflict::Overwrite).await;
+        assert!(matches!(sink.last(), TransferProgress::Done { files: 3, .. }), "{:?}", sink.last());
+        assert_eq!(b.get("/in/src/a.txt").unwrap(), b"alpha");
     }
 
     #[tokio::test]

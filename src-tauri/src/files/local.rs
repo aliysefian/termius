@@ -70,6 +70,14 @@ impl FileBackend for LocalBackend {
         Ok(Box::new(f.map_err(|e| err(p, e))?))
     }
 
+    fn accepts_name(&self, name: &str) -> bool {
+        super::is_plain_name(name) && (!cfg!(windows) || super::is_windows_safe_name(name))
+    }
+
+    fn accepts_picked_name(&self, name: &str) -> bool {
+        !name.is_empty() && !name.contains(['/', '\0']) && (!cfg!(windows) || super::is_windows_safe_name(name))
+    }
+
     // Paths follow the operating system: backslashes and drive letters on Windows.
 
     fn join(&self, dir: &str, name: &str) -> String {
