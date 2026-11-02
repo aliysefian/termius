@@ -47,14 +47,51 @@ pub struct EditManager {
     edits: Mutex<HashMap<String, Edit>>,
 }
 
+/// Types that this computer's default "open" action runs instead of showing, on any system: programs, installers,
+/// shortcuts, scripts of the shell's own kinds, and launchers. A file from a server is never opened this way.
+const RUNS_WHEN_OPENED: &[&str] = &[
+    "exe", "com", "scr", "pif", "msi", "msp", "mst", "bat", "cmd", "vbs", "vbe", "wsf", "wsh", "hta", "lnk", "cpl", "msc", "jar", "appref-ms", "application", "gadget", "scf", "sct", "app", "command",
+    "terminal", "workflow", "action", "scpt", "scptd", "osax", "pkg", "mpkg", "dmg", "tool", "desktop", "appimage", "run",
+];
+
+/// More types that Windows runs because an interpreter registers itself as the default handler (Windows Script Host
+/// for `.js`, Python, Git Bash, Ruby and so on). Elsewhere these open in a text editor, which is what this feature is for.
+const RUNS_WHEN_OPENED_ON_WINDOWS: &[&str] = &["js", "jse", "reg", "inf", "url", "ps1", "psm1", "psd1", "ps1xml", "ps2", "psc1", "py", "pyw", "pyz", "rb", "pl", "sh", "bash", "zsh", "php", "lua", "tcl", "ahk", "au3"];
+
+/// Whether opening a file called `name` with the system's default program would run it. Windows ignores trailing
+/// dots and spaces in a name, so `x.exe.` is `x.exe`.
+pub fn runs_when_opened(name: &str) -> bool {
+    runs_when_opened_on(name, cfg!(windows))
+}
+
+fn runs_when_opened_on(name: &str, windows: bool) -> bool {
+    let Some((_, ext)) = name.trim_end_matches(['.', ' ']).rsplit_once('.') else { return false };
+    let ext = ext.to_ascii_lowercase();
+    RUNS_WHEN_OPENED.contains(&ext.as_str()) || (windows && RUNS_WHEN_OPENED_ON_WINDOWS.contains(&ext.as_str()))
+}
+
 fn file_name(remote: &str) -> Result<String, SftpError> {
-    remote
+    file_name_on(remote, cfg!(windows))
+}
+
+/// The local file name for `remote`, or why this computer won't use it: it is joined onto a folder here, and it is
+/// later handed to the system's default program.
+fn file_name_on(remote: &str, windows: bool) -> Result<String, SftpError> {
+    let name = remote
         .trim_end_matches('/')
         .rsplit('/')
         .next()
         .filter(|n| !n.is_empty() && *n != "." && *n != "..")
         .map(str::to_string)
-        .ok_or_else(|| SftpError::InvalidPath(remote.to_string()))
+        .ok_or_else(|| SftpError::InvalidPath(remote.to_string()))?;
+    // A POSIX server may call a file `..\x.bat` or `C:\x`; a Windows folder would follow both.
+    if name.contains('\0') || (windows && !crate::files::is_windows_safe_name(&name)) {
+        return Err(SftpError::InvalidPath(format!("{name:?} is not a name this computer can store as one file")));
+    }
+    if runs_when_opened_on(&name, windows) {
+        return Err(SftpError::Backend(format!("{name} is a program or script type: this computer would run it, not edit it, when opened with its default program. Download it instead, or open it in the built-in editor")));
+    }
+    Ok(name)
 }
 
 fn local_err(path: &Path, source: std::io::Error) -> SftpError {
@@ -216,6 +253,36 @@ mod tests {
         assert_eq!(file_name("/etc/nginx/nginx.conf").unwrap(), "nginx.conf");
         assert!(file_name("/").is_err());
         assert!(file_name("/x/..").is_err());
+    }
+
+    #[test]
+    fn a_program_or_script_is_never_opened_by_the_system() {
+        for windows in [false, true] {
+            for bad in ["setup.exe", "SETUP.EXE", "a.msi", "run.bat", "run.cmd", "x.txt.exe", "x.exe.", "x.exe ", "a.lnk", "a.hta", "a.jar", "a.command", "a.terminal", "a.scr", "a.vbs", "Tool.AppImage", "a.desktop"] {
+                assert!(runs_when_opened_on(bad, windows), "{bad:?} on windows={windows}");
+                assert!(file_name_on(&format!("/srv/{bad}"), windows).is_err(), "{bad:?} on windows={windows}");
+            }
+            for fine in ["notes.txt", "nginx.conf", "a.png", "report.pdf", "README", "Makefile", ".bashrc", "a.log", "exe", "x.exe.txt", "archive.tar.gz"] {
+                assert!(!runs_when_opened_on(fine, windows), "{fine:?} on windows={windows}");
+                assert!(file_name_on(&format!("/srv/{fine}"), windows).is_ok(), "{fine:?} on windows={windows}");
+            }
+        }
+        // Interpreters that Windows registers as the default handler run these there, and only there.
+        for script in ["a.py", "a.sh", "a.js", "a.ps1", "a.reg", "a.rb", "a.pl", "a.php"] {
+            assert!(runs_when_opened_on(script, true), "{script}");
+            assert!(!runs_when_opened_on(script, false), "{script}");
+        }
+    }
+
+    #[test]
+    fn a_name_that_would_land_outside_the_edit_folder_is_refused_on_windows_only() {
+        for hostile in ["..\\..\\x.txt", "C:\\Users\\Public\\x.txt", "C:x.txt", "x.txt:evil", "con", "NUL.txt", "x.txt."] {
+            assert!(file_name_on(&format!("/srv/{hostile}"), true).is_err(), "{hostile:?}");
+        }
+        // A colon or backslash is an ordinary character on a Linux or macOS disk.
+        assert_eq!(file_name_on("/var/log/app-2026-11-02T10:30.log", false).unwrap(), "app-2026-11-02T10:30.log");
+        assert_eq!(file_name_on("/srv/a\\b.txt", false).unwrap(), "a\\b.txt");
+        assert!(file_name_on("/srv/a\0b", false).is_err());
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

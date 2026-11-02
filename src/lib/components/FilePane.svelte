@@ -1,7 +1,8 @@
 <script lang="ts">
   import { ArrowUp, ChevronDown, ChevronUp, Clipboard, Copy, Download, Eye, EyeOff, File, FileArchive, FileCode, FileCog, FileImage, FileKey, FilePen, FileSearch, FileText, Folder, FolderOpen, FolderPlus, KeyRound, Link, RefreshCw, Search, SquareTerminal, TextCursorInput, Trash2, Upload } from "lucide-svelte";
   import { isTextName } from "$lib/conflict";
-  import { fileKind, type FileKind } from "$lib/filekind";
+  import { showControlChars } from "$lib/controlchars";
+  import { fileKind, opensByDoubleClick, type FileKind } from "$lib/filekind";
   import { revealItemInDir } from "@tauri-apps/plugin-opener";
   import { ask, askText } from "$lib/dialogs.svelte";
   import PreviewDialog from "./PreviewDialog.svelte";
@@ -241,7 +242,9 @@
   function open(e: FileEntry) {
     if (e.is_dir) path = e.path;
     else if (onOpenEditor && isTextName(e.name)) onOpenEditor(e);
-    else onEdit?.(e);
+    // A double-click never hands an unknown type to the system's default program: that may run it (an .exe, a .bat).
+    else if (onEdit && (isTextName(e.name) || opensByDoubleClick(e.name))) onEdit(e);
+    else if (onEdit) ui.notify("info", `${e.name} isn't opened by double-click, in case it is a program. Use Edit in the menu to open it in your editor, or ${verb.toLowerCase()} it.`);
   }
 
   const editable = $derived.by(() => {
@@ -499,7 +502,7 @@
               <td class="relative truncate px-3 py-1">
                 <span class="inline-flex items-center gap-2">
                   <Icon size={14} class="shrink-0 {ICON_TONE[kind]}" />
-                  <span class="truncate">{e.name}</span>
+                  <span class="truncate">{showControlChars(e.name)}</span>
                   {#if e.is_symlink}<Link size={11} class="shrink-0 text-fg-muted" />{/if}
                 </span>
                 <!-- Row actions float over the name's end on hover or keyboard focus, so a row costs no width. -->
