@@ -525,7 +525,13 @@
   function cdHere(c: PaneConn, entry: FileEntry) {
     const on = paneOn(c);
     if (!on) return;
-    const cmd = cdCommand(entry.path, c.isLocal && navigator.userAgent.includes("Windows"));
+    let cmd: string;
+    try {
+      cmd = cdCommand(entry.path, c.isLocal && navigator.userAgent.includes("Windows"));
+    } catch (e) {
+      ui.notify("error", errorMessage(e));
+      return;
+    }
     const term = terminalOn(on);
     if (term) {
       if (ui.paneInfo[term.id]?.running) {

@@ -1,5 +1,6 @@
 // What the host's tmux and screen report, parsed from the probe's output (src-tauri/src/multiplexer.rs), and the
 // shell commands that start or attach them.
+import { hasControlChars } from "$lib/controlchars";
 import { shellQuote } from "$lib/cwdsync";
 
 export interface TmuxVersion {
@@ -78,6 +79,7 @@ export function parseScreenList(lines: string[]): ScreenSession[] {
     const state = /attached|multi/i.test(m[2]) && !/detached/i.test(m[2]) ? "attached" : /detached/i.test(m[2]) ? "detached" : "other";
     // A dead screen can't be resumed; leave it out.
     if (/dead/i.test(m[2])) continue;
+    if (hasControlChars(m[1])) continue; // typed into a shell later: see controlchars.ts
     out.push({ id: m[1], name: m[1].replace(/^\d+\./, ""), state });
   }
   return out;
@@ -104,6 +106,7 @@ export function parseProbe(output: string): MultiplexerProbe {
     if (f.length < 5) continue;
     // `#{session_name}` is free text: whatever lies between the id and the three trailing numbers is the name.
     const name = f.slice(1, f.length - 3).join("|");
+    if (hasControlChars(name)) continue; // typed into a shell later: see controlchars.ts
     sessions.push({
       id: f[0],
       name,

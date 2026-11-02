@@ -55,6 +55,12 @@ describe("probe output", () => {
     expect(parseScreenList(["No Sockets found in /run/screen/S-ali."])).toEqual([]);
     expect(parseScreenList(["\t99.gone\t(Dead ???)"])).toEqual([]);
   });
+  it("leaves out a name with a control character: it is typed into a shell later", () => {
+    const sessions = ["@@tmux-version", "tmux 3.4", "@@tmux-sessions", "$1|ok|1|0|1700000000", "$2|x\u0015touch y #|1|0|1700000000", "@@tmux-windows", "@@screen", "\t7.a\u0015b\t(Detached)", "\t8.fine\t(Detached)"].join("\n");
+    const p = parseProbe(sessions);
+    expect(p.tmux.sessions.map((s) => s.name)).toEqual(["ok"]);
+    expect(p.screen.map((s) => s.name)).toEqual(["fine"]);
+  });
   it("copes with nothing installed, or a server that isn't running", () => {
     const empty = parseProbe("@@tmux-version\n@@tmux-sessions\n@@tmux-windows\n@@screen\n");
     expect(empty).toEqual({ tmux: { version: null, sessions: [] }, screen: [] });
