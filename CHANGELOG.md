@@ -4,7 +4,7 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
-## Unreleased
+## 0.51.0 - 2026-11-02
 
 - **New:** **a redesigned Monitoring page with real-time network traffic.** A header with the time range, live interval, Refresh and Add Monitor; cards for total, healthy, warning, critical and offline hosts; Overview, Hosts, Checks, Alerts, Rules and History tabs; and a searchable, sortable host table with CPU, memory, download and upload at a glance. Click a host for a resizable details panel (a slide-over on narrow windows) with Overview, Network, Resources, Checks, Alerts and History tabs, and an Open SSH Terminal button.
 - **Network tab.** Per-interface download (RX) and upload (TX) speed, totals since boot, packets, errors and drops, link use, a bytes or bits switch, and an RX/TX chart with hover values, gaps for missing readings and ranges that are offered only when that much history exists. Speeds come from the host's interface counters over SSH (Linux); a host without them says so instead of showing 0. New rules can watch download and upload speed. Existing hosts, rules, channels and history are unchanged.
