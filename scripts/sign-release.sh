@@ -9,7 +9,7 @@
 #   GPG_PASSPHRASE   its passphrase, if it has one (read without a terminal)
 #   GNUPGHOME        where the key lives, as for gpg
 #
-# Installers: .deb .rpm .AppImage .msi and *-setup.exe. The Windows ones are also signed with
+# Installers: .deb .rpm .AppImage .msi, *-setup.exe and .dmg. The Windows ones are also signed with
 # Authenticode by the build; this signature is the second, independent way to check them.
 # SHA256SUMS lists the files by bare name, so `sha256sum -c SHA256SUMS` works in the folder
 # they are downloaded to. Verify with scripts/verify-release.sh.
@@ -31,7 +31,7 @@ sign() {
   fi
 }
 
-mapfile -t files < <(find "$dir" -type f \( -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' -o -name '*.msi' -o -name '*-setup.exe' \) | sort)
+mapfile -t files < <(find "$dir" -type f \( -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' -o -name '*.msi' -o -name '*-setup.exe' -o -name '*.dmg' \) | sort)
 [ "${#files[@]}" -gt 0 ] || { echo "no installers under $dir" >&2; exit 1; }
 
 # Two files with one name would make one line of SHA256SUMS ambiguous.

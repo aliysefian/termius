@@ -103,6 +103,8 @@ fn debounce_loop<F>(
 {
     let mut pending: HashSet<PathBuf> = HashSet::new();
     let mut deadline: Option<Instant> = None;
+    // How the operating system spells the vault folder, which is not always how the vault does (see `rebase`).
+    let real_root = root.canonicalize().unwrap_or_else(|_| root.clone());
 
     loop {
         let wait = deadline
@@ -112,7 +114,7 @@ fn debounce_loop<F>(
         match rx.recv_timeout(wait) {
             Ok(Ok(event)) => {
                 if is_relevant(&event.kind) {
-                    pending.extend(event.paths);
+                    pending.extend(event.paths.into_iter().map(|p| rebase(p, &real_root, &root)));
                     deadline = Some(Instant::now() + debounce);
                 }
             }
@@ -132,6 +134,17 @@ fn debounce_loop<F>(
                 }
             }
         }
+    }
+}
+
+/// macOS reports the real path of what changed: a vault in `/var/folders/...` is reported under `/private/var/...`, and
+/// one in a folder reached through a symlink (`~/Dropbox` is one) under the link's target. The vault knows its folder by
+/// the path it was opened with, so an event is put back under that path, or it would match no record and every change
+/// from another device would go unseen. Linux and Windows report the path they were given, which this leaves alone.
+fn rebase(path: PathBuf, real_root: &Path, root: &Path) -> PathBuf {
+    match path.strip_prefix(real_root) {
+        Ok(rest) if !rest.as_os_str().is_empty() => root.join(rest),
+        _ => path,
     }
 }
 
@@ -254,6 +267,53 @@ mod tests {
             }
         };
         assert_eq!(change.id, rec.id);
+    }
+
+    /// macOS's FSEvents reports real paths. A vault under `/var/...` (where every temporary folder lives) or in a
+    /// folder reached through a symlink (`~/Dropbox` is one) gets events under `/private/var/...` or the link's
+    /// target, and they still have to find their record. inotify and Windows report the path they were given, so
+    /// this sends the event FSEvents would.
+    #[cfg(unix)]
+    #[test]
+    fn finds_records_when_events_carry_the_real_path_of_a_symlinked_folder() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let real = dir.path().join("real");
+        fs::create_dir(&real).unwrap();
+        let link = dir.path().join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let root = link.join("vault");
+
+        let vault = Vault::create(&root, b"pw", opts(false), DeviceInfo::new("PC-1"))
+            .unwrap()
+            .0;
+        let rec = vault
+            .insert(Collection::Hosts, &serde_json::json!({"label": "via-link"}))
+            .unwrap();
+        let seen_by_vault = vault.record_path(Collection::Hosts, rec.id);
+        let seen_by_os = fs::canonicalize(&seen_by_vault).unwrap();
+        assert_ne!(seen_by_vault, seen_by_os, "the folder is reached through a symlink");
+
+        let shared: SharedVault = Arc::new(Mutex::new(Some(vault)));
+        let (event_tx, event_rx) = mpsc::channel::<notify::Result<Event>>();
+        let (tx, rx) = channel::<RecordChange>();
+        let thread_root = root.clone();
+        thread::spawn(move || {
+            debounce_loop(event_rx, shared, thread_root, Duration::from_millis(50), move |c| {
+                let _ = tx.send(c);
+            })
+        });
+
+        event_tx
+            .send(Ok(
+                Event::new(EventKind::Create(notify::event::CreateKind::File)).add_path(seen_by_os)
+            ))
+            .unwrap();
+        let change = rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("change event");
+        assert_eq!(change.collection, Collection::Hosts);
+        assert_eq!(change.id, rec.id);
+        assert_eq!(change.record.expect("record present").data.unwrap()["label"], "via-link");
     }
 
     #[test]

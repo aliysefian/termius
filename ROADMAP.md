@@ -230,9 +230,9 @@ matter in a working day.
 
 ## Needs a decision
 
-- **macOS builds were dropped from CI** at the owner's request, along with
-  the macOS signing step. The universal-build and Apple signing setup can be
-  recovered from git history (commit d391c53) if macOS is wanted again.
+- **macOS builds were dropped from CI** at the owner's request (commit
+  05207ea) and are back on `feat/macos-build`: a universal app, ad-hoc signed
+  (no Apple Developer account). Notarization needs the paid account.
 - **Certificates for signing.** The Windows signing pipeline is ready. It
   needs a code-signing certificate, a recurring cost.
 - **Mosh.** Decided: use the system's `mosh-client` (there is no maintained

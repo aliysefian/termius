@@ -108,12 +108,17 @@ Output goes to `src-tauri/target/release/bundle/`:
 
 - Linux: `deb/`, `rpm/`, `appimage/`
 - Windows: `msi/`, `nsis/`
+- macOS: `dmg/` and `macos/` (the `.app`). CI builds one universal app for Apple Silicon and Intel with
+  `pnpm tauri build --target universal-apple-darwin` after `rustup target add aarch64-apple-darwin x86_64-apple-darwin`.
+  This needs a Mac and Xcode's command line tools (`xcode-select --install`); it can't be built on Linux or Windows.
 
 ## Code signing
 
 **See `docs/SIGNING.md`** for everything about signing and verifying releases (Windows Authenticode, GPG
 signatures and checksums for every installer, how to set the keys up, and how a downloader checks a
-release). The rest of this section is the short Windows version.
+release). The rest of this section is the short Windows version. macOS: without an Apple Developer account the
+workflow signs the app "ad hoc" (identity `-`), which gives it a valid signature but no Developer ID, so macOS still
+asks the user to allow it once.
 
 Builds are unsigned until you add signing secrets to the GitHub repository
 (**Settings → Secrets and variables → Actions**). The workflow picks them up
@@ -181,19 +186,19 @@ the release files are copied to.
 `.github/workflows/build.yml` has three jobs:
 
 - **Checks** run on every push to `main` and every pull request, on Ubuntu
-  22.04 and Windows: the frontend type-check and tests (once, on Linux),
+  22.04, Windows and macOS: the frontend type-check and tests (once, on Linux),
   clippy and the Rust tests. Changes that only touch `*.md` or `docs/` skip
   CI.
 - **Installers** are built for `v*` tags, and on demand from **Actions →
   Build → Run workflow**, alongside the checks. The optimised release build
   is most of CI's time, so ordinary pushes skip it.
 - **Release**, for a tag, once checks and installers pass: a published
-  GitHub Release with the `.exe`, `.msi`, `.deb`, `.rpm` and `.AppImage`
+  GitHub Release with the `.exe`, `.msi`, `.deb`, `.rpm`, `.AppImage` and `.dmg`
   and a table saying which file is for which system. It refuses to publish
-  if any of the five is missing.
+  if any of the six is missing.
 
 The end-to-end SSH tests run on Linux. Windows has
-no `sshd`, so they skip themselves there. The Redis engine tests start a throw-away `redis-server` on a free port (`SSHVAULT_REDIS_SERVER` names the binary; they skip when there is none); the other new engines are tested against stand-in servers inside the test files. Set `SSHVAULT_SKIP_SSHD_TESTS=1` to
+no `sshd`, and macOS's needs a different setup, so they skip themselves there (CI sets `SSHVAULT_SKIP_SSHD_TESTS` on macOS). The Redis engine tests start a throw-away `redis-server` on a free port (`SSHVAULT_REDIS_SERVER` names the binary; they skip when there is none); the other new engines are tested against stand-in servers inside the test files. Set `SSHVAULT_SKIP_SSHD_TESTS=1` to
 skip them anywhere else.
 
 To release, bump the version in `package.json`, `src-tauri/Cargo.toml` and

@@ -22,7 +22,7 @@ service only ever stores ciphertext.
 [Security design](docs/vault-architecture.md) ·
 [Roadmap](ROADMAP.md)
 
-Linux and Windows · Built with Rust, Tauri, Svelte and xterm.js
+Linux, Windows and macOS · Built with Rust, Tauri, Svelte and xterm.js
 
 </div>
 
@@ -170,6 +170,7 @@ Download the file for your system from the
 | Debian, Ubuntu, Mint, Pop!_OS | `SSHVault_…_amd64.deb` | `sudo apt install ./SSHVault_*_amd64.deb` |
 | Fedora, RHEL, openSUSE | `SSHVault-…x86_64.rpm` | `sudo dnf install ./SSHVault-*.x86_64.rpm` |
 | Any Linux | `SSHVault_…_amd64.AppImage` | `chmod +x SSHVault_*.AppImage` and run it. |
+| macOS (Apple Silicon and Intel) | `SSHVault_…_universal.dmg` | Open it and drag SSHVault to Applications. See below for the first launch. |
 
 - **Windows:** the installers aren't code-signed yet, so SmartScreen may
   warn: choose **More info → Run anyway**. Signing (Authenticode for Windows,
@@ -178,6 +179,11 @@ Download the file for your system from the
   download. The WebView2 runtime is already
   part of Windows 10 and 11, and the installer fetches it if it's missing.
 - **Linux:** the packages need glibc 2.35 or newer (Ubuntu 22.04 and later).
+- **macOS:** one app for Apple Silicon and Intel Macs. It isn't signed with an Apple Developer ID
+  yet, so macOS blocks it the first time: choose **System Settings → Privacy & Security → Open Anyway**
+  (older macOS: right-click the app → **Open**). If macOS says the app is "damaged", run
+  `xattr -dr com.apple.quarantine /Applications/SSHVault.app` once. Updates are not applied in
+  place on macOS: the app opens the releases page, and you install the new `.dmg`.
 - **Updates:** new versions appear on the
   [releases page](https://github.com/aliysefian/termius/releases). In-app
   updates for the AppImage and Windows builds are built in and switch on
@@ -234,7 +240,7 @@ server, but the app hasn't had wide real-world use yet. Keep backups of
 anything important, and please
 [report problems](https://github.com/aliysefian/termius/issues).
 
-**Not available yet:** macOS builds, code-signed installers, hardware
+**Not available yet:** an Apple-notarized macOS app, code-signed installers, hardware
 security keys and team sharing. See the [roadmap](ROADMAP.md).
 
 ## Contributing
