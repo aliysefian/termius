@@ -33,6 +33,11 @@ jobs:
             os: ubuntu-22.04
           - name: Windows
             os: windows-latest
+          # Apple Silicon runner. Catches macOS-only compile errors, lints and tests on every push.
+          - name: macOS
+            os: macos-latest
+            # macOS's sshd needs a different setup than the throw-away one the tests start.
+            skip_sshd_tests: "1"
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
 
@@ -107,9 +112,11 @@ jobs:
         run: cargo clippy --all-targets -- -D warnings
 
       # On Linux the SSH, SFTP and forwarding tests start a throw-away sshd;
-      # on Windows they skip themselves and the rest still run.
+      # on Windows and macOS they skip themselves and the rest still run.
       - name: Test Rust
         working-directory: src-tauri
+        env:
+          SSHVAULT_SKIP_SSHD_TESTS: ${{ matrix.skip_sshd_tests }}
         run: cargo test
 
   # Loads the built app in a real browser under the content security policy from tauri.conf.json and fails on any
@@ -161,6 +168,17 @@ jobs:
               src-tauri/target/release/bundle/nsis/*.exe
               src-tauri/target/release/bundle/nsis/*.exe.sig
               src-tauri/target/release/bundle/windows-signature.txt
+          # One universal app for Apple Silicon and Intel Macs. Ad-hoc signed without an Apple Developer account
+          # (macOS still asks the user to allow it once); signed and notarized once the APPLE_* secrets exist.
+          - name: macOS
+            os: macos-latest
+            rust_targets: aarch64-apple-darwin,x86_64-apple-darwin
+            build_args: --target universal-apple-darwin
+            bundles: |
+              src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+              src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz
+              src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz.sig
+              src-tauri/target/universal-apple-darwin/release/bundle/macos-signature.txt
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
 
@@ -197,6 +215,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
         with:
           toolchain: stable
+          # Only macOS sets this (both Apple CPUs, for the universal app); empty elsewhere.
+          targets: ${{ matrix.rust_targets }}
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
@@ -232,6 +252,38 @@ jobs:
           $path = Join-Path $env:RUNNER_TEMP "tauri.signing.json"
           Set-Content -Path $path -Value $config
           "SIGN_CONFIG=$path" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      # Without an Apple Developer account the app is signed "ad hoc" (identity "-"): no certificate, no notarization,
+      # but a valid signature over the whole bundle, which Apple Silicon requires of a downloaded app. macOS still
+      # asks the user to allow it once. Real signing and notarization switch on by themselves once the secrets are
+      # added (see "Code signing" in docs/SIGNING.md).
+      - name: Prepare macOS signing
+        if: runner.os == 'macOS'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [ -z "$APPLE_CERTIFICATE" ]; then
+            echo "No APPLE_CERTIFICATE secret: ad-hoc signing the app."
+            echo "APPLE_SIGNING_IDENTITY=-" >> "$GITHUB_ENV"
+            echo "MACOS_SIGNING=adhoc" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          # Tauri treats a set-but-empty APPLE_CERTIFICATE as a certificate to import,
+          # so only export variables that actually have values.
+          for v in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            if [ -n "${!v}" ]; then echo "$v=${!v}" >> "$GITHUB_ENV"; fi
+          done
+          if [ -z "$APPLE_ID" ]; then
+            echo "::warning::Signing without APPLE_ID/APPLE_PASSWORD/APPLE_TEAM_ID: the app won't be notarized."
+            echo "MACOS_SIGNING=signed" >> "$GITHUB_ENV"
+          else
+            echo "MACOS_SIGNING=notarized" >> "$GITHUB_ENV"
+          fi
 
       # Self-update switches on by itself once the signing secrets exist (see
       # "Updates" in docs/DEVELOPMENT.md). Without them, builds don't update themselves.
@@ -273,7 +325,7 @@ jobs:
           # profile already strips what matters.
           NO_STRIP: "true"
         # --verbose shows linuxdeploy's own output if AppImage bundling fails.
-        run: pnpm tauri build --verbose ${SIGN_CONFIG:+--config "$SIGN_CONFIG"} ${UPDATER_CONFIG:+--config "$UPDATER_CONFIG"}
+        run: pnpm tauri build --verbose ${{ matrix.build_args }} ${SIGN_CONFIG:+--config "$SIGN_CONFIG"} ${UPDATER_CONFIG:+--config "$UPDATER_CONFIG"}
 
       # When the build was told to sign, an installer that is not validly signed fails the build, instead of
       # shipping with a warning. Whether it was signed is written down for the release notes.
@@ -296,6 +348,19 @@ jobs:
           }
           if ($bad -ne 0) { Write-Error "An installer is not validly signed."; exit 1 }
           Set-Content -Path $out -Value "Valid: $subject"
+
+      # The app inside the .dmg must carry a valid signature (ad hoc counts), or Apple Silicon reports it as damaged.
+      # How it was signed is written down for the release notes.
+      - name: Verify macOS signature
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          bundle=src-tauri/target/universal-apple-darwin/release/bundle
+          app="$bundle/macos/SSHVault.app"
+          for exe in "$app"/Contents/MacOS/*; do echo "$exe: $(lipo -archs "$exe")"; done
+          codesign --verify --deep --strict --verbose=2 "$app"
+          codesign -dv "$app" 2>&1 | grep -E "Identifier|Signature|Authority|TeamIdentifier" || true
+          echo "$MACOS_SIGNING" > "$bundle/macos-signature.txt"
 
       - name: Upload bundles
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
@@ -338,6 +403,8 @@ jobs:
               ("*.AppImage.sig", ["linux-x86_64"]),
               ("*-setup.exe.sig", ["windows-x86_64", "windows-x86_64-nsis"]),
               ("*.msi.sig", ["windows-x86_64-msi"]),
+              # One universal .app.tar.gz serves both Apple CPUs.
+              ("*.app.tar.gz.sig", ["darwin-aarch64", "darwin-x86_64", "darwin-aarch64-app", "darwin-x86_64-app"]),
           ]
           platforms = {}
           for pattern, keys in kinds:
@@ -363,7 +430,7 @@ jobs:
       - name: Check every installer is present
         run: |
           missing=0
-          for pattern in '*.deb' '*.rpm' '*.AppImage' '*.msi' '*-setup.exe'; do
+          for pattern in '*.deb' '*.rpm' '*.AppImage' '*.msi' '*-setup.exe' '*.dmg'; do
             if ! find dist -name "$pattern" | grep -q .; then
               echo "::error::No $pattern installer was built"
               missing=1
@@ -410,12 +477,20 @@ jobs:
             echo "| Debian, Ubuntu, Mint, Pop!_OS | \`$(file '*.deb')\` |"
             echo "| Fedora, RHEL, openSUSE | \`$(file '*.rpm')\` |"
             echo "| Any Linux (no install, updates itself) | \`$(file '*.AppImage')\` |"
+            echo "| macOS (Apple Silicon and Intel) | \`$(file '*.dmg')\` |"
             echo
             win=$(cat "$(find dist -name windows-signature.txt | head -1)" 2>/dev/null || echo unsigned)
             rm -f dist/*/windows-signature.txt dist/windows-signature.txt
             case "$win" in
               Valid:*) echo "The Windows installers are signed with Authenticode (${win#Valid: })." ;;
               *) echo "The Windows installers aren't code-signed yet, so SmartScreen may warn on first launch: choose **More info → Run anyway**." ;;
+            esac
+            mac=$(cat "$(find dist -name macos-signature.txt | head -1)" 2>/dev/null || echo unsigned)
+            rm -f dist/*/macos-signature.txt dist/macos-signature.txt
+            case "$mac" in
+              notarized) echo "The macOS app is signed and notarized by Apple." ;;
+              signed) echo "The macOS app is signed but not notarized, so macOS asks you to allow it on first launch." ;;
+              *) echo "The macOS app isn't signed with an Apple Developer ID, so macOS blocks it on first launch: open the \`.dmg\`, drag SSHVault to Applications, then choose **System Settings → Privacy & Security → Open Anyway** (older macOS: right-click the app → **Open**). If macOS says the app is damaged, run \`xattr -dr com.apple.quarantine /Applications/SSHVault.app\` once." ;;
             esac
             if [ -n "${GPG_FPR:-}" ]; then
               echo "Every installer also has a GPG signature (\`.asc\`), and \`SHA256SUMS\` is signed too. The key is \`sshvault-release.asc\`, fingerprint \`${GPG_FPR}\`. Check with \`scripts/verify-release.sh\` (see docs/SIGNING.md)."

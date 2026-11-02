@@ -126,6 +126,9 @@ set, so check that release's Actions log before announcing it.
 
 - An apt and a yum repository with the key published, so package managers verify on their own.
 - A signature inside the `.rpm` (`rpmsign`) and the `.deb`.
-- macOS (see `feat2.md`): code signing and notarisation come with the macOS build.
+- macOS: the app is signed "ad hoc" only, without an Apple Developer ID or notarization (no paid Apple Developer
+  account yet). The workflow switches to real signing and notarization once `APPLE_CERTIFICATE`,
+  `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD` (an app-specific password)
+  and `APPLE_TEAM_ID` are added as secrets. That path has not been run yet.
 - Certificates on hardware tokens or cloud HSMs (see above).
 - Reproducible builds, so anyone can rebuild an installer and compare it with the signed one.

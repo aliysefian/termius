@@ -24,14 +24,14 @@ newkey "$work/signer" signer
 newkey "$work/other" other
 rel="$work/rel"; mkdir -p "$rel/deb" "$rel/win"
 echo deb > "$rel/deb/SSHVault_1.0_amd64.deb"; echo rpm > "$rel/deb/SSHVault-1.0.rpm"; echo app > "$rel/deb/SSHVault_1.0.AppImage"
-echo msi > "$rel/win/SSHVault_1.0.msi"; echo exe > "$rel/win/SSHVault_1.0_x64-setup.exe"
+echo msi > "$rel/win/SSHVault_1.0.msi"; echo exe > "$rel/win/SSHVault_1.0_x64-setup.exe"; echo dmg > "$rel/win/SSHVault_1.0_universal.dmg"
 echo sig > "$rel/deb/SSHVault_1.0.AppImage.sig"   # an updater signature: not an installer, left alone
 GNUPGHOME="$work/signer" gpg --armor --export > "$work/signer.pub"
 GNUPGHOME="$work/other" gpg --armor --export > "$work/other.pub"
 
 GPG_PASSPHRASE='a test passphrase' GNUPGHOME="$work/signer" "$here/sign-release.sh" "$rel" >/dev/null
 [ ! -e "$rel/deb/SSHVault_1.0.AppImage.sig.asc" ] && echo "ok   the updater's own .sig is not signed again" || { echo "FAIL signed a .sig"; fails=$((fails + 1)); }
-[ "$(wc -l < "$rel/SHA256SUMS")" -eq 5 ] && echo "ok   SHA256SUMS lists the five installers" || { echo "FAIL SHA256SUMS"; fails=$((fails + 1)); }
+[ "$(wc -l < "$rel/SHA256SUMS")" -eq 6 ] && echo "ok   SHA256SUMS lists the six installers" || { echo "FAIL SHA256SUMS"; fails=$((fails + 1)); }
 
 flat="$work/flat"; mkdir "$flat"; find "$rel" -type f -exec cp {} "$flat/" \;   # a release is a flat list of downloads
 expect pass "a good release verifies" "$here/verify-release.sh" "$flat" "$work/signer.pub"
