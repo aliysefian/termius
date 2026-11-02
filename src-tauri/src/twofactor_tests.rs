@@ -5,7 +5,6 @@ use std::borrow::Cow;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use russh::keys::PublicKey;
 use russh::server::{self, Auth, Handler};
 use russh::{MethodKind, MethodSet};
 use tokio::net::TcpListener;
@@ -56,7 +55,7 @@ impl Handler for Fake {
         Ok(Auth::Reject { proceed_with_methods: kbd(), partial_success: first_step_done })
     }
 
-    async fn auth_publickey(&mut self, _user: &str, _key: &PublicKey) -> Result<Auth, Self::Error> {
+    async fn auth_publickey(&mut self, _user: &str, _key: server::VerifiedPublicKey<'_>) -> Result<Auth, Self::Error> {
         Ok(Auth::Reject { proceed_with_methods: kbd(), partial_success: matches!(self.first, First::Key) })
     }
 
