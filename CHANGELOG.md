@@ -4,6 +4,11 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## 0.52.0 - 2026-11-02
+
+- **New:** **a macOS app.** One download, `SSHVault_…_universal.dmg`, runs on Apple Silicon and Intel Macs: open it and drag SSHVault to Applications. It is not signed with an Apple Developer ID yet (that needs a paid Apple account), so macOS blocks it the first time: choose **System Settings → Privacy & Security → Open Anyway**. If macOS says the app is "damaged", run `xattr -dr com.apple.quarantine /Applications/SSHVault.app` once. The build and its tests run on a Mac in CI on every change, but it has had little use on real Macs, so please report problems. On macOS, **Check for updates** opens the releases page and you install the new `.dmg`; it does not replace the app in place.
+- **Fixed:** on macOS, a vault in a folder reached through a link, such as `~/Dropbox` (a link on current Dropbox for Mac), never noticed changes made by another device. macOS reports the real path of a changed file instead of the one the vault was opened with, so every change was ignored. It is matched by the vault's own path now. Linux and Windows were not affected.
+
 ## 0.51.0 - 2026-11-02
 
 - **New:** **a redesigned Monitoring page with real-time network traffic.** A header with the time range, live interval, Refresh and Add Monitor; cards for total, healthy, warning, critical and offline hosts; Overview, Hosts, Checks, Alerts, Rules and History tabs; and a searchable, sortable host table with CPU, memory, download and upload at a glance. Click a host for a resizable details panel (a slide-over on narrow windows) with Overview, Network, Resources, Checks, Alerts and History tabs, and an Open SSH Terminal button.
