@@ -114,25 +114,10 @@ jobs:
       # On Linux the SSH, SFTP and forwarding tests start a throw-away sshd;
       # on Windows and macOS they skip themselves and the rest still run.
       - name: Test Rust
-        if: runner.os != 'macOS'
         working-directory: src-tauri
         env:
           SSHVAULT_SKIP_SSHD_TESTS: ${{ matrix.skip_sshd_tests }}
         run: cargo test
-
-      # The same tests on macOS, with the failing tests' names and panic messages copied into one annotation
-      # (Actions logs need a sign-in to read; annotations don't). Fold back into "Test Rust" once macOS is green.
-      - name: Test Rust (macOS)
-        if: runner.os == 'macOS'
-        working-directory: src-tauri
-        env:
-          SSHVAULT_SKIP_SSHD_TESTS: ${{ matrix.skip_sshd_tests }}
-        run: |
-          set -o pipefail
-          cargo test 2>&1 | tee "$RUNNER_TEMP/test.log" && exit 0
-          summary=$( { grep -E '^test .* FAILED$' "$RUNNER_TEMP/test.log"; grep -E -A4 '^---- ' "$RUNNER_TEMP/test.log"; grep -E '^error' "$RUNNER_TEMP/test.log"; } | head -80 | sed 's/%/%25/g' | sed ':a;N;$!ba;s/\n/%0A/g')
-          echo "::error title=Failing tests::$summary"
-          exit 1
 
   # Loads the built app in a real browser under the content security policy from tauri.conf.json and fails on any
   # violation (src/lib/__tests__/e2e/csp.py). Not blocking yet: it has not had a green run on this runner, and
@@ -162,9 +147,7 @@ jobs:
   # ("Run workflow"). Runs alongside the checks, not after them.
   bundle:
     name: Installers (${{ matrix.name }})
-    # TEMPORARY: also build installers on every push to this branch, to get a macOS .dmg without a manual run.
-    # Remove the last condition before merging.
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/feat/macos-build'
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     strategy:
       fail-fast: false
       matrix:
