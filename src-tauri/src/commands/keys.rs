@@ -231,6 +231,7 @@ pub fn save_identity(
             "label and username are required",
         ));
     }
+    crate::models::check_line_text("The username", &identity.username).map_err(|m| ApiError::new("validation", m))?;
     // Secrets left empty keep the stored ones, so the edit form never needs
     // to load them.
     let mut identity = identity;

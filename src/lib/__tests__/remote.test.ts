@@ -186,4 +186,8 @@ describe("arranging a listing", () => {
     expect(arrange(list, ".", false).map((x) => x.name)).toEqual([".git", "src", ".env", "a", "b"]);
     expect(arrange(list, "", true).map((x) => x.name)).toEqual(["src"]);
   });
+  it("never offers a name with a control character: it would edit the line it is inserted into", () => {
+    const list = [e("ok"), e("x\u0015touch y #"), e("esc\u001b[2Jname"), e("del\u007fname"), e("c1\u0085name", true)];
+    expect(arrange(list, "", false).map((x) => x.name)).toEqual(["ok"]);
+  });
 });

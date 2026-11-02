@@ -268,6 +268,29 @@ fn lenient_sequence<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<KnockS
     }
 }
 
+/// Text that is copied onto a line of another program's file (an exported ssh config) or into a command typed in a
+/// terminal must not carry a control character: a line break ends the line and what follows is read as a new
+/// directive (`ProxyCommand ...`). Leading and trailing white space is fine; it is trimmed where it is used.
+pub fn check_line_text(what: &str, text: &str) -> Result<(), String> {
+    if text.trim().chars().any(char::is_control) {
+        return Err(format!("{what} can't contain control characters, such as a line break"));
+    }
+    Ok(())
+}
+
+impl Host {
+    /// The fields that are written into other files and typed into shells.
+    pub fn check_text(&self) -> Result<(), String> {
+        check_line_text("The name", &self.label)?;
+        check_line_text("The group", &self.group)?;
+        check_line_text("The address", &self.hostname)?;
+        if self.hostname.trim().chars().any(char::is_whitespace) {
+            return Err("The address can't contain spaces".into());
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Host {
     pub label: String,
@@ -791,6 +814,26 @@ pub fn redact_record(c: crate::vault::Collection, v: serde_json::Value) -> Optio
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn host_text_that_would_break_a_line_is_refused() {
+        let ok = Host { label: "web 1".into(), hostname: "web.example.com".into(), group: "Prod/Web".into(), ..Default::default() };
+        assert!(ok.check_text().is_ok());
+        // White space at the ends is trimmed where it is used, so it is not an error.
+        assert!(Host { hostname: " web.example.com\n".into(), ..ok.clone() }.check_text().is_ok());
+        for bad in [
+            Host { hostname: "a.example.com\n    ProxyCommand x".into(), ..ok.clone() },
+            Host { hostname: "a.example.com ProxyCommand".into(), ..ok.clone() },
+            Host { hostname: "a\u{15}b".into(), ..ok.clone() },
+            Host { label: "x\r\nHost *".into(), ..ok.clone() },
+            Host { group: "g\nh".into(), ..ok.clone() },
+            Host { label: "a\u{85}b".into(), ..ok.clone() },
+        ] {
+            assert!(bad.check_text().is_err(), "{bad:?}");
+        }
+        assert!(check_line_text("The username", "bob\nProxyCommand x").is_err());
+        assert!(check_line_text("The username", "DOMAIN\\John Smith").is_ok());
+    }
 
     #[test]
     fn a_terminal_profile_is_optional_and_old_hosts_still_load() {

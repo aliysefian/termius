@@ -6,10 +6,11 @@
 //! servers mostly have self-signed certificates); the server's certificate is
 //! pinned instead, by SHA-256 fingerprint, like an SSH host key, and a session
 //! doesn't start until the certificate is known. That check happens before any
-//! credentials are sent.
+//! credentials are sent. The pin only counts because `tls` makes the server prove it holds the certificate's key.
 
 pub mod clipboard;
 pub mod keys;
+pub mod tls;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -166,7 +167,7 @@ impl RdpManager {
 
 // -- connecting ------------------------------------------------------------------------
 
-type Stream = ironrdp_tokio::TokioFramed<ironrdp_tls::TlsStream<TcpStream>>;
+type Stream = ironrdp_tokio::TokioFramed<tls::TlsStream<TcpStream>>;
 
 struct Established {
     framed: Stream,
@@ -275,7 +276,7 @@ async fn establish(s: &Settings, cert: &CertCheck, clipboard: TextClipboard) -> 
 
     let should_upgrade = ironrdp_tokio::connect_begin(&mut framed, &mut connector).await.map_err(|e| explain(e, &s.host))?;
     let (initial, leftover) = framed.into_inner();
-    let (tls, server_cert) = ironrdp_tls::upgrade(initial, &s.host).await.map_err(|e| RdpError::Connect(format!("secure connection failed: {e}")))?;
+    let (tls, server_cert) = tls::upgrade(initial, &s.host).await.map_err(|e| RdpError::Connect(format!("secure connection failed: {e}")))?;
 
     // The certificate is checked before anything secret is sent.
     let info = cert_info(&server_cert)?;

@@ -22,6 +22,7 @@
   import { envInfo } from "$lib/types";
   import { vaultStore } from "$lib/stores/vault.svelte";
   import { errorMessage } from "$lib/types";
+  import { hasControlChars } from "$lib/controlchars";
   import SnippetPicker from "./SnippetPicker.svelte";
   import TerminalPane from "./TerminalPane.svelte";
   import RemotePane from "./RemotePane.svelte";
@@ -699,7 +700,7 @@
                 {@const cwd = info.cwd}
                 <span class="truncate font-mono text-fg-muted" title={cwd}>{cwd.replace(/^\/home\/[^/]+/, "~")}</span>
                 <button class="icon-btn h-6 w-6" title="Browse {cwd} in SFTP" onclick={() => ui.openSftpAt(hid, cwd)}><FolderSync size={12} /></button>
-                <button class="icon-btn h-6 w-6" title="New tab in {cwd}" onclick={() => ui.openTerminal(hid, paneLabel(pane.target), `cd ${shellQuote(cwd)}`)}><SquareTerminal size={12} /></button>
+                <button class="icon-btn h-6 w-6" title="New tab in {cwd}" onclick={() => (hasControlChars(cwd) ? ui.notify("error", "That folder's name contains control characters, so it is not typed into a terminal.") : ui.openTerminal(hid, paneLabel(pane.target), `cd ${shellQuote(cwd)}`))}><SquareTerminal size={12} /></button>
               {/if}
               <div class="flex-1"></div>
               {#if pane.target.kind === "host" && isSshHost(pane.target.hostId)}

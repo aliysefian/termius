@@ -592,7 +592,7 @@ impl Vault {
     }
 
     /// Change the master password by rewrapping the VMK under a new salt.
-    /// Records are untouched. The current password is checked first; if the
+    /// Records are untouched, so an older copy of `vault.json` still unlocks with the old password. The current password is checked first; if the
     /// write is interrupted, the old manifest (and so the old password)
     /// remains valid.
     pub fn change_password(&mut self, current: &[u8], new: &[u8], kdf: KdfParams) -> Result<()> {
@@ -623,7 +623,8 @@ impl Vault {
         Ok(v)
     }
 
-    /// Create or replace the recovery key. The old one stops working.
+    /// Create or replace the recovery key. The old one stops working on this vault; an older copy of `vault.json` still
+    /// holds the VMK wrapped under it (see `docs/vault-architecture.md`).
     pub fn set_recovery(&mut self, kdf: KdfParams) -> Result<RecoveryKey> {
         let rk = RecoveryKey::generate();
         let slot = format::new_slot(

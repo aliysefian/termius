@@ -1,6 +1,7 @@
 // Keeping a terminal and the file browser in the same folder: the command that takes a terminal to a folder, the
 // rule for when the browser follows the terminal, and the line that makes a shell report its folder.
 
+import { hasControlChars } from "$lib/controlchars";
 import type { Uuid } from "$lib/types";
 
 /** A word for a POSIX shell: in single quotes, with each `'` inside as `'\''`. */
@@ -10,6 +11,8 @@ export function shellQuote(s: string): string {
 
 /** The line that takes a shell to `path`. A Windows shell gets double quotes (a path there cannot hold one). */
 export function cdCommand(path: string, windows = false): string {
+  // Typed into a live shell, where a control character in a folder name edits the line instead of being part of it.
+  if (hasControlChars(path)) throw new Error("That folder's name contains control characters, so it is not typed into a terminal.");
   return windows ? `cd "${path}"` : `cd ${shellQuote(path)}`;
 }
 

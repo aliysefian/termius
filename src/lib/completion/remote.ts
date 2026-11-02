@@ -4,6 +4,8 @@
 // The question itself is the app's `completion_lookup` command (see
 // src-tauri/src/completion.rs); this only decides whether and when to ask.
 
+import { hasControlChars } from "$lib/controlchars";
+
 export interface Entry {
   name: string;
   dir: boolean;
@@ -149,6 +151,7 @@ export function escapeName(name: string, first = false): string {
 /** Folders first, then by name; hidden names only when asked for with a leading dot. */
 export function arrange(entries: Entry[], prefix: string, onlyDirs: boolean): Entry[] {
   return entries
-    .filter((e) => (prefix.startsWith(".") || !e.name.startsWith(".")) && (!onlyDirs || e.dir))
+    // A name with a control character would edit the line it is inserted into, so it is not offered.
+    .filter((e) => (prefix.startsWith(".") || !e.name.startsWith(".")) && (!onlyDirs || e.dir) && !hasControlChars(e.name))
     .sort((a, b) => Number(b.dir) - Number(a.dir) || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
 }

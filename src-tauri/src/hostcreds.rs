@@ -259,6 +259,7 @@ pub fn save_host_with_credentials(
             if username.is_empty() {
                 return Err(invalid("Enter a username"));
             }
+            crate::models::check_line_text("The username", &username).map_err(invalid)?;
             let comment = format!("{username}@{}", host.label.trim());
             let (auth, pk) = resolve_auth(auth, owned.as_ref().map(|(_, _, d)| &d.auth), &comment)?;
             public_key = pk;

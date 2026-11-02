@@ -16,6 +16,13 @@ describe("cdCommand", () => {
     expect(cdCommand("/srv/it's; rm -rf ~ #")).toBe(`cd '/srv/it'\\''s; rm -rf ~ #'`);
     expect(cdCommand("/a/$(id)/`x`")).toBe("cd '/a/$(id)/`x`'");
   });
+  it("refuses a folder whose name has a control character: the shell's line editor would act on it", () => {
+    for (const bad of ["/srv/x\u0015touch y #", "/srv/a\u001bb", "/srv/a\u0001b", "/srv/a\u007fb", "/srv/a\u0085b", "/srv/a\nb"]) {
+      expect(() => cdCommand(bad)).toThrow(/control characters/);
+      expect(() => cdCommand(bad, true)).toThrow(/control characters/);
+    }
+    expect(cdCommand("/srv/é 日本")).toBe("cd '/srv/é 日本'");
+  });
   it("uses double quotes for a Windows shell", () => {
     expect(cdCommand("C:\\Users\\me\\My Docs", true)).toBe('cd "C:\\Users\\me\\My Docs"');
   });

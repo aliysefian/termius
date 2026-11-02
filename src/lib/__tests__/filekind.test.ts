@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fileKind } from "$lib/filekind";
+import { fileKind, opensByDoubleClick } from "$lib/filekind";
 
 describe("fileKind", () => {
   it("a folder is a folder whatever it is called", () => {
@@ -30,5 +30,20 @@ describe("fileKind", () => {
 
   it("a dotfile's name is not an extension", () => {
     expect(fileKind(".zip", false)).toBe("file");
+  });
+});
+
+describe("opensByDoubleClick", () => {
+  it.each(["photo.jpg", "LOGO.PNG", "report.pdf", "Budget.XLSX", "talk.pptx", "song.mp3", "clip.mp4"])("%s may be handed to the system's viewer", (name) => {
+    expect(opensByDoubleClick(name)).toBe(true);
+  });
+
+  // The default program for these may run them, and a server picks the names.
+  it.each(["setup.exe", "run.bat", "run.cmd", "x.msi", "tool.jar", "page.hta", "shortcut.lnk", "x.vbs", "a.scr", "Tool.app", "a.command", "a.terminal", "evil.svg", "notes.unknown", "archive.zip", "x.docm", "x.exe.", "x.EXE", "invoice.pdf.exe"])("%s needs a deliberate choice", (name) => {
+    expect(opensByDoubleClick(name)).toBe(false);
+  });
+
+  it("a dotfile is not an extension", () => {
+    expect(opensByDoubleClick(".pdf")).toBe(false);
   });
 });

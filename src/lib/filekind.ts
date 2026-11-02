@@ -14,6 +14,21 @@ const TEXT = new Set("txt md markdown rst log csv tsv".split(" "));
 const KEY_NAMES = /^(id_(rsa|dsa|ecdsa|ed25519)(\.pub)?|authorized_keys|known_hosts|.*_rsa|.*_ed25519)$/;
 const CONFIG_NAMES = /^(\.?(bashrc|zshrc|profile|bash_profile|vimrc|gitconfig|npmrc|env(\..+)?)|dockerfile|makefile|crontab|fstab|hosts|passwd|sudoers|sshd_config|ssh_config|nginx\.conf)$/i;
 
+/** Documents and media a person double-clicks to look at. Not programs, not scripts, and not SVG (a web page). */
+const VIEWABLE = new Set("pdf doc docx xls xlsx ppt pptx odt ods odp rtf mp3 m4a wav flac ogg mp4 m4v mkv avi mov webm".split(" "));
+
+/**
+ * Whether a double-click may download a file and hand it to this computer's default program. A server picks the
+ * names, and the default program for an unlisted type may be one that runs it (`.exe`, `.bat`, `.hta`, `.jar`, ...),
+ * so only text (see `isTextName`), pictures and the documents above qualify. Anything else needs a deliberate choice.
+ */
+export function opensByDoubleClick(name: string): boolean {
+  const dot = name.lastIndexOf(".");
+  const ext = dot > 0 ? name.slice(dot + 1).toLowerCase() : "";
+  if (ext === "svg") return false;
+  return fileKind(name, false) === "image" || VIEWABLE.has(ext);
+}
+
 export function fileKind(name: string, isDir: boolean): FileKind {
   if (isDir) return "folder";
   if (KEY_NAMES.test(name)) return "key";

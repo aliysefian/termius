@@ -196,6 +196,11 @@ async fn plan(src: &dyn FileBackend, dst: &dyn FileBackend, sources: &[String], 
     let conflict = if resume { Conflict::Overwrite } else { conflict };
     for source in sources {
         let name = src.basename(source)?;
+        // The entry the person picked is checked like the ones inside a folder: a server can name a file `..\x` or
+        // `C:\x`, which joined onto a Windows folder lands somewhere else.
+        if !dst.accepts_picked_name(&name) {
+            return Err(FileError::InvalidPath(format!("{name:?} is not a name this computer can store as one file, so it was not copied")));
+        }
         let name = if conflict == Conflict::Rename { unique_name(dst, dest_dir, &name).await? } else { name };
         let top = dst.join(dest_dir, &name);
         let stat = src.stat(source).await?.ok_or_else(|| FileError::InvalidPath(format!("{source} is gone")))?;
@@ -210,7 +215,7 @@ async fn plan(src: &dyn FileBackend, dst: &dyn FileBackend, sources: &[String], 
                 if e.is_symlink {
                     continue; // links aren't followed in a recursive copy
                 }
-                if !super::is_plain_name(&e.name) {
+                if !dst.accepts_name(&e.name) {
                     plan.skipped += 1; // a name that could point outside the destination folder
                     continue;
                 }

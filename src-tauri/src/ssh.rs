@@ -278,6 +278,8 @@ pub struct Client {
     jumps: Vec<(String, Handle<ClientHandler>)>,
     /// X11 forwarding state when requested, or why it couldn't be set up.
     x11: Option<Result<Arc<crate::x11::X11Setup>, String>>,
+    /// Shared with the final hop's handler; see `ClientHandler::agent_requested`. Jump hops never request.
+    agent_requested: Arc<std::sync::atomic::AtomicBool>,
     /// One per hop: the jump hosts outermost first, then the final host.
     hops: Vec<HopInfo>,
 }
@@ -733,9 +735,12 @@ pub struct ClientHandler {
     /// session task, which reports it after authentication succeeds.
     learned_fingerprint: Arc<Mutex<Option<String>>>,
     remote_forwards: Option<RemoteForwards>,
-    /// Whether this connection asked for agent forwarding. The server may
-    /// only open agent channels when it did.
+    /// The host's "forward agent" setting.
     forward_agent: bool,
+    /// Set by the terminal session just before it sends the agent-forwarding request on this connection. The server
+    /// may open agent channels only after that: every other kind of connection (SFTP, tunnels, jump hops, run jobs,
+    /// monitoring) carries the host's setting too, but never asks, and has no gate or approval to answer to.
+    agent_requested: Arc<std::sync::atomic::AtomicBool>,
     agent_backend: Option<Arc<dyn crate::agent::Backend>>,
     /// Set only when this connection asked for X11 forwarding. The server may
     /// only open X11 channels when it is.
@@ -862,7 +867,8 @@ impl client::Handler for ClientHandler {
         reply: client::ChannelOpenHandle,
         _session: &mut client::Session,
     ) -> Result<(), Self::Error> {
-        if !self.forward_agent || !self.agent_gate.as_ref().is_none_or(|g| g.allows()) {
+        let requested = self.agent_requested.load(std::sync::atomic::Ordering::SeqCst);
+        if !self.forward_agent || !requested || !self.agent_gate.as_ref().is_none_or(|g| g.allows()) {
             reply
                 .reject(russh::ChannelOpenFailure::AdministrativelyProhibited)
                 .await;
@@ -975,7 +981,7 @@ pub async fn open_client(
     let mut infos: Vec<HopInfo> = Vec::new();
     for hop in hops {
         let via = jumps.last().map(|(name, h)| (name.as_str(), h));
-        let (h, fp, info) = connect_hop(hop, via, None, None)
+        let (h, fp, info) = connect_hop(hop, via, None, None, Arc::default())
             .await
             .map_err(|e| match e {
                 // Already names the jump that failed to reach this hop.
@@ -995,10 +1001,11 @@ pub async fn open_client(
         .then(|| crate::x11::X11Setup::from_env().map(Arc::new));
     let x11_setup = x11.as_ref().and_then(|r| r.as_ref().ok()).cloned();
     let via = jumps.last().map(|(name, h)| (name.as_str(), h));
-    let (handle, fp, info) = connect_hop(target, via, remote_forwards, x11_setup).await?;
+    let agent_requested = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let (handle, fp, info) = connect_hop(target, via, remote_forwards, x11_setup, Arc::clone(&agent_requested)).await?;
     learned.extend(fp);
     infos.push(info);
-    Ok((Client { handle, jumps, x11, hops: infos }, learned))
+    Ok((Client { handle, jumps, x11, agent_requested, hops: infos }, learned))
 }
 
 fn display_host(t: &Target) -> String {
@@ -1019,6 +1026,7 @@ async fn connect_hop(
     via: Option<(&str, &Handle<ClientHandler>)>,
     remote_forwards: Option<RemoteForwards>,
     x11: Option<Arc<crate::x11::X11Setup>>,
+    agent_requested: Arc<std::sync::atomic::AtomicBool>,
 ) -> Result<(Handle<ClientHandler>, Option<LearnedKey>, HopInfo), SshError> {
     let started = std::time::Instant::now();
     let addr = format!("{}:{}", target.hostname, target.port);
@@ -1032,6 +1040,7 @@ async fn connect_hop(
         learned_fingerprint: Arc::clone(&learned),
         remote_forwards,
         forward_agent: target.forward_agent,
+        agent_requested,
         agent_backend: target.agent_backend.clone(),
         x11,
         asking: Arc::clone(&asking),
@@ -1184,6 +1193,8 @@ async fn run_session(
             .request_pty(true, TERM, params.cols, params.rows, 0, 0, &[])
             .await?;
         if params.target.forward_agent {
+            // Before the request, so a channel the server opens straight after its reply is already expected.
+            handle.agent_requested.store(true, std::sync::atomic::Ordering::SeqCst);
             channel.agent_forward(true).await?;
         }
         match &handle.x11 {

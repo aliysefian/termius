@@ -94,7 +94,7 @@
 
   // -- recovery -------------------------------------------------------------
   async function newRecoveryKey() {
-    if (info?.has_recovery && !await ask("Replace the recovery key? The old one stops working.")) return;
+    if (info?.has_recovery && !await ask("Replace the recovery key? The old one stops working on this vault (an older copy of the vault, such as a backup, can still be opened with it).")) return;
     await act("recovery", async () => {
       const key = await withMasterPassword("Create a new recovery key", "Create", (pw) => api.vault.setRecoveryKey(pw));
       if (key) {
@@ -276,6 +276,11 @@
           Only the key slot is re-encrypted, so this is instant and safe to interrupt. Other devices need the new password
           next time they unlock; devices that remember the vault keep working.
         </p>
+        <p class="mb-3 text-xs text-fg-muted">
+          This does not change the key that encrypts your records. Anyone who kept an older copy of this vault (a sync
+          provider's version history, a backup, an old device) can still open that copy with the old password. If the old
+          password was exposed, treat what that copy held as readable and change those secrets.
+        </p>
         <form onsubmit={changePassword} class="grid max-w-sm gap-3">
           <input class="input" type="password" placeholder="Current password" bind:value={current} required autocomplete="current-password" />
           <div>
@@ -291,7 +296,7 @@
         <h2 class="mb-1 flex items-center gap-2 text-sm font-semibold"><KeyRound size={15} class="text-accent" /> Recovery and this device</h2>
         <p class="mb-3 text-xs text-fg-muted">
           {info.has_recovery
-            ? "A recovery key can reset the master password. Replacing it invalidates the old one."
+            ? "A recovery key can reset the master password. Replacing it stops the old one working on this vault, but not on an older copy of it."
             : "No recovery key: if the master password is forgotten, the vault can't be opened by anyone."}
         </p>
         <div class="flex flex-wrap gap-2">

@@ -415,6 +415,13 @@ pub fn apply(vault: &Vault, b: &Bundle, resolutions: &[Resolution]) -> Result<Im
             result.hosts_skipped += 1;
             continue;
         }
+        // A file is somebody else's text: a name or address holding a line break is how a directive gets smuggled into
+        // an exported ssh config.
+        if let Err(why) = h.check_text() {
+            result.warnings.push(format!("“{}” was left out: {}.", h.label.escape_debug(), why.to_lowercase()));
+            result.hosts_skipped += 1;
+            continue;
+        }
         let key = name_key(&h.label, &h.group);
         let label = if taken.contains(&key) {
             match decided.get(&item.id) {
