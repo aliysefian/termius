@@ -1,129 +1,169 @@
 <script lang="ts">
-  import { BellRing, HeartPulse, Pencil, Plus, Radar, RefreshCw, Trash2, TriangleAlert } from "lucide-svelte";
+  import { BellRing, HeartPulse, Plus, RefreshCw, Search, TriangleAlert } from "lucide-svelte";
   import EmptyState from "./EmptyState.svelte";
-  import { ask } from "$lib/dialogs.svelte";
+  import AlertsTab from "./monitoring/AlertsTab.svelte";
+  import ChecksTab from "./monitoring/ChecksTab.svelte";
+  import DetailsPanel, { type DetailTab } from "./monitoring/DetailsPanel.svelte";
+  import HistoryTab from "./monitoring/HistoryTab.svelte";
+  import HostsTab from "./monitoring/HostsTab.svelte";
+  import HostTable from "./monitoring/HostTable.svelte";
+  import RulesTab from "./monitoring/RulesTab.svelte";
+  import SummaryCards from "./monitoring/SummaryCards.svelte";
+  import TrafficNow from "./monitoring/TrafficNow.svelte";
+  import { buildRow, matchesRow, sortRows, summarize, type HealthFilter, type SortKey } from "$lib/monitoringview";
+  import { RANGES, rangeAvailable } from "$lib/netdata";
   import { monitoring } from "$lib/stores/monitoring.svelte";
   import { settings } from "$lib/stores/settings.svelte";
   import { ui } from "$lib/stores/ui.svelte";
-  import {
-    CHANNEL_NAMES,
-    METRICS,
-    PRESETS,
-    STATUS_TEXT,
-    ago,
-    describeDeliveries,
-    describeLimits,
-    describeScope,
-    formatValue,
-    ruleFromPreset,
-    statusClass,
-    worst,
-    type AlertRule,
-    type MonitorTarget,
-    type Status,
-  } from "$lib/monitoring";
-  import { errorMessage, type Uuid, type VaultRecord } from "$lib/types";
+  import { DETAIL_MAX, DETAIL_MIN, detailWidth } from "$lib/tunnelslayout";
 
-  type Tab = "status" | "hosts" | "rules" | "history";
-  let tab = $state<Tab>("status");
-  let busy = $state(false);
+  type Tab = "overview" | "hosts" | "checks" | "alerts" | "rules" | "history";
+  const TABS: { id: Tab; label: string }[] = [
+    { id: "overview", label: "Overview" },
+    { id: "hosts", label: "Hosts" },
+    { id: "checks", label: "Checks" },
+    { id: "alerts", label: "Alerts" },
+    { id: "rules", label: "Rules" },
+    { id: "history", label: "History" },
+  ];
+
+  let tab = $state<Tab>("overview");
   let now = $state(Date.now());
+  let width = $state(1200);
+  let query = $state("");
+  let health = $state<HealthFilter>("all");
+  let tag = $state("");
+  let sort = $state<SortKey>("health");
+  let dir = $state<"asc" | "desc">("desc");
+  let selectedId = $state<string | null>(null);
+  let detailTab = $state<DetailTab>("overview");
+  let slideOver = $state(false);
+  let dragging = $state(false);
+  let refreshing = $state(false);
 
-  // Keeps "5 s ago" moving.
   $effect(() => {
     const t = setInterval(() => (now = Date.now()), 5000);
     return () => clearInterval(t);
   });
 
-  $effect(() => {
-    // Looking at the history reads it.
-    if (tab === "history") monitoring.unread = 0;
-  });
-
-  const TABS: { id: Tab; label: string }[] = [
-    { id: "status", label: "Status" },
-    { id: "hosts", label: "Hosts" },
-    { id: "rules", label: "Rules" },
-    { id: "history", label: "History" },
-  ];
-
-  const targets = $derived(monitoring.targets.filter((t) => t.data));
-  const rules = $derived(monitoring.rules.filter((r) => r.data));
+  const all = $derived(monitoring.targets.filter((t) => t.data).map((rec) => buildRow(rec, monitoring.statuses[rec.id])));
+  const counts = $derived(summarize(all));
+  const tags = $derived([...new Set(all.flatMap((r) => r.target.tags))].sort());
+  const shown = $derived(sortRows(all.filter((r) => matchesRow(r, query, health, tag)), sort, dir));
+  const selected = $derived(selectedId ? (all.find((r) => r.id === selectedId) ?? null) : null);
+  const filtering = $derived(query.trim() !== "" || health !== "all" || tag !== "");
   const channelsOn = $derived(
     monitoring.channels ? [monitoring.channels.channels.telegram.enabled, monitoring.channels.channels.bale.enabled, monitoring.channels.channels.email.enabled].filter(Boolean).length : 0,
   );
+  const keep = $derived(settings.prefs.metricsKeep);
 
-  function pill(s: Status | null) {
-    return `inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${statusClass(s)}`;
+  const docked = $derived(width >= 1100);
+  const panelWidth = $derived(detailWidth(settings.prefs.monitoringDetailWidth, width));
+  $effect(() => {
+    if (docked) slideOver = false;
+  });
+  // A host that was removed closes its panel.
+  $effect(() => {
+    if (selectedId && monitoring.targets.length && !all.some((r) => r.id === selectedId)) selectedId = null;
+  });
+
+  function pick(id: string, t?: DetailTab) {
+    selectedId = id;
+    if (t) detailTab = t;
+    slideOver = !docked;
+    if (tab !== "overview" && tab !== "hosts") tab = "overview";
   }
-
-  function summary(id: Uuid): { status: Status | null; text: string } {
-    const st = monitoring.statuses[id];
-    if (!st) return { status: null, text: "Waiting for the first check" };
-    return { status: worst(st.states), text: "" };
+  function close() {
+    selectedId = null;
+    slideOver = false;
   }
-
-  async function run<T>(f: () => Promise<T>) {
-    busy = true;
+  function onsort(k: SortKey) {
+    if (sort === k) dir = dir === "asc" ? "desc" : "asc";
+    else {
+      sort = k;
+      dir = k === "name" ? "asc" : "desc";
+    }
+  }
+  async function refresh() {
+    refreshing = true;
     try {
-      return await f();
-    } catch (e) {
-      ui.notify("error", errorMessage(e));
+      await Promise.all(all.filter((r) => r.target.enabled).map((r) => monitoring.runNow(r.id).catch(() => {})));
+      await monitoring.refreshSnapshot();
     } finally {
-      busy = false;
+      refreshing = false;
     }
   }
 
-  async function removeTarget(rec: VaultRecord<MonitorTarget>) {
-    if (!(await ask(`Stop watching "${rec.data?.label}"?`, { title: "Remove host", confirm: "Remove", danger: true }))) return;
-    await run(() => monitoring.deleteTarget(rec.id, rec.rev));
+  let startX = 0;
+  let startWidth = 0;
+  function down(e: PointerEvent) {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    dragging = true;
+    startX = e.clientX;
+    startWidth = panelWidth;
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
   }
-
-  async function removeRule(rec: VaultRecord<AlertRule>) {
-    if (!(await ask(`Delete the rule "${rec.data?.name}"?`, { title: "Delete rule", confirm: "Delete", danger: true }))) return;
-    await run(() => monitoring.deleteRule(rec.id, rec.rev));
+  function move(e: PointerEvent) {
+    if (dragging) settings.prefs.monitoringDetailWidth = detailWidth(startWidth - (e.clientX - startX), width);
   }
-
-  async function toggleTarget(rec: VaultRecord<MonitorTarget>) {
-    if (!rec.data) return;
-    await run(() => monitoring.saveTarget(rec.id, rec.rev, { ...$state.snapshot(rec.data!), enabled: !rec.data!.enabled }));
+  function stop() {
+    dragging = false;
+    document.body.style.cursor = "";
+    document.body.style.userSelect = "";
   }
-
-  async function toggleRule(rec: VaultRecord<AlertRule>) {
-    if (!rec.data) return;
-    await run(() => monitoring.saveRule(rec.id, rec.rev, { ...$state.snapshot(rec.data!), enabled: !rec.data!.enabled }));
+  function handleKey(e: KeyboardEvent) {
+    const step = e.shiftKey ? 48 : 16;
+    if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+      e.preventDefault();
+      settings.prefs.monitoringDetailWidth = detailWidth(panelWidth + (e.key === "ArrowLeft" ? step : -step), width);
+    } else if (e.key === "Home" || e.key === "Enter") {
+      e.preventDefault();
+      settings.prefs.monitoringDetailWidth = 460;
+    }
   }
-
-  async function addPreset(name: string) {
-    await run(() => monitoring.saveRule(null, null, ruleFromPreset(name)));
+  function pageKey(e: KeyboardEvent) {
+    if (e.key === "Escape" && selectedId && !(e.target as HTMLElement)?.closest("[role=dialog], [role=menu], input, select, textarea")) close();
   }
-
-  const checkSummary = (t: MonitorTarget) =>
-    t.checks
-      .map((c) => (c.kind === "ping" ? "ping" : c.kind === "tcp" ? `port ${c.port}` : c.kind === "http" ? `site ${c.url.replace(/^https?:\/\//, "").split(/[?#]/)[0]}` : "CPU, memory, disk"))
-      .join(", ");
-  const hostLine = (t: MonitorTarget) => [`Every ${t.interval_secs} s`, checkSummary(t), t.tags.join(", ")].filter(Boolean).join(" · ");
-  const ruleLine = (r: AlertRule) =>
-    [describeLimits(r), `after ${r.attempts} in a row`, describeScope(r.scope, monitoring.targetName), r.channels.length ? `only ${r.channels.map((c) => CHANNEL_NAMES[c]).join(", ")}` : ""].filter(Boolean).join(" · ");
+  function tabKey(e: KeyboardEvent) {
+    const i = TABS.findIndex((x) => x.id === tab);
+    const to = e.key === "ArrowRight" ? i + 1 : e.key === "ArrowLeft" ? i - 1 : null;
+    if (to === null) return;
+    e.preventDefault();
+    const next = TABS[(to + TABS.length) % TABS.length];
+    tab = next.id;
+    queueMicrotask(() => document.getElementById(`mon-main-${next.id}`)?.focus());
+  }
 </script>
 
-<div class="flex-1 overflow-y-auto bg-base p-8" data-testid="monitoring">
-  <div class="mx-auto max-w-6xl space-y-5">
-    <div>
+<svelte:window onkeydown={pageKey} />
+
+<div class="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-base" data-testid="monitoring" bind:clientWidth={width}>
+  <div class="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden p-5">
+    <!-- Header -->
+    <div class="flex flex-wrap items-center gap-3">
       <h1 class="flex items-center gap-2 text-lg font-semibold"><HeartPulse size={20} class="text-accent" /> Monitoring</h1>
-      <p class="mt-1 text-sm text-fg-muted">
-        Watch hosts with ping, port checks and CPU, memory and disk readings, and get a message on Telegram, Bale or email when one changes state. Checks run in the background
-        while the vault is unlocked; they stop when it locks. This is separate from the alerts under Ops.
-      </p>
+      <div class="flex-1"></div>
+      <label class="flex items-center gap-1.5 text-xs text-fg-muted">Time range
+        <select class="input !w-auto h-8 py-0 text-xs" bind:value={settings.prefs.monitoringRange} title="The span of the network charts">
+          {#each RANGES as r (r.id)}{@const a = rangeAvailable(r, keep)}<option value={r.id} disabled={!a.ok}>{r.label}{a.ok ? "" : " (needs Keep history)"}</option>{/each}
+        </select>
+      </label>
+      <label class="flex items-center gap-1.5 text-xs text-fg-muted">Live every
+        <select class="input !w-auto h-8 py-0 text-xs" bind:value={settings.prefs.monitoringLiveSecs} title="How often the Network tab reads the host while it is open">
+          {#each [2, 5, 10, 30] as s (s)}<option value={s}>{s} s</option>{/each}
+        </select>
+      </label>
+      <button class="btn-secondary h-8 text-xs" disabled={refreshing || !monitoring.running} onclick={() => void refresh()}><RefreshCw size={14} class={refreshing ? "animate-spin" : ""} /> Refresh</button>
+      <button class="btn-primary h-8 text-xs" data-testid="monitor-add" onclick={() => (ui.modal = { kind: "monitor-target", id: null })}><Plus size={14} /> Add Monitor</button>
     </div>
 
     {#if monitoring.configError}
       <p class="flex gap-2 rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger"><TriangleAlert size={15} class="mt-0.5 shrink-0" /> The stored monitoring settings could not be read: {monitoring.configError}</p>
     {:else if !monitoring.running}
       <p class="flex gap-2 rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning"><TriangleAlert size={15} class="mt-0.5 shrink-0" /> Monitoring is not running. It starts when the vault is unlocked.</p>
-    {/if}
-    {#if settings.prefs.autoLockMinutes > 0}
-      <p class="text-xs text-fg-muted">Auto-lock is on ({settings.prefs.autoLockMinutes} min). When the vault locks, checks and alerts stop until it is unlocked again.</p>
     {/if}
     {#if channelsOn === 0}
       <p class="flex flex-wrap items-center gap-2 rounded-md border border-line bg-panel px-3 py-2 text-sm">
@@ -132,176 +172,94 @@
       </p>
     {/if}
 
-    <div class="flex w-fit gap-1 rounded-lg border border-line bg-panel p-1 text-sm" role="tablist">
+    <SummaryCards summary={counts} onpick={(h) => { health = h; tab = "overview"; }} />
+
+    <!-- Main navigation -->
+    <div class="flex w-fit max-w-full gap-1 overflow-x-auto rounded-lg border border-line bg-panel p-1 text-sm" role="tablist" aria-label="Monitoring sections">
       {#each TABS as t (t.id)}
-        <button
-          role="tab"
-          aria-selected={tab === t.id}
-          class="flex items-center gap-1.5 rounded-md px-3 py-1.5 font-medium transition-colors {tab === t.id ? 'bg-accent text-white shadow-sm' : 'text-fg-muted hover:bg-panel-hover hover:text-fg'}"
-          onclick={() => (tab = t.id)}
-        >
+        <button id="mon-main-{t.id}" role="tab" aria-selected={tab === t.id} tabindex={tab === t.id ? 0 : -1} class="flex shrink-0 items-center gap-1.5 rounded-md px-3 py-1.5 font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent {tab === t.id ? 'bg-accent text-white shadow-sm' : 'text-fg-muted hover:bg-panel-hover hover:text-fg'}" onclick={() => (tab = t.id)} onkeydown={tabKey}>
           {t.label}
           {#if t.id === "history" && monitoring.unread > 0}<span class="rounded-full bg-danger px-1.5 text-[10px] font-semibold text-white">{monitoring.unread}</span>{/if}
+          {#if t.id === "alerts" && counts.warning + counts.critical > 0}<span class="rounded-full bg-danger px-1.5 text-[10px] font-semibold text-white">{counts.warning + counts.critical}</span>{/if}
         </button>
       {/each}
     </div>
 
-    {#if tab === "status"}
-      {#if targets.length === 0}
-        <EmptyState icon={HeartPulse} text="No host is being watched yet.">
-          <button class="btn-primary mt-3" onclick={() => (ui.modal = { kind: "monitor-target", id: null })}><Plus size={14} /> Add a host</button>
-        </EmptyState>
-      {:else}
-        <div class="overflow-x-auto rounded-xl border border-line bg-panel">
-          <table class="w-full text-left text-sm">
-            <thead class="border-b border-line text-xs text-fg-muted">
-              <tr>
-                <th class="px-3 py-2 font-medium">Host</th>
-                <th class="px-3 py-2 font-medium">State</th>
-                <th class="px-3 py-2 font-medium">Ping</th>
-                <th class="px-3 py-2 font-medium">Ports</th>
-                <th class="px-3 py-2 font-medium">Sites</th>
-                <th class="px-3 py-2 font-medium">CPU</th>
-                <th class="px-3 py-2 font-medium">Memory</th>
-                <th class="px-3 py-2 font-medium">Disk</th>
-                <th class="px-3 py-2 font-medium">Checked</th>
-                <th class="px-3 py-2"></th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-line">
-              {#each targets as rec (rec.id)}
-                {@const t = rec.data!}
-                {@const st = monitoring.statuses[rec.id]}
-                {@const sum = summary(rec.id)}
-                <tr class={t.enabled ? "" : "opacity-50"}>
-                  <td class="px-3 py-2">
-                    <div class="font-medium">{t.label}</div>
-                    <div class="font-mono text-xs text-fg-muted">{t.address}</div>
-                  </td>
-                  <td class="px-3 py-2">
-                    {#if !t.enabled}<span class="text-xs text-fg-muted">Paused</span>
-                    {:else if sum.status}<span class={pill(sum.status)}>{STATUS_TEXT[sum.status]}</span>
-                    {:else}<span class="text-xs text-fg-muted">{sum.text || (st ? "No rule applies" : "")}</span>{/if}
-                  </td>
-                  <td class="px-3 py-2 font-mono text-xs">
-                    {#if st?.ping}{formatValue("ping_loss", st.ping.loss_pct)} lost{#if st.ping.avg_ms !== null}, {formatValue("ping_latency", st.ping.avg_ms)}{/if}{:else}–{/if}
-                  </td>
-                  <td class="px-3 py-2 font-mono text-xs">
-                    {#if st?.ports.length}{#each st.ports as p (p.port)}<span class={p.open ? "text-success" : "text-danger"} title={p.error ?? ""}>{p.port}</span>{" "}{/each}{:else}–{/if}
-                  </td>
-                  <td class="px-3 py-2 font-mono text-xs">
-                    {#if st?.web.length}
-                      {#each st.web as w (w.url)}
-                        <div class="whitespace-nowrap" title={w.error ?? w.url}>
-                          <span class={w.ok ? "text-success" : "text-danger"}>{w.status ?? "no answer"}</span>{#if w.time_ms !== null}{" "}{w.time_ms} ms{/if}{#if w.cert_days !== null}{" "}<span class={w.cert_days < 7 ? "text-danger" : w.cert_days < 21 ? "text-warning" : "text-fg-muted"}>cert {w.cert_days} d</span>{/if}
-                        </div>
-                      {/each}
-                    {:else}–{/if}
-                  </td>
-                  <td class="px-3 py-2 font-mono text-xs">{formatValue("cpu", st?.metrics?.cpu ?? null)}</td>
-                  <td class="px-3 py-2 font-mono text-xs">{formatValue("mem", st?.metrics?.mem ?? null)}</td>
-                  <td class="px-3 py-2 font-mono text-xs">{formatValue("disk", st?.metrics?.disk ?? null)}</td>
-                  <td class="px-3 py-2 text-xs text-fg-muted">{st ? ago(st.checked_at, now) : "–"}</td>
-                  <td class="px-3 py-2 text-right">
-                    <button class="icon-btn" title="Check now" aria-label="Check {t.label} now" disabled={!t.enabled || !monitoring.running} onclick={() => void run(() => monitoring.runNow(rec.id))}><RefreshCw size={14} /></button>
-                  </td>
-                </tr>
-                {#if st && (st.errors.length || st.states.some((s) => s.status !== "ok"))}
-                  <tr>
-                    <td colspan="10" class="bg-base/50 px-3 py-1.5 text-xs">
-                      {#each st.states.filter((s) => s.status !== "ok") as s (s.rule_id + s.subject)}
-                        <span class="mr-3"><span class={pill(s.status)}>{STATUS_TEXT[s.status]}</span> {s.rule}</span>
-                      {/each}
-                      {#each st.errors as e (e)}<span class="mr-3 text-fg-muted">{e}</span>{/each}
-                      {#each st.web.filter((w) => w.error) as w (w.url)}<span class="mr-3 text-fg-muted">{w.url}: {w.error}</span>{/each}
-                    </td>
-                  </tr>
-                {/if}
-              {/each}
-            </tbody>
-          </table>
-        </div>
-      {/if}
-    {/if}
-
-    {#if tab === "hosts"}
-      <div class="flex items-center justify-between">
-        <p class="text-sm text-fg-muted">The hosts to watch. They don't have to be saved SSH hosts; a router or a printer will do.</p>
-        <button class="btn-primary" data-testid="monitor-new" onclick={() => (ui.modal = { kind: "monitor-target", id: null })}><Plus size={14} /> Add a host</button>
-      </div>
-      {#if targets.length === 0}
-        <EmptyState icon={HeartPulse} text="Nothing to watch yet." />
-      {:else}
-        <div class="divide-y divide-line rounded-xl border border-line bg-panel">
-          {#each targets as rec (rec.id)}
-            {@const t = rec.data!}
-            <div class="flex items-center gap-3 px-4 py-2.5 {t.enabled ? '' : 'opacity-60'}">
-              <input type="checkbox" class="accent-input" checked={t.enabled} disabled={busy} aria-label="Watch {t.label}" onchange={() => void toggleTarget(rec)} />
-              <div class="min-w-0 flex-1">
-                <div class="truncate text-sm font-medium">{t.label} <span class="font-mono text-xs font-normal text-fg-muted">{t.address}</span></div>
-                <div class="truncate text-xs text-fg-muted">{hostLine(t)}</div>
+    <div class="flex min-h-0 flex-1 gap-3">
+      <div class="min-h-0 min-w-0 flex-1 space-y-3 overflow-y-auto pr-1">
+        {#if tab === "overview"}
+          {#if all.length === 0}
+            <EmptyState icon={HeartPulse} text="No host is being watched yet.">
+              <button class="btn-primary mt-3" onclick={() => (ui.modal = { kind: "monitor-target", id: null })}><Plus size={14} /> Add a host</button>
+            </EmptyState>
+          {:else}
+            <div class="flex flex-wrap items-center gap-2">
+              <div class="relative min-w-48 flex-1">
+                <Search size={14} class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-muted" />
+                <input class="input h-8 w-full pl-8 text-sm" type="search" placeholder="Search hosts, addresses, tags" aria-label="Search monitored hosts" bind:value={query} />
               </div>
-              <button class="icon-btn" title="Scan ports" aria-label="Scan the ports of {t.label}" onclick={() => (ui.modal = { kind: "port-scan", id: rec.id })}><Radar size={14} /></button>
-              <button class="icon-btn" title="Edit" aria-label="Edit {t.label}" onclick={() => (ui.modal = { kind: "monitor-target", id: rec.id })}><Pencil size={14} /></button>
-              <button class="icon-btn" title="Remove" aria-label="Remove {t.label}" onclick={() => void removeTarget(rec)}><Trash2 size={14} /></button>
+              <select class="input !w-auto h-8 py-0 text-xs" aria-label="Filter by health" bind:value={health}>
+                <option value="all">All states</option><option value="healthy">Healthy</option><option value="warning">Warning</option><option value="critical">Critical</option><option value="offline">Offline</option>
+              </select>
+              {#if tags.length}
+                <select class="input !w-auto h-8 py-0 text-xs" aria-label="Filter by tag" bind:value={tag}>
+                  <option value="">All tags</option>{#each tags as x (x)}<option value={x}>{x}</option>{/each}
+                </select>
+              {/if}
+              {#if filtering}<button class="text-xs text-accent hover:underline" onclick={() => { query = ""; health = "all"; tag = ""; }}>Clear filters</button>{/if}
+              <span class="text-xs text-fg-muted">{shown.length} of {all.length}</span>
             </div>
-          {/each}
-        </div>
-      {/if}
-    {/if}
-
-    {#if tab === "rules"}
-      <div class="space-y-3">
-        <p class="text-sm text-fg-muted">
-          A rule says when a reading is a problem. A state changes only after several checks in a row agree, and you are told once when it changes, not on every check.
-        </p>
-        <div class="flex flex-wrap items-center gap-2">
-          <span class="text-xs text-fg-muted">Add:</span>
-          {#each PRESETS as p (p.name)}
-            <button class="btn-secondary py-1 text-xs" disabled={busy} onclick={() => void addPreset(p.name)}>{p.name}</button>
-          {/each}
-          <button class="btn-primary ml-auto" data-testid="rule-new" onclick={() => (ui.modal = { kind: "alert-rule", id: null })}><Plus size={14} /> New rule</button>
-        </div>
-        {#if rules.length === 0}
-          <EmptyState icon={BellRing} text="No rules yet. Add one above to be told when something goes wrong." />
+            <TrafficNow rows={shown} unit={settings.prefs.netUnit} onpick={(id) => pick(id, "network")} />
+            {#if shown.length === 0}
+              <EmptyState icon={Search} text="No host matches these filters." />
+            {:else}
+              <HostTable rows={shown} selectedId={selected?.id ?? null} compact={!!selected && docked} {now} unit={settings.prefs.netUnit} {sort} {dir} {onsort} onpick={(id) => pick(id)} />
+            {/if}
+          {/if}
+        {:else if tab === "hosts"}
+          <HostsTab />
+        {:else if tab === "checks"}
+          <ChecksTab rows={all} {now} onpick={(id) => pick(id, "checks")} />
+        {:else if tab === "alerts"}
+          <AlertsTab rows={all} {now} onpick={(id) => pick(id, "alerts")} />
+        {:else if tab === "rules"}
+          <RulesTab />
         {:else}
-          <div class="divide-y divide-line rounded-xl border border-line bg-panel">
-            {#each rules as rec (rec.id)}
-              {@const r = rec.data!}
-              <div class="flex items-center gap-3 px-4 py-2.5 {r.enabled ? '' : 'opacity-60'}">
-                <input type="checkbox" class="accent-input" checked={r.enabled} disabled={busy} aria-label="Use {r.name}" onchange={() => void toggleRule(rec)} />
-                <div class="min-w-0 flex-1">
-                  <div class="truncate text-sm font-medium">{r.name}{#if r.name !== METRICS[r.metric].label} <span class="text-xs font-normal text-fg-muted">{METRICS[r.metric].label}</span>{/if}</div>
-                  <div class="truncate text-xs text-fg-muted">{ruleLine(r)}</div>
-                </div>
-                <button class="icon-btn" title="Edit" aria-label="Edit {r.name}" onclick={() => (ui.modal = { kind: "alert-rule", id: rec.id })}><Pencil size={14} /></button>
-                <button class="icon-btn" title="Delete" aria-label="Delete {r.name}" onclick={() => void removeRule(rec)}><Trash2 size={14} /></button>
-              </div>
-            {/each}
-          </div>
+          <HistoryTab {now} />
         {/if}
       </div>
-    {/if}
 
-    {#if tab === "history"}
-      {#if monitoring.history.length === 0}
-        <EmptyState icon={BellRing} text="No alert has been raised since the vault was unlocked. This list is not kept when it locks." />
-      {:else}
-        <div class="divide-y divide-line rounded-xl border border-line bg-panel">
-          {#each monitoring.history as a, i (a.at + a.target_id + a.rule + i)}
-            <div class="px-4 py-2.5">
-              <div class="flex flex-wrap items-center gap-2 text-sm">
-                <span class={pill(a.status)}>{a.status === "ok" ? "Recovered" : STATUS_TEXT[a.status]}</span>
-                <span class="font-medium">{a.target}</span>
-                <span class="text-fg-muted">{a.rule}</span>
-                <span class="ml-auto text-xs text-fg-muted">{ago(a.at, now)}</span>
-              </div>
-              <div class="mt-0.5 text-xs">{a.summary}</div>
-              <div class="mt-0.5 text-xs text-fg-muted">{describeDeliveries(a.deliveries)}</div>
-            </div>
-          {/each}
-        </div>
+      {#if docked && selected}
+        <aside class="relative flex min-h-0 shrink-0 overflow-hidden rounded-xl border border-line bg-panel" style:width="{panelWidth}px" aria-label="Host details">
+          {#key selected.id}<div class="min-h-0 min-w-0 flex-1"><DetailsPanel row={selected} {now} bind:tab={detailTab} onclose={close} /></div>{/key}
+          <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
+          <div
+            class="absolute left-0 top-0 z-20 h-full w-2 cursor-col-resize outline-none after:absolute after:left-0 after:top-0 after:h-full after:w-0.5 after:transition-colors {dragging ? 'after:bg-accent' : 'hover:after:bg-accent/60 focus-visible:after:bg-accent'}"
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize the details panel"
+            aria-valuenow={panelWidth}
+            aria-valuemin={DETAIL_MIN}
+            aria-valuemax={DETAIL_MAX}
+            tabindex="0"
+            title="Drag to resize · double-click to reset"
+            onpointerdown={down}
+            onpointermove={move}
+            onpointerup={stop}
+            onpointercancel={stop}
+            onlostpointercapture={() => dragging && stop()}
+            ondblclick={() => (settings.prefs.monitoringDetailWidth = 460)}
+            onkeydown={handleKey}
+          ></div>
+        </aside>
       {/if}
-    {/if}
+    </div>
   </div>
+
+  {#if !docked && selected && slideOver}
+    <button class="absolute inset-0 z-30 cursor-default bg-black/40" aria-label="Close details" tabindex="-1" onclick={close}></button>
+    <aside class="anim-pop-left absolute inset-y-0 right-0 z-40 flex w-[min(30rem,100%)] flex-col border-l border-line bg-panel shadow-2xl" aria-label="Host details">
+      {#key selected.id}<DetailsPanel row={selected} {now} bind:tab={detailTab} onclose={close} />{/key}
+    </aside>
+  {/if}
 </div>

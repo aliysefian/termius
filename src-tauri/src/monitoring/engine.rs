@@ -25,6 +25,7 @@ use super::model::{AlertRule, ChannelKind, CheckSpec, Metric, MonitorTarget, Not
 use super::notify::bot::BotChannel;
 use super::notify::smtp::SmtpChannel;
 use super::notify::{BoxFuture, Channel, Delivery, Dispatcher, Notification, Proxies};
+use super::net;
 use super::ping;
 use super::rules::{classify, describe, Evaluator, StateKey, Status, Transition};
 
@@ -82,6 +83,10 @@ pub struct MetricsView {
     pub cpu: Option<f64>,
     pub mem: Option<f64>,
     pub disk: Option<f64>,
+    /// Interface traffic, when the host's counters could be read.
+    pub net: Option<net::NetReading>,
+    /// Which interface the headline speed is read from.
+    pub net_headline: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -515,13 +520,24 @@ async fn gather(host: &dyn EngineHost, target: &MonitorTarget, run_ssh: bool) ->
     match ssh_result {
         Some(Ok(out)) => {
             let m = metrics::parse(&out);
-            for (metric, value) in [(Metric::Cpu, m.cpu), (Metric::Mem, m.mem), (Metric::Disk, m.disk)] {
+            let reading = net::parse(&out);
+            let head = reading.as_ref().and_then(net::headline);
+            // Megabytes per second, so a limit is typed as people say it. No counters means no reading, not zero.
+            let mbps = |v: Option<f64>| v.map(|b| b / 1_000_000.0);
+            for (metric, value) in [
+                (Metric::Cpu, m.cpu),
+                (Metric::Mem, m.mem),
+                (Metric::Disk, m.disk),
+                (Metric::NetRx, mbps(head.and_then(|i| i.rx_bps))),
+                (Metric::NetTx, mbps(head.and_then(|i| i.tx_bps))),
+            ] {
                 g.readings.push(Reading { metric, subject: String::new(), value });
             }
-            g.metrics = Some(MetricsView { cpu: m.cpu, mem: m.mem, disk: m.disk });
+            let net_headline = head.map(|i| i.name.clone());
+            g.metrics = Some(MetricsView { cpu: m.cpu, mem: m.mem, disk: m.disk, net: reading, net_headline });
         }
         Some(Err(e)) => {
-            for metric in [Metric::Cpu, Metric::Mem, Metric::Disk] {
+            for metric in [Metric::Cpu, Metric::Mem, Metric::Disk, Metric::NetRx, Metric::NetTx] {
                 g.readings.push(Reading { metric, subject: String::new(), value: None });
             }
             g.errors.push(format!("SSH: {e}"));
@@ -744,6 +760,42 @@ mod tests {
         assert!(host.events.lock().unwrap().iter().any(|e| matches!(e, EngineEvent::Alert(_))));
         engine.stop();
         assert!(engine.snapshot().history.is_empty(), "nothing is kept once stopped");
+    }
+
+
+    #[tokio::test]
+    async fn a_download_limit_is_judged_from_the_hosts_counters_in_megabytes_per_second() {
+        let (mut cfg, id) = cpu_config(1);
+        cfg.rules[0].1 = AlertRule { name: "Download".into(), metric: Metric::NetRx, warn: Some(5.0), crit: Some(20.0), ..cfg.rules[0].1.clone() };
+        let host = FakeHost::new(cfg);
+        // 30 MB received over 2 s on the interface the default route leaves by: 15 MB/s, a warning.
+        *host.output.lock().unwrap() = Ok("CPU=10\nMEM=10\nDISK=10\n@@NETA 100.0\neth0 1000000 10 0 0 2000000 10 0 0\n@@NETB 102.0\neth0 31000000 20 0 0 6000000 20 0 0\n@@NETIF\neth0 up 1 1000\n@@PRIMARY\neth0\n".into());
+        let engine = quick();
+        engine.start(host.clone()).await;
+        until("the alert", || host.notified().len() == 1).await;
+        assert_eq!(host.notified(), vec![Status::Warning]);
+        let n = host.got.lock().unwrap()[0].clone();
+        assert!(n.summary.contains("Download speed (RX) is 15 MB/s"), "{}", n.summary);
+        let m = engine.snapshot().statuses.iter().find(|s| s.id == id).and_then(|s| s.metrics.clone()).unwrap();
+        let net = m.net.unwrap();
+        assert_eq!(m.net_headline.as_deref(), Some("eth0"));
+        assert_eq!((net.interfaces[0].rx_bps, net.interfaces[0].tx_bps), (Some(15_000_000.0), Some(2_000_000.0)));
+    }
+
+    #[tokio::test]
+    async fn a_host_without_counters_has_no_speed_and_a_speed_rule_stays_unknown() {
+        let (mut cfg, _) = cpu_config(1);
+        cfg.rules[0].1 = AlertRule { metric: Metric::NetRx, ..cfg.rules[0].1.clone() };
+        let host = FakeHost::new(cfg);
+        let engine = quick();
+        engine.start(host.clone()).await;
+        until("a check", || host.runs() >= 1).await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert!(host.notified().is_empty());
+        let st = &engine.snapshot().statuses[0];
+        assert!(st.metrics.as_ref().unwrap().net.is_none());
+        assert_eq!(st.states[0].status, Status::Unknown);
+        assert_eq!(st.states[0].value, None);
     }
 
     #[tokio::test]

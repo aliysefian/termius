@@ -297,6 +297,7 @@ pub fn run() {
             commands::containers::containers_compose,
             commands::monitoring::monitor_open,
             commands::monitoring::monitor_exec,
+            commands::monitoring::monitor_net_sample,
             commands::monitoring::ssh_verify_key,
             commands::monitoring::monitor_close,
             commands::monitoring::monitor_stream_start,

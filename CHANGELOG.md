@@ -4,6 +4,11 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## Unreleased
+
+- **New:** **a redesigned Monitoring page with real-time network traffic.** A header with the time range, live interval, Refresh and Add Monitor; cards for total, healthy, warning, critical and offline hosts; Overview, Hosts, Checks, Alerts, Rules and History tabs; and a searchable, sortable host table with CPU, memory, download and upload at a glance. Click a host for a resizable details panel (a slide-over on narrow windows) with Overview, Network, Resources, Checks, Alerts and History tabs, and an Open SSH Terminal button.
+- **Network tab.** Per-interface download (RX) and upload (TX) speed, totals since boot, packets, errors and drops, link use, a bytes or bits switch, and an RX/TX chart with hover values, gaps for missing readings and ranges that are offered only when that much history exists. Speeds come from the host's interface counters over SSH (Linux); a host without them says so instead of showing 0. New rules can watch download and upload speed. Existing hosts, rules, channels and history are unchanged.
+
 ## 0.50.0 - 2026-11-01
 
 - **New:** **a redesigned Containers page.** A host selector and runtime box at the top, four cards counting total, running, stopped and unhealthy containers, and tabs for Containers, Images, Volumes, Networks and Compose with their counts. One toolbar has search (now also by Compose project and service), a status filter (running, stopped, paused, restarting, failed, unhealthy), Projects or Flat grouping, columns you can show and hide (remembered, and dropped automatically as the window narrows) and refresh. Rows keep to a few actions: **Stop** or **Start**, **Logs** and a menu with Restart, **Pause**, **Resume**, Open Terminal, Inspect, copy ID and name, and Delete. Compose projects are grouped with how many are running and unhealthy, can be collapsed (remembered), and have start, stop, restart, take-down and a details button.

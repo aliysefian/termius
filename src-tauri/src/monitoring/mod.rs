@@ -3,6 +3,7 @@
 //! * [`model`]: the records kept in the vault (hosts to watch, alert rules, notification channels).
 //! * [`ping`], [`checks`], [`http`], [`metrics`]: the kinds of check (ICMP ping, TCP port, a web page, CPU / memory / disk
 //!   over SSH), and [`scan`], the port scan that runs when asked.
+//! * [`net`]: per-interface download and upload speed and totals, from the host's own counters.
 //! * [`rules`]: judging readings and remembering each state, so only a confirmed change is reported.
 //! * [`notify`]: Telegram, Bale and email, and the dispatcher that sends an alert to the channels a rule allows.
 //!
@@ -14,6 +15,7 @@ pub mod engine;
 pub mod http;
 pub mod metrics;
 pub mod model;
+pub mod net;
 pub mod notify;
 pub mod ping;
 pub mod rules;

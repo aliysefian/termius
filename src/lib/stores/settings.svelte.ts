@@ -78,6 +78,11 @@ export interface Prefs {
   containerDrawerWidth: number;
   /** Compose projects the person collapsed, per host (key from containerview.collapseKey). */
   containerCollapsed: Record<string, boolean>;
+  /** Monitoring: speeds in bytes or bits, the chart's time range, how often the open host's speed is read, and the details panel's width. */
+  netUnit: "bytes" | "bits";
+  monitoringRange: string;
+  monitoringLiveSecs: number;
+  monitoringDetailWidth: number;
   /** The Tunnels page's details panel width in pixels (drag its edge; double-click resets). */
   tunnelsDetailWidth: number;
   /** Reconnect by itself when a connection drops (not when you exit). */
@@ -243,6 +248,10 @@ export const DEFAULT_PREFS: Prefs = {
   containerGrouped: true,
   containerDrawerWidth: 480,
   containerCollapsed: {},
+  netUnit: "bytes",
+  monitoringRange: "15m",
+  monitoringLiveSecs: 5,
+  monitoringDetailWidth: 460,
   tunnelsDetailWidth: 440,
   autoReconnect: true,
   restoreLastSession: true,
