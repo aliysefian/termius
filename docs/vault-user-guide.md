@@ -121,7 +121,7 @@ You can have the vault open on several computers at the same time; the Vault scr
 ## Changing things later
 
 - **Change master password:** instant. Other computers need the new password the next time they unlock; remembered devices keep working.
-- **Recovery key:** create one, replace it (the old one stops working) or remove it, from the Vault screen. Each needs your master password.
+- **Recovery key:** create one, replace it (the old one stops working on this vault, though not on an older copy such as a backup) or remove it, from the Vault screen. Each needs your master password.
 - **Move vault:** copies the vault to an empty folder, verifies the copy, and switches to it. The old folder is left in place: once your other computers have opened the new folder, delete the old one.
 - **Remember / forget on this device:** on the Vault screen.
 
