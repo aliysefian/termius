@@ -977,13 +977,93 @@ already installed works. Through an SSH host, the certificate is checked
 against the server name you entered (as the SSH host sees it), not against
 the loopback address.
 
+### The workspace
+
+The page has three panels, each resizable (drag its edge, double-click to reset) and each hideable: the **explorer** on the
+left, the **editor and results** in the middle, and the **inspector** on the right. When the window is too narrow to keep
+the editor at a usable width, the inspector and then the explorer stop docking and open over the editor on request
+(the panel buttons at the ends of the tab strip). Their widths and visibility are remembered.
+
+**Explorer.** Connections are grouped as you grouped them. A connected one shows its tree: databases or schemas, and below
+each the objects in folders with their counts: **Tables**, **Views**, **Functions**, **Procedures**, **Sequences**
+(PostgreSQL) or **Routines** and **Events** (MySQL); a table has **Columns**, **Indexes** and **Triggers**. Folders appear
+only when a level holds more than one kind of thing, so an engine without them (Redis keys, MongoDB collections) is not given
+PostgreSQL's shape. Nothing is read until you open it, the tree draws only the rows in view (a schema of thousands of tables
+stays quick), and a row count shown beside a table is the server's estimate, marked **≈**, never a count. Long names show in
+full as a tooltip. Use the arrow keys, **Right/Left** to open and close, **Enter** to open a table, **F5** to refresh, and the
+context menu (right-click, or the Menu key) for Open data, Open structure, Show definition, New SELECT query, Copy name,
+Export rows and Import CSV.
+
+**Search** matches connection, database, schema, table, view, function, procedure and sequence names, ignoring case, and
+highlights what matched. It searches what is loaded and also asks each connected PostgreSQL or MySQL server, so a table in a
+schema you never opened is found (under *More on the server*; click it to reveal it). The chips filter by kind.
+
+**Documents.** The tab strip holds query tabs and table tabs. A query tab shows an unsaved dot until it is saved; a table tab
+with changes not yet saved to the database shows a red dot. Right-click a tab to duplicate it, save its query or close the
+others. **Ctrl+W** closes the tab, **Alt+PageDown / Alt+PageUp** move between tabs (Ctrl+Tab and Ctrl+PageUp/Down stay the
+app's own). A strip under the tabs shows the connection, its server version, environment and whether it is read-only, and
+lets a query tab switch connection.
+
+**Writing and running SQL.** Line numbers, SQL highlighting for the engine's own dialect, bracket matching and completion of
+keywords, schemas, tables and columns. **Ctrl+Enter** runs the selection, or the statement the cursor is in (statements end at a
+`;` that is not inside a string, a quoted name, a comment or a `$$` body). **Ctrl+Shift+Enter**, or the **Script** button, runs
+the selection or the whole text statement by statement, stopping at the first that fails and giving one result per statement
+that returns rows (a script that manages its own transaction is sent whole). **Ctrl+S** saves the query, **Ctrl+Shift+F**
+formats it, **Ctrl+/** comments the lines, **Ctrl+F** finds. **Stop** cancels on the server (PostgreSQL cancels the query, MySQL
+kills it). **Explain** shows the plan without running the statement (PostgreSQL, MySQL, rqlite). A statement the server may regret,
+such as a DELETE with no WHERE, asks first; on a production connection you also type the connection's name.
+
+**Read-only.** A connection can start every session read-only (a setting in the connection form); the server then refuses
+changes, and the toolbar says so. On PostgreSQL a single tab can also start each statement in a read-only transaction. Both are
+guards against accidents: a statement that deliberately switches the mode off can get around them. The hard limit is a
+database account that can only read.
+
+**Results.** The tabs under the editor are **Results**, **Messages** (what the server said and how long each run took),
+**Query history** and **Saved queries**. The grid shows the type of each column (int, dec, bool, date/time, json, bin, text),
+NULL in italics, row numbers, and lets you resize a column (drag its edge; double-click to fit), move it (drag its header),
+select cells with the mouse or Shift+arrows, and copy them (**Ctrl+C**; the menu also copies with headers, as CSV or as JSON).
+**Shift+Enter** opens a cell's full value, pretty-printed when it is JSON. The search box filters the loaded rows. "Rows returned"
+and "rows affected" are different numbers and are labelled so. **History** keeps the last 100 runs by default (choose 0 to 1,000
+or clear it); it and the saved queries stay on this computer, are never synced, and a password typed in a statement
+(`IDENTIFIED BY '…'`, `PASSWORD '…'`) is hidden.
+
+**Tables.** Double-click a table (or a view). A table tab has **Data**, **Structure**, **Indexes**, **Constraints**,
+**Relationships** and **DDL**; the last four are shown for PostgreSQL and MySQL / MariaDB, which keep them in a catalog.
+*Data* reads one page at a time from the server (50 to 1,000 rows), sorted on the server when you click a header, filtered by a
+`WHERE` condition you type (one condition; a second statement is refused), with a **Count rows** button that runs only when
+asked. *Relationships* draws the foreign keys in both directions and each table in it is a link. *DDL* is what MySQL itself
+reports; on PostgreSQL it is rebuilt from the catalog and says so, because it is close to, not guaranteed identical to, the
+statement that created the table.
+
+**Changing rows (PostgreSQL, MySQL / MariaDB).** Double-click a cell to edit it, press **Row** to add a row, or mark a row for
+deletion (the trash button, or **Delete**). Nothing is sent: changed cells are tinted, deleted rows struck through and new rows
+shown at the end, with a bar that says what is pending. **Review and save…** lists the exact statements, then saves them
+together in **one transaction**: if any one fails, or a row was changed or deleted by someone else since you loaded it, none is
+saved and the pending changes stay. Values travel as bound parameters, a row is found by its primary key, and a table with no
+key can't have rows edited or deleted. Deleting, or saving on a production connection, asks for confirmation. Other engines keep
+the earlier one-cell-at-a-time edit with its confirmation.
+
+**Export and import.** *Export rows…* on a table writes all of it, or the rows matching a condition, to **CSV**, **JSON** or
+**INSERT statements**, a chunk at a time, with a progress count and a Stop button; nothing is loaded into memory whole. It is
+the rows of one table: not a backup (no schema, indexes, other tables, users or grants). *Import CSV…* (PostgreSQL and
+MySQL / MariaDB) reads a file the same way: choose it, its encoding (UTF-8, Windows-1252/Latin-1, Windows-1256, UTF-16, and
+others) and separator (or let it be detected), match each file column to a column of the table (matched by name for you,
+or skipped), see the first rows, and import. Rows are saved **200 at a time, each batch in its own transaction**: if a batch is
+refused, the ones before it stay saved and the message says how many and at which line it stopped. It is off for a read-only
+connection.
+
+**Inspector.** Follows what you last selected: a **connection** (engine, version, address, user, encryption, the SSH host it goes
+through, how long it has been connected), a **table** (columns, indexes, key, the estimated rows and size, comment), or the
+**open document** (for a query: its status, duration, rows and columns of the last run, and an Explain button). It shows only what
+the database or this program knows; it does not invent server load, memory or connection counts.
+
 **PostgreSQL.** A connection is to one database (the one named in the form,
 `postgres` if left empty), so its tree starts at the **schemas** of that
 database; add a connection for each database you want to browse. Tables,
 views, materialized views, foreign and partitioned tables are listed, with
 their columns and indexes below. A statement that can't be described ahead of
-time, such as a script of several statements, shows its values as text and
-only its first result set.
+time (a single statement sent whole, such as a script that manages its own
+transaction) shows its values as text and only its first result set.
 
 ### The other engines
 

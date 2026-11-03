@@ -39,49 +39,50 @@
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
-  <!-- Filter, paging -->
-  <div class="flex flex-wrap items-center gap-2 border-b border-line bg-panel px-3 py-1.5">
-    <form class="relative min-w-56 flex-1" onsubmit={(e) => { e.preventDefault(); applyFilter(); }}>
-      <Filter size={12} class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-muted" />
-      <input
-        class="input h-7 w-full pl-7 pr-7 font-mono text-xs {p.filterError ? 'border-danger' : ''}"
-        placeholder="Filter rows: a WHERE condition, e.g. price > 10 AND name LIKE 'a%'"
-        aria-label="Filter rows (a WHERE condition)"
-        aria-invalid={!!p.filterError}
-        aria-describedby={p.filterError ? "filter-error" : undefined}
-        bind:value={filterText}
-      />
-      {#if filterText}<button type="button" class="icon-btn absolute right-0.5 top-1/2 h-6 w-6 -translate-y-1/2" aria-label="Clear the filter" onclick={clearFilter}><X size={12} /></button>{/if}
-    </form>
-    <button class="btn-secondary h-7 px-2 text-xs" disabled={tab.running} onclick={applyFilter}><Search size={12} /> Apply</button>
-    <button class="icon-btn h-7 w-7 border border-line" title="Reload this page (F5)" aria-label="Reload this page" disabled={tab.running} onclick={() => void databases.refreshPage(tab.id)}>{#if tab.running}<Loader2 size={13} class="animate-spin" />{:else}<RefreshCw size={13} />{/if}</button>
-    <span class="mx-0.5 h-4 w-px bg-line"></span>
-    <div class="flex items-center gap-1" role="group" aria-label="Pages">
-      <button class="icon-btn h-7 w-7 border border-line" title="First page" aria-label="First page" disabled={!hasPrev || tab.running} onclick={() => void databases.goToPage(tab.id, 0)}><ChevronLeft size={13} /><ChevronLeft size={13} class="-ml-2.5" /></button>
-      <button class="icon-btn h-7 w-7 border border-line" title="Previous page" aria-label="Previous page" disabled={!hasPrev || tab.running} onclick={() => void databases.goToPage(tab.id, p.offset - p.size)}><ChevronLeft size={13} /></button>
-      <span class="min-w-28 text-center text-xs text-fg-muted" aria-live="polite" data-testid="page-range">{r ? rangeText(p.offset, r.rows.length) : "…"}{#if total !== null} of {total.toLocaleString()}{/if}</span>
-      <button class="icon-btn h-7 w-7 border border-line" title="Next page" aria-label="Next page" disabled={!p.hasNext || tab.running} onclick={() => void databases.goToPage(tab.id, p.offset + p.size)}><ChevronRight size={13} /></button>
-      <button class="icon-btn h-7 w-7 border border-line" title={lastOffset === null ? "Count the rows first to jump to the last page" : "Last page"} aria-label="Last page" disabled={lastOffset === null || p.offset >= lastOffset || tab.running} onclick={() => lastOffset !== null && void databases.goToPage(tab.id, lastOffset)}><ChevronRight size={13} /><ChevronRight size={13} class="-ml-2.5" /></button>
-    </div>
-    <span class="text-xs text-fg-muted">page {pageNo}</span>
-    <label class="flex items-center gap-1 text-xs text-fg-muted">
-      Rows
-      <select class="input !w-auto h-7 py-0 text-xs" value={p.size} aria-label="Rows per page" onchange={(e) => void databases.setPageSize(tab.id, Number(e.currentTarget.value))}>
-        {#each PAGE_SIZES as n (n)}<option value={n}>{n}</option>{/each}
-      </select>
-    </label>
-    <button class="btn-secondary h-7 px-2 text-xs" disabled={p.countLoading || tab.running} title="Count every row{p.filter.trim() ? ' that matches the filter' : ''}. It reads the whole table, so it runs only when you ask." onclick={() => void databases.countRows(tab.id)}>
-      {#if p.countLoading}<Loader2 size={12} class="animate-spin" />{:else}<Hash size={12} />{/if} {total === null ? "Count rows" : "Recount"}
-    </button>
-    <div class="ml-auto flex items-center gap-1.5">
-      {#if canAdd}<button class="btn-secondary h-7 px-2 text-xs" onclick={() => databases.stageNewRow(tab.id)} title="Add a row (saved when you review and save)"><Plus size={12} /> Row</button>{/if}
-      <div class="relative w-40">
+  <!-- Filter and actions, then paging -->
+  <div class="space-y-1.5 border-b border-line bg-panel px-3 py-1.5">
+    <div class="flex flex-wrap items-center gap-2">
+      <form class="relative min-w-56 flex-1" onsubmit={(e) => { e.preventDefault(); applyFilter(); }}>
+        <Filter size={12} class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-muted" />
+        <input
+          class="input h-7 w-full pl-7 pr-7 font-mono text-xs {p.filterError ? 'border-danger' : ''}"
+          placeholder="Filter rows: a WHERE condition, e.g. price > 10 AND name LIKE 'a%'"
+          aria-label="Filter rows (a WHERE condition)"
+          aria-invalid={!!p.filterError}
+          aria-describedby={p.filterError ? "filter-error" : undefined}
+          bind:value={filterText}
+        />
+        {#if filterText}<button type="button" class="icon-btn absolute right-0.5 top-1/2 h-6 w-6 -translate-y-1/2" aria-label="Clear the filter" onclick={clearFilter}><X size={12} /></button>{/if}
+      </form>
+      <button class="btn-secondary h-7 px-2 text-xs" disabled={tab.running} onclick={applyFilter}><Search size={12} /> Apply</button>
+      <div class="relative w-36">
         <Search size={12} class="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-fg-muted" />
         <input class="input h-7 w-full pl-6 text-xs" type="search" placeholder="Search this page" aria-label="Search loaded rows" bind:value={find} />
       </div>
+      {#if canAdd}<button class="btn-secondary h-7 px-2 text-xs" onclick={() => databases.stageNewRow(tab.id)} title="Add a row (saved when you review and save)"><Plus size={12} /> Row</button>{/if}
       <button class="btn-secondary h-7 px-2 text-xs" disabled={!r} title="Copy this page as CSV" onclick={() => r && void copyResult(r, "csv")}>Copy CSV</button>
       <button class="btn-secondary h-7 px-2 text-xs" disabled={!r} title="Save this page as a CSV file" onclick={() => r && void saveResult(r, "csv", tab.title)}><Download size={12} /> CSV</button>
       <button class="btn-secondary h-7 px-2 text-xs" title="Write the whole table to a file" onclick={onexport}><Download size={12} /> Export…</button>
+    </div>
+    <div class="flex flex-wrap items-center gap-2">
+      <button class="icon-btn h-7 w-7 border border-line" title="Reload this page (F5)" aria-label="Reload this page" disabled={tab.running} onclick={() => void databases.refreshPage(tab.id)}>{#if tab.running}<Loader2 size={13} class="animate-spin" />{:else}<RefreshCw size={13} />{/if}</button>
+      <div class="flex items-center gap-1" role="group" aria-label="Pages">
+        <button class="icon-btn h-7 w-7 border border-line" title="First page" aria-label="First page" disabled={!hasPrev || tab.running} onclick={() => void databases.goToPage(tab.id, 0)}><ChevronLeft size={13} /><ChevronLeft size={13} class="-ml-2.5" /></button>
+        <button class="icon-btn h-7 w-7 border border-line" title="Previous page" aria-label="Previous page" disabled={!hasPrev || tab.running} onclick={() => void databases.goToPage(tab.id, p.offset - p.size)}><ChevronLeft size={13} /></button>
+        <span class="min-w-28 text-center text-xs text-fg-muted" aria-live="polite" data-testid="page-range">{r ? rangeText(p.offset, r.rows.length) : "…"}{#if total !== null} of {total.toLocaleString()}{/if}</span>
+        <button class="icon-btn h-7 w-7 border border-line" title="Next page" aria-label="Next page" disabled={!p.hasNext || tab.running} onclick={() => void databases.goToPage(tab.id, p.offset + p.size)}><ChevronRight size={13} /></button>
+        <button class="icon-btn h-7 w-7 border border-line" title={lastOffset === null ? "Count the rows first to jump to the last page" : "Last page"} aria-label="Last page" disabled={lastOffset === null || p.offset >= lastOffset || tab.running} onclick={() => lastOffset !== null && void databases.goToPage(tab.id, lastOffset)}><ChevronRight size={13} /><ChevronRight size={13} class="-ml-2.5" /></button>
+      </div>
+      <span class="text-xs text-fg-muted">page {pageNo}</span>
+      <label class="flex items-center gap-1 text-xs text-fg-muted">
+        Rows per page
+        <select class="input !w-auto h-7 py-0 text-xs" value={p.size} aria-label="Rows per page" onchange={(e) => void databases.setPageSize(tab.id, Number(e.currentTarget.value))}>
+          {#each PAGE_SIZES as n (n)}<option value={n}>{n}</option>{/each}
+        </select>
+      </label>
+      <button class="btn-secondary h-7 px-2 text-xs" disabled={p.countLoading || tab.running} title="Count every row{p.filter.trim() ? ' that matches the filter' : ''}. It reads the whole table, so it runs only when you ask." onclick={() => void databases.countRows(tab.id)}>
+        {#if p.countLoading}<Loader2 size={12} class="animate-spin" />{:else}<Hash size={12} />{/if} {total === null ? "Count rows" : "Recount"}
+      </button>
     </div>
   </div>
   {#if p.filterError}<p id="filter-error" class="border-b border-line bg-danger/10 px-3 py-1 text-xs text-danger" role="alert">{p.filterError}</p>{/if}

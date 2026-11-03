@@ -17,8 +17,8 @@
   let scroller = $state<HTMLDivElement>();
   let scrollTop = $state(0);
   let viewport = $state(400);
-  let widths = $state<number[]>([]);
-  let order = $state<number[]>([]);
+  /** Widths and column order the person changed, valid only for the columns they were changed on. */
+  let custom = $state<{ sig: string; widths: number[]; order: number[] } | null>(null);
   let anchor = $state<{ row: number; col: number } | null>(null);
   let focus = $state<{ row: number; col: number } | null>(null);
   let editing = $state<{ row: number; col: number; value: string } | null>(null);
@@ -32,6 +32,17 @@
   const staged = $derived(databases.stagedEditing(tab));
   const readOnlyConn = $derived(databases.isReadOnlyConnection(tab.connId));
   const offset = $derived(paged ? tab.page.offset : 0);
+  const sig = $derived(result ? result.columns.map((c) => c.name).join("\u0000") : "");
+  // Always consistent with the columns of the result being drawn, so a new result never meets a stale order.
+  const order = $derived(custom && custom.sig === sig ? custom.order : (result?.columns.map((_, i) => i) ?? []));
+  const widths = $derived(custom && custom.sig === sig ? custom.widths : result ? startWidths(result) : []);
+
+  function edit(mut: (c: { sig: string; widths: number[]; order: number[] }) => void) {
+    if (!result) return;
+    const c = custom && custom.sig === sig ? custom : { sig, widths: [...widths], order: [...order] };
+    mut(c);
+    custom = { ...c, widths: [...c.widths], order: [...c.order] };
+  }
 
   /** Row positions in the order shown: the server's order for a paged table, else sorted here; then searched. */
   const rows = $derived.by(() => {
@@ -45,17 +56,9 @@
   const shown = $derived(rows.slice(range.start, range.end));
   const total = $derived(NUM_W + order.reduce((n, c) => n + (widths[c] ?? 160), 0));
 
-  // A new result starts at the top, with fresh widths and column order; the same columns keep theirs.
-  let signature = "";
+  // A new result starts at the top with nothing selected.
   $effect(() => {
-    const r = tab.result;
-    if (!r) return;
-    const sig = r.columns.map((c) => c.name).join("\u0000");
-    if (sig !== signature) {
-      signature = sig;
-      widths = startWidths(r);
-      order = r.columns.map((_, i) => i);
-    }
+    void tab.result;
     if (scroller) scroller.scrollTop = 0;
     anchor = focus = null;
     editing = null;
@@ -241,7 +244,10 @@
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   }
   function moveResize(e: PointerEvent) {
-    if (resizing) widths[resizing.col] = Math.max(MIN_COL, Math.round(resizing.startW + e.clientX - resizing.startX));
+    if (resizing) {
+      const { col, startW, startX } = resizing;
+      edit((c) => (c.widths[col] = Math.max(MIN_COL, Math.round(startW + e.clientX - startX))));
+    }
   }
   function stopResize() {
     resizing = null;
@@ -249,9 +255,12 @@
 
   function dropOn(target: number) {
     if (dragCol === null || dragCol === target) return;
-    const next = order.filter((c) => c !== dragCol);
-    next.splice(next.indexOf(target) + (order.indexOf(dragCol) < order.indexOf(target) ? 1 : 0), 0, dragCol);
-    order = next;
+    const from = dragCol;
+    edit((c) => {
+      const next = c.order.filter((x) => x !== from);
+      next.splice(next.indexOf(target) + (c.order.indexOf(from) < c.order.indexOf(target) ? 1 : 0), 0, from);
+      c.order = next;
+    });
     dragCol = null;
   }
 
@@ -323,7 +332,7 @@
               onpointermove={moveResize}
               onpointerup={stopResize}
               onpointercancel={stopResize}
-              ondblclick={() => (widths[ci] = startWidths(result)[ci])}
+              ondblclick={() => edit((c) => (c.widths[ci] = startWidths(result)[ci]))}
             ></div>
           </div>
         {/each}
@@ -338,7 +347,7 @@
               <div class="sticky left-0 z-[5] flex shrink-0 items-center justify-end gap-0.5 border-r border-line/50 pr-1 text-fg-muted {deleted ? 'bg-danger/10' : rp % 2 ? 'bg-panel' : 'bg-base'}" style="width: {NUM_W}px">
                 {#if staged}
                   <button
-                    class="icon-btn hidden h-5 w-5 group-hover/row:inline-flex {deleted ? '!inline-flex text-danger' : ''}"
+                    class="icon-btn h-5 w-5 opacity-0 focus:opacity-100 group-hover/row:opacity-100 {deleted ? '!opacity-100 text-danger' : ''}"
                     title={deleted ? "Keep this row" : rowBlock(tab.info, result, ri) ?? "Mark this row for deletion"}
                     aria-label={deleted ? "Keep this row" : "Mark this row for deletion"}
                     onclick={() => databases.stageDelete(tab.id, ri)}
@@ -439,7 +448,7 @@
   <button class="fixed inset-0 z-40 cursor-default" aria-label="Close menu" tabindex="-1" onclick={() => (menu = null)} oncontextmenu={(e) => { e.preventDefault(); menu = null; }}></button>
   <div class="fixed z-50 w-60 rounded-xl border border-line bg-panel p-1 text-sm shadow-xl" use:keepInView={{ x: m.x, y: m.y }} role="menu" aria-label="Cell actions">
     {#snippet item(label: string, run: () => void, opts: { disabled?: boolean; why?: string; danger?: boolean } = {})}
-      <button class="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left hover:bg-panel-hover disabled:opacity-40 disabled:hover:bg-transparent {opts.danger ? 'text-danger' : ''}" role="menuitem" disabled={opts.disabled} title={opts.why} onclick={() => { menu = null; run(); }}>{label}</button>
+      <button class="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left hover:bg-panel-hover disabled:opacity-40 disabled:hover:bg-transparent {opts.danger ? 'text-danger' : ''}" role="menuitem" disabled={opts.disabled} title={opts.why} onclick={() => { run(); menu = null; }}>{label}</button>
     {/snippet}
     {@render item("Copy", () => void copySelection("values"))}
     {@render item("Copy with headers", () => void copySelection("tsv"))}

@@ -143,7 +143,7 @@
                 {#each preview.headers as h, i (i)}
                   <th class="px-2 py-1.5 align-bottom font-normal">
                     <span class="block truncate font-mono font-medium" title={h}>{h}</span>
-                    <select class="input mt-1 h-7 w-full text-xs" aria-label="Table column for {h}" bind:value={mapping[i]} disabled={busy}>
+                    <select class="input mt-1 h-8 w-full text-xs" aria-label="Table column for {h}" bind:value={mapping[i]} disabled={busy}>
                       <option value={null}>(skip this column)</option>
                       {#each info?.columns ?? [] as c (c.name)}<option value={c.name}>{c.name} · {c.data_type}</option>{/each}
                     </select>

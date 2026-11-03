@@ -567,7 +567,7 @@ class DatabasesStore {
           this.#log(tab, cancelled ? "warning" : "error", tab.error, { sql: part, ms: Date.now() - started.at });
           this.#finish(started, { ms: Date.now() - started.at, rows: null, ok: false, error: message });
           if (isApiError(e) && e.code === "no_session") this.#lost(tab.connId);
-          if (tab.sets.length === 0) tab.resultTab = "messages";
+          tab.resultTab = "results";
           return;
         }
         if (!res) {

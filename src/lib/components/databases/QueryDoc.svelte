@@ -112,38 +112,41 @@
 
 <div bind:this={box} class="flex h-full min-h-0 flex-col">
   <div class="shrink-0" style="height: {editorH + 40}px">
-    <!-- Query toolbar -->
-    <div class="flex h-10 flex-wrap items-center gap-1.5 border-b border-line bg-panel px-3" role="toolbar" aria-label="Query actions">
-      {#if tab.running}
-        <button class="btn-danger border border-danger/40 py-1 text-xs" onclick={() => databases.cancel(tab.id)} title="Stop the running query on the server"><Square size={12} /> Stop</button>
-      {:else}
-        <button class="btn-primary py-1 text-xs" disabled={!tab.sql.trim()} onclick={runButton} title="Run the selection, or the statement at the cursor (Ctrl+Enter)" data-testid="run-statement"><Play size={12} /> Run <Kbd keys="Ctrl+Enter" /></button>
-        <button class="btn-secondary py-1 text-xs" disabled={!tab.sql.trim() || !info.sql} onclick={() => run("script", editor?.selection() ?? null)} title={multi ? "Run every statement, one after another (Ctrl+Shift+Enter)" : "Run the whole text as a script (Ctrl+Shift+Enter)"}><ListVideo size={12} /> Script</button>
-      {/if}
-      <button class="btn-secondary py-1 text-xs" disabled={tab.running || !explainSql(engine, "x")} onclick={explain} title={explainSql(engine, "x") ? "Show the plan of the statement at the cursor, without running it" : "Explain is not available for this database type"}><ScanSearch size={12} /> Explain</button>
-      <button class="btn-secondary py-1 text-xs" disabled={!canFormat(engine) || !tab.sql.trim()} onclick={format} title="Format the SQL (Ctrl+Shift+F)"><Wand2 size={12} /> Format</button>
-      <button class="btn-secondary py-1 text-xs" disabled={!tab.sql.trim()} onclick={save} title="Save this query on this computer (Ctrl+S)"><Save size={12} /> Save{#if dirty}<span class="h-1.5 w-1.5 rounded-full bg-warning" title="Unsaved changes"></span>{/if}</button>
-      <span class="mx-1 h-4 w-px bg-line"></span>
-      <label class="flex items-center gap-1.5 text-xs text-fg-muted">
-        Limit
-        <select class="input !w-auto h-7 py-0 text-xs" bind:value={tab.limit} aria-label="Row limit">
-          {#each ROW_LIMITS as n (n)}<option value={n}>{n.toLocaleString()}</option>{/each}
-        </select>
-      </label>
-      <!-- Read-only: the connection's own setting is enforced by the server; a tab can add a guard on PostgreSQL. -->
-      {#if connReadOnly}
-        <span class="inline-flex items-center gap-1 rounded-md border border-success/30 bg-success/10 px-2 py-1 text-xs text-success" title="The connection starts every session read-only, so the server refuses changes."><Lock size={12} /> Read-only (server)</span>
-      {:else if pgOnly}
-        <button
-          class="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs {tab.readOnly ? 'border-success/30 bg-success/10 text-success' : 'border-line text-fg-muted hover:bg-panel-hover'}"
-          aria-pressed={tab.readOnly}
-          onclick={() => (tab.readOnly = !tab.readOnly)}
-          title={tab.readOnly ? "Each statement here starts in a read-only transaction, so the server refuses changes. A statement that deliberately switches that off can get around it; a database account that can only read is the hard limit. Column types show as text in this mode." : "Start each statement in a read-only transaction. For a stronger guard, turn on Read-only sessions in the connection."}
-        >{#if tab.readOnly}<Lock size={12} /> Read-only (this tab){:else}<LockOpen size={12} /> Can change data{/if}</button>
-      {:else}
-        <button class="inline-flex items-center gap-1 rounded-md border border-line px-2 py-1 text-xs text-fg-muted hover:bg-panel-hover" onclick={ongotosettings} title="This connection can change data. Turn on Read-only sessions in the connection to have the server refuse changes."><LockOpen size={12} /> Can change data</button>
-      {/if}
-      <span class="ml-auto truncate text-xs text-fg-muted" title="{info.label} · {databases.sessions[tab.connId]?.version ?? 'not connected'}">on {databases.connName(tab.connId)}{#if !databases.sessions[tab.connId]} (not connected){/if}</span>
+    <!-- Query toolbar. Below a certain width the buttons keep their icons and lose their words. -->
+    <div class="@container h-10 border-b border-line bg-panel">
+      <div class="flex h-full items-center gap-1.5 overflow-x-auto px-3" role="toolbar" aria-label="Query actions">
+        {#if tab.running}
+          <button class="btn-danger shrink-0 border border-danger/40 py-1 text-xs" onclick={() => databases.cancel(tab.id)} title="Stop the running query on the server"><Square size={12} /> Stop</button>
+        {:else}
+          <button class="btn-primary shrink-0 py-1 text-xs" disabled={!tab.sql.trim()} onclick={runButton} title="Run the selection, or the statement at the cursor (Ctrl+Enter)" data-testid="run-statement"><Play size={12} /> Run <span class="hidden @[900px]:inline"><Kbd keys="Ctrl+Enter" /></span></button>
+          <button class="btn-secondary shrink-0 py-1 text-xs" disabled={!tab.sql.trim() || !info.sql} onclick={() => run("script", editor?.selection() ?? null)} title={multi ? "Run every statement, one after another (Ctrl+Shift+Enter)" : "Run the whole text as a script (Ctrl+Shift+Enter)"} aria-label="Run as a script"><ListVideo size={12} /> <span class="hidden @[820px]:inline">Script</span></button>
+        {/if}
+        <button class="btn-secondary shrink-0 py-1 text-xs" disabled={tab.running || !explainSql(engine, "x")} onclick={explain} title={explainSql(engine, "x") ? "Show the plan of the statement at the cursor, without running it" : "Explain is not available for this database type"} aria-label="Explain"><ScanSearch size={12} /> <span class="hidden @[820px]:inline">Explain</span></button>
+        <button class="btn-secondary shrink-0 py-1 text-xs" disabled={!canFormat(engine) || !tab.sql.trim()} onclick={format} title="Format the SQL (Ctrl+Shift+F)" aria-label="Format"><Wand2 size={12} /> <span class="hidden @[820px]:inline">Format</span></button>
+        <button class="btn-secondary shrink-0 py-1 text-xs" disabled={!tab.sql.trim()} onclick={save} title="Save this query on this computer (Ctrl+S)" aria-label="Save"><Save size={12} /> <span class="hidden @[820px]:inline">Save</span>{#if dirty}<span class="h-1.5 w-1.5 rounded-full bg-warning" title="Unsaved changes"></span>{/if}</button>
+        <span class="mx-1 h-4 w-px shrink-0 bg-line"></span>
+        <label class="flex shrink-0 items-center gap-1.5 text-xs text-fg-muted">
+          <span class="hidden @[960px]:inline">Limit</span>
+          <select class="input !w-auto h-7 py-0 text-xs" bind:value={tab.limit} aria-label="Row limit">
+            {#each ROW_LIMITS as n (n)}<option value={n}>{n.toLocaleString()}</option>{/each}
+          </select>
+        </label>
+        <!-- Read-only: the connection's own setting is enforced by the server; a tab can add a guard on PostgreSQL. -->
+        {#if connReadOnly}
+          <span class="inline-flex shrink-0 items-center gap-1 rounded-md border border-success/30 bg-success/10 px-2 py-1 text-xs text-success" title="The connection starts every session read-only, so the server refuses changes."><Lock size={12} /> <span class="hidden @[900px]:inline">Read-only (server)</span></span>
+        {:else if pgOnly}
+          <button
+            class="inline-flex shrink-0 items-center gap-1 rounded-md border px-2 py-1 text-xs {tab.readOnly ? 'border-success/30 bg-success/10 text-success' : 'border-line text-fg-muted hover:bg-panel-hover'}"
+            aria-pressed={tab.readOnly}
+            aria-label="Read-only for this tab"
+            onclick={() => (tab.readOnly = !tab.readOnly)}
+            title={tab.readOnly ? "Each statement here starts in a read-only transaction, so the server refuses changes. A statement that deliberately switches that off can get around it; a database account that can only read is the hard limit. Column types show as text in this mode." : "Start each statement in a read-only transaction. For a stronger guard, turn on Read-only sessions in the connection."}
+          >{#if tab.readOnly}<Lock size={12} /> <span class="hidden @[900px]:inline">Read-only (this tab)</span>{:else}<LockOpen size={12} /> <span class="hidden @[900px]:inline">Can change data</span>{/if}</button>
+        {:else}
+          <button class="inline-flex shrink-0 items-center gap-1 rounded-md border border-line px-2 py-1 text-xs text-fg-muted hover:bg-panel-hover" onclick={ongotosettings} aria-label="Can change data" title="This connection can change data. Turn on Read-only sessions in the connection to have the server refuse changes."><LockOpen size={12} /> <span class="hidden @[900px]:inline">Can change data</span></button>
+        {/if}
+        <span class="ml-auto hidden shrink-0 truncate text-xs text-fg-muted @[1040px]:inline" title="{info.label} · {databases.sessions[tab.connId]?.version ?? 'not connected'}">on {databases.connName(tab.connId)}{#if !databases.sessions[tab.connId]} (not connected){/if}</span>
+      </div>
     </div>
     <div class="relative" style="height: {editorH}px">
       <SqlEditor

@@ -75,7 +75,12 @@
     if (meta && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "w" && tab) {
       e.preventDefault();
       void databases.closeTab(tab.id);
-    } else if (meta && (e.key === "PageDown" || e.key === "PageUp")) {
+    } else if (meta && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "s" && tab && !tab.table && !e.defaultPrevented) {
+      // Ctrl+S in the editor saves the query itself; this covers focus anywhere else in the workspace.
+      e.preventDefault();
+      void databases.saveQuery(tab.id);
+    } else if (e.altKey && !meta && (e.key === "PageDown" || e.key === "PageUp")) {
+      // Alt, not Ctrl: Ctrl+PageUp/PageDown switch the app's own tabs.
       e.preventDefault();
       databases.cycle(e.key === "PageDown" ? 1 : -1);
       if (databases.activeTabId) dbWorkspace.selectDoc(databases.activeTabId);

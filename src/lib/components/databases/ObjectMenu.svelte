@@ -52,8 +52,9 @@
       disabled={!item.enabled}
       title={item.why}
       onclick={() => {
-        onclose();
+        // Pick first: the caller reads the row the menu was opened on, which closing forgets.
         onpick(item.id);
+        onclose();
       }}
     >
       <Icon size={15} /> {item.label}
