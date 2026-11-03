@@ -4,7 +4,7 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
-## Unreleased
+## 0.55.0 - 2026-11-03
 
 - **New:** **a redesigned Runbooks workspace**: a library (search, categories, favorites, recents, import and export), a Builder, YAML editor (with diagnostics and completion), Variables and Settings tabs, a run panel with host picker, strategies (sequential, parallel, rolling) and failure policies, a resizable live console, a preview of the plan, retry of failed hosts or from a failed step, history, schedules and 15 templates.
 - **Runbooks can be YAML** as well as JSON; edits from the Builder keep comments and unknown keys.
