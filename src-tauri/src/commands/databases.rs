@@ -258,3 +258,67 @@ pub async fn db_apply_changes(state: State<'_, AppState>, session_id: Uuid, chan
     let session = state.dbs.get(session_id)?;
     Ok(session.engine.apply_changes(&changes).await?)
 }
+
+/// Progress of an export or an import, for the window's progress bar.
+#[derive(Debug, Clone, Serialize)]
+struct TransferProgress {
+    job_id: Uuid,
+    rows: u64,
+}
+
+const EVENT_DB_TRANSFER: &str = "db:transfer";
+
+/// Write a table's rows to a file, in chunks. `job_id` is also the query id, so Cancel (`db_cancel`) stops it.
+#[tauri::command]
+pub async fn db_export_table(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    session_id: Uuid,
+    job_id: Uuid,
+    spec: crate::db::transfer::ExportSpec,
+    path: String,
+) -> ApiResult<crate::db::transfer::ExportSummary> {
+    let session = state.dbs.get(session_id)?;
+    let out = crate::db::transfer::export_table(&session.engine, job_id, &spec, std::path::Path::new(&path), |rows| {
+        let _ = app.emit(EVENT_DB_TRANSFER, TransferProgress { job_id, rows });
+    })
+    .await?;
+    Ok(out)
+}
+
+/// The first rows of a CSV file, to map its columns before importing.
+#[tauri::command]
+pub fn db_import_preview(
+    path: String,
+    encoding: String,
+    delimiter: Option<String>,
+    has_header: bool,
+) -> ApiResult<crate::db::transfer::CsvPreview> {
+    let delim = delimiter.as_deref().filter(|d| !d.is_empty()).map(|d| if d == "\\t" || d == "tab" { '\t' } else { d.chars().next().unwrap_or(',') });
+    Ok(crate::db::transfer::csv_preview(std::path::Path::new(&path), &encoding, delim, has_header, 20)?)
+}
+
+/// Import a CSV file into a table, in batches of rows that are each saved on their own.
+#[tauri::command]
+pub async fn db_import_csv(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    session_id: Uuid,
+    job_id: Uuid,
+    spec: crate::db::transfer::ImportSpec,
+    path: String,
+) -> ApiResult<crate::db::transfer::ImportSummary> {
+    let session = state.dbs.get(session_id)?;
+    let out = crate::db::transfer::import_csv(&session.engine, job_id, &spec, std::path::Path::new(&path), |rows| {
+        let _ = app.emit(EVENT_DB_TRANSFER, TransferProgress { job_id, rows });
+    })
+    .await?;
+    Ok(out)
+}
+
+/// Stop an import after the batch it is saving.
+#[tauri::command]
+pub fn db_stop_import(job_id: Uuid) -> ApiResult<()> {
+    crate::db::transfer::request_stop(job_id);
+    Ok(())
+}

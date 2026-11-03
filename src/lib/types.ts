@@ -1035,6 +1035,45 @@ export interface DbSearchHit {
   detail: string | null;
 }
 
+export type DbChange =
+  | ({ op: "update" } & DbRowEdit)
+  | { op: "delete"; database: string; table: string; key: DbCellEdit[] }
+  | { op: "insert"; database: string; table: string; values: DbCellEdit[] };
+
+export type DbExportFormat = "csv" | "json" | "sql";
+
+export interface DbExportSpec {
+  database: string;
+  table: string;
+  format: DbExportFormat;
+  filter: string | null;
+  order: [string, boolean][];
+}
+
+export interface DbExportSummary {
+  rows: number;
+  bytes: number;
+  cut_cells: number;
+  ordered: boolean;
+}
+
+export interface DbCsvPreview {
+  delimiter: string;
+  headers: string[];
+  rows: string[][];
+  file_bytes: number;
+}
+
+export interface DbImportSpec {
+  database: string;
+  table: string;
+  encoding: string;
+  delimiter: string | null;
+  has_header: boolean;
+  mapping: (string | null)[];
+  empty_as_null: boolean;
+}
+
 export interface DbCellEdit {
   column: string;
   /** null is NULL */

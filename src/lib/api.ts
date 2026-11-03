@@ -32,6 +32,11 @@ import type {
   DbConnection,
   DbQueryResult,
   DbRowEdit,
+  DbChange,
+  DbCsvPreview,
+  DbExportSpec,
+  DbExportSummary,
+  DbImportSpec,
   DbSearchHit,
   DbTableInfo,
   DbTableMeta,
@@ -599,6 +604,20 @@ export const db = {
   previewUpdate: (sessionId: Uuid, edit: DbRowEdit) => invoke<string>("db_preview_update", { sessionId, edit }),
   applyUpdate: (sessionId: Uuid, edit: DbRowEdit) => invoke<number>("db_apply_update", { sessionId, edit }),
   saveExport: (path: string, contents: string) => invoke<void>("db_save_export", { path, contents }),
+  /** Whether inserts, deletes and several edits can be saved together on this connection (PostgreSQL, MySQL). */
+  supportsChanges: (sessionId: Uuid) => invoke<boolean>("db_supports_changes", { sessionId }),
+  previewChanges: (sessionId: Uuid, changes: DbChange[]) => invoke<string[]>("db_preview_changes", { sessionId, changes }),
+  /** All or nothing, in one transaction. Resolves to the rows each change touched. */
+  applyChanges: (sessionId: Uuid, changes: DbChange[]) => invoke<number[]>("db_apply_changes", { sessionId, changes }),
+  /** Write a whole table to a file in chunks. `jobId` doubles as the query id, so `cancel` stops it. */
+  exportTable: (sessionId: Uuid, jobId: Uuid, spec: DbExportSpec, path: string) =>
+    invoke<DbExportSummary>("db_export_table", { sessionId, jobId, spec, path }),
+  importPreview: (path: string, encoding: string, delimiter: string | null, hasHeader: boolean) =>
+    invoke<DbCsvPreview>("db_import_preview", { path, encoding, delimiter, hasHeader }),
+  importCsv: (sessionId: Uuid, jobId: Uuid, spec: DbImportSpec, path: string) =>
+    invoke<{ rows: number; batches: number }>("db_import_csv", { sessionId, jobId, spec, path }),
+  stopImport: (jobId: Uuid) => invoke<void>("db_stop_import", { jobId }),
+  onTransfer: (handler: (p: { job_id: Uuid; rows: number }) => void) => listen<{ job_id: Uuid; rows: number }>("db:transfer", (e) => handler(e.payload)),
 };
 
 export const containers = {

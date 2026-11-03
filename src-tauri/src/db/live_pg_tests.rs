@@ -539,3 +539,98 @@ async fn live_pg_a_read_only_session_refuses_a_reviewed_set() {
     let err = e.apply_changes(&[ch]).await.unwrap_err().to_string();
     assert!(err.contains("read-only"), "{err}");
 }
+
+#[tokio::test]
+#[ignore = "needs SSHVAULT_TEST_PG and SSHVAULT_TEST_PG_PLAIN"]
+async fn live_pg_export_streams_a_table_in_chunks_and_import_reads_it_back() {
+    use super::transfer::{export_table, import_csv, ExportSpec, Format, ImportSpec};
+    let Some(e) = engine_plain().await else { return };
+    let dir = std::env::temp_dir().join(format!("sshvault-xfer-{}", Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let spec = |format| ExportSpec { database: "public".into(), table: "items".into(), format, filter: None, order: vec![] };
+
+    // 2,500 rows is more than one chunk of 2,000.
+    let csv = dir.join("items.csv");
+    let mut seen = 0;
+    let s = export_table(&e, Uuid::new_v4(), &spec(Format::Csv), &csv, |n| seen = n).await.unwrap();
+    assert_eq!((s.rows, seen, s.ordered, s.cut_cells), (2500, 2500, true, 0));
+    let text = std::fs::read_to_string(&csv).unwrap();
+    assert_eq!(text.lines().count(), 2501);
+    assert!(text.starts_with("id,name,price,note,data,active,meta,customer_id\r\n1,item 1,1.25,note 1,"));
+    assert!(!dir.join("items.csv.part").exists() && !dir.join("items.csv.csv.part").exists());
+
+    let json = dir.join("items.json");
+    export_table(&e, Uuid::new_v4(), &spec(Format::Json), &json, |_| {}).await.unwrap();
+    let parsed: Vec<serde_json::Map<String, Value>> = serde_json::from_str(&std::fs::read_to_string(&json).unwrap()).unwrap();
+    assert_eq!(parsed.len(), 2500);
+    assert_eq!(parsed[2]["note"], Value::Null);
+
+    let sql = dir.join("items.sql");
+    let mut filtered = spec(Format::Sql);
+    filtered.filter = Some("id <= 3".into());
+    filtered.order = vec![("id".into(), true)];
+    let s = export_table(&e, Uuid::new_v4(), &filtered, &sql, |_| {}).await.unwrap();
+    assert_eq!(s.rows, 3);
+    let dump = std::fs::read_to_string(&sql).unwrap();
+    assert!(dump.starts_with("-- Rows of items exported by SSHVault. Not a backup"));
+    assert!(dump.lines().nth(1).unwrap().starts_with("INSERT INTO \"public\".\"items\" (\"id\", \"name\""));
+    assert!(dump.lines().nth(1).unwrap().contains("VALUES ('3', 'item 3'"));
+
+    // A filter is one condition, not a way to run more statements, and a failing one leaves no file behind.
+    let mut bad = spec(Format::Csv);
+    bad.filter = Some("1=1; DROP TABLE items".into());
+    assert!(export_table(&e, Uuid::new_v4(), &bad, &dir.join("bad.csv"), |_| {}).await.is_err());
+    bad.filter = Some("nonexistent_col = 1".into());
+    assert!(export_table(&e, Uuid::new_v4(), &bad, &dir.join("bad2.csv"), |_| {}).await.is_err());
+    assert!(!dir.join("bad2.csv").exists());
+    assert_eq!(q(&e, "SELECT count(*) FROM public.items").await.rows[0][0], json!(2500));
+
+    // Import 450 lines into a fresh table: three batches of 200, 200 and 50.
+    q(&e, "DROP TABLE IF EXISTS public.imported").await;
+    q(&e, "CREATE TABLE public.imported(id int PRIMARY KEY, label text, amount numeric)").await;
+    let mut body = String::from("id;label;skip;amount\n");
+    for i in 1..=450 {
+        body.push_str(&format!("{i};\"row, {i}\";x;{}\n", if i % 10 == 0 { String::new() } else { format!("{i}.5") }));
+    }
+    let file = dir.join("in.csv");
+    std::fs::write(&file, body).unwrap();
+    let ispec = ImportSpec {
+        database: "public".into(),
+        table: "imported".into(),
+        encoding: "utf-8".into(),
+        delimiter: None,
+        has_header: true,
+        mapping: vec![Some("id".into()), Some("label".into()), None, Some("amount".into())],
+        empty_as_null: true,
+    };
+    let mut last = 0;
+    let s = import_csv(&e, Uuid::new_v4(), &ispec, &file, |n| last = n).await.unwrap();
+    assert_eq!((s.rows, s.batches, last), (450, 3, 450));
+    assert_eq!(q(&e, "SELECT count(*), count(amount) FROM public.imported").await.rows[0], [json!(450), json!(405)]);
+    assert_eq!(q(&e, "SELECT label FROM public.imported WHERE id = 7").await.rows[0][0], json!("row, 7"));
+
+    // A duplicate key in the third batch: the first two batches stay, and the message says so.
+    let mut dup = String::from("id;label;skip;amount\n");
+    for i in 1000..1450 {
+        dup.push_str(&format!("{};a;x;1\n", if i == 1420 { 5 } else { i }));
+    }
+    std::fs::write(&file, dup).unwrap();
+    let err = import_csv(&e, Uuid::new_v4(), &ispec, &file, |_| {}).await.unwrap_err().to_string();
+    assert!(err.contains("duplicate key") && err.contains("400 rows before it were saved"), "{err}");
+    assert_eq!(q(&e, "SELECT count(*) FROM public.imported").await.rows[0][0], json!(850));
+
+    // A line with the wrong number of fields is named, and nothing from its batch is saved.
+    std::fs::write(&file, "id;label;skip;amount\n9001;a;x;1\n9002;b\n").unwrap();
+    let err = import_csv(&e, Uuid::new_v4(), &ispec, &file, |_| {}).await.unwrap_err().to_string();
+    assert!(err.contains("line 3 has 2 fields"), "{err}");
+    assert_eq!(q(&e, "SELECT count(*) FROM public.imported WHERE id > 9000").await.rows[0][0], json!(0));
+
+    // Unknown or doubled target columns are refused before anything is read.
+    let mut wrong = ispec.clone();
+    wrong.mapping = vec![Some("nope".into())];
+    assert!(import_csv(&e, Uuid::new_v4(), &wrong, &file, |_| {}).await.is_err());
+    wrong.mapping = vec![Some("id".into()), Some("id".into())];
+    assert!(import_csv(&e, Uuid::new_v4(), &wrong, &file, |_| {}).await.is_err());
+    q(&e, "DROP TABLE public.imported").await;
+    let _ = std::fs::remove_dir_all(dir);
+}

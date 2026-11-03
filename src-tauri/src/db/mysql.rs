@@ -326,7 +326,8 @@ impl MysqlConn {
 
     pub async fn table_meta(&self, db: &str, table: &str) -> DbResult<TableMeta> {
         let mut c = self.pool.get_conn().await.map_err(server_err)?;
-        let head: Option<(String, String, Option<u64>, Option<u64>, Option<u64>)> = c
+        type Head = (String, String, Option<u64>, Option<u64>, Option<u64>);
+        let head: Option<Head> = c
             .exec_first(
                 "SELECT TABLE_TYPE, TABLE_COMMENT, TABLE_ROWS, DATA_LENGTH, INDEX_LENGTH FROM information_schema.TABLES \
                  WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?",
@@ -366,7 +367,8 @@ impl MysqlConn {
             )
             .await
             .map_err(server_err)?;
-        let usage: Vec<(String, String, Option<String>, Option<String>, Option<String>)> = c
+        type Usage = (String, String, Option<String>, Option<String>, Option<String>);
+        let usage: Vec<Usage> = c
             .exec(
                 "SELECT CONSTRAINT_NAME, COLUMN_NAME, REFERENCED_TABLE_SCHEMA, REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME \
                  FROM information_schema.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? ORDER BY CONSTRAINT_NAME, ORDINAL_POSITION",

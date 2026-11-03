@@ -19,6 +19,7 @@ pub mod redis;
 pub mod rqlite;
 pub mod safety;
 pub mod tlsconf;
+pub mod transfer;
 
 #[cfg(test)]
 mod live_pg_tests;
