@@ -1,0 +1,11 @@
+name: Check CPU and memory
+category: Monitoring
+description: >-
+  Read-only. Shows the load, the memory in use and the processes using the most CPU and memory.
+steps:
+  - name: Load
+    run: "uptime"
+  - name: Memory
+    run: "free -m"
+  - name: Busiest processes
+    run: "ps -eo pid,pcpu,pmem,comm --sort=-pcpu | head -n 8"

@@ -1,0 +1,19 @@
+name: Restart a Docker container
+category: Deployments
+description: >-
+  Changes the host: restarts one container, then waits until Docker says it is running. The container is stopped for a
+  moment. The command runs as the SSH user; turn sudo on in the step if Docker needs it.
+params:
+  - name: container
+    label: Container name
+    default: web
+steps:
+  - name: Restart
+    docker:
+      action: restart
+      container: "{{container}}"
+  - name: Wait until it is running
+    wait:
+      run: "test -n \"$(docker ps -q --filter name={{container|q}} --filter status=running)\""
+      every_secs: 2
+      timeout_secs: 60

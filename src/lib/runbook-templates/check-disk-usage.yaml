@@ -1,0 +1,17 @@
+name: Check disk usage
+category: Monitoring
+description: >-
+  Read-only. Shows how full each filesystem is, and how many inodes are in use, and fails the host if one is at or over the
+  limit you give.
+params:
+  - name: limit
+    label: Fail at or above (percent)
+    kind: number
+    default: "90"
+steps:
+  - name: Filesystems
+    run: "df -hT -x tmpfs -x devtmpfs"
+  - name: Inodes
+    run: "df -i -x tmpfs -x devtmpfs"
+  - name: Any over the limit?
+    run: "df -P -x tmpfs -x devtmpfs | awk -v l={{limit|q}} 'NR>1 { gsub(\"%\",\"\",$5); if ($5+0 >= l) { print $6 \" is \" $5 \"% full\"; bad=1 } } END { exit bad ? 1 : 0 }'"

@@ -1,0 +1,14 @@
+name: Check host connectivity
+category: Monitoring
+description: >-
+  Read-only. Connects over SSH, reads how long the host has been up, and checks from this computer that its SSH port
+  accepts connections.
+steps:
+  - name: SSH port reachable from here
+    tcp:
+      port: 22
+      timeout_secs: 5
+  - name: Uptime and load
+    run: "uptime"
+  - name: Kernel
+    run: "uname -sr"

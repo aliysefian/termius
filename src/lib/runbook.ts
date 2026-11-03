@@ -1,23 +1,53 @@
 // Runbooks in the window: the shapes the backend sends (src-tauri/src/runbook.rs), the example runbooks, and
 // what a run looks like while it is going. The checking and the running are the backend's.
 
+export type ParamKind = "text" | "number" | "boolean" | "file" | "dir" | "secret";
+
 export interface RunbookParam {
   name: string;
   label: string;
+  description?: string;
   default: string | null;
   optional: boolean;
   choices: string[];
-  kind: "text" | "file" | "secret";
+  kind: ParamKind;
 }
 
 export interface Problem {
   step: number | null;
+  /** Where the parser gave up, for a document that couldn't be read (1-based). */
+  line?: number | null;
+  column?: number | null;
   message: string;
+}
+
+export type OnError = "stop" | "continue";
+export type Notify = "always" | "failure" | "never";
+
+/** How a run takes its hosts (src-tauri/src/runbook.rs `Strategy`). */
+export type Strategy =
+  | "parallel"
+  | { concurrent: { limit: number; stop_on_failure?: boolean } }
+  | { sequential: { stop_on_failure?: boolean } }
+  | { rolling: { batch_size: number; concurrency?: number | null; stop_on_failure?: boolean } };
+
+export interface RunbookDefaults {
+  timeout_secs?: number | null;
+  retries?: number | null;
+  retry_delay_secs?: number | null;
+  on_error?: OnError | null;
+  strategy?: Strategy | null;
+  hosts?: string[];
+  notify?: Notify | null;
 }
 
 export interface RunbookCheck {
   name: string | null;
   description: string;
+  category?: string | null;
+  defaults?: RunbookDefaults | null;
+  /** How the document is written. */
+  format?: "json" | "yaml";
   params: RunbookParam[];
   steps: number;
   /** Steps that run only on a host where the run failed, when a run is started with rollback on. */
@@ -29,10 +59,14 @@ export interface PlannedStep {
   phase: "run" | "rollback";
   index: number;
   name: string;
-  kind: "run" | "wait" | "upload";
+  kind: "run" | "wait" | "upload" | "download" | "delay" | "http" | "tcp" | "docker";
   text: string;
   condition: string | null;
   on_error: "stop" | "continue";
+  /** Switched off: it will be skipped. */
+  disabled?: boolean;
+  /** Acts on this computer, not on the host. */
+  local?: boolean;
 }
 
 export type StepStatus = "ok" | "failed" | "skipped" | "timed_out" | "error";
@@ -55,11 +89,15 @@ export interface StepResult {
   note: string;
 }
 
+export type HostStatus = "pending" | "connecting" | "running" | "success" | "failed" | "skipped" | "cancelled" | "timed_out";
+
 export type RunbookEvent =
   | { event: "host_started"; host_id: string }
+  | { event: "connected"; host_id: string }
   | { event: "step_started"; host_id: string; index: number }
+  | { event: "output"; host_id: string; index: number; stream: "stdout" | "stderr"; text: string; seq: number }
   | { event: "step"; host_id: string; result: StepResult }
-  | { event: "host_done"; host_id: string; ok: boolean; error: string | null }
+  | { event: "host_done"; host_id: string; ok: boolean; error: string | null; status?: HostStatus; duration_ms?: number }
   | { event: "done"; cancelled: boolean };
 
 export interface HostRecord {
@@ -68,6 +106,9 @@ export interface HostRecord {
   ok: boolean | null;
   error: string | null;
   steps: StepResult[];
+  status?: HostStatus;
+  started_ms?: number;
+  finished_ms?: number;
 }
 
 export interface RunRecord {
@@ -81,6 +122,12 @@ export interface RunRecord {
   cancelled: boolean;
   params: Record<string, string>;
   hosts: HostRecord[];
+  strategy?: Strategy;
+  /** "manual", "schedule" or "retry". */
+  trigger?: string;
+  retry_of?: string;
+  from_step?: number;
+  step_names?: string[];
 }
 
 export interface RunSummary {
@@ -93,35 +140,10 @@ export interface RunSummary {
   hosts: number;
   ok: number;
   failed: number;
-}
-
-/** What one host is doing in a run that is going. */
-export interface HostRun {
-  hostId: string;
-  label: string;
-  state: "waiting" | "running" | "ok" | "failed";
-  /** The step running now, if any. */
-  current: number | null;
-  steps: StepResult[];
-  error: string | null;
-}
-
-/** Fold an event into the hosts' state. Pure, so the live view and a test use the same rules. */
-export function applyEvent(hosts: HostRun[], e: RunbookEvent): HostRun[] {
-  if (e.event === "done") return hosts;
-  return hosts.map((h) => {
-    if (h.hostId !== e.host_id) return h;
-    switch (e.event) {
-      case "host_started":
-        return { ...h, state: "running" };
-      case "step_started":
-        return { ...h, current: e.index };
-      case "step":
-        return { ...h, steps: [...h.steps, e.result], current: h.current === e.result.index ? null : h.current };
-      case "host_done":
-        return { ...h, state: e.ok ? "ok" : "failed", current: null, error: e.error };
-    }
-  });
+  finished_at?: number | null;
+  trigger?: string | null;
+  strategy?: Strategy | null;
+  failed_hosts?: string[];
 }
 
 export function statusLabel(s: StepStatus): string {

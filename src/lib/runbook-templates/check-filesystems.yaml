@@ -1,0 +1,13 @@
+name: Check filesystem usage
+category: Monitoring
+description: >-
+  Read-only. Shows the biggest directories under a path (staying on one filesystem) and how full the filesystem is.
+params:
+  - name: path
+    label: Path
+    default: /var
+steps:
+  - name: Filesystem
+    run: "df -h {{path|q}}"
+  - name: Biggest directories
+    run: "du -xh --max-depth=1 {{path|q}} 2>/dev/null | sort -rh | head -n 15"

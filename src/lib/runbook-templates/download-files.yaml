@@ -1,0 +1,18 @@
+name: Download files
+category: Backups
+description: >-
+  Read-only on the host: copies one file from every host into a folder you choose when it runs, as <host>__<name>. A
+  file with that name is kept and the new one gets a number. Files up to 8 MB.
+params:
+  - name: destination
+    label: Save into this folder
+    kind: dir
+  - name: path
+    label: File on the host
+    default: /etc/hostname
+steps:
+  - name: Download
+    download:
+      remote: "{{path}}"
+      to: "{{destination}}"
+      on_conflict: rename

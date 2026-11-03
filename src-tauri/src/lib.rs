@@ -62,6 +62,7 @@ pub mod release;
 pub mod remoteedit;
 pub mod reveal;
 pub mod runbook;
+pub mod runbookchecks;
 pub mod runbookhistory;
 pub mod runbookrun;
 pub mod runner;
@@ -235,6 +236,7 @@ pub fn run() {
             commands::runbooks::runbook_plan,
             commands::runbooks::runbook_start,
             commands::runbooks::runbook_cancel,
+            commands::runbooks::runbook_preflight,
             commands::runbooks::runbook_history_list,
             commands::runbooks::runbook_history_get,
             commands::runbooks::runbook_history_delete,
