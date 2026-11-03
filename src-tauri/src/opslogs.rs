@@ -587,6 +587,8 @@ struct HostCtl {
 
 struct Stream {
     spec: Spec,
+    /// Whether a lost connection is retried. Starts as the spec says; the person can change it while the stream runs.
+    auto: AtomicBool,
     sink: Arc<dyn OpsSink>,
     hosts: Mutex<HashMap<Uuid, Arc<HostCtl>>>,
     stopped: AtomicBool,
@@ -650,7 +652,7 @@ impl OpsLogManager {
         if self.running() + hosts.len() > MAX_RUNNING {
             return Err("Too many logs are being followed already. Stop some first.".into());
         }
-        let stream = Arc::new(Stream { spec, sink, hosts: Mutex::new(HashMap::new()), stopped: AtomicBool::new(false) });
+        let stream = Arc::new(Stream { auto: AtomicBool::new(spec.auto_reconnect), spec, sink, hosts: Mutex::new(HashMap::new()), stopped: AtomicBool::new(false) });
         {
             let mut all = self.inner.streams.lock().unwrap_or_else(|p| p.into_inner());
             if all.contains_key(&id) {
@@ -712,6 +714,13 @@ impl OpsLogManager {
                 let _ = c.cancel.send(true);
             }
         }
+    }
+
+    /// Turn retrying of lost connections on or off for a running stream.
+    pub fn set_auto_reconnect(&self, id: &str, on: bool) -> bool {
+        let Some(stream) = self.inner.streams.lock().unwrap_or_else(|p| p.into_inner()).get(id).cloned() else { return false };
+        stream.auto.store(on, Ordering::Relaxed);
+        true
     }
 
     /// Try a failed host again now, without waiting. Counts from the start.
@@ -906,7 +915,7 @@ async fn host_worker(inner: Arc<Inner>, stream: Arc<Stream>, job: HostJob, ctl: 
             reconnecting = true;
             continue;
         }
-        if permanent_failure || !stream.spec.auto_reconnect {
+        if permanent_failure || !stream.auto.load(Ordering::Relaxed) {
             let shown = if permanent_failure { message } else { format!("Disconnected: {message}") };
             state(HostState::Failed, attempt, None, Some(shown), notice);
             tokio::select! {

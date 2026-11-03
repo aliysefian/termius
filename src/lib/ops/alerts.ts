@@ -24,7 +24,8 @@ export interface AlertRules {
 
 export const DEFAULT_RULES: AlertRules = { down: true, cpu: 90, mem: 90, disk: 90, services: false, samples: 3, quiet: { on: false, from: "22:00", to: "07:00" } };
 
-export type AlertKind = "down" | "up" | "cpu" | "mem" | "disk" | "service" | "cleared";
+/** `log` and `auth` come from the log lines of a followed stream (see logalerts.ts). */
+export type AlertKind = "down" | "up" | "cpu" | "mem" | "disk" | "service" | "cleared" | "log" | "auth";
 
 /** How much it matters: a recovery is information; a host that stopped answering, or a reading near the top, is critical. */
 export type Severity = "info" | "warning" | "critical";
@@ -44,16 +45,39 @@ export interface Alert {
   quiet: boolean;
   /** When the person acknowledged it, or null. Recoveries need no acknowledging. */
   ack: number | null;
+  /** What makes a later alert the same one (a unit, a kind of failure). Only alerts from followed logs have one. */
+  key?: string;
+  /** When it was last seen, and how many times, once it has come back while still open. `at` is the first time. */
+  last?: number;
+  count?: number;
 }
 
 export function severityOf(kind: AlertKind, value?: number): Severity {
   if (kind === "up" || kind === "cleared") return "info";
-  if (kind === "down") return "critical";
+  if (kind === "down" || kind === "log") return "critical";
   return value !== undefined && value >= CRITICAL_AT ? "critical" : "warning";
 }
 
 /** Whether `s` is at least as serious as `floor`. */
 export const atLeast = (s: Severity, floor: Severity) => SEVERITIES.indexOf(s) >= SEVERITIES.indexOf(floor);
+
+/**
+ * `a` added to `list` (newest first). One from a followed log that is the same as an alert still open (same host, kind
+ * and key) is not a new alert: the open one is updated with when it was last seen and how many times, so a repeating
+ * problem is one entry and one notification, not a storm. Returns the new list and whether `a` was merged.
+ */
+export function addAlert(list: Alert[], a: Alert, keep: number): { list: Alert[]; merged: boolean } {
+  if (a.key !== undefined) {
+    const i = list.findIndex((x) => x.key === a.key && x.hostId === a.hostId && x.kind === a.kind && x.ack === null);
+    if (i >= 0) {
+      const old = list[i];
+      const next = [...list];
+      next[i] = { ...old, last: a.at, count: (old.count ?? 1) + 1, message: a.message };
+      return { list: next, merged: true };
+    }
+  }
+  return { list: [a, ...list].slice(0, keep), merged: false };
+}
 
 /** The list with one alert (or, for "all", every open one) acknowledged at `at`. Leaves the others as they were. */
 export function acknowledge(list: Alert[], which: number | "all", at: number): Alert[] {
@@ -66,7 +90,7 @@ export const open = (list: Alert[]) => list.filter((a) => a.severity !== "info" 
 /** Alerts read back from storage: anything that isn't shaped like an alert is dropped, and old ones get the new fields. */
 export function revive(raw: unknown, keep = 100): Alert[] {
   if (!Array.isArray(raw)) return [];
-  const kinds: AlertKind[] = ["down", "up", "cpu", "mem", "disk", "service", "cleared"];
+  const kinds: AlertKind[] = ["down", "up", "cpu", "mem", "disk", "service", "cleared", "log", "auth"];
   const out: Alert[] = [];
   for (const r of raw) {
     if (!r || typeof r !== "object") continue;
@@ -83,6 +107,9 @@ export function revive(raw: unknown, keep = 100): Alert[] {
       message: a.message.slice(0, 500),
       quiet: a.quiet === true,
       ack: typeof a.ack === "number" ? a.ack : null,
+      ...(typeof a.key === "string" ? { key: a.key.slice(0, 200) } : {}),
+      ...(typeof a.last === "number" ? { last: a.last } : {}),
+      ...(typeof a.count === "number" ? { count: a.count } : {}),
     });
   }
   return out.slice(0, keep);
@@ -146,6 +173,12 @@ export class AlertEngine {
 
   forget(hostId: string) {
     this.#state.delete(hostId);
+  }
+
+  /** Something worth telling was seen in a followed log (already deduplicated by the detector). */
+  fromLog(hostId: string, host: string, kind: "log" | "auth" | "service", key: string, message: string, at: number): Alert[] {
+    if (this.muted(hostId)) return [];
+    return [{ ...this.#alert(hostId, host, kind, message, at), key }];
   }
 
   /** A reachability check came back. */

@@ -90,6 +90,13 @@ export class SecuritySession {
       this.passwordPrompt = { reason };
     });
 
+  /** Run a script as the ordinary user: never sudo, never a password prompt. For checks that only read. */
+  async read(script: string, timeoutSecs = 20) {
+    const id = this.#id;
+    if (!id) throw new Error("Not connected.");
+    return api.monitor.exec(id, script, timeoutSecs);
+  }
+
   /** Run a script, as root when it takes root. `always` goes straight to sudo (a firewall's rules need it). */
   async run(script: string, opts: { mode?: "auto" | "always"; timeoutSecs?: number } = {}): Promise<SudoResult> {
     const id = this.#id;

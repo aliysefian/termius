@@ -4,6 +4,7 @@ import { LineAssembler, LogBuffer, NO_FILTER, cleanLine, compileText, detectLeve
 import { DISRUPTIVE, LIST_SCRIPT, actionScript, parseUnits, statusScript, toneOf } from "../ops/services";
 import { AlertEngine, CLEAR_MARGIN, DEFAULT_RULES, DOWN_AFTER, acknowledge, atLeast, inQuietHours, open, revive, severityOf, type AlertRules } from "../ops/alerts";
 import { Notifier } from "../ops/notify";
+import { OVERVIEW_SCRIPT, findings, parseOverview, parsePorts, parseSshdConfig } from "../security/overview";
 import { BUCKET_MS, KEEP_MS, MemoryStore, fold, toSamples, within, type Bucket } from "../ops/archive";
 import type { Sample } from "../hosthistory";
 
@@ -406,5 +407,46 @@ describe("failed services", () => {
     e.metrics("h", "web", reading(["x.service"]), 2);
     rules = on;
     expect(e.metrics("h", "web", reading(["x.service"]), 3)).toHaveLength(1);
+  });
+});
+
+describe("the security overview", () => {
+  it("reads listening ports from ss and from netstat, with how far each is open", () => {
+    const ss = `tcp   LISTEN 0 128 0.0.0.0:22       0.0.0.0:*
+tcp   LISTEN 0 128 [::]:22          [::]:*
+tcp   LISTEN 0 4096 127.0.0.53%lo:53 0.0.0.0:*
+udp   UNCONN 0 0   192.168.1.5:68    0.0.0.0:*
+tcp   LISTEN 0 511 *:80             *:*
+junk line`;
+    const ports = parsePorts(ss);
+    expect(ports.map((p) => `${p.proto}/${p.port}/${p.exposure}`)).toEqual(["tcp/22/all", "tcp/22/all", "udp/68/address", "tcp/53/local", "tcp/80/all"].sort((a, b) => Number(a.split("/")[1]) - Number(b.split("/")[1]) || a.localeCompare(b)));
+    expect(ports.find((p) => p.port === 53)!.address).toBe("127.0.0.53");
+    const net = `tcp        0      0 0.0.0.0:3306            0.0.0.0:*               LISTEN
+tcp6       0      0 ::1:631                 :::*                    LISTEN`;
+    expect(parsePorts(net).map((p) => `${p.port}/${p.exposure}`)).toEqual(["631/local", "3306/all"]);
+  });
+
+  it("takes the first value of each sshd option, as OpenSSH does", () => {
+    expect(parseSshdConfig("PermitRootLogin no\nPasswordAuthentication yes\npermitrootlogin yes\n#Port 22")).toEqual({ permitrootlogin: "no", passwordauthentication: "yes" });
+  });
+
+  it("judges only what it read, and says when it could not read", () => {
+    const risky = findings({ ports: [], configReadable: true, sshd: { permitrootlogin: "yes", passwordauthentication: "yes", permitemptypasswords: "yes" } });
+    expect(risky.filter((f) => f.status === "warn").map((f) => f.id)).toEqual(["root-login", "password-auth", "empty-passwords"]);
+    const fine = findings({ ports: [], configReadable: true, sshd: { permitrootlogin: "no", passwordauthentication: "no" } });
+    expect(fine.filter((f) => f.status === "warn")).toEqual([]);
+    expect(fine.find((f) => f.id === "root-login")!.status).toBe("ok");
+    const blind = findings({ ports: [], configReadable: false, sshd: {} });
+    expect(blind.find((f) => f.id === "sshd-config")!.status).toBe("unknown");
+    expect(blind.find((f) => f.id === "ports")!.status).toBe("unknown");
+    expect(blind.some((f) => f.status === "ok")).toBe(false);
+  });
+
+  it("splits the script's sections", () => {
+    const o = parseOverview("@@ports\ntcp LISTEN 0 1 0.0.0.0:22 0.0.0.0:*\n@@sshd\nPermitRootLogin no\n@@readable\nyes\n@@end\n");
+    expect(o.ports).toHaveLength(1);
+    expect(o.sshd.permitrootlogin).toBe("no");
+    expect(o.configReadable).toBe(true);
+    expect(OVERVIEW_SCRIPT).not.toContain("sudo");
   });
 });

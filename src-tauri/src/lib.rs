@@ -320,6 +320,7 @@ pub fn run() {
             commands::opslogs::ops_logs_stop,
             commands::opslogs::ops_logs_hosts,
             commands::opslogs::ops_logs_retry,
+            commands::opslogs::ops_logs_auto_reconnect,
             commands::opslogs::ops_logs_context,
             commands::opslogs::ops_units,
             commands::sftp_edit_start,

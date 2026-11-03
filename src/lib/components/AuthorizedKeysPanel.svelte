@@ -3,7 +3,7 @@
   import { checkPublicKeyLine, isHardwareKey, keyRisk, type AuthorizedKey } from "$lib/security/authkeys";
   import type { AuthorizedKeysManager } from "$lib/security/useAuthorizedKeysManager.svelte";
 
-  let { mgr }: { mgr: AuthorizedKeysManager } = $props();
+  let { mgr, canChange = true }: { mgr: AuthorizedKeysManager; canChange?: boolean } = $props();
 
   let pickedVault = $state("");
   let pasted = $state("");
@@ -42,14 +42,14 @@
           <option value="">Choose a key…</option>
           {#each mgr.vaultKeys as k (k.id)}<option value={k.id}>{k.data?.name} · {k.data?.algorithm}</option>{/each}
         </select>
-        <button class="btn-primary px-3 py-1 text-xs" disabled={!pickedVault || !!mgr.busy} onclick={addVault}><KeyRound size={12} /> Add</button>
+        <button class="btn-primary px-3 py-1 text-xs" disabled={!canChange || !pickedVault || !!mgr.busy} onclick={addVault}><KeyRound size={12} /> Add</button>
       </div>
     </div>
     <div class="min-w-64 flex-1">
       <label class="label" for="ak-paste">Or paste a public key</label>
       <div class="flex gap-2">
         <input id="ak-paste" class="input py-1 font-mono text-xs" bind:value={pasted} placeholder="ssh-ed25519 AAAA… comment" />
-        <button class="btn-secondary px-3 py-1 text-xs" disabled={!pasted.trim() || checkPublicKeyLine(pasted) !== null || !!mgr.busy} onclick={addPasted}>Add</button>
+        <button class="btn-secondary px-3 py-1 text-xs" disabled={!canChange || !pasted.trim() || checkPublicKeyLine(pasted) !== null || !!mgr.busy} onclick={addPasted}>Add</button>
       </div>
     </div>
     <button class="btn-secondary px-2 py-1 text-xs" disabled={mgr.loading} onclick={() => void mgr.refresh()}>
@@ -81,8 +81,8 @@
             </td>
             <td class="whitespace-nowrap text-right">
               <span class="opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
-                <button class="icon-btn h-6 w-6" title="Rotate key" aria-label="Rotate key" disabled={!!mgr.busy || mgr.who === "root"} onclick={() => void mgr.rotate(k)}><RotateCw size={13} /></button>
-                <button class="icon-btn h-6 w-6 hover:text-danger" title="Revoke / Remove" aria-label="Revoke key" disabled={!!mgr.busy} onclick={() => void mgr.revoke(k)}><Trash2 size={13} /></button>
+                <button class="icon-btn h-6 w-6" title="Rotate key" aria-label="Rotate key" disabled={!canChange || !!mgr.busy || mgr.who === "root"} onclick={() => void mgr.rotate(k)}><RotateCw size={13} /></button>
+                <button class="icon-btn h-6 w-6 hover:text-danger" title="Revoke / Remove" aria-label="Revoke key" disabled={!canChange || !!mgr.busy} onclick={() => void mgr.revoke(k)}><Trash2 size={13} /></button>
               </span>
             </td>
           </tr>

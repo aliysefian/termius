@@ -49,6 +49,7 @@ export const en = {
   "welcome.quick": "Quick connect",
   "welcome.palette": "Command palette",
   "ops.title": "Operations",
+  "ops.subtitle": "Monitor logs, manage services, inspect security, and troubleshoot your infrastructure.",
   "ops.logs": "Logs",
   "ops.services": "Services",
   "ops.security": "Security",

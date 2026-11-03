@@ -102,6 +102,29 @@ export interface Prefs {
   rbExecWidth: number;
   rbOutputHeight: number;
   rbFavorites: string[];
+  /** Operations → Logs: what was followed last time, and how the viewer looks. */
+  opsLogHosts: string[];
+  opsLogSource: "journal" | "kernel" | "file";
+  opsLogUnit: string;
+  opsLogPath: string;
+  /** 0-7, or -1 for every priority. */
+  opsLogPriority: number;
+  /** "last:100", "last:500", "last:1000", or "since:900" (seconds back from starting). */
+  opsLogHistory: string;
+  opsLogAutoReconnect: boolean;
+  /** Hide passwords, tokens and keys in followed logs. On unless turned off (and turning it off asks first). */
+  opsLogRedact: boolean;
+  /** Entries kept in the viewer. */
+  opsLogMax: number;
+  opsLogWrap: boolean;
+  opsLogColumns: string[];
+  opsLogOrder: "time" | "arrival";
+  /** Tell me when a followed log shows a critical entry / repeated failed SSH logins / a failed service. */
+  alertLogCritical: boolean;
+  alertLogAuth: boolean;
+  alertLogAuthCount: number;
+  alertLogAuthMins: number;
+  alertLogService: boolean;
   /** The Tunnels page's details panel width in pixels (drag its edge; double-click resets). */
   tunnelsDetailWidth: number;
   /** Reconnect by itself when a connection drops (not when you exit). */
@@ -286,6 +309,23 @@ export const DEFAULT_PREFS: Prefs = {
   rbExecWidth: 340,
   rbOutputHeight: 280,
   rbFavorites: [],
+  opsLogHosts: [],
+  opsLogSource: "journal",
+  opsLogUnit: "",
+  opsLogPath: "/var/log/syslog",
+  opsLogPriority: -1,
+  opsLogHistory: "last:100",
+  opsLogAutoReconnect: true,
+  opsLogRedact: true,
+  opsLogMax: 20000,
+  opsLogWrap: false,
+  opsLogColumns: ["time", "host", "severity", "unit", "message"],
+  opsLogOrder: "time",
+  alertLogCritical: false,
+  alertLogAuth: false,
+  alertLogAuthCount: 5,
+  alertLogAuthMins: 5,
+  alertLogService: false,
   tunnelsDetailWidth: 440,
   autoReconnect: true,
   restoreLastSession: true,
@@ -382,7 +422,8 @@ function forget(key: string) {
 }
 
 class SettingsStore {
-  prefs = $state<Prefs>(load(KEY, DEFAULT_PREFS));
+  // A copy: `$state` writes through to the object it is given, which must not be the defaults themselves.
+  prefs = $state<Prefs>(load(KEY, { ...DEFAULT_PREFS }));
   /** Host ids, most recent first. */
   recent = $state<string[]>(load<string[]>(RECENT_KEY, []));
   /** Vault folder paths opened on this computer, most recent first. Never synced. */

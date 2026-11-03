@@ -59,6 +59,12 @@ pub fn ops_logs_stop(state: State<'_, AppState>, stream_id: String) -> bool {
     state.ops_logs.stop(&stream_id)
 }
 
+/// Turn retrying of lost connections on or off for a running stream.
+#[tauri::command]
+pub fn ops_logs_auto_reconnect(state: State<'_, AppState>, stream_id: String, on: bool) -> bool {
+    state.ops_logs.set_auto_reconnect(&stream_id, on)
+}
+
 /// Try a failed host again now.
 #[tauri::command]
 pub fn ops_logs_retry(state: State<'_, AppState>, stream_id: String, host_id: Uuid) -> bool {

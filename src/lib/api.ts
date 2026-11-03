@@ -706,6 +706,29 @@ export const monitor = {
   streamStop: (streamId: Uuid) => invoke<void>("monitor_stream_stop", { streamId }),
 };
 
+/** Operations → Logs: the journal (or a file) followed on several hosts, managed by the backend. */
+export interface OpsLogSpec {
+  source: { kind: "journal"; unit?: string; kernel?: boolean; priority?: number } | { kind: "file"; path: string };
+  history: { last: number } | { since: number };
+  auto_reconnect: boolean;
+  redact: boolean;
+}
+export const opsLogs = {
+  /** Events arrive on `onEvent` until the stream is stopped. */
+  start(streamId: string, spec: OpsLogSpec, hostIds: Uuid[], onEvent: (e: import("./ops/logrows").OpsEvent) => void) {
+    const channel = new Channel<import("./ops/logrows").OpsEvent>(onEvent);
+    return invoke<void>("ops_logs_start", { streamId, spec, hostIds, onEvent: channel });
+  },
+  stop: (streamId: string) => invoke<boolean>("ops_logs_stop", { streamId }),
+  /** Follow `add` as well and stop following `remove`, in a stream that keeps running. */
+  hosts: (streamId: string, add: Uuid[], remove: Uuid[]) => invoke<void>("ops_logs_hosts", { streamId, add, remove }),
+  retry: (streamId: string, hostId: Uuid) => invoke<boolean>("ops_logs_retry", { streamId, hostId }),
+  autoReconnect: (streamId: string, on: boolean) => invoke<boolean>("ops_logs_auto_reconnect", { streamId, on }),
+  context: (streamId: string, hostId: Uuid, cursor: string, before: number, after: number, unit: string | null, redact: boolean) =>
+    invoke<{ before: import("./ops/logrows").WireEntry[]; after: import("./ops/logrows").WireEntry[] }>("ops_logs_context", { streamId, hostId, cursor, before, after, unit, redact }),
+  units: (hostId: Uuid) => invoke<string[]>("ops_units", { hostId }),
+};
+
 /** tmux and screen sessions on a host, found over an extra channel of a pane's connection. */
 export const multiplexer = {
   /** The probe's raw text (see `tmux/discovery.ts`), or null when the pane isn't a connected SSH session. */

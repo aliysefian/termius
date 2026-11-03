@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Pencil, RefreshCw, SquareTerminal, X } from "lucide-svelte";
+  import { Pencil, RefreshCw, ScrollText, SquareTerminal, X } from "lucide-svelte";
   import HealthBadge from "./HealthBadge.svelte";
   import NetworkTab from "./NetworkTab.svelte";
   import { ago, describeDeliveries, formatValue, STATUS_TEXT, statusClass } from "$lib/monitoring";
@@ -7,6 +7,7 @@
   import { formatRate, formatTotal } from "$lib/netdata";
   import { hostMetrics } from "$lib/stores/hostmetrics.svelte";
   import { monitoring } from "$lib/stores/monitoring.svelte";
+  import { ops } from "$lib/stores/ops.svelte";
   import { settings } from "$lib/stores/settings.svelte";
   import { ui } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
@@ -83,6 +84,7 @@
       <div class="flex-1"></div>
       <button class="icon-btn h-8 w-8 border border-line" title="Check now" aria-label="Check {t.label} now" disabled={!t.enabled || !monitoring.running} onclick={() => void monitoring.runNow(row.id)}><RefreshCw size={15} /></button>
       <button class="btn-secondary h-8 text-xs" disabled={!t.ssh_host_id || hostMissing} title={t.ssh_host_id ? "Open a terminal on this host" : "This monitor has no SSH host"} onclick={() => t.ssh_host_id && ui.openTerminal(t.ssh_host_id, t.label)}><SquareTerminal size={14} /> Open SSH Terminal</button>
+      <button class="btn-secondary h-8 text-xs" disabled={!t.ssh_host_id || hostMissing} title={t.ssh_host_id ? "Follow this host's logs in Operations" : "This monitor has no SSH host"} onclick={() => t.ssh_host_id && void ops.viewLogs(t.ssh_host_id)} data-testid="inspect-logs"><ScrollText size={14} /> Inspect Logs</button>
     </div>
   </header>
 
