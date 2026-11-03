@@ -31,17 +31,12 @@ export function redactSecrets(sql: string): string {
     .replace(/(\bset\s+password\s+for\s+[^=;]+=\s*)(?:'(?:[^']|'')*'|"(?:[^"]|"")*")/gi, "$1'***'");
 }
 
-/** Newest first. A run of the same statement right after itself on the same connection is one entry, updated. */
+/** Newest first. Running the same statement again on the same connection moves it to the top with its new outcome. */
 export function addEntry(list: HistoryEntry[], e: HistoryEntry, max = HISTORY_MAX): HistoryEntry[] {
   const sql = redactSecrets(e.sql.trim());
   if (!sql || max <= 0) return max <= 0 ? [] : list;
-  const entry = { ...e, sql };
-  const [first, ...rest] = list;
-  if (first && first.sql === sql && first.connection === e.connection && first.ok === undefined) {
-    // The entry written when the run started is completed when it ends.
-    return [entry, ...rest].slice(0, max);
-  }
-  return [entry, ...list].slice(0, max);
+  const rest = list.filter((x) => !(x.sql === sql && x.connection === e.connection));
+  return [{ ...e, sql }, ...rest].slice(0, max);
 }
 
 /** Record how a run ended on the entry that was added when it started. */
@@ -69,7 +64,7 @@ export function loadHistory(storage: Pick<Storage, "getItem"> | undefined = tryS
   }
 }
 
-export function saveHistory(list: HistoryEntry[], max = HISTORY_MAX, storage: Pick<Storage, "setItem"> | undefined = tryStorage()) {
+export function saveHistory(list: HistoryEntry[], storage: Pick<Storage, "setItem"> | undefined = tryStorage(), max = HISTORY_MAX) {
   try {
     storage?.setItem(HISTORY_KEY, JSON.stringify(list.slice(0, Math.max(0, max))));
   } catch {

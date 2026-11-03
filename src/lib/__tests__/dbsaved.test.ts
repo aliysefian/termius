@@ -56,8 +56,11 @@ describe("history", () => {
     expect(list[0].ok).toBeUndefined();
     list = finishEntry(list, started, { ms: 12, rows: 1, ok: true });
     expect(list[0]).toMatchObject({ ok: true, ms: 12, rows: 1 });
+    // Running it again moves it to the top, with the new run's outcome to come.
     list = addEntry(list, { sql: "select 1", at: 200, connection: "shop" });
-    expect(list).toHaveLength(2);
+    expect(list).toHaveLength(1);
+    expect(list[0].at).toBe(200);
+    list = addEntry(list, { sql: "select 2", at: 250, connection: "shop" });
     const failed = { sql: "select x", at: 300, connection: "shop" };
     list = finishEntry(addEntry(list, failed), failed, { ms: 3, rows: null, ok: false, error: "column x does not exist" });
     expect(list[0]).toMatchObject({ ok: false, error: "column x does not exist" });
@@ -79,9 +82,9 @@ describe("history", () => {
     expect(searchHistory(list, "ORDERS")).toHaveLength(1);
     expect(searchHistory(list, "warehouse")).toHaveLength(1);
     expect(searchHistory(list, "such column")).toHaveLength(1);
-    saveHistory(list, 100, mem);
+    saveHistory(list, mem, 100);
     expect(loadHistory(mem)).toEqual(list);
-    saveHistory(list, 1, mem);
+    saveHistory(list, mem, 1);
     expect(loadHistory(mem)).toHaveLength(1);
   });
 });

@@ -31,6 +31,8 @@
   import TopologyView from "$lib/components/TopologyView.svelte";
   import OpsView from "$lib/components/OpsView.svelte";
   import MonitoringView from "$lib/components/MonitoringView.svelte";
+  import DbExportDialog from "$lib/components/databases/ExportDialog.svelte";
+  import DbImportDialog from "$lib/components/databases/ImportDialog.svelte";
   import MonitorTargetForm from "$lib/components/MonitorTargetForm.svelte";
   import AlertRuleForm from "$lib/components/AlertRuleForm.svelte";
   import PortScanDialog from "$lib/components/PortScanDialog.svelte";
@@ -412,6 +414,14 @@
   {:else if ui.modal?.kind === "db-connection"}
     {#key ui.modal.id}
       <DbConnectionForm id={ui.modal.id} />
+    {/key}
+  {:else if ui.modal?.kind === "db-export"}
+    {#key ui.modal.table}
+      <DbExportDialog connId={ui.modal.connId} database={ui.modal.database} table={ui.modal.table} />
+    {/key}
+  {:else if ui.modal?.kind === "db-import"}
+    {#key ui.modal.table}
+      <DbImportDialog connId={ui.modal.connId} database={ui.modal.database} table={ui.modal.table} />
     {/key}
   {:else if ui.modal?.kind === "host-monitor"}
     {#key ui.modal.id}

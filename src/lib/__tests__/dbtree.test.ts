@@ -63,6 +63,14 @@ describe("buildRows", () => {
     expect(failed.at(-1)).toMatchObject({ kind: "error", label: "permission denied" });
   });
 
+  it("names a connection group once, above its connections", () => {
+    const a: ConnectionView = { ...conn(tree), id: "a", name: "alpha", group: "Production" };
+    const b: ConnectionView = { id: "b", name: "beta", group: "Production", engine: "mysql" };
+    const c: ConnectionView = { id: "c", name: "gamma", group: "", engine: "mysql" };
+    const rows = buildRows([a, b, c], { ...base, collapsed: { a: true } });
+    expect(rows.map((r) => `${r.kind}:${r.label}`)).toEqual(["section:Production", "connection:alpha", "connection:beta", "connection:gamma"]);
+  });
+
   it("gives every row a distinct key", () => {
     const rows = buildRows([conn(tree, { public: true })], base);
     expect(new Set(rows.map((r) => r.key)).size).toBe(rows.length);

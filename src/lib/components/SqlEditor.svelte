@@ -1,13 +1,15 @@
 <script lang="ts">
   import { onDestroy, onMount } from "svelte";
   import { acceptCompletion, autocompletion, closeBrackets, closeBracketsKeymap, completionKeymap } from "@codemirror/autocomplete";
-  import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
+  import { defaultKeymap, history, historyKeymap, indentWithTab, toggleComment } from "@codemirror/commands";
+  import { highlightSelectionMatches, openSearchPanel, search, searchKeymap } from "@codemirror/search";
   import { bracketMatching, HighlightStyle, indentOnInput, syntaxHighlighting } from "@codemirror/language";
   import { Compartment, EditorState, type Extension, type StateEffect } from "@codemirror/state";
-  import { drawSelection, dropCursor, EditorView, highlightActiveLine, highlightSpecialChars, keymap, placeholder as editorPlaceholder, tooltips } from "@codemirror/view";
+  import { drawSelection, dropCursor, EditorView, highlightActiveLine, highlightActiveLineGutter, highlightSpecialChars, keymap, lineNumbers, placeholder as editorPlaceholder, tooltips } from "@codemirror/view";
   import { sql, keywordCompletionSource } from "@codemirror/lang-sql";
   import { tags } from "@lezer/highlight";
   import { sqlDialect, sqlMetadataCompletion, type SqlMetadataProvider } from "$lib/sqlcompletion";
+  import { statementAt } from "$lib/dbstatement";
 
   let {
     tabId,
@@ -19,6 +21,8 @@
     metadata,
     onchange,
     onrun,
+    onsave,
+    onformat,
   }: {
     tabId: string;
     value: string;
@@ -28,7 +32,10 @@
     disabled?: boolean;
     metadata: SqlMetadataProvider;
     onchange: (value: string) => void;
-    onrun: (selection: string | null) => void;
+    /** `statement`: the selection or the statement at the cursor. `script`: the selection or the whole text. */
+    onrun: (mode: "statement" | "script", text: string | null) => void;
+    onsave?: () => void;
+    onformat?: () => void;
   } = $props();
 
   let host = $state<HTMLDivElement>();
@@ -61,7 +68,13 @@
     ".cm-scroller": { overflow: "auto", fontFamily: "var(--font-mono)" },
     ".cm-content": { minHeight: "4rem", padding: "0.75rem", caretColor: "var(--color-fg)" },
     ".cm-line": { padding: "0" },
-    ".cm-gutters": { display: "none" },
+    ".cm-gutters": { backgroundColor: "var(--color-base)", color: "var(--color-fg-muted)", border: "none", borderRight: "1px solid var(--color-line)" },
+    ".cm-lineNumbers .cm-gutterElement": { padding: "0 0.5rem 0 0.75rem", minWidth: "2.25rem", fontSize: "0.7rem" },
+    ".cm-activeLineGutter": { backgroundColor: "color-mix(in srgb, var(--color-panel-hover) 55%, transparent)", color: "var(--color-fg)" },
+    ".cm-searchMatch": { backgroundColor: "color-mix(in srgb, var(--color-warning) 30%, transparent)" },
+    ".cm-searchMatch-selected": { backgroundColor: "color-mix(in srgb, var(--color-accent) 40%, transparent)" },
+    ".cm-panel.cm-search": { padding: "0.4rem 0.5rem", fontSize: "0.75rem" },
+    ".cm-panel.cm-search input, .cm-panel.cm-search button": { fontSize: "0.75rem" },
     ".cm-cursor, .cm-dropCursor": { borderLeftColor: "var(--color-fg)" },
     ".cm-selectionBackground, &.cm-focused .cm-selectionBackground, ::selection": { backgroundColor: "color-mix(in srgb, var(--color-accent) 30%, transparent) !important" },
     ".cm-activeLine": { backgroundColor: "color-mix(in srgb, var(--color-panel-hover) 55%, transparent)" },
@@ -82,8 +95,12 @@
 
   function baseExtensions(): Extension[] {
     return [
+      lineNumbers(),
+      highlightActiveLineGutter(),
       highlightSpecialChars(),
       history(),
+      search({ top: true }),
+      highlightSelectionMatches(),
       drawSelection(),
       dropCursor(),
       indentOnInput(),
@@ -99,7 +116,13 @@
       editable.of([EditorView.editable.of(!disabled), EditorState.readOnly.of(disabled)]),
       attributes.of(EditorView.contentAttributes.of({ "aria-label": label, spellcheck: "false", autocomplete: "off" })),
       keymap.of([
-        { key: "Ctrl-Enter", mac: "Cmd-Enter", run: runSelection },
+        { key: "Mod-Enter", run: runStatement },
+        { key: "Mod-Shift-Enter", run: runScript },
+        { key: "Mod-s", run: () => (onsave ? (onsave(), true) : false), preventDefault: true },
+        { key: "Mod-Shift-f", run: () => (onformat ? (onformat(), true) : false), preventDefault: true },
+        { key: "Mod-/", run: toggleComment },
+        { key: "Mod-f", run: openSearchPanel, preventDefault: true },
+        ...searchKeymap,
         { key: "Tab", run: acceptCompletion },
         ...closeBracketsKeymap,
         ...completionKeymap,
@@ -115,9 +138,28 @@
     ];
   }
 
-  function runSelection(): boolean {
-    onrun(selection());
+  /** The selection, or the statement the cursor is in. */
+  function runStatement(): boolean {
+    const sel = selection();
+    onrun("statement", sel ?? currentStatement());
     return true;
+  }
+
+  /** The selection, or the whole text, as a script. */
+  function runScript(): boolean {
+    onrun("script", selection());
+    return true;
+  }
+
+  export function currentStatement(): string | null {
+    if (!view) return null;
+    return statementAt(view.state.doc.toString(), view.state.selection.main.head, engine)?.text ?? null;
+  }
+
+  /** Replace the whole text (formatting), as one undoable change. */
+  export function replaceAll(text: string) {
+    if (!view) return;
+    view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: text } });
   }
 
   function stateFor(id: string, doc: string): EditorState {
@@ -198,4 +240,4 @@
   });
 </script>
 
-<div bind:this={host} class="h-32 min-h-16 resize-y overflow-hidden bg-base text-sm" data-testid="sql-editor"></div>
+<div bind:this={host} class="h-full min-h-16 overflow-hidden bg-base text-sm" data-testid="sql-editor"></div>

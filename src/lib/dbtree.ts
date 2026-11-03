@@ -86,7 +86,7 @@ export function passesType(kind: DbNodeKind, filter: TypeFilter): boolean {
   }
 }
 
-export type RowKind = "connection" | "node" | "group" | "loading" | "error" | "empty" | "hits-header" | "hit";
+export type RowKind = "section" | "connection" | "node" | "group" | "loading" | "error" | "empty" | "hits-header" | "hit";
 
 export interface TreeRow {
   /** Stable across redraws, for keyed lists and focus. */
@@ -155,7 +155,7 @@ export function buildRows(connections: ConnectionView[], o: BuildOptions): TreeR
   const rows: TreeRow[] = [];
   const q = o.query.trim();
   const searching = q !== "" || o.type !== "all";
-  let lastGroup: string | null = null;
+  let lastGroup: string | null = "";
 
   for (const c of connections) {
     const connRows: TreeRow[] = [];
@@ -176,7 +176,10 @@ export function buildRows(connections: ConnectionView[], o: BuildOptions): TreeR
     }
     // While searching, a connection shows only if it, or something below it, matches.
     if (searching && !matches(c.name, q) && connRows.length === 0) continue;
-    if (c.group !== lastGroup) lastGroup = c.group;
+    if (c.group !== lastGroup) {
+      lastGroup = c.group;
+      if (c.group) rows.push({ key: `sec\u0000${c.group}`, kind: "section", depth: 0, connId: c.id, path: [], label: c.group, expandable: false, open: false });
+    }
     rows.push({ key: `conn\u0000${c.id}`, kind: "connection", depth: 0, connId: c.id, path: [], label: c.name, expandable: !!s, open, connected: !!s, connecting: !!c.connecting, engine: c.engine });
     rows.push(...connRows);
   }

@@ -101,6 +101,8 @@ export type Modal =
   | { kind: "port-scan"; id: Uuid }
   | { kind: "alert-rule"; id: Uuid | null }
   | { kind: "db-connection"; id: Uuid | null }
+  | { kind: "db-export"; connId: Uuid; database: string; table: string }
+  | { kind: "db-import"; connId: Uuid; database: string; table: string }
   | { kind: "container-pull"; sourceKey: string }
   | { kind: "container-prune"; sourceKey: string; what: "images" | "volumes" | "networks" }
   | { kind: "quick-connect"; initial?: string }
