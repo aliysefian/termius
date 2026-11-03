@@ -12,6 +12,23 @@ use crate::runbook::StepResult;
 /// Runs kept in the record.
 pub const KEEP_RUNS: usize = 100;
 
+/// How a host's part of a run ended (or where it is).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum HostStatus {
+    Pending,
+    Connecting,
+    Running,
+    Success,
+    Failed,
+    /// Never started: an earlier host (or batch) failed in a run that stops at the first failure.
+    Skipped,
+    /// Stopped by the person, or because another host failed in a run that stops everything.
+    Cancelled,
+    /// A step ran out of time and stopped the host.
+    TimedOut,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HostRecord {
     pub host_id: Uuid,
@@ -20,6 +37,14 @@ pub struct HostRecord {
     pub ok: Option<bool>,
     pub error: Option<String>,
     pub steps: Vec<StepResult>,
+    /// Missing in records made before it existed: `ok` says what it can.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<HostStatus>,
+    /// When it started and ended, in milliseconds since 1970 (this computer's clock).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub started_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finished_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -36,6 +61,21 @@ pub struct RunRecord {
     /// The values the run was given (text parameters; a file parameter shows only that one was chosen).
     pub params: HashMap<String, String>,
     pub hosts: Vec<HostRecord>,
+    /// How the hosts were taken.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub strategy: Option<crate::runbook::Strategy>,
+    /// "manual", "schedule" or "retry"; missing before it existed (`scheduled` says which of the first two).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trigger: Option<String>,
+    /// The run this one repeats (for the failed hosts, or from a failed step).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retry_of: Option<String>,
+    /// A run that started at this step (0-based) instead of the first.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from_step: Option<usize>,
+    /// The runbook's steps by name, so a record can be read without the runbook (which may have changed or gone).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub step_names: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -49,6 +89,11 @@ pub struct RunSummary {
     pub hosts: usize,
     pub ok: usize,
     pub failed: usize,
+    pub finished_at: Option<u64>,
+    pub trigger: Option<String>,
+    pub strategy: Option<crate::runbook::Strategy>,
+    /// The labels of the hosts that failed.
+    pub failed_hosts: Vec<String>,
 }
 
 impl RunRecord {
@@ -63,6 +108,10 @@ impl RunRecord {
             hosts: self.hosts.len(),
             ok: self.hosts.iter().filter(|h| h.ok == Some(true)).count(),
             failed: self.hosts.iter().filter(|h| h.ok == Some(false)).count(),
+            finished_at: self.finished_at,
+            trigger: self.trigger.clone().or_else(|| Some(if self.scheduled { "schedule" } else { "manual" }.to_string())),
+            strategy: self.strategy,
+            failed_hosts: self.hosts.iter().filter(|h| h.ok == Some(false)).map(|h| h.label.clone()).collect(),
         }
     }
 }
@@ -87,6 +136,10 @@ pub fn masked(r: &RunRecord) -> RunRecord {
 
 pub fn now() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+}
+
+pub fn now_ms() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
 }
 
 /// The runs kept on this computer, one file each.
@@ -178,10 +231,15 @@ mod tests {
             scheduled: false,
             rollback: false,
             cancelled: false,
+            strategy: None,
+            trigger: None,
+            retry_of: None,
+            from_step: None,
+            step_names: Vec::new(),
             params: HashMap::from([("service".to_string(), "nginx".to_string())]),
             hosts: ok
                 .iter()
-                .map(|o| HostRecord { host_id: Uuid::new_v4(), label: "h".into(), ok: *o, error: None, steps: vec![StepResult { phase: Default::default(), index: 0, name: "s".into(), status: StepStatus::Ok, output: Output::default(), note: String::new() }] })
+                .map(|o| HostRecord { host_id: Uuid::new_v4(), label: "h".into(), ok: *o, error: None, status: None, started_ms: None, finished_ms: None, steps: vec![StepResult { phase: Default::default(), index: 0, name: "s".into(), status: StepStatus::Ok, output: Output::default(), note: String::new() }] })
                 .collect(),
         }
     }

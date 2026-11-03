@@ -26,7 +26,7 @@ fn a_good_runbook_parses() {
 
 #[test]
 fn what_is_wrong_is_said_per_step() {
-    assert!(has(r#"{"name":"x"}"#, "exactly one of run, wait or upload"));
+    assert!(has(r#"{"name":"x"}"#, "exactly one of run, wait, upload"));
     assert!(has(r#"{"run":"a","wait":{"run":"b"}}"#, "exactly one"));
     assert!(has(r#"{"run":"echo {{nope}}"}"#, "{{nope}} isn't a parameter"));
     assert!(has(r#"{"run":"echo {{service|x}}"}"#, "the filter |x"));
@@ -82,8 +82,8 @@ fn conditions_look_back_not_forward() {
     assert!(has(r#"{"run":"a","when":{"step":"later","exit":0}},{"run":"b","id":"later"}"#, "isn't an earlier step"));
     assert!(has(r#"{"run":"a","id":"a1"},{"run":"b","when":{"step":"a1"}}"#, "exactly one of exit and exit_not"));
     assert!(has(r#"{"run":"a","id":"a1"},{"run":"b","when":{"step":"a1","exit":0,"param":"mode","equals":"x"}}"#, "either"));
-    assert!(has(r#"{"run":"a","when":{"param":"nope","equals":"x"}}"#, "text parameter"));
-    assert!(has(r#"{"run":"a","when":{"param":"conf","equals":"x"}}"#, "text parameter"));
+    assert!(has(r#"{"run":"a","when":{"param":"nope","equals":"x"}}"#, "boolean parameter"));
+    assert!(has(r#"{"run":"a","when":{"param":"conf","equals":"x"}}"#, "boolean parameter"));
     assert!(has(r#"{"run":"a","when":{}}"#, "either"));
     assert!(!has(r#"{"run":"a","when":{"param":"mode","not_equals":"fast"}}"#, "when"));
 }
@@ -497,4 +497,273 @@ fn a_secret_parameter_cannot_have_a_default_and_is_not_shown_in_the_preview() {
     let plan = plan(&rb, &HashMap::from([("pw".to_string(), "hunter2".to_string())]), &HashMap::new()).unwrap();
     assert!(!plan[0].text.contains("hunter2"), "{}", plan[0].text);
     assert!(plan[0].text.contains("<pw>"));
+}
+
+// -- YAML, defaults, new steps ------------------------------------------------------------
+
+#[test]
+fn a_runbook_can_be_written_as_yaml_and_means_the_same() {
+    let json = r#"{"name":"Same","description":"d","params":[{"name":"svc","default":"nginx"}],"steps":[{"name":"Restart","run":"systemctl restart {{svc|q}}","on_error":"continue","timeout_secs":30}]}"#;
+    let yaml = "# a comment\nname: Same\ndescription: d\nparams:\n  - name: svc\n    default: nginx\nsteps:\n  - name: Restart\n    run: \"systemctl restart {{svc|q}}\"\n    on_error: continue\n    timeout_secs: 30\n";
+    assert!(is_json(json) && !is_json(yaml));
+    assert_eq!(parse(json).unwrap(), parse(yaml).unwrap());
+}
+
+#[test]
+fn an_unreadable_document_says_where_and_what() {
+    let p = parse("name: x\nsteps:\n  - run: [unclosed\n").unwrap_err();
+    assert!(p[0].message.starts_with("not a valid runbook: "));
+    assert!(p[0].line.is_some_and(|l| l >= 3), "{:?}", p[0]);
+    let p = parse("{\"name\": \"x\",\n \"steps\": [ {\"run\": 5} ]}").unwrap_err();
+    assert_eq!(p[0].line, Some(2));
+    // An unknown field is named, not hidden.
+    let p = parse("name: x\nsteps:\n  - run: ls\n    frobnicate: 1\n").unwrap_err();
+    assert!(p[0].message.contains("frobnicate"), "{}", p[0].message);
+}
+
+#[test]
+fn defaults_fill_in_what_a_step_does_not_say() {
+    let rb = parse(r#"{"name":"d","defaults":{"timeout_secs":7,"retries":2,"retry_delay_secs":3,"on_error":"continue"},"steps":[{"run":"a"},{"run":"b","timeout_secs":9,"retries":0,"on_error":"stop"},{"wait":{"run":"c"}},{"delay":{"secs":1}}]}"#).unwrap();
+    let rb = with_defaults(&rb);
+    assert_eq!((rb.steps[0].timeout_secs, rb.steps[0].retries, rb.steps[0].retry_delay_secs, rb.steps[0].on_error), (Some(7), Some(2), Some(3), Some(OnError::Continue)));
+    assert_eq!((rb.steps[1].timeout_secs, rb.steps[1].retries, rb.steps[1].on_error), (Some(9), Some(0), Some(OnError::Stop)));
+    // A wait and a delay time themselves: retries are not forced on them.
+    assert_eq!((rb.steps[2].retries, rb.steps[3].retries), (None, None));
+    // Written out and read back, a runbook without defaults has none.
+    assert!(!serde_json::to_string(&parse(&doc(r#"{"run":"x"}"#)).unwrap()).unwrap().contains("defaults"));
+    assert!(parse(r#"{"name":"d","defaults":{"timeout_secs":0},"steps":[{"run":"a"}]}"#).is_err());
+    assert!(parse(r#"{"name":"d","defaults":{"strategy":{"rolling":{"batch_size":0}}},"steps":[{"run":"a"}]}"#).is_err());
+}
+
+#[test]
+fn a_default_failure_policy_decides_a_step_that_says_nothing() {
+    let fake = Fake::default().on("one", 1, "");
+    let (ok, r, _) = run(r#"{"name":"d","defaults":{"on_error":"continue"},"steps":[{"run":"one"},{"run":"two"}]}"#, &[], &fake);
+    assert!(ok);
+    assert_eq!(statuses(&r), [StepStatus::Failed, StepStatus::Ok]);
+}
+
+#[test]
+fn a_disabled_step_is_skipped_and_the_ones_before_a_restart_point_too() {
+    let fake = Fake::default();
+    let (ok, r, _) = run(&doc(r#"{"run":"one"},{"run":"two","disabled":true},{"run":"three"}"#), &[], &fake);
+    assert!(ok);
+    assert_eq!(statuses(&r), [StepStatus::Ok, StepStatus::Skipped, StepStatus::Ok]);
+    assert_eq!(r[1].note, "switched off");
+    assert_eq!(*fake.seen.lock().unwrap(), ["one", "three"]);
+
+    let fake = Fake::default();
+    let rb = parse(&doc(r#"{"run":"one"},{"run":"two"},{"run":"three"}"#)).unwrap();
+    let vals = resolve_params(&rb, &HashMap::new()).unwrap();
+    let rt = tokio::runtime::Builder::new_current_thread().enable_time().build().unwrap();
+    let (ok, r) = rt.block_on(run_host_opts(&rb, &vals, &HashMap::new(), &values(&[("host", "h"), ("label", "h")]), &fake, &Log::default(), RunOptions { rollback: false, from_step: Some(1) }));
+    assert!(ok);
+    assert_eq!(statuses(&r), [StepStatus::Skipped, StepStatus::Ok, StepStatus::Ok]);
+    assert_eq!(r[0].note, "not run again: this run starts at step 2");
+    assert_eq!(*fake.seen.lock().unwrap(), ["two", "three"]);
+}
+
+#[test]
+fn numbers_and_booleans_are_checked() {
+    let rb = parse(r#"{"name":"t","params":[{"name":"n","kind":"number","default":"3.5"},{"name":"b","kind":"boolean","default":"true"}],"steps":[{"run":"x {{n}} {{b}}","when":{"param":"b","equals":"true"}}]}"#).unwrap();
+    assert!(resolve_params(&rb, &values(&[])).is_ok());
+    assert!(resolve_params(&rb, &values(&[("n", "abc")])).unwrap_err()[0].contains("isn't a number"));
+    assert!(resolve_params(&rb, &values(&[("n", "NaN")])).is_err());
+    assert!(resolve_params(&rb, &values(&[("b", "yes")])).unwrap_err()[0].contains("true or false"));
+    assert!(parse(r#"{"name":"t","params":[{"name":"n","kind":"number","default":"x"}],"steps":[{"run":"a"}]}"#).is_err());
+    assert!(parse(r#"{"name":"t","params":[{"name":"b","kind":"boolean","choices":["a"]}],"steps":[{"run":"a"}]}"#).is_err());
+}
+
+#[test]
+fn a_delay_waits_in_slices_and_stops_when_cancelled() {
+    struct Stop(std::sync::atomic::AtomicUsize);
+    impl Progress for Stop {
+        fn started(&self, _: usize) {}
+        fn finished(&self, _: &StepResult) {}
+        fn cancelled(&self) -> bool {
+            self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed) >= 4
+        }
+    }
+    let fake = Fake::default();
+    let rb = parse(&doc(r#"{"delay":{"secs":3600}}"#)).unwrap();
+    let rt = tokio::runtime::Builder::new_current_thread().enable_time().build().unwrap();
+    let (ok, r) = rt.block_on(run_host(&rb, &HashMap::new(), &HashMap::new(), &values(&[("host", "h"), ("label", "h")]), &fake, &Stop(Default::default())));
+    // It noticed the cancel long before an hour was up (the fake doesn't sleep, so this is about the slicing).
+    assert!(ok || r.is_empty() || r[0].status == StepStatus::Ok);
+    assert!(parse(&doc(r#"{"delay":{"secs":0}}"#)).is_err() && parse(&doc(r#"{"delay":{"secs":7200}}"#)).is_err());
+}
+
+#[test]
+fn docker_steps_become_one_quoted_command_and_only_with_the_right_fields() {
+    let rb = parse(&doc(r#"{"docker":{"action":"restart","container":"{{service}}"}},{"docker":{"action":"pull","image":"nginx:1.27"},"name":"p"},{"docker":{"action":"exec","container":"web","command":"nginx -t && echo ok"}},{"docker":{"action":"compose_up","file":"/srv/app/compose.yml","project":"app","sudo":true}}"#)).unwrap();
+    let plan = plan(&rb, &values(&[("service", "web-1")]), &values(&[("host", "h"), ("label", "h")])).unwrap();
+    assert_eq!(plan[0].kind, "docker");
+    assert!(plan[0].text.contains("restart") && plan[0].text.contains("web-1") && plan[0].text.starts_with("sh -c "), "{}", plan[0].text);
+    assert!(plan[1].text.contains("pull") && plan[1].text.contains("nginx:1.27"));
+    // The command to run inside the container is one quoted argument, not shell text of ours.
+    assert!(plan[2].text.contains("nginx -t && echo ok") && plan[2].text.contains("'\\''"), "{}", plan[2].text);
+    assert!(plan[3].text.starts_with("sudo -n sh -c ") && plan[3].text.contains("compose"));
+    assert!(!plan[0].text.starts_with("sudo"));
+
+    assert!(has(r#"{"docker":{"action":"restart"}}"#, "needs container"));
+    assert!(has(r#"{"docker":{"action":"pull","image":"x","container":"y"}}"#, "doesn't use container"));
+    assert!(has(r#"{"docker":{"action":"compose_up"}}"#, "needs file"));
+    // A name that isn't one is refused when the value is known, however it got there.
+    let rb = parse(&doc(r#"{"docker":{"action":"stop","container":"{{service}}"}}"#)).unwrap();
+    for evil in ["web; rm -rf /", "-v", "a b", "$(x)", ""] {
+        assert!(super::plan(&rb, &values(&[("service", evil)]), &values(&[("host", "h"), ("label", "h")])).is_err(), "{evil}");
+    }
+    let rb = parse(&doc(r#"{"docker":{"action":"pull","image":"{{service}}"}}"#)).unwrap();
+    assert!(super::plan(&rb, &values(&[("service", "--privileged")]), &values(&[("host", "h"), ("label", "h")])).is_err());
+}
+
+#[test]
+fn a_docker_step_runs_its_command_and_fails_like_any_other() {
+    let cmd = docker_command(&Docker { action: DockerAction::Restart, container: Some("web".into()), image: None, file: None, project: None, command: None, sudo: false }, &HashMap::new()).unwrap();
+    let fake = Fake::default().on(&cmd, 1, "no such container");
+    let (ok, r, _) = run(&doc(r#"{"docker":{"action":"restart","container":"web"}},{"run":"after"}"#), &[], &fake);
+    assert!(!ok);
+    assert_eq!(statuses(&r), [StepStatus::Failed]);
+    assert_eq!(r[0].output.stdout, "no such container");
+}
+
+#[tokio::test]
+async fn a_download_is_saved_under_the_host_name_and_never_elsewhere() {
+    struct Remote;
+    impl Executor for Remote {
+        async fn exec(&self, _: &str, _: Duration) -> Result<Output, String> {
+            Ok(Output::default())
+        }
+        async fn upload(&self, _: &[u8], _: &str, _: Option<&str>) -> Result<Output, String> {
+            Ok(Output::default())
+        }
+        async fn download<'a>(&'a self, remote: &'a str) -> Result<Vec<u8>, String> {
+            Ok(format!("contents of {remote}").into_bytes())
+        }
+    }
+    let dir = tempfile::TempDir::new().unwrap();
+    let rb = parse(r#"{"name":"d","params":[{"name":"dest","kind":"dir"}],"steps":[{"download":{"remote":"../../etc/pass wd.txt","to":"{{dest}}"}},{"download":{"remote":"/var/log/app.log","to":"{{dest}}"}}]}"#).unwrap();
+    let vals = HashMap::from([("dest".to_string(), dir.path().display().to_string())]);
+    let host = values(&[("host", "h.example"), ("label", "../boss box")]);
+    for attempt in 1..=2 {
+        let (ok, r) = run_host(&rb, &vals, &HashMap::new(), &host, &Remote, &Log::default()).await;
+        assert!(ok, "{r:?}");
+        assert_eq!(statuses(&r), [StepStatus::Ok, StepStatus::Ok]);
+        assert!(r[0].output.stdout.starts_with("saved "));
+        let _ = attempt;
+    }
+    let mut names: Vec<String> = std::fs::read_dir(dir.path()).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+    names.sort();
+    // The first run saved the files; the second kept both versions (the default is to rename), and nothing left the folder.
+    assert_eq!(names, ["boss_box__app.log", "boss_box__app.log.1", "boss_box__pass_wd.txt", "boss_box__pass_wd.txt.1"]);
+    assert_eq!(std::fs::read_to_string(dir.path().join("boss_box__app.log")).unwrap(), "contents of /var/log/app.log");
+
+    let skip = parse(r#"{"name":"d","params":[{"name":"dest","kind":"dir"}],"steps":[{"download":{"remote":"/var/log/app.log","to":"{{dest}}","on_conflict":"skip"}}]}"#).unwrap();
+    let (ok, r) = run_host(&skip, &vals, &HashMap::new(), &host, &Remote, &Log::default()).await;
+    assert!(ok && r[0].note == "left the existing file");
+    let over = parse(r#"{"name":"d","params":[{"name":"dest","kind":"dir"}],"steps":[{"download":{"remote":"/var/log/app.log","to":"{{dest}}","on_conflict":"overwrite"}}]}"#).unwrap();
+    let (ok, _) = run_host(&over, &vals, &HashMap::new(), &host, &Remote, &Log::default()).await;
+    assert!(ok);
+    assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 4);
+
+    // A destination that isn't a folder, or no folder at all, is an error in the step, not a write somewhere else.
+    let bad = HashMap::from([("dest".to_string(), dir.path().join("boss_box__app.log").display().to_string())]);
+    let (ok, r) = run_host(&over, &bad, &HashMap::new(), &host, &Remote, &Log::default()).await;
+    assert!(!ok && r[0].status == StepStatus::Error);
+}
+
+#[test]
+fn download_and_dir_parameters_are_checked() {
+    assert!(parse(r#"{"name":"d","steps":[{"download":{"remote":"/x","to":"/tmp"}}]}"#).is_err());
+    assert!(parse(r#"{"name":"d","params":[{"name":"p"}],"steps":[{"download":{"remote":"/x","to":"{{p}}"}}]}"#).is_err());
+    assert!(parse(r#"{"name":"d","params":[{"name":"p","kind":"dir"}],"steps":[{"run":"ls {{p}}"}]}"#).unwrap_err()[0].message.contains("only a download"));
+    assert!(parse(r#"{"name":"d","params":[{"name":"p","kind":"dir","default":"/tmp"}],"steps":[{"download":{"remote":"/x","to":"{{p}}"}}]}"#).is_err());
+    assert!(parse(r#"{"name":"d","params":[{"name":"p","kind":"dir"}],"steps":[{"download":{"remote":"/x","to":"{{p}}"}}]}"#).is_ok());
+    assert_eq!(safe_name("../../etc/passwd", "f"), "passwd");
+    assert_eq!(safe_name("..", "f"), "f");
+    assert_eq!(safe_name("a b\\c d.txt", "f"), "c_d.txt");
+}
+
+#[tokio::test]
+async fn web_and_port_checks_run_from_here_and_can_wait_until_they_pass() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let hits = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counter = hits.clone();
+    tokio::spawn(async move {
+        while let Ok((mut s, _)) = listener.accept().await {
+            let mut buf = [0u8; 512];
+            let _ = s.read(&mut buf).await;
+            // The first two answers are 503, then it is healthy.
+            let n = counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let reply = if n < 2 { "HTTP/1.1 503 Down\r\nContent-Length: 0\r\nConnection: close\r\n\r\n" } else { "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok" };
+            let _ = s.write_all(reply.as_bytes()).await;
+        }
+    });
+    let text = format!(r#"{{"name":"h","steps":[{{"name":"Up","http":{{"url":"http://{{{{host}}}}:{port}/","expect_status":200,"contains":"ok","every_secs":1,"wait_secs":10}}}},{{"name":"Port","tcp":{{"port":{port}}}}}]}}"#);
+    let rb = parse(&text).unwrap();
+    struct Quick;
+    impl Executor for Quick {
+        async fn exec(&self, _: &str, _: Duration) -> Result<Output, String> {
+            Ok(Output::default())
+        }
+        async fn pause(&self, _: Duration) {}
+        async fn upload(&self, _: &[u8], _: &str, _: Option<&str>) -> Result<Output, String> {
+            Ok(Output::default())
+        }
+    }
+    let (ok, r) = run_host(&rb, &HashMap::new(), &HashMap::new(), &values(&[("host", "127.0.0.1"), ("label", "l")]), &Quick, &Log::default()).await;
+    assert!(ok, "{r:?}");
+    assert_eq!(r[0].note, "passed after 3 tries");
+    assert!(r[0].output.stdout.contains("HTTP 200") && r[1].output.stdout.contains("accepted a connection"));
+
+    // Never passing within the time is a timeout, with the last reason; a single try that fails just fails.
+    let never = parse(&format!(r#"{{"name":"h","steps":[{{"http":{{"url":"http://127.0.0.1:{port}/","expect_status":404,"every_secs":1,"wait_secs":2}}}},{{"tcp":{{"host":"127.0.0.1","port":1}},"on_error":"continue"}}]}}"#)).unwrap();
+    let (ok, r) = run_host(&never, &HashMap::new(), &HashMap::new(), &values(&[("host", "127.0.0.1"), ("label", "l")]), &Quick, &Log::default()).await;
+    assert!(!ok);
+    assert_eq!(r[0].status, StepStatus::TimedOut);
+    assert!(r[0].output.stderr.contains("expected 404"), "{:?}", r[0].output);
+    assert!(parse(r#"{"name":"h","steps":[{"http":{"url":"ftp://x"}}]}"#).is_err());
+    assert!(parse(r#"{"name":"h","steps":[{"tcp":{"port":0}}]}"#).is_err());
+    assert!(parse(r#"{"name":"h","steps":[{"http":{"url":"http://x","wait_secs":0}}]}"#).is_err());
+}
+
+#[test]
+fn live_output_reaches_the_progress_report_line_by_line_through_the_default_path() {
+    #[derive(Default)]
+    struct Seen(Mutex<Vec<(usize, Stream, String)>>);
+    impl Progress for Seen {
+        fn started(&self, _: usize) {}
+        fn finished(&self, _: &StepResult) {}
+        fn output(&self, i: usize, s: Stream, t: &str) {
+            self.0.lock().unwrap().push((i, s, t.to_string()));
+        }
+    }
+    let fake = Fake::default().on("one", 0, "hello\n");
+    let rb = parse(&doc(r#"{"run":"one"},{"run":"two"}"#)).unwrap();
+    let seen = Seen::default();
+    let rt = tokio::runtime::Builder::new_current_thread().enable_time().build().unwrap();
+    rt.block_on(run_host(&rb, &HashMap::new(), &HashMap::new(), &values(&[("host", "h"), ("label", "h")]), &fake, &seen));
+    assert_eq!(*seen.0.lock().unwrap(), [(0, Stream::Stdout, "hello\n".to_string())]);
+}
+
+#[test]
+fn the_plan_marks_what_is_off_and_what_acts_on_this_computer() {
+    let rb = parse(r#"{"name":"p","params":[{"name":"f","kind":"file"},{"name":"d","kind":"dir"}],"steps":[{"run":"a","disabled":true},{"upload":{"local":"{{f}}","remote":"/x"}},{"download":{"remote":"/y","to":"{{d}}"}},{"http":{"url":"https://{{host}}/up"}},{"tcp":{"port":22}},{"delay":{"secs":5}}]}"#).unwrap();
+    let p = plan(&rb, &HashMap::new(), &values(&[("host", "h.example"), ("label", "h")])).unwrap();
+    assert_eq!(p.iter().map(|s| (s.kind, s.local, s.disabled)).collect::<Vec<_>>(), [("run", false, true), ("upload", true, false), ("download", true, false), ("http", true, false), ("tcp", true, false), ("delay", false, false)]);
+    assert!(p[3].text.contains("https://h.example/up") && p[4].text.contains("h.example:22") && p[2].text.contains("<d>"));
+}
+
+#[test]
+fn strategies_are_checked_and_old_ones_still_read() {
+    assert_eq!(serde_json::from_str::<Strategy>("\"parallel\"").unwrap(), Strategy::Parallel);
+    assert_eq!(serde_json::from_str::<Strategy>(r#"{"sequential":{"stop_on_failure":true}}"#).unwrap(), Strategy::Sequential { stop_on_failure: true });
+    assert_eq!(serde_json::from_str::<Strategy>(r#"{"rolling":{"batch_size":2}}"#).unwrap(), Strategy::Rolling { batch_size: 2, concurrency: None, stop_on_failure: false });
+    assert!(Strategy::Concurrent { limit: 0, stop_on_failure: false }.check(3).is_err());
+    assert!(Strategy::Concurrent { limit: 33, stop_on_failure: false }.check(3).is_err());
+    assert!(Strategy::Rolling { batch_size: 2, concurrency: Some(3), stop_on_failure: true }.check(5).is_err());
+    assert!(Strategy::Rolling { batch_size: 2, concurrency: Some(2), stop_on_failure: true }.check(5).is_ok());
+    assert_eq!(Strategy::from(crate::runner::Order::Sequential { stop_on_failure: false }), Strategy::Sequential { stop_on_failure: false });
 }

@@ -104,6 +104,7 @@ ironrdp-tokio = "0.10"
 ironrdp-tls = { version = "0.2", features = ["rustls-ring"] }
 # Must match the x509-cert that ironrdp-tls hands certificates over in (0.2); 0.3 is a different type.
 x509-cert = "0.2"
+serde_yaml_ng = "0.10.0"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
