@@ -51,6 +51,7 @@ export const zh: Partial<Record<Key, string>> = {
   "welcome.quick": "快速连接",
   "welcome.palette": "命令面板",
   "ops.title": "运维",
+  "ops.subtitle": "监控日志、管理服务、检查安全并排查基础设施问题。",
   "ops.logs": "日志",
   "ops.services": "服务",
   "ops.security": "安全",

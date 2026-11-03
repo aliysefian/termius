@@ -51,6 +51,7 @@ export const fa: Partial<Record<Key, string>> = {
   "welcome.quick": "اتصال سریع",
   "welcome.palette": "پالت فرمان",
   "ops.title": "عملیات",
+  "ops.subtitle": "گزارش‌ها را پایش کنید، سرویس‌ها را مدیریت کنید، امنیت را بررسی کنید و زیرساخت خود را عیب‌یابی کنید.",
   "ops.logs": "گزارش‌ها",
   "ops.services": "سرویس‌ها",
   "ops.security": "امنیت",

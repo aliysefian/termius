@@ -1,7 +1,9 @@
 <script lang="ts">
-  import { Loader2, Play, RotateCcw, Square } from "lucide-svelte";
+  import { Loader2, Play, RotateCcw, SlidersHorizontal, Square } from "lucide-svelte";
   import Combobox, { type ComboOption } from "../Combobox.svelte";
+  import DropMenu from "./DropMenu.svelte";
   import HostSelector from "./HostSelector.svelte";
+  import { ask } from "$lib/dialogs.svelte";
   import { HISTORY_CHOICES, PRIORITY_CHOICES, opsLogs } from "$lib/stores/opslogs.svelte";
   import { settings } from "$lib/stores/settings.svelte";
   import { UNIT } from "$lib/ops/logs";
@@ -26,6 +28,16 @@
   function loadUnits() {
     const first = opsLogs.hosts.find((id) => opsLogs.usable(id));
     if (first) void opsLogs.loadUnits(first);
+  }
+
+  /** Showing secrets is a choice that is asked about: it is only for debugging, and what is read then can be copied or saved. */
+  async function hideSecrets(on: boolean) {
+    if (on) {
+      p.opsLogRedact = true;
+      return;
+    }
+    const sure = await ask("Passwords, tokens and private keys that appear in the logs will be shown as they are, and can be copied or saved. Only do this to debug the hiding itself. Show them?", { title: "Show secrets in logs", confirm: "Show secrets", danger: true });
+    p.opsLogRedact = !sure;
   }
 
   const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
@@ -82,6 +94,20 @@
         {#each history as h (h.value)}<option value={h.value}>{h.label}</option>{/each}
       </select>
     </label>
+
+    <DropMenu ariaLabel="Stream options" label="Options" width={300}>
+      {#snippet icon()}<SlidersHorizontal size={13} />{/snippet}
+      {#snippet children()}
+        <label class="flex cursor-pointer items-start gap-2 rounded px-2 py-1.5 hover:bg-panel-hover">
+          <input type="checkbox" class="mt-0.5 accent-input" checked={p.opsLogRedact} onchange={async (e) => { const box = e.currentTarget; await hideSecrets(box.checked); box.checked = p.opsLogRedact; }} />
+          <span><span class="font-medium">Hide secrets</span><br /><span class="text-fg-muted">Passwords, tokens and private keys are hidden before an event reaches this window, so what you see, copy and save is the same. A safety net for common shapes, not a guarantee. Applies when following starts.</span></span>
+        </label>
+        <label class="flex cursor-pointer items-start gap-2 rounded px-2 py-1.5 hover:bg-panel-hover">
+          <input type="checkbox" class="mt-0.5 accent-input" checked={p.opsLogAutoReconnect} onchange={(e) => void opsLogs.setAutoReconnect(e.currentTarget.checked)} />
+          <span><span class="font-medium">Reconnect by itself</span><br /><span class="text-fg-muted">Applies at once, to a running stream too.</span></span>
+        </label>
+      {/snippet}
+    </DropMenu>
 
     <div class="ml-auto flex items-center gap-2">
       {#if opsLogs.running}

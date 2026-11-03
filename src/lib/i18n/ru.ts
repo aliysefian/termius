@@ -51,6 +51,7 @@ export const ru: Partial<Record<Key, string>> = {
   "welcome.quick": "Быстрое подключение",
   "welcome.palette": "Палитра команд",
   "ops.title": "Операции",
+  "ops.subtitle": "Следите за логами, управляйте службами, проверяйте безопасность и диагностируйте инфраструктуру.",
   "ops.logs": "Журналы",
   "ops.services": "Службы",
   "ops.security": "Безопасность",

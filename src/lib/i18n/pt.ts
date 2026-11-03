@@ -51,6 +51,7 @@ export const pt: Partial<Record<Key, string>> = {
   "welcome.quick": "Conexão rápida",
   "welcome.palette": "Paleta de comandos",
   "ops.title": "Operações",
+  "ops.subtitle": "Monitore logs, gerencie serviços, inspecione a segurança e diagnostique sua infraestrutura.",
   "ops.logs": "Logs",
   "ops.services": "Serviços",
   "ops.security": "Segurança",

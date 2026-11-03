@@ -51,6 +51,7 @@ export const ja: Partial<Record<Key, string>> = {
   "welcome.quick": "クイック接続",
   "welcome.palette": "コマンドパレット",
   "ops.title": "運用",
+  "ops.subtitle": "ログの監視、サービスの管理、セキュリティの確認、インフラのトラブルシューティングを行います。",
   "ops.logs": "ログ",
   "ops.services": "サービス",
   "ops.security": "セキュリティ",
