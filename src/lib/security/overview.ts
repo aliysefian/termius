@@ -6,6 +6,9 @@ export const OVERVIEW_SCRIPT = [
   // The config files as written. `sshd -T` shows what the running daemon uses but needs root.
   "echo @@sshd; for f in /etc/ssh/sshd_config /etc/ssh/sshd_config.d/*.conf; do [ -r \"$f\" ] && grep -hiE '^[[:space:]]*(PermitRootLogin|PasswordAuthentication|PermitEmptyPasswords|PubkeyAuthentication|X11Forwarding|MaxAuthTries|Port)[[:space:]]' \"$f\" 2>/dev/null; done",
   "echo @@readable; [ -r /etc/ssh/sshd_config ] && echo yes || echo no",
+  // Failed logins in the last hour, only for a user who may read the journal (root, or in adm or systemd-journal): for anyone
+  // else the journal shows only their own entries, and a count of zero would mean nothing.
+  "echo @@auth; acc=no; [ \"$(id -u)\" = 0 ] && acc=yes; id -nG 2>/dev/null | tr ' ' '\\n' | grep -qxE 'adm|systemd-journal' && acc=yes; echo $acc; [ $acc = yes ] && journalctl --since '1 hour ago' --no-pager -q -o cat _COMM=sshd _COMM=sshd-session 2>/dev/null | grep -ciE 'failed password|invalid user|authentication failure|maximum authentication attempts|connection closed by authenticating user'; true",
   "echo @@end",
 ].join("; ");
 
@@ -60,6 +63,9 @@ export function parseSshdConfig(text: string): Record<string, string> {
   return out;
 }
 
+/** Failed logins in an hour from which it is called out. */
+export const FAILED_WARN = 20;
+
 export type Status = "ok" | "warn" | "info" | "unknown";
 
 export interface Finding {
@@ -74,6 +80,8 @@ export interface Overview {
   sshd: Record<string, string>;
   /** Whether the config file could be read by this user. */
   configReadable: boolean;
+  /** Failed SSH logins in the last hour, or null when this user can't read the journal (so none is not claimed). */
+  failedLastHour: number | null;
 }
 
 export function parseOverview(output: string): Overview {
@@ -89,7 +97,14 @@ export function parseOverview(output: string): Overview {
     } else lines.push(l);
   }
   if (name) parts.set(name, lines.join("\n"));
-  return { ports: parsePorts(parts.get("ports") ?? ""), sshd: parseSshdConfig(parts.get("sshd") ?? ""), configReadable: (parts.get("readable") ?? "").trim() === "yes" };
+  const auth = (parts.get("auth") ?? "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const count = Number(auth[1]);
+  return {
+    ports: parsePorts(parts.get("ports") ?? ""),
+    sshd: parseSshdConfig(parts.get("sshd") ?? ""),
+    configReadable: (parts.get("readable") ?? "").trim() === "yes",
+    failedLastHour: auth[0] === "yes" && Number.isInteger(count) && count >= 0 ? count : null,
+  };
 }
 
 /** What the read-only checks conclude. Only what was read is judged. */
@@ -117,6 +132,13 @@ export function findings(o: Overview): Finding[] {
     if (o.sshd["permitemptypasswords"] === "yes") out.push({ id: "empty-passwords", status: "warn", title: "Accounts with empty passwords may log in", detail: "PermitEmptyPasswords is yes." });
     out.push({ id: "sshd-note", status: "info", title: "Read from the config files", detail: "This is what the files say. The running server (sshd -T, needs root) may use something else, for example if it wasn't restarted after an edit." });
   }
+  out.push(
+    o.failedLastHour === null
+      ? { id: "failed-logins", status: "unknown", title: "Failed SSH logins", detail: "This user can't read the whole journal (it needs root, or the adm or systemd-journal group), so failed logins can't be counted here. The Intrusion radar tab reads the log with sudo." }
+      : o.failedLastHour >= FAILED_WARN
+        ? { id: "failed-logins", status: "warn", title: `${o.failedLastHour} failed SSH logins in the last hour`, detail: "That many wrong passwords or unknown users in an hour looks like guessing. See who in Logs, and consider fail2ban or turning password logins off." }
+        : { id: "failed-logins", status: "info", title: `${o.failedLastHour} failed SSH login${o.failedLastHour === 1 ? "" : "s"} in the last hour`, detail: "Counted from the journal's sshd entries." },
+  );
   const open = o.ports.filter((p) => p.exposure === "all" && p.proto === "tcp");
   out.push({
     id: "ports",

@@ -431,15 +431,19 @@ tcp6       0      0 ::1:631                 :::*                    LISTEN`;
   });
 
   it("judges only what it read, and says when it could not read", () => {
-    const risky = findings({ ports: [], configReadable: true, sshd: { permitrootlogin: "yes", passwordauthentication: "yes", permitemptypasswords: "yes" } });
+    const risky = findings({ ports: [], configReadable: true, failedLastHour: 3, sshd: { permitrootlogin: "yes", passwordauthentication: "yes", permitemptypasswords: "yes" } });
     expect(risky.filter((f) => f.status === "warn").map((f) => f.id)).toEqual(["root-login", "password-auth", "empty-passwords"]);
-    const fine = findings({ ports: [], configReadable: true, sshd: { permitrootlogin: "no", passwordauthentication: "no" } });
+    const fine = findings({ ports: [], configReadable: true, failedLastHour: 0, sshd: { permitrootlogin: "no", passwordauthentication: "no" } });
     expect(fine.filter((f) => f.status === "warn")).toEqual([]);
     expect(fine.find((f) => f.id === "root-login")!.status).toBe("ok");
-    const blind = findings({ ports: [], configReadable: false, sshd: {} });
+    const blind = findings({ ports: [], configReadable: false, failedLastHour: null, sshd: {} });
     expect(blind.find((f) => f.id === "sshd-config")!.status).toBe("unknown");
     expect(blind.find((f) => f.id === "ports")!.status).toBe("unknown");
     expect(blind.some((f) => f.status === "ok")).toBe(false);
+    // Without access to the journal a count of none is never claimed.
+    expect(blind.find((f) => f.id === "failed-logins")!.status).toBe("unknown");
+    expect(findings({ ports: [], configReadable: true, failedLastHour: 0, sshd: {} }).find((f) => f.id === "failed-logins")).toMatchObject({ status: "info", title: "0 failed SSH logins in the last hour" });
+    expect(findings({ ports: [], configReadable: true, failedLastHour: 250, sshd: {} }).find((f) => f.id === "failed-logins")!.status).toBe("warn");
   });
 
   it("splits the script's sections", () => {
@@ -447,6 +451,9 @@ tcp6       0      0 ::1:631                 :::*                    LISTEN`;
     expect(o.ports).toHaveLength(1);
     expect(o.sshd.permitrootlogin).toBe("no");
     expect(o.configReadable).toBe(true);
+    expect(o.failedLastHour).toBeNull();
+    expect(parseOverview("@@auth\nyes\n42\n@@end\n").failedLastHour).toBe(42);
+    expect(parseOverview("@@auth\nno\n@@end\n").failedLastHour).toBeNull();
     expect(OVERVIEW_SCRIPT).not.toContain("sudo");
   });
 });
