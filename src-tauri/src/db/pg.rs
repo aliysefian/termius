@@ -32,7 +32,7 @@ use uuid::Uuid;
 
 use super::meta::{self, ConstraintKind, ConstraintMeta, Ddl, ForeignRef, IncomingRef, IndexMeta, SearchHit, TableMeta};
 use super::{
-    join_with, safety, update_pieces, Column, ColumnInfo, ColumnKind, ConnectSpec, DbError, DbResult, NodeKind, QueryResult,
+    change_pieces, join_with, safety, Change, update_pieces, Column, ColumnInfo, ColumnKind, ConnectSpec, DbError, DbResult, NodeKind, QueryResult,
     RowEdit, TableInfo, TlsMode, TreeNode, CONNECT_TIMEOUT, MAX_CELL_BYTES,
 };
 
@@ -743,6 +743,41 @@ impl PgConn {
             .collect())
     }
 
+    /// Apply a reviewed set in one transaction (`BEGIN … COMMIT`); a change that doesn't touch exactly one row
+    /// stops it and the transaction is dropped, which rolls it back.
+    pub async fn apply_changes(&self, changes: &[Change]) -> DbResult<Vec<u64>> {
+        check_changes(changes)?;
+        let mut c = self.acquire().await?;
+        let result = async {
+            let tx = c.transaction().await.map_err(server_err)?;
+            let mut touched = Vec::with_capacity(changes.len());
+            for (i, ch) in changes.iter().enumerate() {
+                let (pieces, cells) = change_pieces(ch, quote_ident, "", "DEFAULT VALUES");
+                let sql = join_with(&pieces, |n| format!("${}", n + 1));
+                let st = tx.prepare(&sql).await.map_err(server_err)?;
+                let values: Vec<TextParam> = cells.iter().map(|c| TextParam(c.value.as_deref())).collect();
+                let params: Vec<&(dyn ToSql + Sync)> = values.iter().map(|v| v as &(dyn ToSql + Sync)).collect();
+                let n = tx.execute(&st, &params).await.map_err(|e| match server_err(e) {
+                    DbError::Server(m) => DbError::Server(format!("change {} of {}: {m}", i + 1, changes.len())),
+                    other => other,
+                })?;
+                if n != 1 {
+                    return Err(DbError::Invalid(format!(
+                        "change {} of {} touched {n} rows instead of 1 (the row may have been changed or deleted since it was loaded). Nothing was saved.",
+                        i + 1,
+                        changes.len()
+                    )));
+                }
+                touched.push(n);
+            }
+            tx.commit().await.map_err(server_err)?;
+            Ok(touched)
+        }
+        .await;
+        self.release(c);
+        result
+    }
+
     pub async fn apply_update(&self, edit: &RowEdit) -> DbResult<u64> {
         check_text(edit)?;
         let (pieces, cells) = update_pieces(edit, quote_ident, "");
@@ -818,6 +853,25 @@ fn check_text(edit: &RowEdit) -> DbResult<()> {
         return Err(DbError::Invalid("PostgreSQL text can't contain a NUL character".into()));
     }
     Ok(())
+}
+
+fn check_changes(changes: &[Change]) -> DbResult<()> {
+    if changes.iter().flat_map(Change::cells).any(|c| c.value.as_deref().is_some_and(|v| v.contains('\0'))) {
+        return Err(DbError::Invalid("PostgreSQL text can't contain a NUL character".into()));
+    }
+    Ok(())
+}
+
+/// The statements of a set with the values written in, for showing. What runs uses bound parameters.
+pub fn preview_changes(changes: &[Change]) -> DbResult<Vec<String>> {
+    check_changes(changes)?;
+    Ok(changes
+        .iter()
+        .map(|ch| {
+            let (pieces, cells) = change_pieces(ch, quote_ident, "", "DEFAULT VALUES");
+            format!("{};", join_with(&pieces, |i| quote_literal(&cells[i].value)))
+        })
+        .collect())
 }
 
 pub fn preview_update(edit: &RowEdit) -> DbResult<String> {

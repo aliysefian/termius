@@ -238,3 +238,23 @@ pub async fn db_search(
     let session = state.dbs.get(session_id)?;
     Ok(session.engine.search(term, limit.unwrap_or(100)).await?)
 }
+
+/// Whether this connection can take a reviewed set of changes in one transaction.
+#[tauri::command]
+pub fn db_supports_changes(state: State<'_, AppState>, session_id: Uuid) -> ApiResult<bool> {
+    Ok(state.dbs.get(session_id)?.engine.supports_changes())
+}
+
+/// The statements a set of changes would run, for the review step.
+#[tauri::command]
+pub fn db_preview_changes(state: State<'_, AppState>, session_id: Uuid, changes: Vec<crate::db::Change>) -> ApiResult<Vec<String>> {
+    let session = state.dbs.get(session_id)?;
+    Ok(session.engine.preview_changes(&changes)?)
+}
+
+/// Apply a reviewed set of edits, inserts and deletes in one transaction. Returns the rows each touched.
+#[tauri::command]
+pub async fn db_apply_changes(state: State<'_, AppState>, session_id: Uuid, changes: Vec<crate::db::Change>) -> ApiResult<Vec<u64>> {
+    let session = state.dbs.get(session_id)?;
+    Ok(session.engine.apply_changes(&changes).await?)
+}

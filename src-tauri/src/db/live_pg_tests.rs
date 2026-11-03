@@ -477,3 +477,65 @@ async fn live_pg_search_finds_objects_across_schemas_and_treats_wildcards_litera
     assert!(e.search("ite_s", 50).await.unwrap().is_empty());
     assert_eq!(e.search("item", 2).await.unwrap().len(), 2);
 }
+
+fn cell(column: &str, value: Option<&str>) -> CellEdit {
+    CellEdit { column: column.into(), value: value.map(str::to_string) }
+}
+
+#[tokio::test]
+#[ignore = "needs SSHVAULT_TEST_PG and SSHVAULT_TEST_PG_PLAIN"]
+async fn live_pg_a_reviewed_set_lands_together_or_not_at_all() {
+    let Some(e) = engine_plain().await else { return };
+    q(&e, "DROP TABLE IF EXISTS public.scratch").await;
+    q(&e, "CREATE TABLE public.scratch(id int PRIMARY KEY, label text, n numeric)").await;
+    q(&e, "INSERT INTO public.scratch VALUES (1, 'one', 1), (2, 'two', 2)").await;
+    let ins = Change::Insert { database: "public".into(), table: "scratch".into(), values: vec![cell("id", Some("3")), cell("label", Some("it's; DROP TABLE x")), cell("n", None)] };
+    let upd = Change::Update(RowEdit { database: "public".into(), table: "scratch".into(), key: vec![cell("id", Some("1"))], changes: vec![cell("label", Some("uno"))] });
+    let del = Change::Delete { database: "public".into(), table: "scratch".into(), key: vec![cell("id", Some("2"))] };
+
+    let preview = e.preview_changes(&[ins.clone(), upd.clone(), del.clone()]).unwrap();
+    assert_eq!(preview[0], "INSERT INTO \"public\".\"scratch\" (\"id\", \"label\", \"n\") VALUES ('3', 'it''s; DROP TABLE x', NULL);");
+    assert_eq!(preview[2], "DELETE FROM \"public\".\"scratch\" WHERE \"id\" = '2';");
+
+    let touched = e.apply_changes(&[ins, upd.clone(), del.clone()]).await.unwrap();
+    assert_eq!(touched, [1, 1, 1]);
+    let r = q(&e, "SELECT id, label, n FROM public.scratch ORDER BY id").await;
+    assert_eq!(r.rows.len(), 2);
+    assert_eq!(r.rows[0][1], json!("uno"));
+    assert_eq!(r.rows[1][1], json!("it's; DROP TABLE x"));
+    assert_eq!(r.rows[1][2], Value::Null);
+
+    // The second change matches no row (id 2 is gone), so the first, which is fine, is rolled back too.
+    let again = Change::Update(RowEdit { database: "public".into(), table: "scratch".into(), key: vec![cell("id", Some("3"))], changes: vec![cell("label", Some("changed"))] });
+    let err = e.apply_changes(&[again, del]).await.unwrap_err().to_string();
+    assert!(err.contains("change 2 of 2") && err.contains("Nothing was saved"), "{err}");
+    let r = q(&e, "SELECT label FROM public.scratch WHERE id = 3").await;
+    assert_eq!(r.rows[0][0], json!("it's; DROP TABLE x"));
+
+    // A constraint failure names the change and also rolls everything back.
+    let dup = Change::Insert { database: "public".into(), table: "scratch".into(), values: vec![cell("id", Some("1"))] };
+    let fine = Change::Insert { database: "public".into(), table: "scratch".into(), values: vec![cell("id", Some("9"))] };
+    let err = e.apply_changes(&[fine, dup]).await.unwrap_err().to_string();
+    assert!(err.starts_with("change 2 of 2") && err.contains("duplicate key"), "{err}");
+    assert_eq!(q(&e, "SELECT count(*) FROM public.scratch WHERE id = 9").await.rows[0][0], json!(0));
+
+    // Rows with no key can't be deleted or edited, and an empty set is refused.
+    let keyless = Change::Delete { database: "public".into(), table: "nokey".into(), key: vec![] };
+    assert!(matches!(e.apply_changes(&[keyless]).await, Err(DbError::Invalid(_))));
+    assert!(matches!(e.apply_changes(&[]).await, Err(DbError::Invalid(_))));
+    q(&e, "DROP TABLE public.scratch").await;
+}
+
+#[tokio::test]
+#[ignore = "needs SSHVAULT_TEST_PG and SSHVAULT_TEST_PG_PLAIN"]
+async fn live_pg_a_read_only_session_refuses_a_reviewed_set() {
+    let Some(mut sp) = spec(TlsMode::Disable) else { return };
+    if std::env::var("SSHVAULT_TEST_PG_PLAIN").is_err() {
+        return;
+    }
+    sp.options.insert("read_only".into(), "true".into());
+    let e = Engine::connect(&sp).await.unwrap();
+    let ch = Change::Insert { database: "public".into(), table: "nokey".into(), values: vec![cell("a", Some("1"))] };
+    let err = e.apply_changes(&[ch]).await.unwrap_err().to_string();
+    assert!(err.contains("read-only"), "{err}");
+}

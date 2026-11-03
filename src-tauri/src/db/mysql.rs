@@ -12,7 +12,7 @@ use uuid::Uuid;
 
 use super::meta::{self, ConstraintKind, ConstraintMeta, Ddl, ForeignRef, IncomingRef, IndexMeta, SearchHit, TableMeta};
 use super::{
-    join_with, update_pieces, Column, ColumnInfo, ColumnKind, ConnectSpec, DbError, DbResult, NodeKind, QueryResult, RowEdit,
+    change_pieces, join_with, Change, update_pieces, Column, ColumnInfo, ColumnKind, ConnectSpec, DbError, DbResult, NodeKind, QueryResult, RowEdit,
     TableInfo, TlsMode, TreeNode, CONNECT_TIMEOUT, MAX_CELL_BYTES,
 };
 
@@ -506,6 +506,38 @@ impl MysqlConn {
         Ok(hits)
     }
 
+    /// Apply a reviewed set in one transaction; a change that doesn't touch exactly one row stops it and the
+    /// transaction is rolled back. (A table on an engine without transactions, such as MyISAM, can't be undone.)
+    pub async fn apply_changes(&self, changes: &[Change]) -> DbResult<Vec<u64>> {
+        let mut c = self.pool.get_conn().await.map_err(server_err)?;
+        let mut tx = c.start_transaction(mysql_async::TxOpts::default()).await.map_err(server_err)?;
+        let mut touched = Vec::with_capacity(changes.len());
+        for (i, ch) in changes.iter().enumerate() {
+            let (pieces, cells) = change_pieces(ch, quote_ident, " LIMIT 1", "() VALUES ()");
+            let sql = join_with(&pieces, |_| "?".to_string());
+            let params: Vec<MyValue> = cells.into_iter().map(|c| c.value.clone().map_or(MyValue::NULL, |s| MyValue::Bytes(s.into_bytes()))).collect();
+            if let Err(e) = tx.exec_drop(sql, params).await {
+                let _ = tx.rollback().await;
+                return Err(match server_err(e) {
+                    DbError::Server(m) => DbError::Server(format!("change {} of {}: {m}", i + 1, changes.len())),
+                    other => other,
+                });
+            }
+            let n = tx.affected_rows();
+            if n != 1 {
+                let _ = tx.rollback().await;
+                return Err(DbError::Invalid(format!(
+                    "change {} of {} touched {n} rows instead of 1 (the row may have been changed or deleted since it was loaded). Nothing was saved.",
+                    i + 1,
+                    changes.len()
+                )));
+            }
+            touched.push(n);
+        }
+        tx.commit().await.map_err(server_err)?;
+        Ok(touched)
+    }
+
     pub async fn apply_update(&self, edit: &RowEdit) -> DbResult<u64> {
         let (sql, params) = build_update(edit);
         let mut c = self.pool.get_conn().await.map_err(server_err)?;
@@ -541,6 +573,17 @@ pub fn quote_literal(value: &Option<String>) -> String {
             out
         }
     }
+}
+
+/// The statements of a set with the values written in, for showing. What runs uses bound parameters.
+pub fn preview_changes(changes: &[Change]) -> Vec<String> {
+    changes
+        .iter()
+        .map(|ch| {
+            let (pieces, cells) = change_pieces(ch, quote_ident, " LIMIT 1", "() VALUES ()");
+            format!("{};", join_with(&pieces, |i| quote_literal(&cells[i].value)))
+        })
+        .collect()
 }
 
 pub fn preview_update(edit: &RowEdit) -> String {
