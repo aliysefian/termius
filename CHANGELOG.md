@@ -4,7 +4,7 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
-## Unreleased
+## 0.54.0 - 2026-11-03
 
 - **New:** **a redesigned Databases workspace**: an explorer, editor and results, and an inspector, each resizable and collapsible, with the inspector and then the explorer turning into drawers on a narrow window. The explorer groups objects by kind with counts (Tables, Views, Functions, Procedures, Sequences, Triggers), loads only what you open, draws only the rows in view, searches every connection and, on PostgreSQL and MySQL, the server's own catalog, filters by object type, and has a context menu and full keyboard navigation.
 - **SQL editor:** line numbers, dialect-aware highlighting and completion, Ctrl+Enter runs the statement at the cursor or the selection, Ctrl+Shift+Enter runs a script statement by statement with a result for each, format (Ctrl+Shift+F), comment, find, Explain, save and open queries, duplicate tabs, an unsaved dot, a Messages tab, a searchable history (each run with its time and outcome, kept as long as you choose, passwords in statements hidden) and a read-only mode (the connection's, enforced by the server, or a per-tab guard on PostgreSQL).
