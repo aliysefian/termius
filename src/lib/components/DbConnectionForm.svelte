@@ -39,6 +39,8 @@
   let busy = $state(false);
   let testing = $state(false);
   let testResult = $state<string | null>(null);
+  /** How long connecting and asking for the version took, as the person felt it. */
+  let testMs = $state<number | null>(null);
 
   const hostChoices = $derived(hostOptions(vaultStore.hosts));
   const sshHost = $derived(sshHostId ? vaultStore.hostById.get(sshHostId) : undefined);
@@ -78,10 +80,13 @@
 
   async function test() {
     testResult = null;
+    testMs = null;
     error = null;
     testing = true;
+    const started = performance.now();
     try {
       testResult = await api.db.test(id, build());
+      testMs = Math.round(performance.now() - started);
     } catch (err) {
       error = errorMessage(err);
     } finally {
@@ -213,7 +218,7 @@
     </div>
 
     {#if testResult}
-      <p class="flex items-center gap-2 rounded-md border border-success/30 bg-success/10 px-3 py-2 text-sm text-success"><CheckCircle2 size={15} /> Connected. Server version {testResult}</p>
+      <p class="flex items-center gap-2 rounded-md border border-success/30 bg-success/10 px-3 py-2 text-sm text-success"><CheckCircle2 size={15} /> Connected{#if testMs !== null} in {testMs} ms{/if}. Server version {testResult}</p>
     {/if}
     {#if error}
       <p class="rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger" role="alert">{error}</p>

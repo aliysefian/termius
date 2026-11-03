@@ -48,7 +48,7 @@
 
   const connections = $derived(
     vaultStore.dbConnections
-      .filter((c) => c.data)
+      .filter((c) => c.data && (!dbWorkspace.connectedOnly || databases.sessions[c.id]))
       .sort((a, b) => (a.data!.group || "￿").localeCompare(b.data!.group || "￿") || a.data!.name.localeCompare(b.data!.name)),
   );
   const views = $derived<ConnectionView[]>(
@@ -277,7 +277,8 @@
   }
 
   const pad = (r: TreeRow) => `padding-left: ${r.depth * 14 + 6}px`;
-  const countLabel = $derived(`${connections.length} connection${connections.length === 1 ? "" : "s"}`);
+  const total = $derived(vaultStore.dbConnections.filter((c) => c.data).length);
+  const countLabel = $derived(connections.length === total ? `${total} connection${total === 1 ? "" : "s"}` : `${connections.length} of ${total} connections`);
 </script>
 
 <div class="flex h-full min-h-0 flex-col bg-panel">
@@ -318,6 +319,12 @@
           onclick={() => (dbWorkspace.type = f.id)}
         >{f.label}</button>
       {/each}
+      <button
+        class="rounded-md border px-2 py-0.5 text-[11px] transition-colors {dbWorkspace.connectedOnly ? 'border-success/40 bg-success/15 text-success' : 'border-line text-fg-muted hover:bg-panel-hover hover:text-fg'}"
+        aria-pressed={dbWorkspace.connectedOnly}
+        title="Show only the connections that are open"
+        onclick={() => (dbWorkspace.connectedOnly = !dbWorkspace.connectedOnly)}
+      >Connected</button>
     </div>
   </header>
 
@@ -338,6 +345,8 @@
         <p>No database connections yet.</p>
         <button class="btn-secondary mt-3 text-xs" onclick={() => (ui.modal = { kind: "db-connection", id: null })}><Plus size={13} /> New connection</button>
       </div>
+    {:else if rows.length === 0 && !searching}
+      <p class="px-4 py-6 text-center text-xs text-fg-muted">No connection is open. Click one to connect, or switch off the "Connected" filter.</p>
     {:else if rows.length === 0}
       <p class="px-4 py-6 text-center text-xs text-fg-muted">Nothing matches "{dbWorkspace.query}".{#if connections.some((c) => !databases.sessions[c.id])} Connect to search a server's objects.{/if}</p>
     {:else}

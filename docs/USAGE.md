@@ -986,7 +986,7 @@ the editor at a usable width, the inspector and then the explorer stop docking a
 
 **Explorer.** Connections are grouped as you grouped them. A connected one shows its tree: databases or schemas, and below
 each the objects in folders with their counts: **Tables**, **Views**, **Functions**, **Procedures**, **Sequences**
-(PostgreSQL) or **Routines** and **Events** (MySQL); a table has **Columns**, **Indexes** and **Triggers**. Folders appear
+(PostgreSQL) or **Functions**, **Procedures** and **Events** (MySQL); a table has **Columns**, **Indexes** and **Triggers**. Folders appear
 only when a level holds more than one kind of thing, so an engine without them (Redis keys, MongoDB collections) is not given
 PostgreSQL's shape. Nothing is read until you open it, the tree draws only the rows in view (a schema of thousands of tables
 stays quick), and a row count shown beside a table is the server's estimate, marked **≈**, never a count. Long names show in
@@ -1051,6 +1051,16 @@ others) and separator (or let it be detected), match each file column to a colum
 or skipped), see the first rows, and import. Rows are saved **200 at a time, each batch in its own transaction**: if a batch is
 refused, the ones before it stay saved and the message says how many and at which line it stopped. It is off for a read-only
 connection.
+
+**Connection form.** Besides the server, credentials, encryption and SSH host, a connection has a **connection timeout**
+(5 to 60 seconds; it covers the SSH tunnel and the server behind it) and, for SQL engines, **Read-only sessions**.
+**Test connection** reports how long connecting took and the server version, or the server's own reason for refusing.
+
+**What has been tried.** The workspace was built and exercised against PostgreSQL 16, including real transactions, paging,
+the catalog queries, export and import. The MySQL / MariaDB versions of the table details, search, change sets, export and
+import use the same design and the standard `information_schema`, but have not yet been run against a real MySQL server.
+Table details, change sets, export and import are not offered for the other engines, which keep their tree, console and
+one-cell edit.
 
 **Inspector.** Follows what you last selected: a **connection** (engine, version, address, user, encryption, the SSH host it goes
 through, how long it has been connected), a **table** (columns, indexes, key, the estimated rows and size, comment), or the

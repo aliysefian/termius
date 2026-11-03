@@ -207,6 +207,21 @@ export const ENGINE_LIST: EngineInfo[] = [
   },
 ];
 
+/** How long to wait for a connection before giving up. Backend: `DbManager::open`. */
+const connectTimeout: EngineOption = {
+  key: "connect_timeout",
+  label: "Connection timeout",
+  help: "How long to wait for the server (and the SSH host, when one is used) before reporting it as unreachable.",
+  choices: [
+    { value: "", label: "15 seconds (default)" },
+    { value: "5", label: "5 seconds" },
+    { value: "10", label: "10 seconds" },
+    { value: "30", label: "30 seconds" },
+    { value: "60", label: "60 seconds" },
+  ],
+};
+for (const e of ENGINE_LIST) e.options.push(connectTimeout);
+
 export const DB_ENGINES = ENGINE_LIST.map((e) => ({ value: e.value, label: e.label, port: e.port }));
 
 export function engineInfo(value: string): EngineInfo {

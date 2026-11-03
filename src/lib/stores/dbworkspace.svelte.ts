@@ -4,6 +4,7 @@
 import * as api from "$lib/api";
 import type { TypeFilter } from "$lib/dbtree";
 import { databases } from "$lib/stores/databases.svelte";
+import { vaultStore } from "$lib/stores/vault.svelte";
 import type { DbSearchHit, DbTreeNode, Uuid } from "$lib/types";
 
 export type Focus =
@@ -19,6 +20,8 @@ export const MIN_SERVER_SEARCH = 2;
 class DbWorkspace {
   query = $state("");
   type = $state<TypeFilter>("all");
+  /** Show only the connections that are open. */
+  connectedOnly = $state(false);
   hits = $state<Record<Uuid, DbSearchHit[]>>({});
   searching = $state<Record<Uuid, boolean>>({});
   focus = $state<Focus | null>(null);
@@ -27,6 +30,15 @@ class DbWorkspace {
   inspectorDrawerOpen = $state(false);
   #timer: ReturnType<typeof setTimeout> | undefined;
   #generation = 0;
+
+  constructor() {
+    // What the explorer was looking at goes with the vault, like the sessions themselves.
+    $effect.root(() => {
+      $effect(() => {
+        if (!vaultStore.unlocked) this.reset();
+      });
+    });
+  }
 
   /** The explorer's search text. Typing asks each connected server for matches, after a short pause. */
   setQuery(q: string) {
@@ -81,6 +93,9 @@ class DbWorkspace {
   reset() {
     this.query = "";
     this.type = "all";
+    this.connectedOnly = false;
+    this.explorerDrawerOpen = false;
+    this.inspectorDrawerOpen = false;
     this.hits = {};
     this.searching = {};
     this.focus = null;

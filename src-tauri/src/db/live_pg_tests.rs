@@ -634,3 +634,50 @@ async fn live_pg_export_streams_a_table_in_chunks_and_import_reads_it_back() {
     q(&e, "DROP TABLE public.imported").await;
     let _ = std::fs::remove_dir_all(dir);
 }
+
+#[tokio::test]
+#[ignore = "needs SSHVAULT_TEST_PG and SSHVAULT_TEST_PG_PLAIN"]
+async fn live_pg_a_session_does_the_whole_workflow_and_leaves_nothing_behind() {
+    use super::transfer::{export_table, ExportSpec, Format};
+    let Some(sp) = spec(TlsMode::Disable) else { return };
+    if std::env::var("SSHVAULT_TEST_PG_PLAIN").is_err() {
+        return;
+    }
+    let mgr = DbManager::new();
+    // 1. connect
+    let (id, version) = mgr.open(sp, None).await.unwrap();
+    assert!(version.starts_with("16"), "{version}");
+    assert_eq!(mgr.open_count(), 1);
+    let s = mgr.get(id).unwrap();
+    // 2. the tree: schemas, then a schema's objects, then a table's columns
+    let schemas = s.engine.children(&[]).await.unwrap();
+    assert!(schemas.iter().any(|n| n.name == "public" && n.kind == NodeKind::Schema));
+    let objects = s.engine.children(&["public".into()]).await.unwrap();
+    assert!(objects.iter().any(|n| n.name == "items" && n.kind == NodeKind::Table));
+    // 3. search and structure
+    assert!(s.engine.search("item", 20).await.unwrap().iter().any(|h| h.name == "items"));
+    let meta = s.engine.table_meta("public", "items").await.unwrap();
+    assert!(meta.supported && !meta.indexes.is_empty());
+    // 4. a page of data, the way the table view asks for it: one more row than the page, to know there is a next page
+    let page = run_query(&s, Uuid::new_v4(), "SELECT * FROM \"public\".\"items\" ORDER BY \"id\" LIMIT 201 OFFSET 200", Some(201), true).await.unwrap();
+    assert_eq!(page.rows.len(), 201);
+    assert_eq!(page.rows[0][0], json!(201));
+    // 5. a query of the person's own
+    let r = run_query(&s, Uuid::new_v4(), "SELECT count(*) AS n FROM public.items WHERE price > 100", None, false).await.unwrap();
+    assert_eq!(r.columns[0].name, "n");
+    // 6. export it
+    let dir = std::env::temp_dir().join(format!("sshvault-wf-{}", Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let out = dir.join("c.csv");
+    let spec = ExportSpec { database: "public".into(), table: "customers".into(), format: Format::Csv, filter: None, order: vec![] };
+    assert_eq!(export_table(&s.engine, Uuid::new_v4(), &spec, &out, |_| {}).await.unwrap().rows, 25);
+    let _ = std::fs::remove_dir_all(dir);
+    // 7. disconnect: the session is gone, and so is its engine
+    mgr.close(id).await;
+    assert_eq!(mgr.open_count(), 0);
+    assert!(matches!(mgr.get(id), Err(DbError::NoSession)));
+    drop(s);
+    // closing everything is also clean when nothing is open
+    mgr.close_all().await;
+    assert_eq!(mgr.open_count(), 0);
+}

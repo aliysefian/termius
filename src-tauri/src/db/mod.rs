@@ -594,6 +594,16 @@ fn validate_changes(changes: &[Change]) -> DbResult<()> {
 /// Most changes one save may hold.
 pub const MAX_CHANGES: usize = 500;
 
+/// The connection timeout the person chose (1 to 120 seconds), or the default.
+pub(crate) fn connect_timeout(spec: &ConnectSpec) -> std::time::Duration {
+    spec.option("connect_timeout")
+        .and_then(|v| v.parse::<u64>().ok())
+        .filter(|s| (1..=120).contains(s))
+        .map(std::time::Duration::from_secs)
+        // The engines wait this long themselves; the outer limit leaves them room to report their own reason.
+        .unwrap_or(CONNECT_TIMEOUT + std::time::Duration::from_secs(10))
+}
+
 /// One open connection, plus the tunnel it rides on, if any.
 pub struct DbSession {
     pub engine: Engine,
@@ -615,15 +625,23 @@ impl DbManager {
     /// that SSH target to the database's host and port.
     pub async fn open(&self, spec: ConnectSpec, via: Option<crate::ssh::Target>) -> DbResult<(Uuid, String)> {
         let mut spec = spec;
-        let tunnel = match via {
-            Some(target) => {
-                let t = crate::forward::open_local_tunnel(&target, spec.host.clone(), spec.port).await?;
-                spec.tunnel_port = Some(t.port());
-                Some(t)
-            }
-            None => None,
-        };
-        let engine = Engine::connect(&spec).await?;
+        let wait = connect_timeout(&spec);
+        let addr = format!("{}:{}", spec.host, spec.port);
+        // One limit for the whole connect: the SSH tunnel first, then the server behind it.
+        let connected = tokio::time::timeout(wait, async {
+            let tunnel = match via {
+                Some(target) => {
+                    let t = crate::forward::open_local_tunnel(&target, spec.host.clone(), spec.port).await?;
+                    spec.tunnel_port = Some(t.port());
+                    Some(t)
+                }
+                None => None,
+            };
+            Ok::<_, DbError>((Engine::connect(&spec).await?, tunnel))
+        })
+        .await
+        .map_err(|_| DbError::Timeout(addr))??;
+        let (engine, tunnel) = connected;
         let version = engine.server_version().await.unwrap_or_default();
         let id = Uuid::new_v4();
         self.sessions
@@ -775,6 +793,47 @@ pub(crate) fn text_table(columns: &[&str], rows: Vec<Vec<Value>>) -> QueryResult
         columns: columns.iter().map(|n| Column { name: (*n).into(), data_type: "text".into(), kind: ColumnKind::Text }).collect(),
         rows,
         ..Default::default()
+    }
+}
+
+#[cfg(test)]
+mod timeout_tests {
+    use super::*;
+
+    fn spec(options: &[(&str, &str)]) -> ConnectSpec {
+        ConnectSpec {
+            engine: "postgres".into(),
+            host: "10.255.255.1".into(),
+            port: 5432,
+            user: String::new(),
+            password: None,
+            database: None,
+            tls: TlsMode::Disable,
+            tunnel_port: None,
+            options: options.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
+        }
+    }
+
+    #[test]
+    fn the_chosen_timeout_is_used_within_bounds() {
+        assert_eq!(connect_timeout(&spec(&[("connect_timeout", "5")])), std::time::Duration::from_secs(5));
+        let default = connect_timeout(&spec(&[]));
+        assert_eq!(default, CONNECT_TIMEOUT + std::time::Duration::from_secs(10));
+        // Junk, zero and absurd values fall back to the default.
+        for bad in ["", "abc", "0", "9999", "-3"] {
+            assert_eq!(connect_timeout(&spec(&[("connect_timeout", bad)])), default, "{bad}");
+        }
+    }
+
+    #[tokio::test]
+    async fn an_unreachable_server_is_reported_within_the_chosen_time() {
+        // 10.255.255.1 is not routable here; a 1 second limit must be honoured, not the engine's 15.
+        let mgr = DbManager::new();
+        let started = std::time::Instant::now();
+        let r = mgr.open(spec(&[("connect_timeout", "1")]), None).await;
+        assert!(r.is_err());
+        assert!(started.elapsed() < std::time::Duration::from_secs(5), "took {:?}", started.elapsed());
+        assert_eq!(mgr.open_count(), 0);
     }
 }
 
