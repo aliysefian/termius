@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addParam, addStep, changeKind, convert, duplicateStep, format, formatOf, kindOf, load, moveParam, moveStep, newStep, positions, removeParam, removeStep, renameInTemplate, renameParam, setDefault, setStepField, setStepId, setTop, updateStep, usedNames, wouldLoseComments, type Edit } from "../runbookdoc";
+import { addParam, addStep, changeKind, ensureStepId, idFrom, convert, duplicateStep, format, formatOf, kindOf, load, moveParam, moveStep, newStep, positions, removeParam, removeStep, renameInTemplate, renameParam, setDefault, setStepField, setStepId, setStepPath, setTop, updateStep, usedNames, wouldLoseComments, type Edit } from "../runbookdoc";
 
 const yaml = `# Deploy the app
 name: Deploy
@@ -152,6 +152,53 @@ describe("editing keeps what it doesn't touch", () => {
     expect("error" in setTop("name: x\nsteps: [", "name", "y")).toBe(true);
     const e = setTop("name: x\nsteps:\n  - &a\n    run: ls\n  - *a\n", "name", "y");
     expect("error" in e && e.error).toMatch(/YAML view/);
+  });
+});
+
+describe("step ids", () => {
+  it("makes an id from a name, unique among the steps", () => {
+    expect(idFrom("Is it up?")).toBe("is_it_up");
+    expect(idFrom("2nd try")).toBe("s_2nd_try");
+    expect(idFrom("???")).toBe("step");
+    const t = "name: x\nsteps:\n  - name: Deploy\n    run: a\n  - name: Deploy!\n    run: b\n";
+    const first = ensureStepId(t, 0) as { text: string; id: string };
+    expect(first.id).toBe("deploy");
+    const second = ensureStepId(first.text, 1) as { text: string; id: string };
+    expect(second.id).toBe("deploy_2");
+    // A step that has one keeps it.
+    expect((ensureStepId(second.text, 0) as { id: string }).id).toBe("deploy");
+    expect("error" in ensureStepId(t, 7)).toBe(true);
+  });
+});
+
+describe("setStepPath", () => {
+  const doc = `name: x
+steps:
+  - name: Check   # the check
+    http:
+      url: "https://{{host}}/"   # where
+      expect_status: 200
+    timeout_secs: 20
+`;
+  it("changes a nested value and keeps the comments around it", () => {
+    const t = ok(setStepPath(doc, 0, ["http", "expect_status"], 204));
+    expect(load(t).model!.steps[0].http).toEqual({ url: "https://{{host}}/", expect_status: 204 });
+    expect(t).toContain("# the check");
+    expect(t).toContain("# where");
+  });
+  it("adds a value that wasn't there and removes one that is emptied", () => {
+    let t = ok(setStepPath(doc, 0, ["http", "contains"], "ok"));
+    expect((load(t).model!.steps[0].http as Record<string, unknown>).contains).toBe("ok");
+    t = ok(setStepPath(t, 0, ["http", "contains"], ""));
+    expect((load(t).model!.steps[0].http as Record<string, unknown>).contains).toBeUndefined();
+    t = ok(setStepPath(t, 0, ["timeout_secs"], undefined));
+    expect(load(t).model!.steps[0].timeout_secs).toBeUndefined();
+    expect("error" in setStepPath(doc, 4, ["name"], "x")).toBe(true);
+  });
+  it("works in JSON too", () => {
+    const j = JSON.stringify({ name: "j", steps: [{ name: "a", tcp: { port: 22 } }] });
+    const t = ok(setStepPath(j, 0, ["tcp", "port"], 2222));
+    expect(JSON.parse(t).steps[0].tcp.port).toBe(2222);
   });
 });
 

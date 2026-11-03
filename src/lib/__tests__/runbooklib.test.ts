@@ -132,3 +132,48 @@ describe("the templates", () => {
     expect(load(BLANK).model?.steps).toHaveLength(1);
   });
 });
+
+import { yamlContext } from "../runbookschema";
+
+describe("where the cursor is in YAML", () => {
+  const doc = `name: x
+defaults:
+  retries: 1
+  
+params:
+  - name: v
+    kind: text
+    
+steps:
+  - name: Check
+    http:
+      url: https://x/
+      
+    on_error: stop
+  - name: Next
+    when:
+      
+`;
+  const at = (needle: string, nth = 0) => {
+    let from = -1;
+    for (let i = 0; i <= nth; i++) from = doc.indexOf(needle, from + 1);
+    return from + needle.length;
+  };
+
+  it("finds the mapping for keys at each level", () => {
+    expect(yamlContext("", 0).path).toEqual([]);
+    expect(yamlContext(doc, at("name: x\n")).path).toEqual([]);
+    expect(yamlContext(doc, at("  retries: 1\n  ")).path).toEqual(["defaults"]);
+    expect(yamlContext(doc, at("    kind: text\n    ")).path).toEqual(["params"]);
+    expect(yamlContext(doc, at("      url: https://x/\n      ")).path).toEqual(["steps", "http"]);
+    expect(yamlContext(doc, at("    on_error: stop\n  - ")).path).toEqual(["steps"]);
+    expect(yamlContext(doc, doc.length - 1).path).toEqual(["steps", "when"]);
+  });
+
+  it("knows when a value is being typed, and what has been typed", () => {
+    const c = yamlContext("steps:\n  - name: x\n    on_error: con", "steps:\n  - name: x\n    on_error: con".length);
+    expect(c).toEqual({ path: ["steps"], valueOf: "on_error", prefix: "con" });
+    const k = yamlContext("steps:\n  - na", "steps:\n  - na".length);
+    expect(k).toEqual({ path: ["steps"], valueOf: null, prefix: "na" });
+  });
+});

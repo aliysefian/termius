@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { RunRecord, RunbookCheck, StepResult } from "../runbook";
 import {
-  addIds, applyRunEvent, canRun, canStart, chosenSummary, clock, compilePatterns, defaultStrategyForm, destructiveSteps, elapsed, explainStrategy, filterLog, firstFailedStep, formOf, fromRecord, groupsOf, inGroup,
+  addIds, applyRunEvent, applyRunEvents, canRun, canStart, chosenSummary, clock, compilePatterns, defaultStrategyForm, destructiveSteps, elapsed, explainStrategy, filterLog, firstFailedStep, formOf, fromRecord, groupsOf, inGroup,
   logText, MAX_LOG_LINES, missingValues, noFilter, phaseAfter, removeId, retryHosts, riskySteps, searchHosts, splitLines, startRun, strategyLabel, strategyOf, strategyProblem, tagsOf, tally, timeline, validate, valueProblem, type PickHost,
 } from "../runbookrun";
 
@@ -188,6 +188,26 @@ describe("a run that is going", () => {
     expect(live.dropped).toBe(8000 - MAX_LOG_LINES);
     expect(live.log[0].n).toBe(live.dropped);
     expect(live.log.at(-1)?.text).toBe("line 999");
+  });
+
+  it("folds a batch of events the same as one at a time, and never changes the state it was given", () => {
+    const events = [
+      { event: "host_started", host_id: "a" },
+      { event: "connected", host_id: "a" },
+      { event: "step_started", host_id: "a", index: 0 },
+      { event: "output", host_id: "a", index: 0, stream: "stdout", text: "x\ny\n", seq: 0 },
+      { event: "step", host_id: "a", result: result(0, "ok") },
+      { event: "host_done", host_id: "a", ok: true, error: null, status: "success", duration_ms: 5 },
+      { event: "done", cancelled: false },
+    ] as const;
+    const start = startRun([{ id: "a", label: "alpha" }], names);
+    const frozen = JSON.stringify(start);
+    let one = start;
+    for (const e of events) one = applyRunEvent(one, e, t0);
+    const batch = applyRunEvents(start, [...events], t0);
+    expect(batch).toEqual(one);
+    expect(JSON.stringify(start)).toBe(frozen);
+    expect(applyRunEvents(start, [], t0)).toBe(start);
   });
 
   it("splits output into lines without an empty last one", () => {

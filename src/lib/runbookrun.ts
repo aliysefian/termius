@@ -306,12 +306,15 @@ export function startRun(hosts: { id: string; label: string }[], stepNames: stri
   };
 }
 
-const stepName = (live: RunLive, i: number) => live.stepNames[i] ?? `Step ${i + 1}`;
-
-function push(live: RunLive, line: Omit<LogLine, "n">): RunLive {
-  const log = [...live.log, { ...line, n: live.next }];
-  const over = log.length - MAX_LOG_LINES;
-  return { ...live, log: over > 0 ? log.slice(over) : log, dropped: live.dropped + Math.max(0, over), next: live.next + 1 };
+/** Add a line to a draft (a copy the caller owns), dropping the oldest when the log is full. */
+function pushTo(d: RunLive, line: Omit<LogLine, "n">): void {
+  d.log.push({ ...line, n: d.next });
+  d.next++;
+  const over = d.log.length - MAX_LOG_LINES;
+  if (over > 0) {
+    d.log.splice(0, over);
+    d.dropped += over;
+  }
 }
 
 /** The text of an output piece as lines (a trailing newline doesn't make an empty one). */
@@ -323,36 +326,78 @@ export function splitLines(text: string): string[] {
 
 const hostLabel = (live: RunLive, id: string) => live.hosts.find((h) => h.hostId === id)?.label ?? id;
 
-/** Fold one event into the live state. Pure: the same events give the same state. */
-export function applyRunEvent(live: RunLive, e: RunbookEvent, now: number): RunLive {
-  if (e.event === "done") return { ...live, finished: true, cancelled: e.cancelled };
-  const patch = (f: (h: HostRun) => HostRun): RunLive => ({ ...live, hosts: live.hosts.map((h) => (h.hostId === e.host_id ? f(h) : h)) });
-  const host = hostLabel(live, e.host_id);
+/** Fold one event into a draft the caller owns (changing it in place). */
+function reduce(d: RunLive, e: RunbookEvent, now: number): void {
+  if (e.event === "done") {
+    d.finished = true;
+    d.cancelled = e.cancelled;
+    return;
+  }
+  const h = d.hosts.find((x) => x.hostId === e.host_id);
+  const host = hostLabel(d, e.host_id);
+  const line = (step: number | null, stream: LogLine["stream"], text: string) => pushTo(d, { at: now, hostId: e.host_id, host, step, stream, text });
   switch (e.event) {
     case "host_started":
-      return push(patch((h) => ({ ...h, state: "connecting", startedAt: now })), { at: now, hostId: e.host_id, host, step: null, stream: "info", text: "Connecting…" });
+      if (h) [h.state, h.startedAt] = ["connecting", now];
+      line(null, "info", "Connecting…");
+      return;
     case "connected":
-      return push(patch((h) => ({ ...h, state: "running" })), { at: now, hostId: e.host_id, host, step: null, stream: "info", text: "Connected" });
+      if (h) h.state = "running";
+      line(null, "info", "Connected");
+      return;
     case "step_started":
-      return push(patch((h) => ({ ...h, current: e.index, state: h.state === "connecting" || h.state === "pending" ? "running" : h.state })), { at: now, hostId: e.host_id, host, step: e.index, stream: "info", text: `Step ${e.index + 1}/${live.stepNames.length || "?"}: ${stepName(live, e.index)}` });
-    case "output": {
-      let next = live;
-      for (const text of splitLines(e.text)) next = push(next, { at: now, hostId: e.host_id, host, step: e.index, stream: e.stream, text });
-      return next;
-    }
+      if (h) {
+        h.current = e.index;
+        if (h.state === "connecting" || h.state === "pending") h.state = "running";
+      }
+      line(e.index, "info", `Step ${e.index + 1}/${d.stepNames.length || "?"}: ${d.stepNames[e.index] ?? `Step ${e.index + 1}`}`);
+      return;
+    case "output":
+      for (const text of splitLines(e.text)) line(e.index, e.stream, text);
+      return;
     case "step": {
       const r = e.result;
-      const done = patch((h) => ({ ...h, steps: [...h.steps, r], current: h.current === r.index ? null : h.current }));
+      if (h) {
+        h.steps.push(r);
+        if (h.current === r.index) h.current = null;
+      }
       const bad = r.status === "failed" || r.status === "error" || r.status === "timed_out";
       const text = r.status === "skipped" ? `Skipped: ${r.note}` : r.status === "ok" ? `Done${r.note ? ` (${r.note})` : ""}${r.output.duration_ms ? ` in ${r.output.duration_ms} ms` : ""}` : `${r.status === "timed_out" ? "Timed out" : "Failed"}${r.note ? `: ${r.note}` : ""}`;
-      return push(done, { at: now, hostId: e.host_id, host, step: r.index, stream: bad ? "error" : "info", text: `${r.name}: ${text}` });
+      line(r.index, bad ? "error" : "info", `${r.name}: ${text}`);
+      return;
     }
     case "host_done": {
       const status: HostStatus = e.status ?? (e.ok ? "success" : "failed");
-      const next = patch((h) => ({ ...h, state: status, current: null, error: e.error, durationMs: e.duration_ms ?? (h.startedAt ? now - h.startedAt : null) }));
-      return push(next, { at: now, hostId: e.host_id, host, step: null, stream: e.ok ? "info" : "error", text: e.ok ? "Finished" : `${status === "skipped" ? "Skipped" : status === "cancelled" ? "Cancelled" : status === "timed_out" ? "Timed out" : "Failed"}${e.error ? `: ${e.error}` : ""}` });
+      if (h) {
+        h.state = status;
+        h.current = null;
+        h.error = e.error;
+        h.durationMs = e.duration_ms ?? (h.startedAt ? now - h.startedAt : null);
+      }
+      line(null, e.ok ? "info" : "error", e.ok ? "Finished" : `${status === "skipped" ? "Skipped" : status === "cancelled" ? "Cancelled" : status === "timed_out" ? "Timed out" : "Failed"}${e.error ? `: ${e.error}` : ""}`);
+      return;
     }
   }
+}
+
+/** A copy of the live state that can be changed without touching the original. */
+function draft(live: RunLive): RunLive {
+  return { ...live, hosts: live.hosts.map((h) => ({ ...h, steps: [...h.steps] })), log: [...live.log] };
+}
+
+/** Fold one event into the live state. Pure: the same events give the same state. */
+export function applyRunEvent(live: RunLive, e: RunbookEvent, now: number): RunLive {
+  const d = draft(live);
+  reduce(d, e, now);
+  return d;
+}
+
+/** Fold several events at once, copying the state once. This is what a busy run uses, a batch every fraction of a second. */
+export function applyRunEvents(live: RunLive, events: RunbookEvent[], now: number): RunLive {
+  if (events.length === 0) return live;
+  const d = draft(live);
+  for (const e of events) reduce(d, e, now);
+  return d;
 }
 
 /** Counts of hosts by state, for the line at the top of the console. */
@@ -435,15 +480,15 @@ export function fromRecord(r: RunRecord): RunLive {
     durationMs: h.started_ms && h.finished_ms ? h.finished_ms - h.started_ms : null,
   }));
   // The output each step kept, as log lines in the order of the steps.
-  let live: RunLive = { hosts, log: [], dropped: 0, next: 0, finished: r.finished_at !== null, cancelled: r.cancelled, stepNames: names };
+  const live: RunLive = { hosts, log: [], dropped: 0, next: 0, finished: r.finished_at !== null, cancelled: r.cancelled, stepNames: names };
   for (const h of r.hosts) {
     for (const s of h.steps) {
       const at = (h.started_ms ?? r.started_at * 1000) + 0;
-      for (const text of splitLines(s.output.stdout)) live = push(live, { at, hostId: h.host_id, host: h.label, step: s.index, stream: "stdout", text });
-      for (const text of splitLines(s.output.stderr)) live = push(live, { at, hostId: h.host_id, host: h.label, step: s.index, stream: "stderr", text });
-      if (s.status !== "ok" && s.status !== "skipped") live = push(live, { at, hostId: h.host_id, host: h.label, step: s.index, stream: "error", text: `${s.name}: ${s.status === "timed_out" ? "timed out" : "failed"}${s.note ? `: ${s.note}` : ""}` });
+      for (const text of splitLines(s.output.stdout)) pushTo(live, { at, hostId: h.host_id, host: h.label, step: s.index, stream: "stdout", text });
+      for (const text of splitLines(s.output.stderr)) pushTo(live, { at, hostId: h.host_id, host: h.label, step: s.index, stream: "stderr", text });
+      if (s.status !== "ok" && s.status !== "skipped") pushTo(live, { at, hostId: h.host_id, host: h.label, step: s.index, stream: "error", text: `${s.name}: ${s.status === "timed_out" ? "timed out" : "failed"}${s.note ? `: ${s.note}` : ""}` });
     }
-    if (h.error) live = push(live, { at: h.finished_ms ?? r.started_at * 1000, hostId: h.host_id, host: h.label, step: null, stream: "error", text: h.error });
+    if (h.error) pushTo(live, { at: h.finished_ms ?? r.started_at * 1000, hostId: h.host_id, host: h.label, step: null, stream: "error", text: h.error });
   }
   return live;
 }

@@ -331,6 +331,19 @@ export function duplicateStep(text: string, index: number, rollback = false): Ed
   });
 }
 
+/** Set one value inside a step by its path (`["http", "url"]`), or remove it when `value` is undefined, empty or false. The rest of
+ * the step, including comments in YAML, is left as it was. Removing the last field of a nested mapping removes the mapping's
+ * place only when `prune` says so (a step's kind block is never pruned: an empty one is a mistake the check reports). */
+export function setStepPath(text: string, index: number, path: string[], value: Json | undefined, rollback = false): Edit {
+  return edit(text, (h) => {
+    const base = [...listPath(rollback), index];
+    if (h.get(base) === undefined) return "That step isn't in the document.";
+    const full = [...base, ...path];
+    if (value === undefined || value === "" || value === false) h.remove(full);
+    else h.set(full, value);
+  });
+}
+
 /** Give a step an id (so a later step can look at it), or remove it. */
 export function setStepId(text: string, index: number, id: string | undefined, rollback = false): Edit {
   return edit(text, (h) => {
@@ -341,6 +354,20 @@ export function setStepId(text: string, index: number, id: string | undefined, r
     if (id === undefined || id === "") h.remove([...listPath(rollback), index, "id"]);
     else h.set([...listPath(rollback), index, "id"], id);
   });
+}
+
+/** The id of a step, giving it one from its name first when it has none, so a later step's condition can look at it. */
+export function ensureStepId(text: string, index: number, rollback = false): { text: string; id: string } | { error: string } {
+  const loaded = load(text);
+  const list = rollback ? loaded.model?.rollback : loaded.model?.steps;
+  const step = list?.[index];
+  if (!step) return { error: "That step isn't in the document." };
+  if (typeof step.id === "string" && step.id) return { text, id: step.id };
+  const taken = new Set<string>();
+  for (const l of [loaded.model!.steps, loaded.model!.rollback]) for (const s of l) if (typeof s.id === "string") taken.add(s.id);
+  const id = unique(idFrom(typeof step.name === "string" ? step.name : ""), taken);
+  const e = setStepId(text, index, id, rollback);
+  return "error" in e ? e : { text: e.text, id };
 }
 
 /** Make a step another kind: its name, condition, timeout and failure policy stay; the old kind's settings go. */

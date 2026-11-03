@@ -94,6 +94,14 @@ export interface Prefs {
   dbGroups: Record<string, boolean>;
   /** Connections collapsed in the explorer, by id. */
   dbCollapsed: Record<string, boolean>;
+  /** The Runbooks workspace: which panels are open, their sizes, and the runbooks marked as favorites (by id). */
+  rbLibraryOpen: boolean;
+  rbExecOpen: boolean;
+  rbOutputOpen: boolean;
+  rbLibraryWidth: number;
+  rbExecWidth: number;
+  rbOutputHeight: number;
+  rbFavorites: string[];
   /** The Tunnels page's details panel width in pixels (drag its edge; double-click resets). */
   tunnelsDetailWidth: number;
   /** Reconnect by itself when a connection drops (not when you exit). */
@@ -271,6 +279,13 @@ export const DEFAULT_PREFS: Prefs = {
   dbHistoryKeep: 100,
   dbGroups: {},
   dbCollapsed: {},
+  rbLibraryOpen: true,
+  rbExecOpen: true,
+  rbOutputOpen: true,
+  rbLibraryWidth: 280,
+  rbExecWidth: 340,
+  rbOutputHeight: 280,
+  rbFavorites: [],
   tunnelsDetailWidth: 440,
   autoReconnect: true,
   restoreLastSession: true,

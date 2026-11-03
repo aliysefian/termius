@@ -23,7 +23,7 @@ export interface RunbookRecordLike {
   id: string;
   updated_at: number;
   deleted?: boolean;
-  data: { name: string; body: string } | null;
+  data?: { name: string; body: string } | null;
 }
 
 export function buildLibrary(records: RunbookRecordLike[], favorites: string[]): LibraryItem[] {

@@ -43,8 +43,8 @@ export async function runSchedule(id: string, now = Date.now(), retry?: Retry): 
     return;
   }
   const check = await api.runbookCheck(rb.body).catch(() => null);
-  if (!check || check.problems.length || check.params.some((p) => p.kind === "file" && !p.optional)) {
-    ui.notify("error", `Scheduled run of "${rb.name}" skipped: the runbook has problems or needs a file, which a schedule can't give.`);
+  if (!check || check.problems.length || check.params.some((p) => (p.kind === "file" || p.kind === "dir") && !p.optional)) {
+    ui.notify("error", `Scheduled run of "${rb.name}" skipped: the runbook has problems or needs a file or folder, which a schedule can't give.`);
     return;
   }
   running.add(id);
@@ -56,14 +56,18 @@ export async function runSchedule(id: string, now = Date.now(), retry?: Retry): 
       running.delete(id);
       void api.runbookHistory.get(runId).then((r) => {
         const failedHosts = r?.hosts.filter((h) => h.ok === false) ?? [];
-        if (!failedHosts.length) return;
+        if (!failedHosts.length) {
+          if (s.notify === "always") ui.notify("info", `Scheduled run of "${rb.name}" finished on ${r?.hosts.length ?? 0} host${r?.hosts.length === 1 ? "" : "s"}.`);
+          return;
+        }
+        if (s.notify === "never") return;
         const plan = retryPlan(s, attempt, failedHosts.map((h) => h.host_id), Date.now());
         const again = plan ? ` It will try those ${failedHosts.length === 1 ? "host" : "hosts"} again in ${Math.round((plan.at - Date.now()) / 60_000)} minutes, if SSHVault is still open.` : "";
         ui.notify("error", `Scheduled run of "${rb.name}": ${failedHosts.length} of ${r?.hosts.length} hosts failed. See Runbooks → History.${again}`);
         // The timer lives in this app: closing it ends the retries (a schedule is not a background service).
         if (plan) setTimeout(() => void runSchedule(id, Date.now(), { hostIds: plan.hostIds, attempt: attempt + 1 }), Math.max(0, plan.at - Date.now()));
       });
-    }, s.rollback === true && check.rollback_steps > 0);
+    }, s.rollback === true && check.rollback_steps > 0, s.strategy ?? "parallel");
   } catch (e) {
     running.delete(id);
     ui.notify("error", `Scheduled run of "${rb.name}" didn't start: ${errorMessage(e)}`);

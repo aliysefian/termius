@@ -11,6 +11,8 @@ export type When =
 
 export interface Schedule {
   id: string;
+  /** What the person calls it, for the list. Without one the runbook's name is shown. */
+  name?: string;
   runbookId: string;
   params: Record<string, string>;
   hostIds: string[];
@@ -29,6 +31,10 @@ export interface Schedule {
   retryMinutes?: number;
   /** On a host where a run fails, also run the runbook's rollback steps. Off unless chosen when the schedule was made. */
   rollback?: boolean;
+  /** How the hosts are taken when it runs. Without one, all at once. */
+  strategy?: import("./runbook").Strategy;
+  /** Whether to tell the person when a run of it ends: "failure" (the usual), "always" or "never". */
+  notify?: "always" | "failure" | "never";
 }
 
 export const MAX_RETRIES = 3;

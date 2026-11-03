@@ -252,3 +252,44 @@ export function valuesFor(path: string[], key: string): string[] {
   if (key === "disabled" || key === "optional" || key === "sudo") return ["true", "false"];
   return [];
 }
+
+// -- where the cursor is in a YAML document ---------------------------------------------------------------
+
+export interface YamlContext {
+  /** The keys that contain the cursor, outermost first (`["steps", "http"]`). */
+  path: string[];
+  /** Set when the cursor is after `key:` on the line, typing its value. */
+  valueOf: string | null;
+  /** The word typed so far. */
+  prefix: string;
+}
+
+const indentOf = (line: string) => line.length - line.trimStart().length;
+
+/** Which mapping the cursor is in, found from the lines above it by their indentation. Good enough to suggest keys; the backend's check is the authority. */
+export function yamlContext(text: string, offset: number): YamlContext {
+  const before = text.slice(0, offset);
+  const lines = before.split("\n");
+  const current = lines.pop() ?? "";
+  const trimmed = current.trimStart();
+  const body = trimmed.startsWith("- ") ? trimmed.slice(2) : trimmed;
+  const bodyIndent = indentOf(current) + (trimmed.startsWith("- ") ? 2 : 0);
+  const colon = body.indexOf(":");
+  const valueOf = colon >= 0 ? body.slice(0, colon).trim() : null;
+  const prefix = colon >= 0 ? body.slice(colon + 1).trimStart() : body;
+  const path: string[] = [];
+  let level = bodyIndent;
+  for (let i = lines.length - 1; i >= 0 && level > 0; i--) {
+    const raw = lines[i];
+    const t = raw.trim();
+    if (t === "" || t.startsWith("#")) continue;
+    const dash = t.startsWith("- ");
+    const ind = indentOf(raw) + (dash ? 2 : 0);
+    if (ind >= level) continue;
+    const content = dash ? t.slice(2) : t;
+    // A line that is just `key:` opens the mapping the cursor is in; any other line at a smaller indent only moves the level out.
+    if (content.endsWith(":")) path.unshift(content.slice(0, -1).trim());
+    level = ind;
+  }
+  return { path, valueOf, prefix };
+}
