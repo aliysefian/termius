@@ -9,6 +9,7 @@
 
 pub mod elastic;
 pub mod http;
+pub mod meta;
 pub mod mongo;
 pub mod mssql;
 pub mod mysql;
@@ -18,6 +19,7 @@ pub mod redis;
 pub mod rqlite;
 pub mod safety;
 pub mod tlsconf;
+pub mod transfer;
 
 #[cfg(test)]
 mod live_pg_tests;
@@ -166,6 +168,11 @@ pub enum NodeKind {
     View,
     Column,
     Index,
+    Function,
+    Procedure,
+    Sequence,
+    Trigger,
+    Event,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -236,6 +243,90 @@ impl RowEdit {
     }
 }
 
+/// One change of a reviewed set. A set is applied in a single transaction: every change lands or none does.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "op", rename_all = "snake_case")]
+pub enum Change {
+    Update(RowEdit),
+    /// Remove the row whose primary key is `key` (as an update's key: NULL never matches).
+    Delete { database: String, table: String, key: Vec<CellEdit> },
+    /// Add a row with these values; a column left out gets its default.
+    Insert { database: String, table: String, values: Vec<CellEdit> },
+}
+
+impl Change {
+    pub fn validate(&self) -> DbResult<()> {
+        match self {
+            Change::Update(e) => e.validate(),
+            Change::Delete { database, table, key } => {
+                if database.is_empty() || table.is_empty() {
+                    return Err(DbError::Invalid("the change doesn't say which table it belongs to".into()));
+                }
+                if key.is_empty() {
+                    return Err(DbError::Invalid("this table has no primary key, so a row can't be identified for deleting".into()));
+                }
+                if key.iter().any(|k| k.value.is_none()) {
+                    return Err(DbError::Invalid("a primary-key value is NULL, so the row can't be identified".into()));
+                }
+                Ok(())
+            }
+            Change::Insert { database, table, .. } => {
+                if database.is_empty() || table.is_empty() {
+                    return Err(DbError::Invalid("the change doesn't say which table it belongs to".into()));
+                }
+                Ok(())
+            }
+        }
+    }
+
+    /// Every value in it, for checks that apply to all of them.
+    pub fn cells(&self) -> Vec<&CellEdit> {
+        match self {
+            Change::Update(e) => e.changes.iter().chain(e.key.iter()).collect(),
+            Change::Delete { key, .. } => key.iter().collect(),
+            Change::Insert { values, .. } => values.iter().collect(),
+        }
+    }
+}
+
+/// A change as text pieces with a gap for each value (see [`update_pieces`]). `row_suffix` ends an update or a
+/// delete (MySQL's ` LIMIT 1`); `no_values` is what an insert with no values says.
+pub(crate) fn change_pieces<'a>(change: &'a Change, quote: fn(&str) -> String, row_suffix: &str, no_values: &str) -> (Vec<String>, Vec<&'a CellEdit>) {
+    match change {
+        Change::Update(e) => update_pieces(e, quote, row_suffix),
+        Change::Delete { database, table, key } => {
+            let mut pieces = vec![format!("DELETE FROM {}.{} WHERE ", quote(database), quote(table))];
+            let mut cells: Vec<&CellEdit> = Vec::new();
+            for (i, k) in key.iter().enumerate() {
+                let sep = if i == 0 { "" } else { " AND " };
+                pieces.last_mut().expect("never empty").push_str(&format!("{sep}{} = ", quote(&k.column)));
+                pieces.push(String::new());
+                cells.push(k);
+            }
+            pieces.last_mut().expect("never empty").push_str(row_suffix);
+            (pieces, cells)
+        }
+        Change::Insert { database, table, values } => {
+            let target = format!("{}.{}", quote(database), quote(table));
+            if values.is_empty() {
+                return (vec![format!("INSERT INTO {target} {no_values}")], Vec::new());
+            }
+            let names: Vec<String> = values.iter().map(|v| quote(&v.column)).collect();
+            let mut pieces = vec![format!("INSERT INTO {target} ({}) VALUES (", names.join(", "))];
+            let mut cells: Vec<&CellEdit> = Vec::new();
+            for (i, v) in values.iter().enumerate() {
+                if i > 0 {
+                    pieces.last_mut().expect("never empty").push_str(", ");
+                }
+                pieces.push(String::new());
+                cells.push(v);
+            }
+            pieces.last_mut().expect("never empty").push(')');
+            (pieces, cells)
+        }
+    }
+}
+
 /// An `UPDATE` as text pieces with a gap for each value, plus the values in
 /// gap order (changes first, then the key). Building from pieces, never by
 /// replacing text, means a value or a name can't be mistaken for a
@@ -284,6 +375,24 @@ pub trait Backend: Send + Sync {
     async fn table_info(&self, database: &str, table: &str) -> DbResult<TableInfo>;
     fn preview_update(&self, edit: &RowEdit) -> DbResult<String>;
     async fn apply_update(&self, edit: &RowEdit) -> DbResult<u64>;
+    /// Whether [`Backend::apply_changes`] works (inserts, deletes and several edits in one transaction).
+    fn supports_changes(&self) -> bool {
+        false
+    }
+    async fn apply_changes(&self, _changes: &[Change]) -> DbResult<Vec<u64>> {
+        Err(DbError::Invalid("this database type applies one edit at a time".into()))
+    }
+    fn preview_changes(&self, _changes: &[Change]) -> DbResult<Vec<String>> {
+        Err(DbError::Invalid("this database type applies one edit at a time".into()))
+    }
+    /// Indexes, constraints and a definition, for engines that keep them in a catalog. The default has none.
+    async fn table_meta(&self, _database: &str, _table: &str) -> DbResult<meta::TableMeta> {
+        Ok(meta::TableMeta::default())
+    }
+    /// Objects whose name contains `term`, across the whole connection. The default finds none.
+    async fn search(&self, _term: &str, _limit: usize) -> DbResult<Vec<meta::SearchHit>> {
+        Ok(Vec::new())
+    }
     async fn close(&self);
     /// Whether what is typed is SQL (so the SQL safety checks apply). Other engines say why a command is
     /// destructive themselves.
@@ -363,6 +472,54 @@ impl Engine {
         }
     }
 
+    /// Indexes, constraints, relationships and a definition. `supported` is false for an engine without them.
+    pub async fn table_meta(&self, database: &str, table: &str) -> DbResult<meta::TableMeta> {
+        match self {
+            Engine::Mysql(c) => c.table_meta(database, table).await,
+            Engine::Postgres(c) => c.table_meta(database, table).await,
+            Engine::Other(c) => c.table_meta(database, table).await,
+        }
+    }
+
+    /// Whether a reviewed set of edits, inserts and deletes can be applied together (MySQL and PostgreSQL).
+    pub fn supports_changes(&self) -> bool {
+        match self {
+            Engine::Mysql(_) | Engine::Postgres(_) => true,
+            Engine::Other(c) => c.supports_changes(),
+        }
+    }
+
+    /// The statements a set of changes would run, with values written in, for the review step.
+    pub fn preview_changes(&self, changes: &[Change]) -> DbResult<Vec<String>> {
+        validate_changes(changes)?;
+        match self {
+            Engine::Mysql(_) => Ok(mysql::preview_changes(changes)),
+            Engine::Postgres(_) => pg::preview_changes(changes),
+            Engine::Other(c) => c.preview_changes(changes),
+        }
+    }
+
+    /// Apply the changes in one transaction. Returns the rows each touched. If any change doesn't touch exactly one
+    /// row (a row that was changed or deleted since it was loaded), nothing is saved.
+    pub async fn apply_changes(&self, changes: &[Change]) -> DbResult<Vec<u64>> {
+        validate_changes(changes)?;
+        match self {
+            Engine::Mysql(c) => c.apply_changes(changes).await,
+            Engine::Postgres(c) => c.apply_changes(changes).await,
+            Engine::Other(c) => c.apply_changes(changes).await,
+        }
+    }
+
+    /// Objects whose name contains `term` (case-insensitive), at most `limit`.
+    pub async fn search(&self, term: &str, limit: usize) -> DbResult<Vec<meta::SearchHit>> {
+        let limit = limit.clamp(1, 500);
+        match self {
+            Engine::Mysql(c) => c.search(term, limit).await,
+            Engine::Postgres(c) => c.search(term, limit).await,
+            Engine::Other(c) => c.search(term, limit).await,
+        }
+    }
+
     /// The `UPDATE` an edit would run, with values written in, for showing
     /// to the user. What actually runs uses bound parameters.
     pub fn preview_update(&self, edit: &RowEdit) -> DbResult<String> {
@@ -424,6 +581,29 @@ impl Engine {
     }
 }
 
+fn validate_changes(changes: &[Change]) -> DbResult<()> {
+    if changes.is_empty() {
+        return Err(DbError::Invalid("there is nothing to save".into()));
+    }
+    if changes.len() > MAX_CHANGES {
+        return Err(DbError::Invalid(format!("at most {MAX_CHANGES} changes can be saved at once")));
+    }
+    changes.iter().try_for_each(Change::validate)
+}
+
+/// Most changes one save may hold.
+pub const MAX_CHANGES: usize = 500;
+
+/// The connection timeout the person chose (1 to 120 seconds), or the default.
+pub(crate) fn connect_timeout(spec: &ConnectSpec) -> std::time::Duration {
+    spec.option("connect_timeout")
+        .and_then(|v| v.parse::<u64>().ok())
+        .filter(|s| (1..=120).contains(s))
+        .map(std::time::Duration::from_secs)
+        // The engines wait this long themselves; the outer limit leaves them room to report their own reason.
+        .unwrap_or(CONNECT_TIMEOUT + std::time::Duration::from_secs(10))
+}
+
 /// One open connection, plus the tunnel it rides on, if any.
 pub struct DbSession {
     pub engine: Engine,
@@ -445,15 +625,23 @@ impl DbManager {
     /// that SSH target to the database's host and port.
     pub async fn open(&self, spec: ConnectSpec, via: Option<crate::ssh::Target>) -> DbResult<(Uuid, String)> {
         let mut spec = spec;
-        let tunnel = match via {
-            Some(target) => {
-                let t = crate::forward::open_local_tunnel(&target, spec.host.clone(), spec.port).await?;
-                spec.tunnel_port = Some(t.port());
-                Some(t)
-            }
-            None => None,
-        };
-        let engine = Engine::connect(&spec).await?;
+        let wait = connect_timeout(&spec);
+        let addr = format!("{}:{}", spec.host, spec.port);
+        // One limit for the whole connect: the SSH tunnel first, then the server behind it.
+        let connected = tokio::time::timeout(wait, async {
+            let tunnel = match via {
+                Some(target) => {
+                    let t = crate::forward::open_local_tunnel(&target, spec.host.clone(), spec.port).await?;
+                    spec.tunnel_port = Some(t.port());
+                    Some(t)
+                }
+                None => None,
+            };
+            Ok::<_, DbError>((Engine::connect(&spec).await?, tunnel))
+        })
+        .await
+        .map_err(|_| DbError::Timeout(addr))??;
+        let (engine, tunnel) = connected;
         let version = engine.server_version().await.unwrap_or_default();
         let id = Uuid::new_v4();
         self.sessions
@@ -605,5 +793,94 @@ pub(crate) fn text_table(columns: &[&str], rows: Vec<Vec<Value>>) -> QueryResult
         columns: columns.iter().map(|n| Column { name: (*n).into(), data_type: "text".into(), kind: ColumnKind::Text }).collect(),
         rows,
         ..Default::default()
+    }
+}
+
+#[cfg(test)]
+mod timeout_tests {
+    use super::*;
+
+    fn spec(options: &[(&str, &str)]) -> ConnectSpec {
+        ConnectSpec {
+            engine: "postgres".into(),
+            host: "10.255.255.1".into(),
+            port: 5432,
+            user: String::new(),
+            password: None,
+            database: None,
+            tls: TlsMode::Disable,
+            tunnel_port: None,
+            options: options.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
+        }
+    }
+
+    #[test]
+    fn the_chosen_timeout_is_used_within_bounds() {
+        assert_eq!(connect_timeout(&spec(&[("connect_timeout", "5")])), std::time::Duration::from_secs(5));
+        let default = connect_timeout(&spec(&[]));
+        assert_eq!(default, CONNECT_TIMEOUT + std::time::Duration::from_secs(10));
+        // Junk, zero and absurd values fall back to the default.
+        for bad in ["", "abc", "0", "9999", "-3"] {
+            assert_eq!(connect_timeout(&spec(&[("connect_timeout", bad)])), default, "{bad}");
+        }
+    }
+
+    #[tokio::test]
+    async fn an_unreachable_server_is_reported_within_the_chosen_time() {
+        // 10.255.255.1 is not routable here; a 1 second limit must be honoured, not the engine's 15.
+        let mgr = DbManager::new();
+        let started = std::time::Instant::now();
+        let r = mgr.open(spec(&[("connect_timeout", "1")]), None).await;
+        assert!(r.is_err());
+        assert!(started.elapsed() < std::time::Duration::from_secs(5), "took {:?}", started.elapsed());
+        assert_eq!(mgr.open_count(), 0);
+    }
+}
+
+#[cfg(test)]
+mod change_tests {
+    use super::*;
+
+    fn cell(c: &str, v: Option<&str>) -> CellEdit {
+        CellEdit { column: c.into(), value: v.map(str::to_string) }
+    }
+    fn q(n: &str) -> String {
+        format!("\"{n}\"")
+    }
+
+    #[test]
+    fn an_insert_has_a_gap_per_value_and_values_never_become_text() {
+        let ch = Change::Insert { database: "d".into(), table: "t".into(), values: vec![cell("a", Some("$1; --")), cell("b", None)] };
+        let (pieces, cells) = change_pieces(&ch, q, "", "DEFAULT VALUES");
+        assert_eq!(join_with(&pieces, |i| format!("${}", i + 1)), "INSERT INTO \"d\".\"t\" (\"a\", \"b\") VALUES ($1, $2)");
+        assert_eq!(cells.len(), 2);
+        let empty = Change::Insert { database: "d".into(), table: "t".into(), values: vec![] };
+        assert_eq!(change_pieces(&empty, q, "", "DEFAULT VALUES").0, ["INSERT INTO \"d\".\"t\" DEFAULT VALUES"]);
+    }
+
+    #[test]
+    fn a_delete_is_found_by_its_whole_key() {
+        let ch = Change::Delete { database: "d".into(), table: "t".into(), key: vec![cell("a", Some("1")), cell("b", Some("x"))] };
+        let (pieces, cells) = change_pieces(&ch, q, " LIMIT 1", "");
+        assert_eq!(join_with(&pieces, |_| "?".into()), "DELETE FROM \"d\".\"t\" WHERE \"a\" = ? AND \"b\" = ? LIMIT 1");
+        assert_eq!(cells.len(), 2);
+    }
+
+    #[test]
+    fn changes_are_validated() {
+        let no_key = Change::Delete { database: "d".into(), table: "t".into(), key: vec![] };
+        let null_key = Change::Delete { database: "d".into(), table: "t".into(), key: vec![cell("a", None)] };
+        let no_table = Change::Insert { database: "d".into(), table: "".into(), values: vec![] };
+        assert!(no_key.validate().is_err() && null_key.validate().is_err() && no_table.validate().is_err());
+        assert!(validate_changes(&[]).is_err());
+        assert!(validate_changes(&vec![Change::Insert { database: "d".into(), table: "t".into(), values: vec![] }; MAX_CHANGES + 1]).is_err());
+    }
+
+    #[test]
+    fn changes_arrive_tagged() {
+        let ch: Change = serde_json::from_str(r#"{"op":"update","database":"d","table":"t","key":[{"column":"id","value":"1"}],"changes":[{"column":"a","value":null}]}"#).unwrap();
+        assert!(matches!(ch, Change::Update(_)));
+        let ch: Change = serde_json::from_str(r#"{"op":"delete","database":"d","table":"t","key":[{"column":"id","value":"1"}]}"#).unwrap();
+        assert!(matches!(ch, Change::Delete { .. }));
     }
 }

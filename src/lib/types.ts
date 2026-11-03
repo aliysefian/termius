@@ -960,7 +960,7 @@ export interface DbQueryResult {
   elapsed_ms: number;
 }
 
-export type DbNodeKind = "database" | "schema" | "folder" | "table" | "view" | "column" | "index";
+export type DbNodeKind = "database" | "schema" | "folder" | "table" | "view" | "column" | "index" | "function" | "procedure" | "sequence" | "trigger" | "event";
 
 export interface DbTreeNode {
   name: string;
@@ -972,6 +972,106 @@ export interface DbTreeNode {
 export interface DbTableInfo {
   columns: { name: string; data_type: string; nullable: boolean; primary_key: boolean; default: string | null }[];
   primary_key: string[];
+}
+
+export interface DbIndexMeta {
+  name: string;
+  columns: string[];
+  unique: boolean;
+  primary: boolean;
+  method: string | null;
+  definition: string | null;
+  size_bytes: number | null;
+}
+
+export type DbConstraintKind = "primary_key" | "foreign_key" | "unique" | "check" | "exclusion";
+
+export interface DbForeignRef {
+  schema: string;
+  table: string;
+  columns: string[];
+  on_update: string | null;
+  on_delete: string | null;
+}
+
+export interface DbConstraintMeta {
+  name: string;
+  kind: DbConstraintKind;
+  columns: string[];
+  definition: string | null;
+  references: DbForeignRef | null;
+}
+
+export interface DbIncomingRef {
+  name: string;
+  schema: string;
+  table: string;
+  columns: string[];
+  referenced_columns: string[];
+  on_update: string | null;
+  on_delete: string | null;
+}
+
+/** What a table is made of beyond its columns; `supported` is false for an engine without a catalog for it. */
+export interface DbTableMeta {
+  supported: boolean;
+  kind: string | null;
+  comment: string | null;
+  /** The server's estimate, never a count. */
+  approx_rows: number | null;
+  size_bytes: number | null;
+  indexes: DbIndexMeta[];
+  constraints: DbConstraintMeta[];
+  referenced_by: DbIncomingRef[];
+  column_notes: [string, string][];
+  /** `reconstructed` is true when SSHVault built the text from metadata rather than the server printing it. */
+  ddl: { text: string; reconstructed: boolean } | null;
+}
+
+export interface DbSearchHit {
+  parent: string[];
+  name: string;
+  kind: DbNodeKind;
+  detail: string | null;
+}
+
+export type DbChange =
+  | ({ op: "update" } & DbRowEdit)
+  | { op: "delete"; database: string; table: string; key: DbCellEdit[] }
+  | { op: "insert"; database: string; table: string; values: DbCellEdit[] };
+
+export type DbExportFormat = "csv" | "json" | "sql";
+
+export interface DbExportSpec {
+  database: string;
+  table: string;
+  format: DbExportFormat;
+  filter: string | null;
+  order: [string, boolean][];
+}
+
+export interface DbExportSummary {
+  rows: number;
+  bytes: number;
+  cut_cells: number;
+  ordered: boolean;
+}
+
+export interface DbCsvPreview {
+  delimiter: string;
+  headers: string[];
+  rows: string[][];
+  file_bytes: number;
+}
+
+export interface DbImportSpec {
+  database: string;
+  table: string;
+  encoding: string;
+  delimiter: string | null;
+  has_header: boolean;
+  mapping: (string | null)[];
+  empty_as_null: boolean;
 }
 
 export interface DbCellEdit {

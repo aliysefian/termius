@@ -406,3 +406,278 @@ async fn live_pg_connects_through_an_ssh_tunnel() {
     let err = mgr.open(dead, Some(via)).await.expect_err("must fail").to_string();
     assert!(!err.is_empty());
 }
+
+/// A connection without TLS, for a throwaway local server (`SSHVAULT_TEST_PG_PLAIN=1`).
+async fn engine_plain() -> Option<Engine> {
+    std::env::var("SSHVAULT_TEST_PG_PLAIN").ok()?;
+    Some(Engine::connect(&spec(TlsMode::Disable)?).await.expect("connect"))
+}
+
+#[tokio::test]
+#[ignore = "needs SSHVAULT_TEST_PG and SSHVAULT_TEST_PG_PLAIN"]
+async fn live_pg_table_meta_reads_indexes_constraints_and_ddl() {
+    let Some(e) = engine_plain().await else { return };
+    let m = e.table_meta("public", "items").await.unwrap();
+    assert!(m.supported);
+    assert_eq!(m.kind.as_deref(), Some("table"));
+    assert!(m.indexes.iter().any(|i| i.primary && i.columns == ["id"]));
+    let by_name = m.indexes.iter().find(|i| i.name == "items_name_idx").expect("the name index");
+    assert_eq!(by_name.columns, ["name", "price"]);
+    assert!(!by_name.unique);
+    assert_eq!(by_name.method.as_deref(), Some("btree"));
+    let fk = m.constraints.iter().find(|c| c.kind == meta::ConstraintKind::ForeignKey).expect("a foreign key");
+    let r = fk.references.as_ref().unwrap();
+    assert_eq!((r.schema.as_str(), r.table.as_str()), ("public", "customers"));
+    assert_eq!(fk.columns, ["customer_id"]);
+    assert_eq!(r.on_delete.as_deref(), Some("SET NULL"));
+    assert!(m.constraints.iter().any(|c| c.kind == meta::ConstraintKind::Check && c.definition.as_deref().is_some_and(|d| d.contains("price"))));
+    let ddl = m.ddl.unwrap();
+    assert!(ddl.reconstructed && ddl.text.starts_with("CREATE TABLE \"public\".\"items\""));
+    assert!(ddl.text.contains("CREATE INDEX items_name_idx"));
+    // The estimate is the server's, and the table was analysed.
+    assert!(m.approx_rows.unwrap() > 1000 && m.size_bytes.unwrap() > 0);
+
+    let c = e.table_meta("public", "customers").await.unwrap();
+    let back = c.referenced_by.iter().find(|r| r.table == "items").expect("items points at customers");
+    assert_eq!((back.columns.as_slice(), back.referenced_columns.as_slice()), (&["customer_id".to_string()][..], &["id".to_string()][..]));
+    assert!(c.column_notes.is_empty());
+
+    let v = e.table_meta("public", "v_items").await.unwrap();
+    assert_eq!(v.kind.as_deref(), Some("view"));
+    assert!(v.ddl.unwrap().text.starts_with("CREATE VIEW"));
+
+    let missing = e.table_meta("public", "nope").await;
+    assert!(matches!(missing, Err(DbError::Invalid(_))));
+}
+
+#[tokio::test]
+#[ignore = "needs SSHVAULT_TEST_PG and SSHVAULT_TEST_PG_PLAIN"]
+async fn live_pg_tree_has_routines_sequences_and_triggers() {
+    let Some(e) = engine_plain().await else { return };
+    let nodes = e.children(&["public".into()]).await.unwrap();
+    assert!(nodes.iter().any(|n| n.kind == NodeKind::Function && n.name == "add_one" && n.detail.as_deref() == Some("(i integer)")));
+    assert!(nodes.iter().any(|n| n.kind == NodeKind::Procedure && n.name == "noop"));
+    assert!(nodes.iter().any(|n| n.kind == NodeKind::Sequence && n.name == "myseq"));
+    let t = e.children(&["public".into(), "items".into()]).await.unwrap();
+    assert!(t.iter().any(|n| n.kind == NodeKind::Trigger && n.name == "items_trg"));
+}
+
+#[tokio::test]
+#[ignore = "needs SSHVAULT_TEST_PG and SSHVAULT_TEST_PG_PLAIN"]
+async fn live_pg_search_finds_objects_across_schemas_and_treats_wildcards_literally() {
+    let Some(e) = engine_plain().await else { return };
+    let hits = e.search("ITEM", 50).await.unwrap();
+    assert!(hits.iter().any(|h| h.name == "items" && h.kind == NodeKind::Table && h.parent == ["public"]));
+    assert!(hits.iter().any(|h| h.name == "v_items" && h.kind == NodeKind::View));
+    let pairs = e.search("pair", 50).await.unwrap();
+    assert!(pairs.iter().any(|h| h.parent == ["warehouse"] && h.name == "pairs"));
+    assert!(e.search("add_one", 50).await.unwrap().iter().any(|h| h.kind == NodeKind::Function));
+    // An underscore or a percent sign is a character, not a wildcard.
+    assert!(e.search("%", 50).await.unwrap().is_empty());
+    assert!(e.search("ite_s", 50).await.unwrap().is_empty());
+    assert_eq!(e.search("item", 2).await.unwrap().len(), 2);
+}
+
+fn cell(column: &str, value: Option<&str>) -> CellEdit {
+    CellEdit { column: column.into(), value: value.map(str::to_string) }
+}
+
+#[tokio::test]
+#[ignore = "needs SSHVAULT_TEST_PG and SSHVAULT_TEST_PG_PLAIN"]
+async fn live_pg_a_reviewed_set_lands_together_or_not_at_all() {
+    let Some(e) = engine_plain().await else { return };
+    q(&e, "DROP TABLE IF EXISTS public.scratch").await;
+    q(&e, "CREATE TABLE public.scratch(id int PRIMARY KEY, label text, n numeric)").await;
+    q(&e, "INSERT INTO public.scratch VALUES (1, 'one', 1), (2, 'two', 2)").await;
+    let ins = Change::Insert { database: "public".into(), table: "scratch".into(), values: vec![cell("id", Some("3")), cell("label", Some("it's; DROP TABLE x")), cell("n", None)] };
+    let upd = Change::Update(RowEdit { database: "public".into(), table: "scratch".into(), key: vec![cell("id", Some("1"))], changes: vec![cell("label", Some("uno"))] });
+    let del = Change::Delete { database: "public".into(), table: "scratch".into(), key: vec![cell("id", Some("2"))] };
+
+    let preview = e.preview_changes(&[ins.clone(), upd.clone(), del.clone()]).unwrap();
+    assert_eq!(preview[0], "INSERT INTO \"public\".\"scratch\" (\"id\", \"label\", \"n\") VALUES ('3', 'it''s; DROP TABLE x', NULL);");
+    assert_eq!(preview[2], "DELETE FROM \"public\".\"scratch\" WHERE \"id\" = '2';");
+
+    let touched = e.apply_changes(&[ins, upd.clone(), del.clone()]).await.unwrap();
+    assert_eq!(touched, [1, 1, 1]);
+    let r = q(&e, "SELECT id, label, n FROM public.scratch ORDER BY id").await;
+    assert_eq!(r.rows.len(), 2);
+    assert_eq!(r.rows[0][1], json!("uno"));
+    assert_eq!(r.rows[1][1], json!("it's; DROP TABLE x"));
+    assert_eq!(r.rows[1][2], Value::Null);
+
+    // The second change matches no row (id 2 is gone), so the first, which is fine, is rolled back too.
+    let again = Change::Update(RowEdit { database: "public".into(), table: "scratch".into(), key: vec![cell("id", Some("3"))], changes: vec![cell("label", Some("changed"))] });
+    let err = e.apply_changes(&[again, del]).await.unwrap_err().to_string();
+    assert!(err.contains("change 2 of 2") && err.contains("Nothing was saved"), "{err}");
+    let r = q(&e, "SELECT label FROM public.scratch WHERE id = 3").await;
+    assert_eq!(r.rows[0][0], json!("it's; DROP TABLE x"));
+
+    // A constraint failure names the change and also rolls everything back.
+    let dup = Change::Insert { database: "public".into(), table: "scratch".into(), values: vec![cell("id", Some("1"))] };
+    let fine = Change::Insert { database: "public".into(), table: "scratch".into(), values: vec![cell("id", Some("9"))] };
+    let err = e.apply_changes(&[fine, dup]).await.unwrap_err().to_string();
+    assert!(err.starts_with("change 2 of 2") && err.contains("duplicate key"), "{err}");
+    assert_eq!(q(&e, "SELECT count(*) FROM public.scratch WHERE id = 9").await.rows[0][0], json!(0));
+
+    // Rows with no key can't be deleted or edited, and an empty set is refused.
+    let keyless = Change::Delete { database: "public".into(), table: "nokey".into(), key: vec![] };
+    assert!(matches!(e.apply_changes(&[keyless]).await, Err(DbError::Invalid(_))));
+    assert!(matches!(e.apply_changes(&[]).await, Err(DbError::Invalid(_))));
+    q(&e, "DROP TABLE public.scratch").await;
+}
+
+#[tokio::test]
+#[ignore = "needs SSHVAULT_TEST_PG and SSHVAULT_TEST_PG_PLAIN"]
+async fn live_pg_a_read_only_session_refuses_a_reviewed_set() {
+    let Some(mut sp) = spec(TlsMode::Disable) else { return };
+    if std::env::var("SSHVAULT_TEST_PG_PLAIN").is_err() {
+        return;
+    }
+    sp.options.insert("read_only".into(), "true".into());
+    let e = Engine::connect(&sp).await.unwrap();
+    let ch = Change::Insert { database: "public".into(), table: "nokey".into(), values: vec![cell("a", Some("1"))] };
+    let err = e.apply_changes(&[ch]).await.unwrap_err().to_string();
+    assert!(err.contains("read-only"), "{err}");
+}
+
+#[tokio::test]
+#[ignore = "needs SSHVAULT_TEST_PG and SSHVAULT_TEST_PG_PLAIN"]
+async fn live_pg_export_streams_a_table_in_chunks_and_import_reads_it_back() {
+    use super::transfer::{export_table, import_csv, ExportSpec, Format, ImportSpec};
+    let Some(e) = engine_plain().await else { return };
+    let dir = std::env::temp_dir().join(format!("sshvault-xfer-{}", Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let spec = |format| ExportSpec { database: "public".into(), table: "items".into(), format, filter: None, order: vec![] };
+
+    // 2,500 rows is more than one chunk of 2,000.
+    let csv = dir.join("items.csv");
+    let mut seen = 0;
+    let s = export_table(&e, Uuid::new_v4(), &spec(Format::Csv), &csv, |n| seen = n).await.unwrap();
+    assert_eq!((s.rows, seen, s.ordered, s.cut_cells), (2500, 2500, true, 0));
+    let text = std::fs::read_to_string(&csv).unwrap();
+    assert_eq!(text.lines().count(), 2501);
+    assert!(text.starts_with("id,name,price,note,data,active,meta,customer_id\r\n1,item 1,1.25,note 1,"));
+    assert!(!dir.join("items.csv.part").exists() && !dir.join("items.csv.csv.part").exists());
+
+    let json = dir.join("items.json");
+    export_table(&e, Uuid::new_v4(), &spec(Format::Json), &json, |_| {}).await.unwrap();
+    let parsed: Vec<serde_json::Map<String, Value>> = serde_json::from_str(&std::fs::read_to_string(&json).unwrap()).unwrap();
+    assert_eq!(parsed.len(), 2500);
+    assert_eq!(parsed[2]["note"], Value::Null);
+
+    let sql = dir.join("items.sql");
+    let mut filtered = spec(Format::Sql);
+    filtered.filter = Some("id <= 3".into());
+    filtered.order = vec![("id".into(), true)];
+    let s = export_table(&e, Uuid::new_v4(), &filtered, &sql, |_| {}).await.unwrap();
+    assert_eq!(s.rows, 3);
+    let dump = std::fs::read_to_string(&sql).unwrap();
+    assert!(dump.starts_with("-- Rows of items exported by SSHVault. Not a backup"));
+    assert!(dump.lines().nth(1).unwrap().starts_with("INSERT INTO \"public\".\"items\" (\"id\", \"name\""));
+    assert!(dump.lines().nth(1).unwrap().contains("VALUES ('3', 'item 3'"));
+
+    // A filter is one condition, not a way to run more statements, and a failing one leaves no file behind.
+    let mut bad = spec(Format::Csv);
+    bad.filter = Some("1=1; DROP TABLE items".into());
+    assert!(export_table(&e, Uuid::new_v4(), &bad, &dir.join("bad.csv"), |_| {}).await.is_err());
+    bad.filter = Some("nonexistent_col = 1".into());
+    assert!(export_table(&e, Uuid::new_v4(), &bad, &dir.join("bad2.csv"), |_| {}).await.is_err());
+    assert!(!dir.join("bad2.csv").exists());
+    assert_eq!(q(&e, "SELECT count(*) FROM public.items").await.rows[0][0], json!(2500));
+
+    // Import 450 lines into a fresh table: three batches of 200, 200 and 50.
+    q(&e, "DROP TABLE IF EXISTS public.imported").await;
+    q(&e, "CREATE TABLE public.imported(id int PRIMARY KEY, label text, amount numeric)").await;
+    let mut body = String::from("id;label;skip;amount\n");
+    for i in 1..=450 {
+        body.push_str(&format!("{i};\"row, {i}\";x;{}\n", if i % 10 == 0 { String::new() } else { format!("{i}.5") }));
+    }
+    let file = dir.join("in.csv");
+    std::fs::write(&file, body).unwrap();
+    let ispec = ImportSpec {
+        database: "public".into(),
+        table: "imported".into(),
+        encoding: "utf-8".into(),
+        delimiter: None,
+        has_header: true,
+        mapping: vec![Some("id".into()), Some("label".into()), None, Some("amount".into())],
+        empty_as_null: true,
+    };
+    let mut last = 0;
+    let s = import_csv(&e, Uuid::new_v4(), &ispec, &file, |n| last = n).await.unwrap();
+    assert_eq!((s.rows, s.batches, last), (450, 3, 450));
+    assert_eq!(q(&e, "SELECT count(*), count(amount) FROM public.imported").await.rows[0], [json!(450), json!(405)]);
+    assert_eq!(q(&e, "SELECT label FROM public.imported WHERE id = 7").await.rows[0][0], json!("row, 7"));
+
+    // A duplicate key in the third batch: the first two batches stay, and the message says so.
+    let mut dup = String::from("id;label;skip;amount\n");
+    for i in 1000..1450 {
+        dup.push_str(&format!("{};a;x;1\n", if i == 1420 { 5 } else { i }));
+    }
+    std::fs::write(&file, dup).unwrap();
+    let err = import_csv(&e, Uuid::new_v4(), &ispec, &file, |_| {}).await.unwrap_err().to_string();
+    assert!(err.contains("duplicate key") && err.contains("400 rows before it were saved"), "{err}");
+    assert_eq!(q(&e, "SELECT count(*) FROM public.imported").await.rows[0][0], json!(850));
+
+    // A line with the wrong number of fields is named, and nothing from its batch is saved.
+    std::fs::write(&file, "id;label;skip;amount\n9001;a;x;1\n9002;b\n").unwrap();
+    let err = import_csv(&e, Uuid::new_v4(), &ispec, &file, |_| {}).await.unwrap_err().to_string();
+    assert!(err.contains("line 3 has 2 fields"), "{err}");
+    assert_eq!(q(&e, "SELECT count(*) FROM public.imported WHERE id > 9000").await.rows[0][0], json!(0));
+
+    // Unknown or doubled target columns are refused before anything is read.
+    let mut wrong = ispec.clone();
+    wrong.mapping = vec![Some("nope".into())];
+    assert!(import_csv(&e, Uuid::new_v4(), &wrong, &file, |_| {}).await.is_err());
+    wrong.mapping = vec![Some("id".into()), Some("id".into())];
+    assert!(import_csv(&e, Uuid::new_v4(), &wrong, &file, |_| {}).await.is_err());
+    q(&e, "DROP TABLE public.imported").await;
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[tokio::test]
+#[ignore = "needs SSHVAULT_TEST_PG and SSHVAULT_TEST_PG_PLAIN"]
+async fn live_pg_a_session_does_the_whole_workflow_and_leaves_nothing_behind() {
+    use super::transfer::{export_table, ExportSpec, Format};
+    let Some(sp) = spec(TlsMode::Disable) else { return };
+    if std::env::var("SSHVAULT_TEST_PG_PLAIN").is_err() {
+        return;
+    }
+    let mgr = DbManager::new();
+    // 1. connect
+    let (id, version) = mgr.open(sp, None).await.unwrap();
+    assert!(version.starts_with("16"), "{version}");
+    assert_eq!(mgr.open_count(), 1);
+    let s = mgr.get(id).unwrap();
+    // 2. the tree: schemas, then a schema's objects, then a table's columns
+    let schemas = s.engine.children(&[]).await.unwrap();
+    assert!(schemas.iter().any(|n| n.name == "public" && n.kind == NodeKind::Schema));
+    let objects = s.engine.children(&["public".into()]).await.unwrap();
+    assert!(objects.iter().any(|n| n.name == "items" && n.kind == NodeKind::Table));
+    // 3. search and structure
+    assert!(s.engine.search("item", 20).await.unwrap().iter().any(|h| h.name == "items"));
+    let meta = s.engine.table_meta("public", "items").await.unwrap();
+    assert!(meta.supported && !meta.indexes.is_empty());
+    // 4. a page of data, the way the table view asks for it: one more row than the page, to know there is a next page
+    let page = run_query(&s, Uuid::new_v4(), "SELECT * FROM \"public\".\"items\" ORDER BY \"id\" LIMIT 201 OFFSET 200", Some(201), true).await.unwrap();
+    assert_eq!(page.rows.len(), 201);
+    assert_eq!(page.rows[0][0], json!(201));
+    // 5. a query of the person's own
+    let r = run_query(&s, Uuid::new_v4(), "SELECT count(*) AS n FROM public.items WHERE price > 100", None, false).await.unwrap();
+    assert_eq!(r.columns[0].name, "n");
+    // 6. export it
+    let dir = std::env::temp_dir().join(format!("sshvault-wf-{}", Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let out = dir.join("c.csv");
+    let spec = ExportSpec { database: "public".into(), table: "customers".into(), format: Format::Csv, filter: None, order: vec![] };
+    assert_eq!(export_table(&s.engine, Uuid::new_v4(), &spec, &out, |_| {}).await.unwrap().rows, 25);
+    let _ = std::fs::remove_dir_all(dir);
+    // 7. disconnect: the session is gone, and so is its engine
+    mgr.close(id).await;
+    assert_eq!(mgr.open_count(), 0);
+    assert!(matches!(mgr.get(id), Err(DbError::NoSession)));
+    drop(s);
+    // closing everything is also clean when nothing is open
+    mgr.close_all().await;
+    assert_eq!(mgr.open_count(), 0);
+}

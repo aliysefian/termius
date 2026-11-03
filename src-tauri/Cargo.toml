@@ -16,6 +16,7 @@ crate-type = ["rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+encoding_rs = "0.8"
 des = "0.9"
 # Reading the passwords MobaXterm saves (AES, already in the build through russh).
 aes = "0.9"

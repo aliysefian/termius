@@ -83,6 +83,17 @@ export interface Prefs {
   monitoringRange: string;
   monitoringLiveSecs: number;
   monitoringDetailWidth: number;
+  /** The Databases workspace: panel visibility and widths, the page size of a table, and how much query history to keep. */
+  dbExplorerOpen: boolean;
+  dbInspectorOpen: boolean;
+  dbExplorerWidth: number;
+  dbInspectorWidth: number;
+  dbPageSize: number;
+  dbHistoryKeep: number;
+  /** Which tree groups (Tables, Functions…) the person opened or closed, by key. */
+  dbGroups: Record<string, boolean>;
+  /** Connections collapsed in the explorer, by id. */
+  dbCollapsed: Record<string, boolean>;
   /** The Tunnels page's details panel width in pixels (drag its edge; double-click resets). */
   tunnelsDetailWidth: number;
   /** Reconnect by itself when a connection drops (not when you exit). */
@@ -252,6 +263,14 @@ export const DEFAULT_PREFS: Prefs = {
   monitoringRange: "15m",
   monitoringLiveSecs: 5,
   monitoringDetailWidth: 460,
+  dbExplorerOpen: true,
+  dbInspectorOpen: true,
+  dbExplorerWidth: 288,
+  dbInspectorWidth: 312,
+  dbPageSize: 200,
+  dbHistoryKeep: 100,
+  dbGroups: {},
+  dbCollapsed: {},
   tunnelsDetailWidth: 440,
   autoReconnect: true,
   restoreLastSession: true,

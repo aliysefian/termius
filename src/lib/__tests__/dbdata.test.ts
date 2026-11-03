@@ -192,3 +192,59 @@ describe("query history", () => {
     expect(loadHistory(s)).toEqual([e("SELECT 1")]);
   });
 });
+
+import { copyText, prettyJson, searchRows, startWidths, subResult, typeBadge } from "../dbdata";
+
+describe("grid helpers", () => {
+  const r = {
+    columns: [
+      { name: "id", data_type: "int4", kind: "number" as const },
+      { name: "name", data_type: "text", kind: "text" as const },
+    ],
+    rows: [
+      [1, "Alpha"],
+      [2, null],
+      [3, { truncated: true as const, preview: "long beta text", bytes: 99999 }],
+    ],
+  };
+
+  it("names a column's type", () => {
+    expect(typeBadge({ kind: "number", data_type: "numeric(10,2)" }).label).toBe("dec");
+    expect(typeBadge({ kind: "number", data_type: "int8" }).label).toBe("int");
+    expect(typeBadge({ kind: "other", data_type: "bool" }).key).toBe("boolean");
+    expect(typeBadge({ kind: "date_time", data_type: "timestamptz" }).label).toBe("time");
+    expect(typeBadge({ kind: "date_time", data_type: "date" }).label).toBe("date");
+    expect(typeBadge({ kind: "json", data_type: "jsonb" }).key).toBe("json");
+    expect(typeBadge({ kind: "binary", data_type: "bytea" }).key).toBe("binary");
+    expect(typeBadge({ kind: "other", data_type: "uuid" }).key).toBe("other");
+  });
+
+  it("finds rows by their text, including cut values, and not NULL", () => {
+    expect(searchRows(r.rows, "alpha")).toEqual([0]);
+    expect(searchRows(r.rows, "BETA")).toEqual([2]);
+    expect(searchRows(r.rows, "null")).toEqual([]);
+    expect(searchRows(r.rows, "  ")).toEqual([0, 1, 2]);
+  });
+
+  it("takes part of a result", () => {
+    expect(subResult(r, [2, 0], [1])).toEqual({ columns: [r.columns[1]], rows: [[r.rows[2][1]], [r.rows[0][1]]] });
+  });
+
+  it("copies NULL as nothing and a cut value as what was kept", () => {
+    expect(copyText(null)).toBe("");
+    expect(copyText(r.rows[2][1])).toBe("long beta text");
+    expect(copyText(5)).toBe("5");
+  });
+
+  it("pretty-prints JSON text and leaves other text alone", () => {
+    expect(prettyJson('{"a":[1,2]}')).toBe('{\n  "a": [\n    1,\n    2\n  ]\n}');
+    expect(prettyJson("not json")).toBeNull();
+    expect(prettyJson("{broken")).toBeNull();
+  });
+
+  it("starts columns at a width that fits, within bounds", () => {
+    const w = startWidths({ columns: [r.columns[0], { name: "x".repeat(80), data_type: "text", kind: "text" }], rows: r.rows.map((x) => [x[0], "y"]) });
+    expect(w[0]).toBe(90);
+    expect(w[1]).toBe(320);
+  });
+});

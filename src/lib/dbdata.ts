@@ -141,3 +141,66 @@ export function cellAfterEdit(kind: DbColumn["kind"], value: string | null): DbC
 
 // Quoting lives with the engines (dbengines.ts); these stay importable from here.
 export { quoteIdent, quoteName } from "./dbengines";
+
+// -- the grid's own helpers ----------------------------------------------------------------------------------------
+
+export type TypeBadge = { key: "number" | "text" | "boolean" | "datetime" | "json" | "binary" | "other"; label: string };
+
+/** What to call a column's type in the header: its kind, told apart further by the server's own type name. */
+export function typeBadge(col: Pick<DbColumn, "kind" | "data_type">): TypeBadge {
+  const t = col.data_type.toLowerCase();
+  if (/^(bool|boolean|bit)\b/.test(t) && !/^bit\s*\(\s*[2-9]/.test(t)) return { key: "boolean", label: "bool" };
+  switch (col.kind) {
+    case "number":
+      return { key: "number", label: /(float|double|real|numeric|decimal|money)/.test(t) ? "dec" : "int" };
+    case "date_time":
+      return { key: "datetime", label: /^date$/.test(t) ? "date" : "time" };
+    case "json":
+      return { key: "json", label: "json" };
+    case "binary":
+      return { key: "binary", label: "bin" };
+    case "text":
+      return { key: "text", label: "abc" };
+    default:
+      return { key: "other", label: "·" };
+  }
+}
+
+/** The rows (by position) whose cells contain `text`, case-insensitively. Everything when `text` is empty. */
+export function searchRows(rows: DbCell[][], text: string): number[] {
+  const t = text.trim().toLowerCase();
+  const all = rows.map((_, i) => i);
+  if (!t) return all;
+  return all.filter((i) => rows[i].some((c) => c !== null && (isCut(c) ? c.preview : String(c)).toLowerCase().includes(t)));
+}
+
+/** The cells of the chosen rows and columns, as the result tables above expect them. */
+export function subResult(r: Pick<DbQueryResult, "columns" | "rows">, rows: number[], cols: number[]): Pick<DbQueryResult, "columns" | "rows"> {
+  return { columns: cols.map((c) => r.columns[c]), rows: rows.map((i) => cols.map((c) => r.rows[i][c])) };
+}
+
+/** A cell the way it is copied: NULL is empty, a cut value is what was kept. */
+export const copyText = (c: DbCell): string => (c === null ? "" : isCut(c) ? c.preview : String(c));
+
+/** A cell's text as pretty JSON when it is JSON, or null. */
+export function prettyJson(text: string): string | null {
+  const t = text.trim();
+  if (!(t.startsWith("{") || t.startsWith("["))) return null;
+  try {
+    return JSON.stringify(JSON.parse(t), null, 2);
+  } catch {
+    return null;
+  }
+}
+
+/** The widths columns start with: wide enough for the name and a sample of the data, within bounds. */
+export function startWidths(r: Pick<DbQueryResult, "columns" | "rows">, min = 90, max = 320): number[] {
+  return r.columns.map((c, i) => {
+    let longest = c.name.length + 6;
+    for (const row of r.rows.slice(0, 50)) {
+      const cell = row[i];
+      if (cell !== null && cell !== undefined) longest = Math.max(longest, copyText(cell).length);
+    }
+    return Math.round(Math.min(max, Math.max(min, longest * 7.2 + 24)));
+  });
+}

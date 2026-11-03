@@ -143,6 +143,10 @@ export function handleShortcut(e: KeyboardEvent): boolean {
     if (key && completionBridge.menuKey(key)) return true;
   }
 
+  // In the SQL editor, Ctrl+Shift+Enter runs the whole script and Ctrl+Shift+F formats it (they would otherwise
+  // maximize a terminal pane and search a terminal).
+  if ((combo === "Ctrl+Shift+Enter" || combo === "Ctrl+Shift+F") && ui.view === "databases" && e.target instanceof Element && e.target.closest(".cm-editor")) return false;
+
   for (const a of ACTIONS) {
     if (comboFor(a) === combo) {
       const r = a.run(e);
