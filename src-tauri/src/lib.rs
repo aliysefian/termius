@@ -52,6 +52,7 @@ pub mod localshells;
 pub mod mosh;
 pub mod models;
 pub mod monitor;
+pub mod opslogs;
 pub mod multiplexer;
 pub mod mobaxterm;
 pub mod monitoring;
@@ -315,6 +316,12 @@ pub fn run() {
             commands::monitoring::monitor_close,
             commands::monitoring::monitor_stream_start,
             commands::monitoring::monitor_stream_stop,
+            commands::opslogs::ops_logs_start,
+            commands::opslogs::ops_logs_stop,
+            commands::opslogs::ops_logs_hosts,
+            commands::opslogs::ops_logs_retry,
+            commands::opslogs::ops_logs_context,
+            commands::opslogs::ops_units,
             commands::sftp_edit_start,
             commands::sftp_edit_stop,
             commands::sftp_open,
