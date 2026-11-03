@@ -41,7 +41,8 @@ export class SecuritySession {
   #answer: ((p: string | null) => void) | null = null;
 
   get connected() {
-    return this.#id !== null && this.me !== null;
+    // `me` first: it is the reactive part, so a view that asked before connecting is told when it arrives.
+    return this.me !== null && this.#id !== null;
   }
 
   get host() {

@@ -79,7 +79,7 @@
   });
 </script>
 
-<section class="flex h-11 shrink-0 flex-wrap items-center gap-x-4 gap-y-1 overflow-hidden border-b border-line bg-base px-4 text-xs" aria-label="Stream status" data-testid="stream-status">
+<section class="flex min-h-11 shrink-0 flex-wrap items-center gap-x-4 gap-y-1 py-1 border-b border-line bg-base px-4 text-xs" aria-label="Stream status" data-testid="stream-status">
   <span class="inline-flex items-center gap-1.5 font-semibold tracking-wide {tone[badge.tone]}" role="status" data-testid="stream-badge">
     <span class="h-2 w-2 rounded-full {dotTone[badge.tone]} {badge.pulse ? 'animate-pulse' : ''}" aria-hidden="true"></span>
     {badge.text}
@@ -106,7 +106,7 @@
 
   {#each hostRows.filter((h) => h.state === "reconnecting" || h.state === "failed").slice(0, 2) as h (h.id)}
     <span class="inline-flex items-center gap-1 {h.state === 'failed' ? 'text-danger' : 'text-warning'}" data-testid="host-trouble">
-      <span class="max-w-32 truncate">{h.label}</span>: {retryText(h, now)}
+      <span class="max-w-32 truncate">{h.label}:</span> {retryText(h, now)}
       <button class="rounded p-0.5 text-fg-muted hover:text-fg" title="Try this host again now" aria-label="Try {h.label} again now" onclick={() => void opsLogs.retryHost(h.id)}><RefreshCw size={11} /></button>
     </span>
   {/each}

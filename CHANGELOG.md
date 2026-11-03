@@ -4,6 +4,13 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## Unreleased
+
+- **New:** **a redesigned Operations workspace.** *Logs* is now a live multi-host console: a searchable host selector with chips, one compact stream bar (source, unit, priority, history, Follow / Stop Following), a status bar (LIVE, PARTIAL, DISCONNECTED, hosts connected, events a minute, last event, auto-reconnect), a filter bar (text, regular expression, severity exactly or "and worse", host, unit, time range, pause, export) and a virtual viewer that stays light with tens of thousands of events. Each event is attributed to the SSHVault host it came from, and opens to show its journal fields and the entries around it, read from the host's journal.
+- **Reliable streaming in the backend:** one managed task per host over the existing monitoring connections, structured `journalctl -o json`, reconnection with growing waits that carries on from the last journal position (no repeats; a possible gap is flagged where it can't), cancellation that ends the remote command, a per-host rate limit with a dropped count, and secrets hidden before an event reaches the window.
+- **Services:** runtime state separate from boot state, last state change, unit details, and a confirmation before stopping, restarting or disabling anything. **Security:** read-only first, with an overview of SSH settings, listening ports and logins that never asks for a password; changes need an explicit switch. **Alerts:** rules over followed logs (critical entries, repeated SSH login failures, failed services) that share the existing list, quiet hours and notifications, with first and last seen and repeat counts.
+- **Fixed:** the first preferences of a new install were written into the defaults object itself, so "reset" could restore changed values.
+
 ## 0.55.0 - 2026-11-03
 
 - **New:** **a redesigned Runbooks workspace**: a library (search, categories, favorites, recents, import and export), a Builder, YAML editor (with diagnostics and completion), Variables and Settings tabs, a run panel with host picker, strategies (sequential, parallel, rolling) and failure policies, a resizable live console, a preview of the plan, retry of failed hosts or from a failed step, history, schedules and 15 templates.

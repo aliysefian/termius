@@ -43,6 +43,7 @@
         Alerts are <strong>off</strong>. They tell you when a monitored host stops answering or runs hot, only while this app is open.
       {/if}
     </div>
+    {#if !p.alerts}<button class="btn-primary h-8 text-xs" onclick={() => (p.alerts = true)}>Turn alerts on</button>{/if}
     <button class="btn-secondary h-8 text-xs" onclick={() => (ui.view = "settings")}>Settings</button>
     {#if p.alerts}
       <button class="btn-secondary h-8 text-xs" disabled={alerts.checking || !alerts.watched().length} onclick={() => void alerts.check()}>

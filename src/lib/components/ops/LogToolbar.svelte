@@ -10,8 +10,9 @@
   let { searchEl = $bindable() }: { searchEl?: HTMLInputElement } = $props();
 
   let width = $state(1200);
-  const wide = $derived(width >= 1060);
-  const medium = $derived(width >= 780);
+  /** Everything inline; below it the lower-priority controls move into a menu, and below `medium` the unit and time filters too. */
+  const wide = $derived(width >= 1180);
+  const medium = $derived(width >= 880);
 
   const f = $derived(opsLogs.filter);
   const set = (patch: Partial<typeof f>) => (opsLogs.filter = { ...opsLogs.filter, ...patch });
@@ -165,7 +166,7 @@
     >{#if opsLogs.paused}<Play size={13} /> Resume{:else}<Pause size={13} /> Pause{/if}</button>
     <button class="icon-btn h-8 w-8 {opsLogs.follow && !opsLogs.paused ? 'text-accent' : ''}" aria-pressed={opsLogs.follow} aria-label="Follow the newest events" title={opsLogs.follow ? "Staying at the newest events. Scroll up to stop." : "Jump to the newest events and follow them"} onclick={() => (opsLogs.follow = true)}><ArrowDownToLine size={14} /></button>
 
-    {#if medium}
+    {#if wide}
       <button class="icon-btn h-8 w-8 {settings.prefs.opsLogWrap ? 'bg-accent/15 text-accent' : ''}" aria-pressed={settings.prefs.opsLogWrap} aria-label="Wrap long messages" title="Wrap long messages" onclick={() => (settings.prefs.opsLogWrap = !settings.prefs.opsLogWrap)}><WrapText size={14} /></button>
       <DropMenu ariaLabel="Columns" align="right" width={230}>
         {#snippet icon()}<Columns3 size={13} />{/snippet}
@@ -198,23 +199,51 @@
         {#each FORMATS as fmt (fmt.id)}
           <button class="block w-full rounded px-2 py-1.5 text-left hover:bg-panel-hover disabled:opacity-40" disabled={!opsLogs.shown.length} onclick={() => { close(); void opsLogs.exportShown(fmt.id); }}>{fmt.label}</button>
         {/each}
-        {#if !medium}<button class="mt-1 block w-full rounded px-2 py-1.5 text-left hover:bg-panel-hover disabled:opacity-40" disabled={!opsLogs.shown.length} onclick={() => { close(); void opsLogs.copyShown(); }}>Copy to the clipboard</button>{/if}
+        
       {/snippet}
     </DropMenu>
     <button class="icon-btn h-8 w-8" aria-label="Clear the display" title="Clear this window's display. Nothing on a host is deleted." disabled={!opsLogs.rows.length} onclick={() => opsLogs.clear()}><Eraser size={14} /></button>
 
-    {#if !medium}
-      <DropMenu ariaLabel="More" align="right" width={240}>
+    {#if !wide}
+      <DropMenu ariaLabel="More filters and options" align="right" width={280} onopen={loadUnitChoices}>
         {#snippet icon()}<EllipsisVertical size={14} />{/snippet}
         {#snippet children(close)}
-          <button class="block w-full rounded px-2 py-1.5 text-left hover:bg-panel-hover" onclick={() => { settings.prefs.opsLogWrap = !settings.prefs.opsLogWrap; close(); }}>{settings.prefs.opsLogWrap ? "Don't wrap messages" : "Wrap long messages"}</button>
-          <div class="mt-1 border-t border-line px-2 pt-2 text-fg-muted">Columns</div>
-          {#each COLUMNS as [id, name] (id)}
-            <label class="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 hover:bg-panel-hover"><input type="checkbox" class="accent-input" checked={cols.includes(id)} onchange={() => toggleColumn(id)} />{name}</label>
-          {/each}
+          {#if !medium}
+            <div class="px-2 pb-1 text-fg-muted">Time range <span class="text-[11px]">(of what has been received)</span></div>
+            {#each RANGES as r (r.id)}
+              <label class="flex cursor-pointer items-center gap-2 rounded px-2 py-1 hover:bg-panel-hover"><input type="radio" name="ops-range-more" class="accent-input" checked={f.range === r.id} onchange={() => set({ range: r.id })} />{r.label}</label>
+            {/each}
+            <div class="mt-1 border-t border-line px-2 pt-2 text-fg-muted">Units</div>
+            <input class="input mx-2 my-1 h-7 w-[calc(100%-1rem)] text-xs" placeholder="Find a unit or program" aria-label="Find a unit" bind:value={unitQuery} />
+            <div class="max-h-40 overflow-y-auto">
+              {#each unitShown as u (u.name)}
+                <label class="flex cursor-pointer items-center gap-2 rounded px-2 py-1 hover:bg-panel-hover"><input type="checkbox" class="accent-input" checked={f.units.includes(u.name)} onchange={() => set({ units: toggleIn(f.units, u.name) })} /><span class="min-w-0 flex-1 truncate font-mono">{u.name}</span><span class="text-fg-muted">{u.count.toLocaleString()}</span></label>
+              {:else}
+                <p class="px-2 py-2 text-fg-muted">No units in what has been received yet.</p>
+              {/each}
+            </div>
+          {/if}
+          <div class="{medium ? '' : 'mt-1 border-t border-line'} pt-1">
+            <button class="block w-full rounded px-2 py-1.5 text-left hover:bg-panel-hover" onclick={() => { settings.prefs.opsLogWrap = !settings.prefs.opsLogWrap; close(); }}>{settings.prefs.opsLogWrap ? "Don't wrap messages" : "Wrap long messages"}</button>
+            <button class="block w-full rounded px-2 py-1.5 text-left hover:bg-panel-hover disabled:opacity-40" disabled={!opsLogs.shown.length} onclick={() => { close(); void opsLogs.copyShown(); }}>Copy the events shown</button>
+            <div class="px-2 pt-1 text-fg-muted">Columns</div>
+            {#each COLUMNS as [id, name] (id)}
+              <label class="flex cursor-pointer items-center gap-2 rounded px-2 py-1 hover:bg-panel-hover"><input type="checkbox" class="accent-input" checked={cols.includes(id)} onchange={() => toggleColumn(id)} />{name}</label>
+            {/each}
+            <div class="mt-1 border-t border-line px-2 pt-2">
+              <label class="mb-1 block text-fg-muted" for="ops-max-more">Keep this many events</label>
+              <select id="ops-max-more" class="input h-7 w-full py-0 text-xs" bind:value={settings.prefs.opsLogMax}>
+                {#each [5000, 10000, 20000, 50000, 100000] as n (n)}<option value={n}>{n.toLocaleString()}</option>{/each}
+              </select>
+              <label class="mb-1 mt-2 block text-fg-muted" for="ops-order-more">Order</label>
+              <select id="ops-order-more" class="input h-7 w-full py-0 text-xs" value={settings.prefs.opsLogOrder} onchange={(e) => opsLogs.setOrder(e.currentTarget.value as "time" | "arrival")}>
+                <option value="time">By time</option>
+                <option value="arrival">By arrival</option>
+              </select>
+            </div>
+          </div>
         {/snippet}
       </DropMenu>
     {/if}
   </div>
-  {#if !wide}<span class="sr-only">Some controls are in menus on a narrow window.</span>{/if}
 </section>

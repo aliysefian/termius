@@ -25,7 +25,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 }));
 vi.mock("@tauri-apps/api/event", () => ({ emit: vi.fn(), listen: vi.fn(async () => () => {}) }));
 vi.mock("@tauri-apps/plugin-clipboard-manager", () => ({ writeText: vi.fn(async () => {}) }));
-const askMock = vi.fn(async () => true);
+const askMock = vi.fn(async (_message: string, _opts?: unknown) => true);
 vi.mock("$lib/dialogs.svelte", () => ({ ask: askMock, askRemember: vi.fn(), askText: vi.fn() }));
 
 const { opsLogs } = await import("$lib/stores/opslogs.svelte");

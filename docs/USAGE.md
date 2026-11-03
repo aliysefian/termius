@@ -540,34 +540,107 @@ Without it the app follows your keystrokes and checks them against the screen,
 and shows nothing when they disagree. PowerShell and cmd have no integration
 yet, so they get no suggestions.
 
-## Operations: logs, services and alerts
+## Operations: logs, services, security and alerts
 
-**Ops** in the sidebar (or *Go to Operations* in the command palette) has three tabs. All of
-them use a second connection to each host, made with its saved credentials, so they never
-ask for a password and nothing is installed on the host.
+**Ops** in the sidebar (or *Go to Operations* in the command palette) has four tabs: **Logs**,
+**Services**, **Security** and **Alerts**. All of them use a second connection to each host,
+made with its saved credentials, so they never ask for a password (except where a Security
+action needs `sudo`) and nothing is installed on the host.
 
-- **Logs.** Tick one or more hosts, choose the system journal (a unit, a priority and
-  above, or the kernel) or a log file, and press **Follow**. Lines from all the hosts arrive
-  in one list, tagged by host. Filter by text (or a regular expression), by level (error,
-  warning, info, debug: guessed from the words in the line) or by host; matches are
-  highlighted; **Pause** freezes the view while lines keep arriving; copy what is shown. Only the
-  newest 5,000 lines are kept. The unit and the file path reach the host as one quoted
-  word, never as part of a command. The journal needs a user who may read it.
-- **Services.** Pick a host to list its systemd services with state and whether they
-  start at boot. Start, stop, restart, reload, enable or disable one; read its status; jump
-  to its log. Anything that needs root can use **sudo**, which works only where sudo
-  asks no password (`sudo -n`), and fails at once where it does. On a production host
-  stopping, restarting or disabling asks you to type the host's name first. Hosts
-  without systemd say so.
-- **Alerts.** Off until you turn them on in **Settings → Alerts and monitoring
-  history**. They watch the hosts you turned monitoring on for (Fleet) while the app is
-  open: a host that stops answering (two checks in a row, a minute apart), and CPU, memory
-  or disk over a limit for several readings in a row, each with a message when it is back
-  to normal. They show a notice, an operating-system notification when the window isn't in
-  front, and a list on the Alerts tab. Quiet hours keep alerts off the screen (they still
-  reach the list); any host can be muted. Alerts are not saved and nothing leaves this
-  computer, and they do not run when the app is closed. (To be told on Telegram, Bale or
-  email, use **Monitoring**, below.)
+### Logs
+
+Select hosts, follow them, filter, investigate, act.
+
+- **Hosts.** *Add Hosts* opens a searchable list (name, address, group or tag), with
+  *Select all filtered* and *Clear*. Chosen hosts are chips; the dot on a chip is what is
+  known: the stream's own state while it runs, otherwise the last health check, never an
+  assumption. A host without saved credentials is listed but can't be chosen.
+- **Stream settings** (one compact bar): *Source* (system journal, kernel journal, or a log
+  file), *Unit* (searchable; type any name such as `nginx.service`, checked before use),
+  *Priority* (asked of the host: only that priority and worse are sent) and *History* (the last
+  100, 500 or 1000 entries, or since 15 minutes, an hour, 6 or 24 hours ago). **Follow Logs**
+  becomes **Stop Following**. With no host chosen the button is off and says why.
+- **Status.** *LIVE* only when every host streams; *PARTIAL* while one reconnects (with
+  which host, which attempt and when the next try is); *DISCONNECTED* when none does. It
+  shows how many hosts are connected, events a minute (counted from events that really
+  arrived in the last minute, shown once there are ten seconds of them), and the time of the
+  last event. *Auto-reconnect* applies at once.
+- **Reconnecting.** A lost connection is retried with waits that double (2 s, 4 s, ... up to
+  a minute), ten tries in a row, then the host is marked failed and **Retry** is offered. A
+  wrong password or a changed host key is not retried. The journal's cursor of the last entry
+  seen is used to carry on, so entries written meanwhile arrive once and none is repeated.
+  A log file has no such position, so it is followed from now and a *possible gap* is shown.
+  If the journal no longer has the saved position, the gap is shown too. Nothing here can
+  promise there is no gap.
+- **Viewer.** One row per event: time (to the millisecond), host (the SSHVault host it was read
+  from, not whatever name the journal gives), severity, unit and message. Only the rows in
+  view are drawn, so 20,000 or more events stay light. Rows are ordered by time across
+  hosts (or by arrival, in the columns menu). **Click a row** (or Enter) for its details:
+  the full message, the journal's fields, the host's own name for itself, the journal position,
+  and five entries before and after it read from the host's journal. Actions: copy the message,
+  the event or its id; filter to the host or unit; search similar; open a terminal on the host;
+  open the service.
+- **Filters** work on what has already arrived: text, a regular expression (long patterns and
+  ones that can take exponentially long are refused, and a filter pass stops at a time limit),
+  severity (*and worse*, or *exactly*), hosts, units, and a time range (5 minutes, 15 minutes,
+  an hour, or custom). To read older entries from the host, change *History* and follow again.
+- **Pause** holds the view still while collecting goes on (it counts what is new); **Stop
+  Following** ends the remote commands and closes the connections; **Clear** empties this
+  window only. **Export** writes the events shown as text, JSON Lines or CSV (CSV cells that
+  start with `=`, `+`, `-` or `@` are defused). Passwords, tokens and private keys are hidden
+  before an event reaches the window, so the viewer, copy and export all show the same text;
+  turning that off (Settings, per stream) asks before anything is copied or saved. It is a
+  safety net that recognises common shapes, not a guarantee.
+- **Limits and safety.** At most 32 hosts in a stream and 64 followed at once; six logins at a
+  time; a host that writes faster than 3,000 events a second has the rest counted and
+  dropped, and the count is shown; the window keeps the newest 20,000 events (5,000 to
+  100,000) and says how many it let go. The unit, the path and the cursor reach the host as one
+  quoted word, never as part of a command. Locking the vault ends every stream.
+- **Keys.** Ctrl+F searches; Up/Down/PageUp/PageDown/Home/End move; Enter opens or closes
+  the details; Escape closes them; Space pauses or resumes; Ctrl+C copies the selected message
+  (Ctrl+Shift+C the event). Leaving the tab does not stop a stream; the Logs tab shows a dot while
+  one runs.
+
+### Services
+
+Pick a host to list its systemd services: runtime state (active, inactive, failed, activating,
+deactivating: separate from whether it starts at boot), the boot setting, and when it last
+changed state (where the host says). Start, stop, restart, reload, enable or disable one; open
+its details (properties and `systemctl status`); **View logs** opens Logs with that host and
+unit. Stopping, restarting or disabling always asks, and on a production host asks you to type
+the host's name. Anything that needs root can use **sudo**, off unless you turn it on, which
+works only where sudo asks no password (`sudo -n`) and fails at once where it does. Hosts
+without systemd say so.
+
+### Security
+
+Read-only until you press **Read-only / Changes allowed**. The **Overview** reads, as the
+ordinary user and without ever asking for a password: SSH server settings from the config
+files (root login, password logins, empty passwords: judged only when the file could be read,
+and said to be the files' text, not necessarily the running server), listening ports and how
+far each is open, who is logged in and recent logins. What needs root (firewall rules,
+fail2ban, the running SSH settings) is said not to have been checked; the **Firewall**,
+**Intrusion radar** and **SSH keys** tabs have them, and ask for `sudo` only when opened.
+Changing anything (rules, bans, terminating sessions, keys) needs *Changes allowed* and still
+asks as before. *SSH events in Logs* opens the host's `sshd` entries.
+
+### Alerts
+
+Off until you turn them on in **Settings → Alerts and monitoring history** (or with *Turn alerts
+on* here). They watch the hosts you turned monitoring on for (Fleet) while the app is open: a
+host that stops answering (two checks in a row, a minute apart), and CPU, memory or disk over a
+limit for several readings in a row, each with a message when it is back to normal. **From
+followed logs** adds three rules that read the lines of a running Logs stream: a critical
+journal entry, repeated failed SSH logins (a count in a number of minutes), and a service
+entering the failed state. The same problem on a host is announced at most once in ten minutes,
+a host raises at most five in ten minutes, and a repeat of one still open is recorded on its
+entry ("seen 3 times") rather than announced again. Each alert shows its title, host,
+severity, the condition, when it was first and last seen, and its status (open, acknowledged,
+recovered). They show a notice, an operating-system notification when the window isn't in front,
+and a list on the Alerts tab; quiet hours keep alerts off the screen, and any host can be muted.
+Alerts are not saved unless you choose to keep them, nothing leaves this computer, and they do
+not run when the app is closed. (To be told on Telegram, Bale or email, use **Monitoring**,
+below.) **Inspect logs** on an alert, and on a host in Monitoring, follows that host's logs.
 
 **Longer charts.** The monitoring charts show the last 15 minutes. Under **Settings →
 Alerts and monitoring history** you can keep one-minute averages for a day or a week
