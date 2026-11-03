@@ -1,0 +1,28 @@
+name: Deploy a Compose stack
+category: Deployments
+description: >-
+  Changes the host: pulls the images of a Compose file and brings the stack up in the background, recreating the
+  containers whose image or settings changed. Then it checks a web address from this computer.
+params:
+  - name: file
+    label: Compose file on the host
+    default: /srv/app/compose.yml
+  - name: project
+    label: Project name
+    optional: true
+  - name: url
+    label: Address to check afterwards
+    default: "http://{{host}}/"
+steps:
+  - name: Pull images
+    run: "docker compose -f {{file|q}} pull"
+    timeout_secs: 600
+  - name: Bring the stack up
+    docker:
+      action: compose_up
+      file: "{{file}}"
+  - name: Check it answers
+    http:
+      url: "{{url}}"
+      wait_secs: 60
+      every_secs: 5

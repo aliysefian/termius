@@ -1,0 +1,21 @@
+name: Restart a service
+category: Maintenance
+description: >-
+  Changes the host: restarts a systemd service with sudo, then waits until it reports active. The service is down for a
+  moment. Nothing happens if it is not installed.
+params:
+  - name: service
+    label: Service
+    default: nginx
+steps:
+  - name: Is it running now?
+    id: before
+    run: "systemctl is-active {{service|q}}"
+    on_error: continue
+  - name: Restart
+    run: "sudo -n systemctl restart {{service|q}}"
+  - name: Wait until it is active
+    wait:
+      run: "systemctl is-active {{service|q}}"
+      every_secs: 2
+      timeout_secs: 60

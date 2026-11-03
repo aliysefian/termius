@@ -1,0 +1,38 @@
+name: Upload a file and restart
+category: Deployments
+description: >-
+  Changes the host: uploads a file you choose when it runs to a temporary place, checks it with a command you give,
+  moves it into place and restarts a service with sudo. The service is down for a moment.
+params:
+  - name: package
+    label: File to upload
+    kind: file
+  - name: destination
+    label: Where it goes on the host
+    default: /opt/app/app.conf
+  - name: check
+    label: Command that checks the uploaded file (leave "true" to skip the check)
+    default: "true"
+  - name: service
+    label: Service to restart
+    default: myapp
+steps:
+  - name: Upload
+    upload:
+      local: "{{package}}"
+      remote: /tmp/sshvault-upload.new
+      mode: "0644"
+  - name: Check it
+    run: "{{check}}"
+  - name: Put it in place
+    run: "sudo -n mv /tmp/sshvault-upload.new {{destination|q}}"
+  - name: Restart
+    run: "sudo -n systemctl restart {{service|q}}"
+  - name: Wait until it is active
+    wait:
+      run: "systemctl is-active {{service|q}}"
+      every_secs: 2
+      timeout_secs: 60
+rollback:
+  - name: Remove the temporary file
+    run: "rm -f /tmp/sshvault-upload.new"

@@ -1,0 +1,15 @@
+name: Verify a service
+category: Monitoring
+description: >-
+  Read-only. Checks, from this computer, that a web address answers with a 2xx or 3xx status, waiting up to a minute
+  for it. Use it after a deployment.
+params:
+  - name: url
+    label: Web address
+    default: "http://{{host}}/"
+steps:
+  - name: Web address answers
+    http:
+      url: "{{url}}"
+      wait_secs: 60
+      every_secs: 3

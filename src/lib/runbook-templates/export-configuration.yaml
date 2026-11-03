@@ -1,0 +1,20 @@
+name: Export a configuration file
+category: Backups
+description: >-
+  Read-only on the host: copies a configuration file from every host into a folder you choose, so changes can be
+  compared or kept. Nothing is changed on the hosts.
+params:
+  - name: destination
+    label: Save into this folder
+    kind: dir
+  - name: config
+    label: Configuration file
+    default: /etc/ssh/sshd_config
+steps:
+  - name: Show that it exists
+    run: "ls -l {{config|q}}"
+  - name: Download
+    download:
+      remote: "{{config}}"
+      to: "{{destination}}"
+      on_conflict: overwrite

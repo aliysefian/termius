@@ -1,0 +1,10 @@
+name: Inspect open ports
+category: Security
+description: >-
+  Read-only. Lists the TCP and UDP ports the host is listening on, and flags the ones open to every address.
+steps:
+  - name: Listening sockets
+    run: "ss -tuln"
+  - name: Open to every address
+    run: "ss -tuln | awk 'NR>1 && ($5 ~ /^(0\\.0\\.0\\.0|\\[::\\]|\\*):/) { print $1, $5 }'"
+    on_error: continue

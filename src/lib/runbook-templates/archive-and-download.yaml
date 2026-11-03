@@ -1,0 +1,26 @@
+name: Archive a directory and download it
+category: Backups
+description: >-
+  Changes the host: creates a compressed archive of a directory in /tmp, downloads it into a folder you choose, then
+  deletes that archive from /tmp. The archive must be under 8 MB, so use it for configuration, not for data.
+params:
+  - name: directory
+    label: Directory to archive
+    default: /etc/nginx
+  - name: destination
+    label: Save into this folder
+    kind: dir
+steps:
+  - name: Create the archive
+    run: "tar -czf /tmp/sshvault-backup.tgz -C / {{directory|q}} 2>/dev/null; test -s /tmp/sshvault-backup.tgz"
+  - name: Download it
+    download:
+      remote: /tmp/sshvault-backup.tgz
+      to: "{{destination}}"
+      on_conflict: rename
+  - name: Remove the archive from the host
+    run: "rm -f /tmp/sshvault-backup.tgz"
+    on_error: continue
+rollback:
+  - name: Remove the archive from the host
+    run: "rm -f /tmp/sshvault-backup.tgz"

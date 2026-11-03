@@ -273,12 +273,19 @@ export function runbookStart(
   onEvent: (e: import("./runbook").RunbookEvent) => void,
   /** On a host where the run fails, also run the runbook's rollback steps. */
   rollback = false,
-  /** All hosts at once (the default), or one after another, optionally stopping at the first failure. */
-  order: RunOrder = "parallel",
+  /** How the hosts are taken. All at once (the default), a limit, one after another, or in rolling batches. */
+  order: import("./runbook").Strategy = "parallel",
+  /** Start at this step (0-based); the ones before it are reported as skipped. */
+  fromStep: number | null = null,
+  /** The run this one repeats. */
+  retryOf: string | null = null,
 ) {
   const channel = new Channel<import("./runbook").RunbookEvent>(onEvent);
-  return invoke<void>("runbook_start", { runId, body, params, files, hostIds, scheduled, onEvent: channel, rollback, order });
+  return invoke<void>("runbook_start", { runId, body, params, files, hostIds, scheduled, onEvent: channel, rollback, order, fromStep, retryOf });
 }
+/** Really connect to each host and hang up (nothing is run on them). */
+export const runbookPreflight = (hostIds: Uuid[]) =>
+  invoke<{ host_id: Uuid; label: string; ok: boolean; error: string | null; ms: number }[]>("runbook_preflight", { hostIds });
 export const runbookCancel = (runId: string) => invoke<boolean>("runbook_cancel", { runId });
 export const runbookHistory = {
   list: () => invoke<import("./runbook").RunSummary[]>("runbook_history_list"),

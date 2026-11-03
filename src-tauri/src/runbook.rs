@@ -823,6 +823,13 @@ pub fn resolve_params(rb: &Runbook, given: &HashMap<String, String>) -> Result<H
     let mut out = HashMap::new();
     let mut errors = Vec::new();
     for p in &rb.params {
+        // A file is chosen on its own (and checked when the run starts); it has no text value.
+        if p.kind == ParamKind::File {
+            if p.optional {
+                out.insert(p.name.clone(), String::new());
+            }
+            continue;
+        }
         let value = given.get(&p.name).map(|v| v.trim().to_string()).filter(|v| !v.is_empty()).or_else(|| p.default.clone());
         let label = if p.label.is_empty() { &p.name } else { &p.label };
         match value {

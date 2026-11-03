@@ -1,0 +1,12 @@
+name: Rotate logs
+category: Maintenance
+description: >-
+  Changes the host: forces logrotate to rotate the logs now, with sudo. A first step shows what it would do without
+  doing it. Programs that hold their log open may be signalled by the rotate scripts.
+steps:
+  - name: What logrotate would do
+    run: "sudo -n logrotate -d /etc/logrotate.conf 2>&1 | tail -n 40"
+  - name: Rotate now
+    run: "sudo -n logrotate -f /etc/logrotate.conf"
+  - name: Newest files in /var/log
+    run: "ls -lt /var/log | head -n 15"

@@ -1,0 +1,24 @@
+name: Clean temporary files
+category: Maintenance
+description: >-
+  Changes the host: deletes regular files that have not been modified for a number of days, only in /tmp or /var/tmp
+  and only on the same filesystem. It lists what it will delete first, and a Dry run shows both commands.
+params:
+  - name: folder
+    label: Folder
+    description: Only these two are allowed, so a typing mistake can't point it somewhere else.
+    choices: [/tmp, /var/tmp]
+    default: /tmp
+  - name: days
+    label: Older than (days)
+    kind: number
+    default: "7"
+steps:
+  - name: Space used before
+    run: "df -h {{folder|q}}"
+  - name: List what would go
+    run: "find {{folder|q}} -xdev -type f -mtime +{{days|q}} -print | head -n 200"
+  - name: Delete those files
+    run: "find {{folder|q}} -xdev -type f -mtime +{{days|q}} -delete"
+  - name: Space used after
+    run: "df -h {{folder|q}}"

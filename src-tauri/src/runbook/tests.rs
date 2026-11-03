@@ -767,3 +767,84 @@ fn strategies_are_checked_and_old_ones_still_read() {
     assert!(Strategy::Rolling { batch_size: 2, concurrency: Some(2), stop_on_failure: true }.check(5).is_ok());
     assert_eq!(Strategy::from(crate::runner::Order::Sequential { stop_on_failure: false }), Strategy::Sequential { stop_on_failure: false });
 }
+
+// -- the templates the window offers ------------------------------------------------------------
+
+fn templates() -> Vec<(String, String)> {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/lib/runbook-templates");
+    let mut out: Vec<(String, String)> = std::fs::read_dir(dir)
+        .unwrap()
+        .flatten()
+        .filter(|e| e.path().extension().is_some_and(|x| x == "yaml"))
+        .map(|e| (e.file_name().to_string_lossy().into_owned(), std::fs::read_to_string(e.path()).unwrap()))
+        .collect();
+    out.sort();
+    out
+}
+
+#[test]
+fn every_template_is_a_valid_runbook_that_plans_cleanly() {
+    let all = templates();
+    assert!(all.len() >= 12, "{} templates", all.len());
+    for (file, text) in &all {
+        let rb = parse(text).unwrap_or_else(|p| panic!("{file}: {p:?}"));
+        // Planned for a host with every required variable given something.
+        let given: HashMap<String, String> = rb.params.iter().filter(|p| p.default.is_none() && !p.optional && p.kind != ParamKind::File).map(|p| (p.name.clone(), if p.kind == ParamKind::Dir { "/tmp".to_string() } else { "1".to_string() })).collect();
+        let values = resolve_params(&rb, &given).unwrap_or_else(|e| panic!("{file}: {e:?}"));
+        let steps = plan(&rb, &values, &values_of(&[("host", "h.example"), ("label", "h")])).unwrap_or_else(|e| panic!("{file}: {e}"));
+        assert_eq!(steps.iter().filter(|s| s.phase == Phase::Run).count(), rb.steps.len(), "{file}");
+    }
+}
+
+fn values_of(v: &[(&str, &str)]) -> HashMap<String, String> {
+    v.iter().map(|(a, b)| (a.to_string(), b.to_string())).collect()
+}
+
+#[test]
+fn every_template_says_what_it_does_and_keeps_its_promise() {
+    let categories = ["Deployments", "Maintenance", "Monitoring", "Backups", "Security"];
+    let mut names = HashSet::new();
+    for (file, text) in &templates() {
+        let rb = parse(text).unwrap();
+        assert!(names.insert(rb.name.clone()), "{file}: the name is used twice");
+        assert!(categories.contains(&rb.category.as_deref().unwrap_or("")), "{file}: category {:?}", rb.category);
+        let d = rb.description.trim();
+        let read_only = d.starts_with("Read-only");
+        assert!(read_only || d.starts_with("Changes the host"), "{file}: the description must open with \"Read-only\" or \"Changes the host\"");
+        // No credentials in a template: a default that looks like one, or a secret with a default, fails.
+        for p in &rb.params {
+            assert!(p.kind != ParamKind::Secret || p.default.is_none(), "{file}: a secret with a default");
+            if let Some(v) = &p.default {
+                assert!(!crate::mask::secrets(v).contains(crate::mask::HIDDEN), "{file}: {} has a secret-looking default", p.name);
+            }
+        }
+        if read_only {
+            // A read-only template changes nothing on the host: no sudo, no moves, deletes, restarts or writes.
+            let commands: Vec<String> = rb
+                .steps
+                .iter()
+                .flat_map(|s| s.run.iter().cloned().chain(s.wait.iter().map(|w| w.run.clone())))
+                .collect();
+            for c in commands {
+                for bad in ["sudo", "rm ", " mv ", "restart", "reboot", "kill", " > ", "chmod", "chown", "tee ", "install ", "delete"] {
+                    assert!(!c.contains(bad), "{file}: a read-only template runs {c:?} (contains {bad:?})");
+                }
+            }
+            assert!(rb.steps.iter().all(|s| s.upload.is_none() && s.docker.is_none()), "{file}: a read-only template uploads or runs Docker");
+            assert!(rb.rollback.is_empty(), "{file}: a read-only template has a rollback");
+        }
+        // A template that makes a request or a connection or a file says where from.
+        assert!(rb.steps.len() <= 8, "{file}: long for a template");
+    }
+}
+
+#[test]
+fn a_required_file_or_folder_is_not_a_missing_text_value() {
+    let rb = parse(r#"{"name":"f","params":[{"name":"f","kind":"file"},{"name":"d","kind":"dir"}],"steps":[{"upload":{"local":"{{f}}","remote":"/x"}},{"download":{"remote":"/y","to":"{{d}}"}}]}"#).unwrap();
+    // The window chooses the file and the folder itself; only the folder's path comes in as a value.
+    let v = resolve_params(&rb, &values(&[("d", "/tmp")])).unwrap();
+    assert_eq!(v.get("d").map(String::as_str), Some("/tmp"));
+    assert!(!v.contains_key("f"));
+    // A folder that wasn't chosen is still a missing value.
+    assert!(resolve_params(&rb, &values(&[])).unwrap_err()[0].contains("needs a value"));
+}
