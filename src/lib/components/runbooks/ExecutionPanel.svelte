@@ -44,10 +44,14 @@
             {#each params as p (p.name)}
               {@const bad = p.kind === "file" || p.kind === "dir" ? null : valueProblem(p, rb.values[p.name] ?? "")}
               <div>
-                <label class="mb-0.5 block text-xs" for="rv-{p.name}">{p.label || p.name}{#if p.optional}<span class="text-fg-muted"> (optional)</span>{/if}</label>
+                {#if p.kind === "file" || p.kind === "dir"}
+                  <span class="mb-0.5 block text-xs">{p.label || p.name}{#if p.optional}<span class="text-fg-muted"> (optional)</span>{/if}</span>
+                {:else}
+                  <label class="mb-0.5 block text-xs" for="rv-{p.name}">{p.label || p.name}{#if p.optional}<span class="text-fg-muted"> (optional)</span>{/if}</label>
+                {/if}
                 {#if p.kind === "file" || p.kind === "dir"}
                   <div class="flex items-center gap-2">
-                    <button id="rv-{p.name}" class="btn-secondary h-7 shrink-0 px-2 text-xs" disabled={busy} onclick={() => rb.chooseFile(p.name, p.kind as "file" | "dir")}>
+                    <button id="rv-{p.name}" class="btn-secondary h-7 shrink-0 px-2 text-xs" disabled={busy} aria-label="{p.kind === 'dir' ? 'Choose a folder' : 'Choose a file'} for {p.label || p.name}" onclick={() => rb.chooseFile(p.name, p.kind as "file" | "dir")}>
                       {#if p.kind === "dir"}<FolderOpen size={12} /> Choose a folder…{:else}<FileUp size={12} /> Choose a file…{/if}
                     </button>
                     <span class="min-w-0 flex-1 truncate font-mono text-[11px] text-fg-muted" title={rb.chosenPath(p.name, p.kind)}>{rb.chosenPath(p.name, p.kind) || "none chosen"}</span>

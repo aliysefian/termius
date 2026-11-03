@@ -124,7 +124,7 @@
 
 <svelte:window onkeydown={key} />
 
-<div class="relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-base" data-testid="runbooks" bind:clientWidth={width} bind:clientHeight={height}>
+<div class="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-base" data-testid="runbooks" bind:clientWidth={width} bind:clientHeight={height}>
   <header class="flex shrink-0 flex-wrap items-center gap-3 border-b border-line bg-panel px-4 py-2">
     <h1 class="flex items-center gap-2 text-[15px] font-semibold"><ListChecks size={18} class="text-accent" /> Runbooks</h1>
     <div class="flex gap-1" role="tablist" aria-label="Runbooks sections">
@@ -198,7 +198,7 @@
           ondblclick={() => (prefs.rbOutputHeight = OUTPUT.def)}
           onkeydown={dividerKey}
         ></div>
-        <div class="shrink-0" style="height: {consoleHeight}px"><RunConsole live={rb.live} title={rb.name || "Runbook"} phase={rb.phase} {now} /></div>
+        <div class="shrink-0" style="height: {consoleHeight}px"><RunConsole live={rb.live} title={rb.liveName || "Runbook"} phase={rb.phase} {now} /></div>
       {:else}
         <div class="flex shrink-0 items-center gap-2 border-t border-line bg-panel px-4 py-1.5 text-xs text-fg-muted" data-testid="console-bar">
           <span>Execution output</span>

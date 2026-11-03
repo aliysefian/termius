@@ -4,6 +4,13 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## Unreleased
+
+- **New:** **a redesigned Runbooks workspace**: a library (search, categories, favorites, recents, import and export), a Builder, YAML editor (with diagnostics and completion), Variables and Settings tabs, a run panel with host picker, strategies (sequential, parallel, rolling) and failure policies, a resizable live console, a preview of the plan, retry of failed hosts or from a failed step, history, schedules and 15 templates.
+- **Runbooks can be YAML** as well as JSON; edits from the Builder keep comments and unknown keys.
+- **New step types:** delay, HTTP check, TCP port check, download and Docker.
+- **Fixed:** a required file parameter could never be run.
+
 ## 0.54.0 - 2026-11-03
 
 - **New:** **a redesigned Databases workspace**: an explorer, editor and results, and an inspector, each resizable and collapsible, with the inspector and then the explorer turning into drawers on a narrow window. The explorer groups objects by kind with counts (Tables, Views, Functions, Procedures, Sequences, Triggers), loads only what you open, draws only the rows in view, searches every connection and, on PostgreSQL and MySQL, the server's own catalog, filters by object type, and has a context menu and full keyboard navigation.

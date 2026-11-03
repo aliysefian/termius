@@ -4,6 +4,7 @@ use crate::runbookhistory::HostStatus;
 use crate::ssh::testutil::{spawn_sshd, target};
 
 /// Start a run the way a command does.
+#[allow(clippy::too_many_arguments)]
 fn begin(manager: &Arc<RunbookManager>, id: String, rb: crate::runbook::Runbook, values: HashMap<String, String>, files: HashMap<String, Vec<u8>>, hosts: Vec<HostJob>, strategy: Strategy, history: Option<History>, sink: Arc<dyn RunbookSink>) {
     manager.start(Start { run_id: id, runbook: rb, values, files, hosts, scheduled: false, rollback: false, strategy, from_step: None, retry_of: None, history }, sink);
 }

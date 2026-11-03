@@ -151,6 +151,10 @@ describe("a run that is going", () => {
     expect(lines).toContain("alpha|0|stdout|one");
     expect(lines).toContain("alpha|0|stdout|two");
     expect(lines).toContain("alpha|0|info|Step 1/3: Check");
+    // A rollback step is numbered on its own and doesn't count in "of N".
+    const withRollback = applyRunEvent(startRun([{ id: "a", label: "alpha" }], ["Check", "Ship", "Undo"], 2), { event: "step_started", host_id: "a", index: 2 }, t0);
+    expect(withRollback.log[0].text).toBe("Rollback step 1: Undo");
+    expect(applyRunEvent(startRun([{ id: "a", label: "alpha" }], ["Check", "Ship", "Undo"], 2), { event: "step_started", host_id: "a", index: 0 }, t0).log[0].text).toBe("Step 1/2: Check");
     expect(lines.at(-1)).toBe("alpha|null|info|Finished");
     expect(live.log.map((l) => l.n)).toEqual(live.log.map((_, i) => i));
   });

@@ -121,7 +121,12 @@ function yamlHandle(doc: Document): Handle {
       const v = doc.getIn(path);
       return v === undefined ? undefined : (JSON.parse(JSON.stringify(v ?? null)) as Json);
     },
-    set: (path, value) => doc.setIn(path, doc.createNode(value)),
+    set: (path, value) => {
+      // A plain value goes into the node that is there, so its comment and style stay.
+      const node = doc.getIn(path, true);
+      if (isScalar(node) && (value === null || typeof value !== "object")) node.value = value;
+      else doc.setIn(path, doc.createNode(value));
+    },
     remove: (path) => void doc.deleteIn(path),
     insert: (path, value, index) => {
       const seq = seqAt(path);

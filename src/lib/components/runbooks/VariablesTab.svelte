@@ -22,7 +22,7 @@
     const names = new Set(params.map((p) => String(p.name)));
     let n = 1;
     while (names.has(`variable_${n}`)) n++;
-    if (rb.apply(addParam(rb.text, { name: `variable_${n}`, label: `Variable ${n}`, default: "" }))) open = params.length;
+    if (rb.apply(addParam(rb.text, { name: `variable_${n}`, label: `Variable ${n}` }))) open = params.length;
   }
 
   /** Save the variable as a whole with the given change (undefined removes a field). */

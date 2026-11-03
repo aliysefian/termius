@@ -47,7 +47,7 @@
 
   <div class="relative">
     <Search size={13} class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-muted" />
-    <input class="input h-8 w-full pl-8 text-xs" type="search" placeholder="Search hosts, groups, tags" aria-label="Search hosts" bind:value={query} {disabled} />
+    <input class="input h-8 w-full pl-8 text-xs" type="search" placeholder="Search hosts, groups, tags" aria-label="Search target hosts" bind:value={query} {disabled} />
   </div>
   {#if groups.length || tags.length}
     <div class="flex gap-1.5">

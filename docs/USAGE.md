@@ -657,73 +657,106 @@ share the vault, each one runs the checks and sends its own alert, so you get tw
 
 **Runbooks** (the checklist button on the left rail) are saved sequences of
 steps with parameters, run on one host or many, with a record of every run.
-A runbook is a JSON document you can read, diff and share (export and open
-files from the page), not a program:
+The workspace has a header (Runbooks, History, Schedules, Templates, New
+Runbook), a **library** on the left (search, categories, favorites, recents,
+duplicate, rename, delete, import, export, right-click menus), an editor in the
+middle (**Builder**, **YAML**, **Variables**, **Settings**), a **run panel** on
+the right and a **console** below, which you can drag taller or shorter. On a
+narrow window the run panel becomes a drawer. Shortcuts: Ctrl+S saves,
+Ctrl+Enter validates, Ctrl+N makes a new runbook. Nothing starts a run from the
+keyboard alone; you press **Run now**.
 
-```json
-{
-  "name": "Restart a service",
-  "params": [{ "name": "service", "label": "Service", "default": "nginx" }],
-  "steps": [
-    { "name": "Is it running?", "id": "before", "run": "systemctl is-active {{service|q}}", "on_error": "continue" },
-    { "name": "Restart", "run": "sudo systemctl restart {{service|q}}", "when": { "step": "before", "exit_not": 0 } },
-    { "name": "Wait until it is up", "wait": { "run": "systemctl is-active {{service|q}}", "every_secs": 2, "timeout_secs": 60 } }
-  ]
-}
+A runbook is a document you can read, diff and share, written as **YAML** (new
+ones) or **JSON** (existing ones keep working and stay JSON). The Builder and the
+YAML view edit the same document. The YAML is parsed properly, edits from the
+Builder keep your comments, order and any keys the Builder doesn't know, and
+constructs it can't show (anchors, aliases) are left alone and the Builder is
+read-only for them. Turning YAML into JSON loses comments.
+
+```yaml
+name: Restart a service
+category: maintenance
+params:
+  - { name: service, label: Service, default: nginx }
+strategy: { mode: rolling, batch: 2 }
+steps:
+  - name: Is it running?
+    id: before
+    run: systemctl is-active {{service|q}}
+    on_error: continue
+  - name: Restart
+    run: sudo systemctl restart {{service|q}}
+    when: { step: before, exit_not: 0 }
+  - name: Check it answers
+    http: { url: "http://{{host}}/health", expect: 2xx }
 ```
 
-- **Steps** are `run` (a command), `wait` (repeat a command every few seconds
-  until it exits with `until_exit`, default 0, and prints `contains` if given,
-  or give up after `timeout_secs`), or `upload` (see below). A failed step
-  stops that host unless the step has `"on_error": "continue"`; other hosts go
-  on. Each step may have a `timeout_secs`. A runbook may also have a `"rollback"` list, steps written the same way that undo
-  the run. They never run on their own: when you start a run (or make a schedule) you
-  can turn on "If a host fails, run the rollback steps on it", and then only a host
-  where the run failed gets them, after the failure, and it still counts as failed.
-  The dry run shows them marked as rollback, so you can read them first. A `run` or `upload` step may also
-  say `"retries": 2` (up to 5) to be tried again when the command ran and failed,
-  waiting `retry_delay_secs` (default 5) between tries; only use it for commands
-  that are safe to repeat. A lost connection is never retried. The kept record of
-  a run hides passwords, tokens, private keys and similar in the output.
-- **Parameters** are asked for when you run it. `{{name}}` puts the value in as
-  typed; `{{name|q}}` quotes it for the shell, which you should use for
-  anything a person types; `{{name|raw}}` says outright that you want it as
-  typed. `{{host}}` and `{{label}}` are the host's own address and name. They
-  come from host records, which an import or a synced vault can fill, so they
-  are quoted for you (a plain name looks the same); use `{{host|raw}}` only if
-  you mean shell syntax. A parameter can have `choices`, `optional`, or `"kind":
-  "file"`.
-- **Conditions.** A step runs `when` an earlier step (by its `id`) exited with
-  `exit` or not (`exit_not`), or a text parameter `equals` / `not_equals`
-  something. Nothing else: there are no loops and no scripting.
-- **Upload** puts a file on the host. Its source must be exactly `{{name}}` of
-  a `"kind": "file"` parameter: you choose the file when you run it. A
-  runbook can't name a file on this computer by itself, so a runbook someone
-  shared can't send your private keys anywhere. It is written next to its
-  target and moved into place, and may set a `mode` such as `"0644"`.
-- The page checks the document as you type and shows the problem against its
-  step; nothing can run until it is clean. A **dry run** shows every step
-  filled in for the first chosen host and runs nothing.
-- **Running.** Choose hosts (or add a whole group) and press Run. Each host shows
-  its steps as they happen, with what they printed, and **Stop** ends the run
-  (what happened so far is kept). Several hosts go at once, eight at a time,
-  each over one SSH connection that needs saved credentials. If any chosen host
-  is a **production** host, you must type the runbook's name first.
+- **Step types.** `run` (SSH command), `wait` (repeat a command until it exits
+  with `until_exit` and prints `contains`, or give up after `timeout_secs`),
+  `upload` and `download` (files), `delay`, `http` (health check), `tcp` (port
+  check) and `docker` (a container action, quoted for the shell). **http, tcp,
+  upload source and download destination happen on this computer, not on the
+  host**; the step says so. A failed step stops that host unless it has
+  `on_error: continue`. A `run`, `upload` step may say `retries` (up to 5) to be
+  tried again when the command ran and failed; only use it for commands safe to
+  repeat. A lost connection is never retried. There is no step for database
+  operations.
+- **Rollback.** A `rollback` list of steps never runs on its own: turn on "Roll
+  back a host that fails" in the run panel and only a failed host gets them,
+  after the failure, and it still counts as failed.
+- **Parameters / variables** (Variables tab) are asked for when you run:
+  text, number, boolean, choice, file, folder (`dir`, picked at run time, so a
+  runbook can't write anywhere by itself) and **secret**. `{{name}}` inserts as
+  typed; `{{name|q}}` quotes for the shell (use it for anything a person
+  types); `{{name|raw}}` says you want it as typed. `{{host}}` and `{{label}}`
+  are quoted for you. Secrets are not saved with the runbook, are asked every
+  time, and are hidden in the preview, console and history (they are not
+  referenced from the vault).
+- **Conditions.** A step runs `when` an earlier step (by `id`) exited with
+  `exit` / `exit_not`, or a text parameter `equals` / `not_equals`. No loops,
+  no scripting.
+- **Upload** sources must be `{{name}}` of a file parameter chosen at run time,
+  so a shared runbook can't send your private files anywhere.
+- **Validate** checks the document as you type (problems shown against the
+  step, with line and column in YAML), the chosen hosts, and that connection
+  settings exist; **Test connections** really connects. **Preview plan** shows
+  every step filled in for the chosen hosts, and runs nothing. It is a reading
+  aid, not a simulation: it can't know what a command will do.
+- **Running.** Pick hosts (search, groups, tags, chips) and a strategy:
+  **sequential**, **parallel** (with a concurrency limit) or **rolling**
+  (batches), each with a failure policy (stop after the first failure, or carry
+  on). Each host moves through pending, connecting, running, success, failed,
+  skipped, cancelled or timed out. The console streams output live (whole lines
+  only, 512 KB per step), with filters by host, step and errors, search, follow,
+  copy and export. Run is disabled while a run is starting, so it can't be
+  submitted twice. **Production** hosts need the runbook's name typed first.
+  **Stop** reaches the backend: unfinished hosts are marked cancelled and the
+  connection is closed. A command already running on the host usually ends when
+  its channel closes, but that is not guaranteed.
+- **Retry** after a run: failed hosts only, from the failed step, or all hosts;
+  re-running from a step asks you to confirm that the steps are safe to repeat.
 - **History** keeps the last 100 runs on this computer only (never synced or
-  backed up, because outputs can hold secrets), each with its values, per-host
-  steps and output. Each output is cut at 16 KB.
+  backed up), each with its values (secrets hidden), per-host steps and output.
+  Each output is cut at 16 KB.
 - **Schedules** run a runbook by themselves (every N minutes, daily, on chosen
   days, or once), **only while SSHVault is open** and the vault is unlocked;
-  there is no background service. Daily and weekly times are read on this
-  computer's clock, or in a time zone you choose (daylight-saving changes are
-  followed). A time that passes while the app is closed or the computer sleeps
-  is skipped, unless the schedule says to run once when the app opens. A
-  schedule can try hosts that failed again, up to three times, while the app
-  stays open. A one-time schedule switches itself off after it starts.
-  Schedules are kept on this computer. A schedule that includes a production
-  host is skipped unless you allowed that, with a typed confirmation, when you
-  made it; runbooks that need a file chosen each time can't be scheduled.
-  Failures are reported and recorded.
+  there is no background service. Times are read on this computer's clock or in
+  a time zone you choose (daylight saving followed). A time that passes while the
+  app is closed or the computer sleeps is skipped, unless the schedule says to
+  run once when the app opens. A schedule can retry failed hosts up to three
+  times. A schedule that includes a production host is skipped unless you
+  allowed that with a typed confirmation; runbooks that need a file chosen each
+  time can't be scheduled.
+- **Templates.** Fifteen ready-made runbooks (health checks, disk and memory
+  reports, service restart, log rotation, backups, package updates, certificate
+  expiry and more). Each says what it changes, and the ones that restart,
+  delete or update are marked so. None contains a credential. Using one opens a
+  copy as a new runbook.
+- **Settings** (per runbook): description, category, timeouts, default strategy
+  and failure policy, and notifications.
+
+Commands run with the SSH user's own rights; nothing is elevated unless a step
+says `sudo`. Existing runbooks, schedules and history keep working unchanged.
 
 **Wait for this, send that.** Under a host's **Automation** tab, add steps that
 wait for some text in the output after connecting and send an answer (for a

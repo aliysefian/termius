@@ -258,6 +258,12 @@ steps:
     expect("error" in renameParam(base, 0, "svc2")).toBe(true);
   });
 
+  it("keeps a variable's comment when it is renamed", () => {
+    const t = ok(renameParam(yaml, 0, "svc"));
+    expect(t).toMatch(/name: svc +# which one/);
+    expect(t).toContain("{{svc|q}}");
+  });
+
   it("finds and renames placeholders in a template", () => {
     expect(renameInTemplate("{{a}} {{ a|q }} {{ab}} {a}", "a", "b")).toBe("{{b}} {{ b|q }} {{ab}} {a}");
     expect(renameInTemplate("{{a", "a", "b")).toBe("{{a");

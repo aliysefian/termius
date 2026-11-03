@@ -97,7 +97,7 @@
               <h4 class="mb-2 text-xs font-semibold">{host.label} · {label[host.state]}</h4>
               {#if host.error}<p class="mb-2 rounded-md border border-danger/30 bg-danger/10 px-3 py-1.5 text-xs text-danger" role="alert">{host.error}</p>{/if}
               <ol class="space-y-1.5" aria-label="Steps of {host.label}">
-                {#each timeline(host, live.stepNames) as s (s.index)}
+                {#each timeline(host, live.stepNames, live.rollbackFrom) as s (s.index)}
                   {@const result = host.steps.find((r) => r.index === s.index)}
                   <li class="rounded-md border border-line">
                     <button class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs" aria-expanded={!!open[`${host.hostId}:${s.index}`]} disabled={!result} onclick={() => (open[`${host.hostId}:${s.index}`] = !open[`${host.hostId}:${s.index}`])}>
@@ -137,7 +137,7 @@
                 <thead><tr><th class="pr-3 font-medium text-fg-muted">Host</th>{#each live.stepNames as n, i (i)}<th class="px-1.5 font-medium text-fg-muted" title={n}>{i + 1}</th>{/each}<th class="pl-3 font-medium text-fg-muted">Result</th></tr></thead>
                 <tbody>
                   {#each live.hosts as h (h.hostId)}
-                    {@const line = timeline(h, live.stepNames)}
+                    {@const line = timeline(h, live.stepNames, live.rollbackFrom)}
                     <tr class="border-t border-line/60">
                       <td class="max-w-40 truncate py-1 pr-3 font-medium">{h.label}</td>
                       {#each line as s (s.index)}

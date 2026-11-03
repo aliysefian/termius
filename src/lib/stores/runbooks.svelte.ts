@@ -72,6 +72,8 @@ class RunbooksStore {
   phase = $state<RunPhase>("idle");
   live = $state<RunLive | null>(null);
   runId = $state<string | null>(null);
+  /** The name of the runbook the live run is of, which may not be the one open now. */
+  liveName = $state("");
   consoleTab = $state<ConsoleTab>("logs");
   #last: Snapshot | null = null;
   #queue: RunbookEvent[] = [];
@@ -554,9 +556,11 @@ class RunbooksStore {
     const runId = crypto.randomUUID();
     snap.runId = runId;
     this.#last = snap;
-    const stepNames = [...(load(snap.body).model?.steps ?? []), ...(load(snap.body).model?.rollback ?? [])].map((s, i) => (typeof s.name === "string" && s.name ? s.name : `Step ${i + 1}`));
-    this.live = startRun(o.hostIds.map((id) => ({ id, label: this.hosts.find((h) => h.id === id)?.label ?? id })), stepNames);
+    const model = load(snap.body).model;
+    const stepNames = [...(model?.steps ?? []), ...(model?.rollback ?? [])].map((s, i) => (typeof s.name === "string" && s.name ? s.name : `Step ${i + 1}`));
+    this.live = startRun(o.hostIds.map((id) => ({ id, label: this.hosts.find((h) => h.id === id)?.label ?? id })), stepNames, model?.steps.length ?? stepNames.length);
     this.runId = runId;
+    this.liveName = snap.name;
     this.viewing = null;
     this.consoleTab = "logs";
     settings.prefs.rbOutputOpen = true;

@@ -291,11 +291,15 @@ export interface RunLive {
   next: number;
   finished: boolean;
   cancelled: boolean;
+  /** The steps by name, the runbook's own first and then its rollback steps. */
   stepNames: string[];
+  /** Where the rollback steps start in `stepNames` (the count of the run's own steps). */
+  rollbackFrom: number;
 }
 
-export function startRun(hosts: { id: string; label: string }[], stepNames: string[]): RunLive {
+export function startRun(hosts: { id: string; label: string }[], stepNames: string[], rollbackFrom = stepNames.length): RunLive {
   return {
+    rollbackFrom,
     hosts: hosts.map((h) => ({ hostId: h.id, label: h.label, state: "pending", current: null, steps: [], error: null, startedAt: null, durationMs: null })),
     log: [],
     dropped: 0,
@@ -350,7 +354,7 @@ function reduce(d: RunLive, e: RunbookEvent, now: number): void {
         h.current = e.index;
         if (h.state === "connecting" || h.state === "pending") h.state = "running";
       }
-      line(e.index, "info", `Step ${e.index + 1}/${d.stepNames.length || "?"}: ${d.stepNames[e.index] ?? `Step ${e.index + 1}`}`);
+      line(e.index, "info", `${e.index >= d.rollbackFrom ? `Rollback step ${e.index - d.rollbackFrom + 1}` : `Step ${e.index + 1}/${d.rollbackFrom || "?"}`}: ${d.stepNames[e.index] ?? `Step ${e.index + 1}`}`);
       return;
     case "output":
       for (const text of splitLines(e.text)) line(e.index, e.stream, text);
@@ -480,7 +484,7 @@ export function fromRecord(r: RunRecord): RunLive {
     durationMs: h.started_ms && h.finished_ms ? h.finished_ms - h.started_ms : null,
   }));
   // The output each step kept, as log lines in the order of the steps.
-  const live: RunLive = { hosts, log: [], dropped: 0, next: 0, finished: r.finished_at !== null, cancelled: r.cancelled, stepNames: names };
+  const live: RunLive = { hosts, log: [], dropped: 0, next: 0, finished: r.finished_at !== null, cancelled: r.cancelled, stepNames: names, rollbackFrom: names.length };
   for (const h of r.hosts) {
     for (const s of h.steps) {
       const at = (h.started_ms ?? r.started_at * 1000) + 0;
