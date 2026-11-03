@@ -4,6 +4,15 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## Unreleased
+
+- **New:** **a redesigned Databases workspace**: an explorer, editor and results, and an inspector, each resizable and collapsible, with the inspector and then the explorer turning into drawers on a narrow window. The explorer groups objects by kind with counts (Tables, Views, Functions, Procedures, Sequences, Triggers), loads only what you open, draws only the rows in view, searches every connection and, on PostgreSQL and MySQL, the server's own catalog, filters by object type, and has a context menu and full keyboard navigation.
+- **SQL editor:** line numbers, dialect-aware highlighting and completion, Ctrl+Enter runs the statement at the cursor or the selection, Ctrl+Shift+Enter runs a script statement by statement with a result for each, format (Ctrl+Shift+F), comment, find, Explain, save and open queries, duplicate tabs, an unsaved dot, a Messages tab, a searchable history (each run with its time and outcome, kept as long as you choose, passwords in statements hidden) and a read-only mode (the connection's, enforced by the server, or a per-tab guard on PostgreSQL).
+- **Table view** (PostgreSQL and MySQL / MariaDB): Data (paged on the server, sorted and filtered on the server, a row count only on request), Structure, Indexes, Constraints, Relationships (a diagram of foreign keys in both directions) and DDL.
+- **Safer editing:** edits, new rows and deleted rows are held as pending changes, shown in the grid, reviewed as the exact statements, and saved together in one transaction: all or nothing.
+- **Export a table** to CSV, JSON or INSERT statements in chunks, and **import a CSV** with encoding, separator, column mapping and a preview, in batches of 200 rows.
+- **The grid** shows column types, resizes and reorders columns, selects and copies ranges (with headers, as CSV or JSON), opens a long or JSON cell in full, and searches the loaded rows.
+
 ## 0.53.0 - 2026-11-02
 
 A security release. It fixes the High and Medium findings of a security review and updates the libraries SSHVault is built on. Your hosts, keys and vault are not changed.
@@ -21,15 +30,6 @@ A security release. It fixes the High and Medium findings of a security review a
 
 - **New:** **a macOS app.** One download, `SSHVault_…_universal.dmg`, runs on Apple Silicon and Intel Macs: open it and drag SSHVault to Applications. It is not signed with an Apple Developer ID yet (that needs a paid Apple account), so macOS blocks it the first time: choose **System Settings → Privacy & Security → Open Anyway**. If macOS says the app is "damaged", run `xattr -dr com.apple.quarantine /Applications/SSHVault.app` once. The build and its tests run on a Mac in CI on every change, but it has had little use on real Macs, so please report problems. On macOS, **Check for updates** opens the releases page and you install the new `.dmg`; it does not replace the app in place.
 - **Fixed:** on macOS, a vault in a folder reached through a link, such as `~/Dropbox` (a link on current Dropbox for Mac), never noticed changes made by another device. macOS reports the real path of a changed file instead of the one the vault was opened with, so every change was ignored. It is matched by the vault's own path now. Linux and Windows were not affected.
-
-## Unreleased
-
-- **New:** **a redesigned Databases workspace**: an explorer, editor and results, and an inspector, each resizable and collapsible, with the inspector and then the explorer turning into drawers on a narrow window. The explorer groups objects by kind with counts (Tables, Views, Functions, Procedures, Sequences, Triggers), loads only what you open, draws only the rows in view, searches every connection and, on PostgreSQL and MySQL, the server's own catalog, filters by object type, and has a context menu and full keyboard navigation.
-- **SQL editor:** line numbers, dialect-aware highlighting and completion, Ctrl+Enter runs the statement at the cursor or the selection, Ctrl+Shift+Enter runs a script statement by statement with a result for each, format (Ctrl+Shift+F), comment, find, Explain, save and open queries, duplicate tabs, an unsaved dot, a Messages tab, a searchable history (each run with its time and outcome, kept as long as you choose, passwords in statements hidden) and a read-only mode (the connection's, enforced by the server, or a per-tab guard on PostgreSQL).
-- **Table view** (PostgreSQL and MySQL / MariaDB): Data (paged on the server, sorted and filtered on the server, a row count only on request), Structure, Indexes, Constraints, Relationships (a diagram of foreign keys in both directions) and DDL.
-- **Safer editing:** edits, new rows and deleted rows are held as pending changes, shown in the grid, reviewed as the exact statements, and saved together in one transaction: all or nothing.
-- **Export a table** to CSV, JSON or INSERT statements in chunks, and **import a CSV** with encoding, separator, column mapping and a preview, in batches of 200 rows.
-- **The grid** shows column types, resizes and reorders columns, selects and copies ranges (with headers, as CSV or JSON), opens a long or JSON cell in full, and searches the loaded rows.
 
 ## 0.51.0 - 2026-11-02
 
