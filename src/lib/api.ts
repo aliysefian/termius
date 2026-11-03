@@ -32,7 +32,9 @@ import type {
   DbConnection,
   DbQueryResult,
   DbRowEdit,
+  DbSearchHit,
   DbTableInfo,
+  DbTableMeta,
   DbTreeNode,
   Collection,
   ConflictInfo,
@@ -591,6 +593,9 @@ export const db = {
   children: (sessionId: Uuid, path: string[]) => invoke<DbTreeNode[]>("db_children", { sessionId, path }),
   tableInfo: (sessionId: Uuid, database: string, table: string) =>
     invoke<DbTableInfo>("db_table_info", { sessionId, database, table }),
+  tableMeta: (sessionId: Uuid, database: string, table: string) =>
+    invoke<DbTableMeta>("db_table_meta", { sessionId, database, table }),
+  search: (sessionId: Uuid, term: string, limit?: number) => invoke<DbSearchHit[]>("db_search", { sessionId, term, limit }),
   previewUpdate: (sessionId: Uuid, edit: DbRowEdit) => invoke<string>("db_preview_update", { sessionId, edit }),
   applyUpdate: (sessionId: Uuid, edit: DbRowEdit) => invoke<number>("db_apply_update", { sessionId, edit }),
   saveExport: (path: string, contents: string) => invoke<void>("db_save_export", { path, contents }),

@@ -406,3 +406,74 @@ async fn live_pg_connects_through_an_ssh_tunnel() {
     let err = mgr.open(dead, Some(via)).await.expect_err("must fail").to_string();
     assert!(!err.is_empty());
 }
+
+/// A connection without TLS, for a throwaway local server (`SSHVAULT_TEST_PG_PLAIN=1`).
+async fn engine_plain() -> Option<Engine> {
+    std::env::var("SSHVAULT_TEST_PG_PLAIN").ok()?;
+    Some(Engine::connect(&spec(TlsMode::Disable)?).await.expect("connect"))
+}
+
+#[tokio::test]
+#[ignore = "needs SSHVAULT_TEST_PG and SSHVAULT_TEST_PG_PLAIN"]
+async fn live_pg_table_meta_reads_indexes_constraints_and_ddl() {
+    let Some(e) = engine_plain().await else { return };
+    let m = e.table_meta("public", "items").await.unwrap();
+    assert!(m.supported);
+    assert_eq!(m.kind.as_deref(), Some("table"));
+    assert!(m.indexes.iter().any(|i| i.primary && i.columns == ["id"]));
+    let by_name = m.indexes.iter().find(|i| i.name == "items_name_idx").expect("the name index");
+    assert_eq!(by_name.columns, ["name", "price"]);
+    assert!(!by_name.unique);
+    assert_eq!(by_name.method.as_deref(), Some("btree"));
+    let fk = m.constraints.iter().find(|c| c.kind == meta::ConstraintKind::ForeignKey).expect("a foreign key");
+    let r = fk.references.as_ref().unwrap();
+    assert_eq!((r.schema.as_str(), r.table.as_str()), ("public", "customers"));
+    assert_eq!(fk.columns, ["customer_id"]);
+    assert_eq!(r.on_delete.as_deref(), Some("SET NULL"));
+    assert!(m.constraints.iter().any(|c| c.kind == meta::ConstraintKind::Check && c.definition.as_deref().is_some_and(|d| d.contains("price"))));
+    let ddl = m.ddl.unwrap();
+    assert!(ddl.reconstructed && ddl.text.starts_with("CREATE TABLE \"public\".\"items\""));
+    assert!(ddl.text.contains("CREATE INDEX items_name_idx"));
+    // The estimate is the server's, and the table was analysed.
+    assert!(m.approx_rows.unwrap() > 1000 && m.size_bytes.unwrap() > 0);
+
+    let c = e.table_meta("public", "customers").await.unwrap();
+    let back = c.referenced_by.iter().find(|r| r.table == "items").expect("items points at customers");
+    assert_eq!((back.columns.as_slice(), back.referenced_columns.as_slice()), (&["customer_id".to_string()][..], &["id".to_string()][..]));
+    assert!(c.column_notes.is_empty());
+
+    let v = e.table_meta("public", "v_items").await.unwrap();
+    assert_eq!(v.kind.as_deref(), Some("view"));
+    assert!(v.ddl.unwrap().text.starts_with("CREATE VIEW"));
+
+    let missing = e.table_meta("public", "nope").await;
+    assert!(matches!(missing, Err(DbError::Invalid(_))));
+}
+
+#[tokio::test]
+#[ignore = "needs SSHVAULT_TEST_PG and SSHVAULT_TEST_PG_PLAIN"]
+async fn live_pg_tree_has_routines_sequences_and_triggers() {
+    let Some(e) = engine_plain().await else { return };
+    let nodes = e.children(&["public".into()]).await.unwrap();
+    assert!(nodes.iter().any(|n| n.kind == NodeKind::Function && n.name == "add_one" && n.detail.as_deref() == Some("(i integer)")));
+    assert!(nodes.iter().any(|n| n.kind == NodeKind::Procedure && n.name == "noop"));
+    assert!(nodes.iter().any(|n| n.kind == NodeKind::Sequence && n.name == "myseq"));
+    let t = e.children(&["public".into(), "items".into()]).await.unwrap();
+    assert!(t.iter().any(|n| n.kind == NodeKind::Trigger && n.name == "items_trg"));
+}
+
+#[tokio::test]
+#[ignore = "needs SSHVAULT_TEST_PG and SSHVAULT_TEST_PG_PLAIN"]
+async fn live_pg_search_finds_objects_across_schemas_and_treats_wildcards_literally() {
+    let Some(e) = engine_plain().await else { return };
+    let hits = e.search("ITEM", 50).await.unwrap();
+    assert!(hits.iter().any(|h| h.name == "items" && h.kind == NodeKind::Table && h.parent == ["public"]));
+    assert!(hits.iter().any(|h| h.name == "v_items" && h.kind == NodeKind::View));
+    let pairs = e.search("pair", 50).await.unwrap();
+    assert!(pairs.iter().any(|h| h.parent == ["warehouse"] && h.name == "pairs"));
+    assert!(e.search("add_one", 50).await.unwrap().iter().any(|h| h.kind == NodeKind::Function));
+    // An underscore or a percent sign is a character, not a wildcard.
+    assert!(e.search("%", 50).await.unwrap().is_empty());
+    assert!(e.search("ite_s", 50).await.unwrap().is_empty());
+    assert_eq!(e.search("item", 2).await.unwrap().len(), 2);
+}

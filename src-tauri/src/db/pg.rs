@@ -30,6 +30,7 @@ use tokio_postgres::{CancelToken, Client, Config, NoTls, SimpleQueryMessage};
 use tokio_postgres_rustls::MakeRustlsConnect;
 use uuid::Uuid;
 
+use super::meta::{self, ConstraintKind, ConstraintMeta, Ddl, ForeignRef, IncomingRef, IndexMeta, SearchHit, TableMeta};
 use super::{
     join_with, safety, update_pieces, Column, ColumnInfo, ColumnKind, ConnectSpec, DbError, DbResult, NodeKind, QueryResult,
     RowEdit, TableInfo, TlsMode, TreeNode, CONNECT_TIMEOUT, MAX_CELL_BYTES,
@@ -378,7 +379,7 @@ impl PgConn {
                     )
                     .await
                     .map_err(server_err)?;
-                Ok(rows
+                let nodes = rows
                     .iter()
                     .map(|r| {
                         let (name, relkind, est): (String, String, i64) = (r.get(0), r.get(1), r.get(2));
@@ -392,7 +393,39 @@ impl PgConn {
                         };
                         TreeNode { name, kind, detail, expandable: true }
                     })
-                    .collect())
+                    .collect::<Vec<_>>();
+                let mut nodes = nodes;
+                // Routines and sequences come after the tables: the window groups them by kind.
+                let routines = c
+                    .query(
+                        "SELECT p.proname::text, p.prokind::text, pg_get_function_identity_arguments(p.oid) \
+                         FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace \
+                         WHERE n.nspname = $1 AND p.prokind IN ('f','p') \
+                           AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.objid = p.oid AND d.deptype = 'e') \
+                         ORDER BY p.proname, 3",
+                        &[schema],
+                    )
+                    .await
+                    .map_err(server_err)?;
+                nodes.extend(routines.iter().map(|r| {
+                    let (name, kind, args): (String, String, String) = (r.get(0), r.get(1), r.get(2));
+                    TreeNode {
+                        name,
+                        kind: if kind == "p" { NodeKind::Procedure } else { NodeKind::Function },
+                        detail: Some(format!("({args})")),
+                        expandable: false,
+                    }
+                }));
+                let seqs = c
+                    .query(
+                        "SELECT c.relname::text FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace \
+                         WHERE n.nspname = $1 AND c.relkind = 'S' ORDER BY c.relname",
+                        &[schema],
+                    )
+                    .await
+                    .map_err(server_err)?;
+                nodes.extend(seqs.iter().map(|r| TreeNode { name: r.get(0), kind: NodeKind::Sequence, detail: None, expandable: false }));
+                Ok(nodes)
             }
             [schema, table] => {
                 let info = self.table_info_with(c, schema, table).await?;
@@ -434,6 +467,21 @@ impl PgConn {
                         detail: Some(format!("{}({cols})", if unique { "unique " } else { "" })),
                         expandable: false,
                     }
+                }));
+                let trg = c
+                    .query(
+                        "SELECT t.tgname::text, pg_get_triggerdef(t.oid) FROM pg_trigger t \
+                         JOIN pg_class c ON c.oid = t.tgrelid JOIN pg_namespace n ON n.oid = c.relnamespace \
+                         WHERE n.nspname = $1 AND c.relname = $2 AND NOT t.tgisinternal ORDER BY t.tgname",
+                        &[schema, table],
+                    )
+                    .await
+                    .map_err(server_err)?;
+                nodes.extend(trg.iter().map(|r| {
+                    let (name, def): (String, String) = (r.get(0), r.get(1));
+                    // "CREATE TRIGGER x BEFORE INSERT ON t …": keep what says when it fires.
+                    let when = def.split(" ON ").next().and_then(|h| h.splitn(4, ' ').nth(3)).map(str::to_string);
+                    TreeNode { name, kind: NodeKind::Trigger, detail: when, expandable: false }
                 }));
                 Ok(nodes)
             }
@@ -488,6 +536,213 @@ impl PgConn {
         })
     }
 
+    pub async fn table_meta(&self, schema: &str, table: &str) -> DbResult<TableMeta> {
+        let c = self.acquire().await?;
+        let out = self.table_meta_with(&c, schema, table).await;
+        self.release(c);
+        out
+    }
+
+    async fn table_meta_with(&self, c: &Client, schema: &str, table: &str) -> DbResult<TableMeta> {
+        let Some(head) = c
+            .query_opt(
+                "SELECT c.relkind::text, obj_description(c.oid, 'pg_class'), c.reltuples::bigint, \
+                        CASE WHEN c.relkind IN ('r','p','m') THEN pg_total_relation_size(c.oid) END, c.oid::int8 \
+                 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = $1 AND c.relname = $2",
+                &[&schema, &table],
+            )
+            .await
+            .map_err(server_err)?
+        else {
+            return Err(DbError::Invalid(format!("{schema}.{table} was not found; it may have been dropped")));
+        };
+        let (relkind, comment, est, size, oid): (String, Option<String>, i64, Option<i64>, i64) =
+            (head.get(0), head.get(1), head.get(2), head.get(3), head.get(4));
+        let kind = match relkind.as_str() {
+            "v" => "view",
+            "m" => "materialized view",
+            "f" => "foreign table",
+            "p" => "partitioned table",
+            _ => "table",
+        };
+        let oid = oid as u32;
+
+        let indexes: Vec<IndexMeta> = c
+            .query(
+                "SELECT ic.relname::text, i.indisunique, i.indisprimary, am.amname::text, pg_get_indexdef(ic.oid), \
+                        (SELECT array_agg(a.attname::text ORDER BY k.ord) \
+                           FROM unnest(i.indkey::int2[]) WITH ORDINALITY AS k(attnum, ord) \
+                           JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = k.attnum WHERE k.attnum > 0), \
+                        pg_relation_size(ic.oid) \
+                 FROM pg_index i JOIN pg_class ic ON ic.oid = i.indexrelid JOIN pg_am am ON am.oid = ic.relam \
+                 WHERE i.indrelid = $1::oid ORDER BY i.indisprimary DESC, ic.relname",
+                &[&oid],
+            )
+            .await
+            .map_err(server_err)?
+            .iter()
+            .map(|r| IndexMeta {
+                name: r.get(0),
+                unique: r.get(1),
+                primary: r.get(2),
+                method: Some(r.get(3)),
+                definition: Some(r.get(4)),
+                columns: r.get::<_, Option<Vec<String>>>(5).unwrap_or_default(),
+                size_bytes: Some(r.get(6)),
+            })
+            .collect();
+
+        let constraints: Vec<ConstraintMeta> = c
+            .query(
+                "SELECT con.conname::text, con.contype::text, pg_get_constraintdef(con.oid), \
+                        (SELECT array_agg(a.attname::text ORDER BY u.ord) FROM unnest(con.conkey) WITH ORDINALITY AS u(attnum, ord) \
+                           JOIN pg_attribute a ON a.attrelid = con.conrelid AND a.attnum = u.attnum), \
+                        fn.nspname::text, fc.relname::text, \
+                        (SELECT array_agg(a.attname::text ORDER BY u.ord) FROM unnest(con.confkey) WITH ORDINALITY AS u(attnum, ord) \
+                           JOIN pg_attribute a ON a.attrelid = con.confrelid AND a.attnum = u.attnum), \
+                        con.confupdtype::text, con.confdeltype::text \
+                 FROM pg_constraint con \
+                 LEFT JOIN pg_class fc ON fc.oid = con.confrelid LEFT JOIN pg_namespace fn ON fn.oid = fc.relnamespace \
+                 WHERE con.conrelid = $1::oid AND con.contype IN ('p','f','u','c','x') \
+                 ORDER BY con.contype = 'c', con.contype, con.conname",
+                &[&oid],
+            )
+            .await
+            .map_err(server_err)?
+            .iter()
+            .map(|r| {
+                let ty: String = r.get(1);
+                let kind = match ty.as_str() {
+                    "p" => ConstraintKind::PrimaryKey,
+                    "f" => ConstraintKind::ForeignKey,
+                    "u" => ConstraintKind::Unique,
+                    "x" => ConstraintKind::Exclusion,
+                    _ => ConstraintKind::Check,
+                };
+                let references = (kind == ConstraintKind::ForeignKey).then(|| ForeignRef {
+                    schema: r.get::<_, Option<String>>(4).unwrap_or_default(),
+                    table: r.get::<_, Option<String>>(5).unwrap_or_default(),
+                    columns: r.get::<_, Option<Vec<String>>>(6).unwrap_or_default(),
+                    on_update: meta::pg_action(&r.get::<_, String>(7)),
+                    on_delete: meta::pg_action(&r.get::<_, String>(8)),
+                });
+                ConstraintMeta {
+                    name: r.get(0),
+                    kind,
+                    columns: r.get::<_, Option<Vec<String>>>(3).unwrap_or_default(),
+                    definition: Some(r.get(2)),
+                    references,
+                }
+            })
+            .collect();
+
+        let referenced_by: Vec<IncomingRef> = c
+            .query(
+                "SELECT con.conname::text, ns.nspname::text, src.relname::text, \
+                        (SELECT array_agg(a.attname::text ORDER BY u.ord) FROM unnest(con.conkey) WITH ORDINALITY AS u(attnum, ord) \
+                           JOIN pg_attribute a ON a.attrelid = con.conrelid AND a.attnum = u.attnum), \
+                        (SELECT array_agg(a.attname::text ORDER BY u.ord) FROM unnest(con.confkey) WITH ORDINALITY AS u(attnum, ord) \
+                           JOIN pg_attribute a ON a.attrelid = con.confrelid AND a.attnum = u.attnum), \
+                        con.confupdtype::text, con.confdeltype::text \
+                 FROM pg_constraint con JOIN pg_class src ON src.oid = con.conrelid JOIN pg_namespace ns ON ns.oid = src.relnamespace \
+                 WHERE con.confrelid = $1::oid AND con.contype = 'f' ORDER BY ns.nspname, src.relname, con.conname",
+                &[&oid],
+            )
+            .await
+            .map_err(server_err)?
+            .iter()
+            .map(|r| IncomingRef {
+                name: r.get(0),
+                schema: r.get(1),
+                table: r.get(2),
+                columns: r.get::<_, Option<Vec<String>>>(3).unwrap_or_default(),
+                referenced_columns: r.get::<_, Option<Vec<String>>>(4).unwrap_or_default(),
+                on_update: meta::pg_action(&r.get::<_, String>(5)),
+                on_delete: meta::pg_action(&r.get::<_, String>(6)),
+            })
+            .collect();
+
+        let column_notes: Vec<(String, String)> = c
+            .query(
+                "SELECT a.attname::text, CASE WHEN a.attidentity = 'a' THEN 'identity (always)' \
+                        WHEN a.attidentity = 'd' THEN 'identity (by default)' WHEN a.attgenerated = 's' THEN 'generated' END \
+                 FROM pg_attribute a WHERE a.attrelid = $1::oid AND a.attnum > 0 AND NOT a.attisdropped \
+                   AND (a.attidentity <> '' OR a.attgenerated <> '') ORDER BY a.attnum",
+                &[&oid],
+            )
+            .await
+            .map_err(server_err)?
+            .iter()
+            .filter_map(|r| r.get::<_, Option<String>>(1).map(|n| (r.get::<_, String>(0), n)))
+            .collect();
+
+        let ddl = match relkind.as_str() {
+            "v" | "m" => {
+                let def: Option<String> =
+                    c.query_one("SELECT pg_get_viewdef($1::oid, true)", &[&oid]).await.map_err(server_err)?.get(0);
+                def.map(|d| Ddl {
+                    text: format!("CREATE {} {}.{} AS\n{}", if relkind == "m" { "MATERIALIZED VIEW" } else { "VIEW" }, meta_ident(schema), meta_ident(table), d.trim_end()),
+                    reconstructed: true,
+                })
+            }
+            _ => {
+                let info = self.table_info_with(c, schema, table).await?;
+                Some(Ddl { text: meta::pg_table_ddl(schema, table, &info, &column_notes, &constraints, &indexes), reconstructed: true })
+            }
+        };
+
+        Ok(TableMeta {
+            supported: true,
+            kind: Some(kind.into()),
+            comment,
+            // reltuples is -1 until the table has been analysed.
+            approx_rows: (est >= 0).then_some(est),
+            size_bytes: size,
+            indexes,
+            constraints,
+            referenced_by,
+            column_notes,
+            ddl,
+        })
+    }
+
+    pub async fn search(&self, term: &str, limit: usize) -> DbResult<Vec<SearchHit>> {
+        let pattern = format!("%{}%", meta::like_escape(term));
+        let c = self.acquire().await?;
+        let rows = c
+            .query(
+                "SELECT * FROM ((SELECT n.nspname::text, c.relname::text, c.relkind::text, NULL::text FROM pg_class c \
+                    JOIN pg_namespace n ON n.oid = c.relnamespace \
+                  WHERE c.relkind IN ('r','p','v','m','f','S') AND c.relname ILIKE $1 AND n.nspname !~ '^pg_(temp|toast)') \
+                 UNION ALL \
+                 (SELECT n.nspname::text, p.proname::text, p.prokind::text, '(' || pg_get_function_identity_arguments(p.oid) || ')' FROM pg_proc p \
+                    JOIN pg_namespace n ON n.oid = p.pronamespace \
+                  WHERE p.prokind IN ('f','p') AND p.proname ILIKE $1 AND n.nspname !~ '^pg_(temp|toast)' \
+                    AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.objid = p.oid AND d.deptype = 'e')) \
+                 ) AS s(schema_name, object_name, code, detail) \
+                 ORDER BY schema_name IN ('information_schema', 'pg_catalog'), schema_name, object_name LIMIT $2",
+                &[&pattern, &(limit as i64)],
+            )
+            .await;
+        self.release(c);
+        Ok(rows
+            .map_err(server_err)?
+            .iter()
+            .map(|r| {
+                let (schema, name, code, detail): (String, String, String, Option<String>) = (r.get(0), r.get(1), r.get(2), r.get(3));
+                let (kind, detail) = match code.as_str() {
+                    "v" => (NodeKind::View, Some("view".to_string())),
+                    "m" => (NodeKind::View, Some("materialized view".to_string())),
+                    "S" => (NodeKind::Sequence, None),
+                    "f" if detail.is_some() => (NodeKind::Function, detail),
+                    "p" if detail.is_some() => (NodeKind::Procedure, detail),
+                    _ => (NodeKind::Table, None),
+                };
+                SearchHit { parent: vec![schema], name, kind, detail }
+            })
+            .collect())
+    }
+
     pub async fn apply_update(&self, edit: &RowEdit) -> DbResult<u64> {
         check_text(edit)?;
         let (pieces, cells) = update_pieces(edit, quote_ident, "");
@@ -534,6 +789,10 @@ impl ToSql for TextParam<'_> {
     }
 
     to_sql_checked!();
+}
+
+fn meta_ident(name: &str) -> String {
+    quote_ident(name)
 }
 
 // -- text helpers ---------------------------------------------------------------

@@ -269,6 +269,8 @@ pub fn run() {
             commands::databases::db_table_info,
             commands::databases::db_preview_update,
             commands::databases::db_apply_update,
+            commands::databases::db_table_meta,
+            commands::databases::db_search,
             commands::databases::db_save_export,
             commands::containers::containers_open,
             commands::containers::containers_close,

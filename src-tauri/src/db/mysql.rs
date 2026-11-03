@@ -10,6 +10,7 @@ use mysql_async::{Opts, OptsBuilder, Pool, PoolConstraints, PoolOpts, SslOpts, V
 use serde_json::{json, Value};
 use uuid::Uuid;
 
+use super::meta::{self, ConstraintKind, ConstraintMeta, Ddl, ForeignRef, IncomingRef, IndexMeta, SearchHit, TableMeta};
 use super::{
     join_with, update_pieces, Column, ColumnInfo, ColumnKind, ConnectSpec, DbError, DbResult, NodeKind, QueryResult, RowEdit,
     TableInfo, TlsMode, TreeNode, CONNECT_TIMEOUT, MAX_CELL_BYTES,
@@ -203,7 +204,7 @@ impl MysqlConn {
                     )
                     .await
                     .map_err(server_err)?;
-                Ok(rows
+                let mut nodes: Vec<TreeNode> = rows
                     .into_iter()
                     .map(|(name, ty, rows)| {
                         let view = ty.eq_ignore_ascii_case("VIEW");
@@ -214,7 +215,25 @@ impl MysqlConn {
                             expandable: true,
                         }
                     })
-                    .collect())
+                    .collect();
+                // Routines and events come after the tables: the window groups them by kind.
+                let routines: Vec<(String, String)> = c
+                    .exec("SELECT ROUTINE_NAME, ROUTINE_TYPE FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA = ? ORDER BY ROUTINE_NAME", (db,))
+                    .await
+                    .map_err(server_err)?;
+                nodes.extend(routines.into_iter().map(|(name, ty)| TreeNode {
+                    name,
+                    kind: if ty.eq_ignore_ascii_case("PROCEDURE") { NodeKind::Procedure } else { NodeKind::Function },
+                    detail: None,
+                    expandable: false,
+                }));
+                // Events don't exist on every server (or are not readable by every account): leave them out then.
+                let events: Vec<String> = c
+                    .exec("SELECT EVENT_NAME FROM information_schema.EVENTS WHERE EVENT_SCHEMA = ? ORDER BY EVENT_NAME", (db,))
+                    .await
+                    .unwrap_or_default();
+                nodes.extend(events.into_iter().map(|name| TreeNode { name, kind: NodeKind::Event, detail: None, expandable: false }));
+                Ok(nodes)
             }
             [db, table] => {
                 let info = self.table_info_with(&mut c, db, table).await?;
@@ -246,6 +265,20 @@ impl MysqlConn {
                     name,
                     kind: NodeKind::Index,
                     detail: Some(format!("{}({cols})", if non_unique == 0 { "unique " } else { "" })),
+                    expandable: false,
+                }));
+                let trg: Vec<(String, String, String)> = c
+                    .exec(
+                        "SELECT TRIGGER_NAME, ACTION_TIMING, EVENT_MANIPULATION FROM information_schema.TRIGGERS \
+                         WHERE EVENT_OBJECT_SCHEMA = ? AND EVENT_OBJECT_TABLE = ? ORDER BY TRIGGER_NAME",
+                        (db, table),
+                    )
+                    .await
+                    .map_err(server_err)?;
+                nodes.extend(trg.into_iter().map(|(name, timing, event)| TreeNode {
+                    name,
+                    kind: NodeKind::Trigger,
+                    detail: Some(format!("{timing} {event}")),
                     expandable: false,
                 }));
                 Ok(nodes)
@@ -289,6 +322,188 @@ impl MysqlConn {
                 .collect(),
             primary_key: pk,
         })
+    }
+
+    pub async fn table_meta(&self, db: &str, table: &str) -> DbResult<TableMeta> {
+        let mut c = self.pool.get_conn().await.map_err(server_err)?;
+        let head: Option<(String, String, Option<u64>, Option<u64>, Option<u64>)> = c
+            .exec_first(
+                "SELECT TABLE_TYPE, TABLE_COMMENT, TABLE_ROWS, DATA_LENGTH, INDEX_LENGTH FROM information_schema.TABLES \
+                 WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?",
+                (db, table),
+            )
+            .await
+            .map_err(server_err)?;
+        let Some((ty, comment, rows, data, index)) = head else {
+            return Err(DbError::Invalid(format!("{db}.{table} was not found; it may have been dropped")));
+        };
+        let view = ty.eq_ignore_ascii_case("VIEW");
+
+        let indexes: Vec<IndexMeta> = c
+            .exec::<(String, i64, String, String), _, _>(
+                "SELECT INDEX_NAME, MIN(NON_UNIQUE), GROUP_CONCAT(COLUMN_NAME ORDER BY SEQ_IN_INDEX SEPARATOR ','), MIN(INDEX_TYPE) \
+                 FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? GROUP BY INDEX_NAME ORDER BY INDEX_NAME = 'PRIMARY' DESC, INDEX_NAME",
+                (db, table),
+            )
+            .await
+            .map_err(server_err)?
+            .into_iter()
+            .map(|(name, non_unique, cols, method)| IndexMeta {
+                primary: name == "PRIMARY",
+                unique: non_unique == 0,
+                columns: cols.split(',').map(str::to_string).collect(),
+                method: Some(method.to_lowercase()),
+                definition: None,
+                size_bytes: None,
+                name,
+            })
+            .collect();
+
+        let kinds: Vec<(String, String)> = c
+            .exec(
+                "SELECT CONSTRAINT_NAME, CONSTRAINT_TYPE FROM information_schema.TABLE_CONSTRAINTS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?",
+                (db, table),
+            )
+            .await
+            .map_err(server_err)?;
+        let usage: Vec<(String, String, Option<String>, Option<String>, Option<String>)> = c
+            .exec(
+                "SELECT CONSTRAINT_NAME, COLUMN_NAME, REFERENCED_TABLE_SCHEMA, REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME \
+                 FROM information_schema.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? ORDER BY CONSTRAINT_NAME, ORDINAL_POSITION",
+                (db, table),
+            )
+            .await
+            .map_err(server_err)?;
+        let rules: Vec<(String, String, String)> = c
+            .exec(
+                "SELECT CONSTRAINT_NAME, UPDATE_RULE, DELETE_RULE FROM information_schema.REFERENTIAL_CONSTRAINTS WHERE CONSTRAINT_SCHEMA = ? AND TABLE_NAME = ?",
+                (db, table),
+            )
+            .await
+            .map_err(server_err)?;
+        // CHECK constraints are only in newer servers; an older one just has none to show.
+        let checks: Vec<(String, String)> = c
+            .exec(
+                "SELECT cc.CONSTRAINT_NAME, cc.CHECK_CLAUSE FROM information_schema.CHECK_CONSTRAINTS cc \
+                 JOIN information_schema.TABLE_CONSTRAINTS tc ON tc.CONSTRAINT_SCHEMA = cc.CONSTRAINT_SCHEMA AND tc.CONSTRAINT_NAME = cc.CONSTRAINT_NAME \
+                 WHERE tc.TABLE_SCHEMA = ? AND tc.TABLE_NAME = ?",
+                (db, table),
+            )
+            .await
+            .unwrap_or_default();
+        let action = |a: &str| (!a.eq_ignore_ascii_case("NO ACTION") && !a.eq_ignore_ascii_case("RESTRICT")).then(|| a.to_uppercase());
+        let constraints: Vec<ConstraintMeta> = kinds
+            .iter()
+            .map(|(name, ty)| {
+                let rows: Vec<_> = usage.iter().filter(|u| &u.0 == name).collect();
+                let columns: Vec<String> = rows.iter().map(|u| u.1.clone()).collect();
+                let kind = match ty.as_str() {
+                    "PRIMARY KEY" => ConstraintKind::PrimaryKey,
+                    "FOREIGN KEY" => ConstraintKind::ForeignKey,
+                    "UNIQUE" => ConstraintKind::Unique,
+                    _ => ConstraintKind::Check,
+                };
+                let references = (kind == ConstraintKind::ForeignKey).then(|| {
+                    let rule = rules.iter().find(|r| &r.0 == name);
+                    ForeignRef {
+                        schema: rows.first().and_then(|u| u.2.clone()).unwrap_or_default(),
+                        table: rows.first().and_then(|u| u.3.clone()).unwrap_or_default(),
+                        columns: rows.iter().filter_map(|u| u.4.clone()).collect(),
+                        on_update: rule.and_then(|r| action(&r.1)),
+                        on_delete: rule.and_then(|r| action(&r.2)),
+                    }
+                });
+                let definition = checks.iter().find(|(n, _)| n == name).map(|(_, clause)| format!("CHECK {clause}"));
+                ConstraintMeta { name: name.clone(), kind, columns, definition, references }
+            })
+            .collect();
+
+        let incoming: Vec<(String, String, String, String, String, String)> = c
+            .exec(
+                "SELECT kcu.CONSTRAINT_NAME, kcu.TABLE_SCHEMA, kcu.TABLE_NAME, kcu.COLUMN_NAME, kcu.REFERENCED_COLUMN_NAME, kcu.CONSTRAINT_NAME \
+                 FROM information_schema.KEY_COLUMN_USAGE kcu \
+                 WHERE kcu.REFERENCED_TABLE_SCHEMA = ? AND kcu.REFERENCED_TABLE_NAME = ? ORDER BY kcu.TABLE_SCHEMA, kcu.TABLE_NAME, kcu.CONSTRAINT_NAME, kcu.ORDINAL_POSITION",
+                (db, table),
+            )
+            .await
+            .map_err(server_err)?;
+        let mut referenced_by: Vec<IncomingRef> = Vec::new();
+        for (name, schema, tbl, col, rcol, _) in incoming {
+            match referenced_by.iter_mut().find(|r| r.name == name && r.schema == schema && r.table == tbl) {
+                Some(r) => {
+                    r.columns.push(col);
+                    r.referenced_columns.push(rcol);
+                }
+                None => referenced_by.push(IncomingRef { name, schema, table: tbl, columns: vec![col], referenced_columns: vec![rcol], on_update: None, on_delete: None }),
+            }
+        }
+
+        let column_notes: Vec<(String, String)> = c
+            .exec::<(String, String), _, _>(
+                "SELECT COLUMN_NAME, TRIM(EXTRA) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND TRIM(EXTRA) <> '' ORDER BY ORDINAL_POSITION",
+                (db, table),
+            )
+            .await
+            .map_err(server_err)?;
+
+        // The server writes its own definition; it is shown as it came.
+        let create: Option<(String, String)> = c
+            .query_first(format!("SHOW CREATE {} {}.{}", if view { "VIEW" } else { "TABLE" }, quote_ident(db), quote_ident(table)))
+            .await
+            .map_err(server_err)
+            .ok()
+            .flatten();
+        let ddl = create.map(|(_, text)| Ddl { text, reconstructed: false });
+
+        Ok(TableMeta {
+            supported: true,
+            kind: Some(if view { "view" } else { "table" }.into()),
+            comment: Some(comment).filter(|c| !c.is_empty()),
+            approx_rows: if view { None } else { rows.map(|n| n as i64) },
+            size_bytes: if view { None } else { Some((data.unwrap_or(0) + index.unwrap_or(0)) as i64) },
+            indexes,
+            constraints,
+            referenced_by,
+            column_notes,
+            ddl,
+        })
+    }
+
+    pub async fn search(&self, term: &str, limit: usize) -> DbResult<Vec<SearchHit>> {
+        let pattern = format!("%{}%", meta::like_escape(term));
+        let mut c = self.pool.get_conn().await.map_err(server_err)?;
+        let tables: Vec<(String, String, String)> = c
+            .exec(
+                "SELECT TABLE_SCHEMA, TABLE_NAME, TABLE_TYPE FROM information_schema.TABLES WHERE TABLE_NAME LIKE ? \
+                 ORDER BY TABLE_SCHEMA IN ('information_schema', 'mysql', 'performance_schema', 'sys'), TABLE_SCHEMA, TABLE_NAME LIMIT ?",
+                (&pattern, limit as u64),
+            )
+            .await
+            .map_err(server_err)?;
+        let mut hits: Vec<SearchHit> = tables
+            .into_iter()
+            .map(|(schema, name, ty)| {
+                let view = ty.eq_ignore_ascii_case("VIEW");
+                SearchHit { parent: vec![schema], name, kind: if view { NodeKind::View } else { NodeKind::Table }, detail: view.then(|| "view".to_string()) }
+            })
+            .collect();
+        if hits.len() < limit {
+            let routines: Vec<(String, String, String)> = c
+                .exec(
+                    "SELECT ROUTINE_SCHEMA, ROUTINE_NAME, ROUTINE_TYPE FROM information_schema.ROUTINES WHERE ROUTINE_NAME LIKE ? \
+                     ORDER BY ROUTINE_SCHEMA, ROUTINE_NAME LIMIT ?",
+                    (&pattern, (limit - hits.len()) as u64),
+                )
+                .await
+                .map_err(server_err)?;
+            hits.extend(routines.into_iter().map(|(schema, name, ty)| SearchHit {
+                parent: vec![schema],
+                name,
+                kind: if ty.eq_ignore_ascii_case("PROCEDURE") { NodeKind::Procedure } else { NodeKind::Function },
+                detail: None,
+            }));
+        }
+        Ok(hits)
     }
 
     pub async fn apply_update(&self, edit: &RowEdit) -> DbResult<u64> {

@@ -208,3 +208,33 @@ pub async fn db_apply_update(
 pub fn db_save_export(path: String, contents: String) -> ApiResult<()> {
     std::fs::write(&path, contents).map_err(|e| ApiError::new("io", format!("could not write {path}: {e}")))
 }
+
+/// Indexes, constraints, relationships and a definition of one table. `supported` is false for an engine that
+/// keeps none of them.
+#[tauri::command]
+pub async fn db_table_meta(
+    state: State<'_, AppState>,
+    session_id: Uuid,
+    database: String,
+    table: String,
+) -> ApiResult<crate::db::meta::TableMeta> {
+    let session = state.dbs.get(session_id)?;
+    Ok(session.engine.table_meta(&database, &table).await?)
+}
+
+/// Objects whose name contains `term`, across the whole connection (so a table can be found before its schema is
+/// opened). Empty for an engine without a catalog to search.
+#[tauri::command]
+pub async fn db_search(
+    state: State<'_, AppState>,
+    session_id: Uuid,
+    term: String,
+    limit: Option<usize>,
+) -> ApiResult<Vec<crate::db::meta::SearchHit>> {
+    let term = term.trim();
+    if term.is_empty() {
+        return Ok(Vec::new());
+    }
+    let session = state.dbs.get(session_id)?;
+    Ok(session.engine.search(term, limit.unwrap_or(100)).await?)
+}

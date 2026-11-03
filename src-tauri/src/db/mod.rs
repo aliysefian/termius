@@ -9,6 +9,7 @@
 
 pub mod elastic;
 pub mod http;
+pub mod meta;
 pub mod mongo;
 pub mod mssql;
 pub mod mysql;
@@ -166,6 +167,11 @@ pub enum NodeKind {
     View,
     Column,
     Index,
+    Function,
+    Procedure,
+    Sequence,
+    Trigger,
+    Event,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -284,6 +290,14 @@ pub trait Backend: Send + Sync {
     async fn table_info(&self, database: &str, table: &str) -> DbResult<TableInfo>;
     fn preview_update(&self, edit: &RowEdit) -> DbResult<String>;
     async fn apply_update(&self, edit: &RowEdit) -> DbResult<u64>;
+    /// Indexes, constraints and a definition, for engines that keep them in a catalog. The default has none.
+    async fn table_meta(&self, _database: &str, _table: &str) -> DbResult<meta::TableMeta> {
+        Ok(meta::TableMeta::default())
+    }
+    /// Objects whose name contains `term`, across the whole connection. The default finds none.
+    async fn search(&self, _term: &str, _limit: usize) -> DbResult<Vec<meta::SearchHit>> {
+        Ok(Vec::new())
+    }
     async fn close(&self);
     /// Whether what is typed is SQL (so the SQL safety checks apply). Other engines say why a command is
     /// destructive themselves.
@@ -360,6 +374,25 @@ impl Engine {
             Engine::Mysql(c) => c.table_info(database, table).await,
             Engine::Postgres(c) => c.table_info(database, table).await,
             Engine::Other(c) => c.table_info(database, table).await,
+        }
+    }
+
+    /// Indexes, constraints, relationships and a definition. `supported` is false for an engine without them.
+    pub async fn table_meta(&self, database: &str, table: &str) -> DbResult<meta::TableMeta> {
+        match self {
+            Engine::Mysql(c) => c.table_meta(database, table).await,
+            Engine::Postgres(c) => c.table_meta(database, table).await,
+            Engine::Other(c) => c.table_meta(database, table).await,
+        }
+    }
+
+    /// Objects whose name contains `term` (case-insensitive), at most `limit`.
+    pub async fn search(&self, term: &str, limit: usize) -> DbResult<Vec<meta::SearchHit>> {
+        let limit = limit.clamp(1, 500);
+        match self {
+            Engine::Mysql(c) => c.search(term, limit).await,
+            Engine::Postgres(c) => c.search(term, limit).await,
+            Engine::Other(c) => c.search(term, limit).await,
         }
     }
 
