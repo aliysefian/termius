@@ -3,7 +3,7 @@
   import type { IntrusionRadar } from "$lib/security/useIntrusionRadar.svelte";
   import { isIP } from "$lib/security/net";
 
-  let { radar }: { radar: IntrusionRadar } = $props();
+  let { radar, canChange = true }: { radar: IntrusionRadar; canChange?: boolean } = $props();
 
   let manual = $state("");
   const f2b = $derived(radar.fail2ban);
@@ -47,7 +47,7 @@
             <td>{s.source || "local"}{#if radar.isMine(s)}<span class="ml-1.5 rounded-sm bg-accent/10 px-1 font-sans text-[10px] text-accent">you</span>{/if}</td>
             <td>{s.since}</td><td class="max-w-72 truncate" title={s.command}>{s.command || "—"}</td>
             <td class="text-right">
-              {#if s.tty.startsWith("pts/") && !radar.isMine(s)}
+              {#if s.tty.startsWith("pts/") && !radar.isMine(s) && canChange}
                 <button class="icon-btn h-6 w-6 opacity-0 transition-opacity hover:text-danger focus:opacity-100 group-hover:opacity-100" title="Terminate session (kill -9)" aria-label="Terminate session {s.tty}" onclick={() => void radar.terminate(s)}><Skull size={13} /></button>
               {/if}
             </td>
@@ -85,14 +85,14 @@
         <span class="font-medium text-fg-muted">Banned addresses</span>
         <div class="flex-1"></div>
         <input class="input w-44 py-1 font-mono tabular-nums text-xs" placeholder="Ban IP manually" bind:value={manual} onkeydown={(e) => e.key === "Enter" && void ban()} aria-label="Address to ban" />
-        <button class="btn-secondary px-2 py-1 text-xs" disabled={!isIP(manual.trim())} onclick={ban}>Ban</button>
+        <button class="btn-secondary px-2 py-1 text-xs" disabled={!canChange || !isIP(manual.trim())} title={canChange ? "" : "Read-only. Turn on Allow changes to ban an address."} onclick={ban}>Ban</button>
       </div>
       <table class="w-full text-left font-mono text-xs tabular-nums">
         <tbody class="divide-y divide-line/80">
           {#each radar.banned as b (b.jail + b.ip)}
             <tr class="transition-colors hover:bg-panel-hover/50 [&>td]:px-3 [&>td]:py-1.5">
               <td>{b.ip}</td><td class="text-fg-muted">{b.jail}</td>
-              <td class="text-right"><button class="btn-ghost px-2 py-0.5 text-xs" onclick={() => void radar.unban(b.ip, b.jail)}>Unban IP</button></td>
+              <td class="text-right"><button class="btn-ghost px-2 py-0.5 text-xs" disabled={!canChange} title={canChange ? "" : "Read-only. Turn on Allow changes."} onclick={() => void radar.unban(b.ip, b.jail)}>Unban IP</button></td>
             </tr>
           {:else}
             <tr><td class="px-3 py-4 text-center font-sans text-fg-muted">No one is banned.</td></tr>
@@ -112,7 +112,7 @@
           <tr class="group transition-colors hover:bg-panel-hover/50 [&>td]:px-3 [&>td]:py-1.5">
             <td>{a.ip}</td><td class="font-sans text-fg-muted">{a.country || "—"}</td><td class="text-right">{a.attempts}</td>
             <td class="max-w-56 truncate">{a.users.join(", ") || "—"}</td><td>{when(a.lastSeen)}</td>
-            <td class="text-right"><button class="btn-ghost px-2 py-0.5 text-xs text-danger" onclick={() => void radar.block(a.ip)}><Ban size={12} /> Block IP</button></td>
+            <td class="text-right"><button class="btn-ghost px-2 py-0.5 text-xs text-danger" disabled={!canChange} title={canChange ? "" : "Read-only. Turn on Allow changes to block an address."} onclick={() => void radar.block(a.ip)}><Ban size={12} /> Block IP</button></td>
           </tr>
         {:else}
           <tr><td class="px-3 py-4 text-center font-sans text-fg-muted" colspan="6">{radar.loaded ? "No failed logins in the log." : "Not loaded yet."}</td></tr>

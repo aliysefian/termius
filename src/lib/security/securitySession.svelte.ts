@@ -41,7 +41,8 @@ export class SecuritySession {
   #answer: ((p: string | null) => void) | null = null;
 
   get connected() {
-    return this.#id !== null && this.me !== null;
+    // `me` first: it is the reactive part, so a view that asked before connecting is told when it arrives.
+    return this.me !== null && this.#id !== null;
   }
 
   get host() {
@@ -89,6 +90,13 @@ export class SecuritySession {
       this.#answer = resolve;
       this.passwordPrompt = { reason };
     });
+
+  /** Run a script as the ordinary user: never sudo, never a password prompt. For checks that only read. */
+  async read(script: string, timeoutSecs = 20) {
+    const id = this.#id;
+    if (!id) throw new Error("Not connected.");
+    return api.monitor.exec(id, script, timeoutSecs);
+  }
 
   /** Run a script, as root when it takes root. `always` goes straight to sudo (a firewall's rules need it). */
   async run(script: string, opts: { mode?: "auto" | "always"; timeoutSecs?: number } = {}): Promise<SudoResult> {

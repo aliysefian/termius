@@ -3,7 +3,7 @@
 // computer. Nothing leaves this computer: alerts are a toast, an operating-system notification, and a list.
 import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
 import * as api from "$lib/api";
-import { AlertEngine, acknowledge, open, revive, type Alert, type AlertRules } from "$lib/ops/alerts";
+import { AlertEngine, acknowledge, addAlert, open, revive, type Alert, type AlertRules } from "$lib/ops/alerts";
 import { Notifier } from "$lib/ops/notify";
 import { settings } from "$lib/stores/settings.svelte";
 import { hostMetrics } from "$lib/stores/hostmetrics.svelte";
@@ -107,7 +107,7 @@ class AlertsStore {
         // "Behind a jump host" was not probed: it says nothing either way.
         if (r.state === "via_jump") continue;
         const name = vaultStore.hostById.get(host_id)?.data?.label ?? "A host";
-        this.#announce(this.engine.health(host_id, name, r.state === "up", at));
+        this.announce(this.engine.health(host_id, name, r.state === "up", at));
       }
     } catch {
       // The check itself failed (the vault was locked, say): not the hosts' fault, so no alert.
@@ -119,12 +119,16 @@ class AlertsStore {
   #metrics(id: Uuid, m: { cpuPct: number | null; memPct: number | null; diskPct: number | null; failedUnits?: string[] | null }) {
     if (!settings.prefs.alerts) return;
     const name = vaultStore.hostById.get(id)?.data?.label ?? "A host";
-    this.#announce(this.engine.metrics(id, name, m, Date.now()));
+    this.announce(this.engine.metrics(id, name, m, Date.now()));
   }
 
-  #announce(alerts: Alert[]) {
+  /** Put alerts in the list and send them through the notifiers (also used for what a followed log shows). */
+  announce(alerts: Alert[]) {
     for (const a of alerts) {
-      this.log = [a, ...this.log].slice(0, KEEP_ALERTS);
+      const { list, merged } = addAlert(this.log, a, KEEP_ALERTS);
+      this.log = list;
+      // The same problem seen again is recorded on its entry, not announced again.
+      if (merged) continue;
       this.unread++;
       void this.notifier.send(a, settings.prefs.alertNotifyFrom);
     }

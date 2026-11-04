@@ -1,9 +1,10 @@
 <script lang="ts">
   import { onDestroy } from "svelte";
-  import { Flame, KeyRound, Loader2, Radar, RefreshCw } from "lucide-svelte";
+  import { Flame, KeyRound, LayoutDashboard, Loader2, Lock, LockOpen, Radar, RefreshCw } from "lucide-svelte";
   import FirewallPanel from "./FirewallPanel.svelte";
   import IntrusionPanel from "./IntrusionPanel.svelte";
   import AuthorizedKeysPanel from "./AuthorizedKeysPanel.svelte";
+  import SecurityOverview from "./SecurityOverview.svelte";
   import { SecuritySession } from "$lib/security/securitySession.svelte";
   import { FirewallManager } from "$lib/security/useFirewallManager.svelte";
   import { IntrusionRadar } from "$lib/security/useIntrusionRadar.svelte";
@@ -17,12 +18,15 @@
   const radar = new IntrusionRadar(session, firewall);
   const keys = new AuthorizedKeysManager(session);
 
-  type Tab = "firewall" | "intrusion" | "keys";
-  let tab = $state<Tab>("firewall");
+  type Tab = "overview" | "firewall" | "intrusion" | "keys";
+  let tab = $state<Tab>("overview");
+  /** Read-only until the person turns changes on, for this visit. */
+  let canChange = $state(false);
   let hostId = $state<Uuid | "">("");
   let sudoPassword = $state("");
 
   const TABS: { id: Tab; label: string; icon: typeof Flame }[] = [
+    { id: "overview", label: "Overview", icon: LayoutDashboard },
     { id: "firewall", label: "Firewall", icon: Flame },
     { id: "intrusion", label: "Intrusion radar", icon: Radar },
     { id: "keys", label: "SSH keys", icon: KeyRound },
@@ -39,6 +43,7 @@
   }
 
   async function connect(id: Uuid) {
+    canChange = false;
     firewall.loaded = radar.loaded = keys.loaded = false;
     firewall.state = { ...firewall.state, rules: [], active: false, backend: "none" };
     radar.attackers = radar.current = radar.recent = [];
@@ -72,6 +77,11 @@
         {session.me.user}{session.me.uid === 0 ? " (root)" : ""} · you are {session.me.clientIp ?? "unknown"} · sshd :{session.me.sshPort}
       </div>
     {/if}
+    {#if session.connected}
+      <button class="inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs {canChange ? 'border-warning/60 bg-warning/10 text-warning' : 'border-success/40 bg-success/10 text-success'}" aria-pressed={canChange} title={canChange ? "Changes are allowed. Each one still asks before it runs." : "Nothing can be changed. Turn on to allow firewall, ban and key changes."} onclick={() => (canChange = !canChange)} data-testid="allow-changes">
+        {#if canChange}<LockOpen size={13} /> Changes allowed{:else}<Lock size={13} /> Read-only{/if}
+      </button>
+    {/if}
     {#if session.sudoKnown}
       <button class="btn-ghost px-2 py-1 text-xs" onclick={() => session.forgetSudo()} title="The sudo password is kept in memory only, until the app closes">Forget sudo password</button>
     {/if}
@@ -99,9 +109,10 @@
         </button>
       {/each}
     </div>
-    {#if tab === "firewall"}<FirewallPanel fw={firewall} {session} />{/if}
-    {#if tab === "intrusion"}<IntrusionPanel {radar} />{/if}
-    {#if tab === "keys"}<AuthorizedKeysPanel mgr={keys} />{/if}
+    {#if tab === "overview"}<SecurityOverview {session} />{/if}
+    {#if tab === "firewall"}<FirewallPanel fw={firewall} {session} {canChange} />{/if}
+    {#if tab === "intrusion"}<IntrusionPanel {radar} {canChange} />{/if}
+    {#if tab === "keys"}<AuthorizedKeysPanel mgr={keys} {canChange} />{/if}
   {:else if !session.connecting && !session.error}
     <p class="rounded-xl border border-dashed border-line px-6 py-10 text-center text-sm text-fg-muted">Choose a host to see its firewall, who is logging in, and which keys can.</p>
   {/if}

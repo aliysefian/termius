@@ -5,7 +5,7 @@
   import type { FirewallManager } from "$lib/security/useFirewallManager.svelte";
   import type { SecuritySession } from "$lib/security/securitySession.svelte";
 
-  let { fw, session }: { fw: FirewallManager; session: SecuritySession } = $props();
+  let { fw, session, canChange = true }: { fw: FirewallManager; session: SecuritySession; canChange?: boolean } = $props();
 
   const BACKEND = { ufw: "UFW", firewalld: "firewalld", nftables: "nftables", iptables: "iptables", none: "Firewall" } as const;
 
@@ -74,7 +74,7 @@
     {/if}
     <div class="flex-1"></div>
     {#if fw.loaded && !fw.state.active && fw.state.backend === "ufw"}
-      <button class="btn-secondary px-2 py-1 text-xs" disabled={!!fw.busy} onclick={() => void fw.enable()}>Enable ufw safely</button>
+      <button class="btn-secondary px-2 py-1 text-xs" disabled={!!fw.busy || !canChange} title={canChange ? "" : "Read-only. Turn on Allow changes to edit the firewall."} onclick={() => void fw.enable()}>Enable ufw safely</button>
     {/if}
     <button class="btn-secondary px-2 py-1 text-xs" disabled={fw.loading} onclick={() => void fw.refresh()}>
       {#if fw.loading}<Loader2 size={12} class="animate-spin" />{:else}<RefreshCw size={12} />{/if} Refresh Rules
@@ -100,8 +100,8 @@
     </div>
     <button
       class="btn-primary px-3 py-1.5 text-xs"
-      disabled={!session.me?.clientIp || !!fw.busy || !fw.loaded || fw.state.backend === "none"}
-      title={session.me?.clientIp ? "" : "The host did not say which address you are connecting from"}
+      disabled={!canChange || !session.me?.clientIp || !!fw.busy || !fw.loaded || fw.state.backend === "none"}
+      title={!canChange ? "Read-only. Turn on Allow changes to edit the firewall." : session.me?.clientIp ? "" : "The host did not say which address you are connecting from"}
       onclick={() => void fw.allowMyIp(port.trim(), proto, Number(expiry) || undefined)}
     >
       Allow My IP (<span class="font-mono tabular-nums">{session.me?.clientIp ?? "unknown"}</span>){port ? ` on ${port}` : ""}
@@ -111,7 +111,7 @@
         <label class="label" for="fw-block">Block an address or subnet</label>
         <input id="fw-block" class="input w-52 py-1 font-mono tabular-nums text-xs" bind:value={blockTarget} placeholder="185.211.57.0/24" onkeydown={(e) => e.key === "Enter" && void block()} />
       </div>
-      <button class="btn-secondary px-3 py-1.5 text-xs" disabled={!blockTarget.trim() || !!fw.busy || !fw.loaded || fw.state.backend === "none"} onclick={block}>Block</button>
+      <button class="btn-secondary px-3 py-1.5 text-xs" disabled={!canChange || !blockTarget.trim() || !!fw.busy || !fw.loaded || fw.state.backend === "none"} title={canChange ? "" : "Read-only. Turn on Allow changes to edit the firewall."} onclick={block}>Block</button>
     </div>
   </div>
 
@@ -136,7 +136,7 @@
             <td class="max-w-64 truncate font-sans text-fg-muted">{r.comment}</td>
             <td class="text-right">
               {#if deletable(r)}
-                <button class="icon-btn h-6 w-6 opacity-0 transition-opacity focus:opacity-100 group-hover:opacity-100" title="Delete rule" aria-label="Delete rule {r.num ?? ''}" disabled={!!fw.busy} onclick={() => void fw.remove(r)}><Trash2 size={13} /></button>
+                <button class="icon-btn h-6 w-6 opacity-0 transition-opacity focus:opacity-100 group-hover:opacity-100" title="Delete rule" aria-label="Delete rule {r.num ?? ''}" disabled={!!fw.busy || !canChange} onclick={() => void fw.remove(r)}><Trash2 size={13} /></button>
               {/if}
             </td>
           </tr>

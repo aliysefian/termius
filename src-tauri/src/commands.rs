@@ -48,7 +48,9 @@ pub use knownhosts::*;
 pub mod localterm;
 pub use localterm::*;
 pub mod monitoring;
+pub mod opslogs;
 pub use monitoring::*;
+pub use opslogs::*;
 pub mod rawconsole;
 pub use rawconsole::*;
 pub mod rdp;
@@ -136,6 +138,8 @@ pub struct AppState {
     pub kube: Arc<crate::kube::KubeManager>,
     /// Open detail-monitoring connections (one per host being watched).
     pub monitors: Arc<crate::monitor::MonitorManager>,
+    /// Operations → Logs: the journal followed on several hosts, over `monitors`.
+    pub ops_logs: Arc<crate::opslogs::OpsLogManager>,
     /// The monitoring engine: runs checks on the hosts in the Monitoring view and sends alerts. Runs only while the
     /// vault is unlocked.
     pub alerting: Arc<crate::monitoring::engine::Engine>,
@@ -788,6 +792,8 @@ pub async fn close_everything(state: &AppState) {
     state.kube.close_all().await;
     // The monitoring engine first: it logs in through `monitors` and must not reopen what is about to be closed.
     state.alerting.stop();
+    // Followed logs stop first, and must not log in again once the vault is locked.
+    state.ops_logs.stop_all();
     state.monitors.close_all().await;
     state.edits.stop_all();
     // The agent serves vault keys, so it goes when the vault locks, and
@@ -3026,6 +3032,7 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     }
     let prompts: PromptMap = Default::default();
     let sftp = Arc::new(SftpManager::new());
+    let monitors = Arc::new(crate::monitor::MonitorManager::new());
     app.manage(AppState {
         session: {
             let s = Session::new();
@@ -3048,7 +3055,8 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         dbs: Arc::new(crate::db::DbManager::new()),
         containers: Arc::new(crate::containers::ContainerManager::new()),
         kube: Arc::new(crate::kube::KubeManager::new()),
-        monitors: Arc::new(crate::monitor::MonitorManager::new()),
+        ops_logs: Arc::new(crate::opslogs::OpsLogManager::new(Arc::clone(&monitors))),
+        monitors,
         alerting: Arc::new(crate::monitoring::engine::Engine::new()),
         edits: Arc::new(crate::remoteedit::EditManager::new()),
         edit_dir,
