@@ -4,7 +4,7 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
-## Unreleased
+## 0.56.0 - 2026-11-04
 
 - **New:** **a redesigned Operations workspace.** *Logs* is now a live multi-host console: a searchable host selector with chips, one compact stream bar (source, unit, priority, history, Follow / Stop Following), a status bar (LIVE, PARTIAL, DISCONNECTED, hosts connected, events a minute, last event, auto-reconnect), a filter bar (text, regular expression, severity exactly or "and worse", host, unit, time range, pause, export) and a virtual viewer that stays light with tens of thousands of events. Each event is attributed to the SSHVault host it came from, and opens to show its journal fields and the entries around it, read from the host's journal.
 - **Reliable streaming in the backend:** one managed task per host over the existing monitoring connections, structured `journalctl -o json`, reconnection with growing waits that carries on from the last journal position (no repeats; a possible gap is flagged where it can't), cancellation that ends the remote command, a per-host rate limit with a dropped count, and secrets hidden before an event reaches the window.
