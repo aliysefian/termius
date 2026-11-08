@@ -12,6 +12,7 @@ use super::model::*;
 use super::parse::{parse, temp_kind};
 use super::ports;
 use super::procs::{self, SignalError, SignalOutcome};
+#[cfg(target_os = "linux")]
 use super::script::{self, Options};
 use super::tests::{host_id, mgr, Fake, Fx, SEC};
 
