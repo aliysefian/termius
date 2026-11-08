@@ -124,7 +124,7 @@ fn saved_proxies(state: &AppState) -> Proxies {
 /// Start the engine for the vault that was just unlocked.
 pub async fn start_alerting(_app: &AppHandle, state: &AppState) {
     state.alert_host.reset();
-    state.alerting.start(Arc::clone(&state.alert_host)).await;
+    state.alerting.start(state.alert_host.clone()).await;
 }
 
 // -- hosts to watch ----------------------------------------------------------------------------------------------------
