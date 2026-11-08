@@ -4,6 +4,16 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## 0.57.0 - 2026-11-08
+
+- **New:** **Host Metrics**, an agentless view of a Linux host read over the SSH connection the app already keeps (nothing is installed on the host). Open it from a host's details or from the Fleet page. It shows CPU (total and per core, load, frequency), memory (a composition bar that never counts cache twice), filesystems (how full) and physical disks (read and write rates, busy share, latency) as separate things, and network speed per interface with RX and TX charts, peaks, since-boot totals and a choice of MB/s or Mbps. Bridges, tunnels, containers and members of a bond are left out of the total so the same traffic is never counted twice.
+- **Honest numbers:** a figure that cannot be measured is shown as *Unavailable*, never as 0: the first reading, a host that rebooted, a long gap, a counter that was reset, a new interface. Speeds come from the host's own clock, so a slow connection does not skew them.
+- **More hardware and activity:** temperatures (a sensor is called the CPU's only when its driver is a CPU's), NVIDIA GPUs (through `nvidia-smi`, asked at most every 5 seconds and never without a time limit) and AMD GPUs, a process list with search, sort, a tree view and signals (the host checks that the number is still the same program before sending anything, and a signal that gets no answer is never sent again), listening ports (copy an address, open an SSH tunnel to a port), and logins with SSH sign-in events and what could not be read, with the reason.
+- **In the terminal:** a small CPU / RAM / Disk / network bar in the status bar and an optional side panel (left or right, resizable) with the same figures, temperature, GPU and the top processes. It is off until you turn it on for a host, and opening, moving or closing it never touches the SSH session.
+- **Customizable dashboards:** each host's Overview is a 12-column grid of widgets you can drag, resize (by the corner or with Shift and the arrow keys), hide, show, change the look of, and add more of, with undo and redo. Save a layout per host, or as a template to apply to chosen hosts; applying one changes nothing but the layout.
+- **Shared by design:** one connection and one reading per host serve every view, so opening several views of a host costs it one reading, not several. Locking the vault clears everything read.
+- **Limits for now:** Linux hosts only (others say so and show no made-up figures); charts reach back one hour and are kept in memory only.
+
 ## 0.56.0 - 2026-11-04
 
 - **New:** **a redesigned Operations workspace.** *Logs* is now a live multi-host console: a searchable host selector with chips, one compact stream bar (source, unit, priority, history, Follow / Stop Following), a status bar (LIVE, PARTIAL, DISCONNECTED, hosts connected, events a minute, last event, auto-reconnect), a filter bar (text, regular expression, severity exactly or "and worse", host, unit, time range, pause, export) and a virtual viewer that stays light with tens of thousands of events. Each event is attributed to the SSHVault host it came from, and opens to show its journal fields and the entries around it, read from the host's journal.
