@@ -32,6 +32,8 @@
   import MultiplexerHeaderBar from "./MultiplexerHeaderBar.svelte";
   import TmuxNativeView from "./TmuxNativeView.svelte";
   import { multiplexers } from "$lib/tmux/useRemoteMultiplexer.svelte";
+  import TerminalMetricsPanel from "./hostmetrics/TerminalMetricsPanel.svelte";
+  import { terminalMetrics } from "$lib/stores/terminalmetrics.svelte";
 
   const tab = $derived(ui.activeTab);
   let renaming = $state<string | null>(null);
@@ -649,6 +651,11 @@
   <!-- Every tab stays mounted so background sessions keep streaming. Within a
        tab, panes are a flat keyed list placed by the layout's rectangles, so
        splitting never remounts (and disconnects) an existing terminal. -->
+  <!-- The terminals sit in a box of their own that is always there, so a metrics panel beside it is added and taken away
+       without the terminals being rebuilt: the connection is not touched. -->
+  <div class="min-h-0 min-w-0 {ui.tabs.length ? 'flex flex-1' : 'hidden'}">
+  {#if terminalMetrics.panelShown}<TerminalMetricsPanel />{/if}
+  <div class="flex min-h-0 min-w-0 flex-1 flex-col">
   {#each ui.tabs as t (t.id)}
     {@const rects = layoutRects(t.layout)}
     {@const multi = t.panes.length > 1}
@@ -789,6 +796,8 @@
       {/each}
     </div>
   {/each}
+  </div>
+  </div>
 
   {#if !tab}
     <div class="flex flex-1 flex-col items-center justify-center p-6 text-center">

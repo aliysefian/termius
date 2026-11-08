@@ -63,6 +63,7 @@ pub mod interchange;
 pub use interchange::*;
 pub mod alerting;
 pub use alerting::*;
+pub mod hostmetrics;
 pub mod confighistory;
 pub mod sshconfig;
 pub use sshconfig::*;
@@ -143,6 +144,10 @@ pub struct AppState {
     /// The monitoring engine: runs checks on the hosts in the Monitoring view and sends alerts. Runs only while the
     /// vault is unlocked.
     pub alerting: Arc<crate::monitoring::engine::Engine>,
+    /// How the monitoring engine and the host metrics log in to hosts: one connection per host, shared by both.
+    pub alert_host: Arc<alerting::AlertHost>,
+    /// Host readings (CPU, memory, disks, network...) shared by every view, taken over `alert_host`.
+    pub hostmetrics: Arc<crate::hostmetrics::manager::HostMetricsManager<alerting::AlertHost>>,
     pub edits: Arc<crate::remoteedit::EditManager>,
     /// Where remote files are downloaded for editing.
     pub edit_dir: PathBuf,
@@ -792,6 +797,8 @@ pub async fn close_everything(state: &AppState) {
     state.kube.close_all().await;
     // The monitoring engine first: it logs in through `monitors` and must not reopen what is about to be closed.
     state.alerting.stop();
+    // What was read from hosts is forgotten with the lock, and nothing is read until the vault is open again.
+    state.hostmetrics.clear();
     // Followed logs stop first, and must not log in again once the vault is locked.
     state.ops_logs.stop_all();
     state.monitors.close_all().await;
@@ -3033,6 +3040,7 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let prompts: PromptMap = Default::default();
     let sftp = Arc::new(SftpManager::new());
     let monitors = Arc::new(crate::monitor::MonitorManager::new());
+    let alert_host = Arc::new(alerting::AlertHost::new(app.handle().clone()));
     app.manage(AppState {
         session: {
             let s = Session::new();
@@ -3058,6 +3066,12 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         ops_logs: Arc::new(crate::opslogs::OpsLogManager::new(Arc::clone(&monitors))),
         monitors,
         alerting: Arc::new(crate::monitoring::engine::Engine::new()),
+        alert_host: Arc::clone(&alert_host),
+        hostmetrics: Arc::new(crate::hostmetrics::manager::HostMetricsManager::new(
+            Arc::clone(&alert_host),
+            Default::default(),
+            Some(Arc::new(hostmetrics::AppSink(app.handle().clone()))),
+        )),
         edits: Arc::new(crate::remoteedit::EditManager::new()),
         edit_dir,
         reveal: Default::default(),

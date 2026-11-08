@@ -77,7 +77,7 @@ export interface Box {
  * Pixel points of one series, as separate runs. A run ends at a missing value
  * and at a gap in time, so the line shows the hole.
  */
-export function chartSegments(samples: Sample[], pick: (s: Sample) => number | null, box: Box, gapMs = GAP_MS): Point[][] {
+export function chartSegments<T extends { t: number }>(samples: T[], pick: (s: T) => number | null, box: Box, gapMs = GAP_MS): Point[][] {
   const span = box.to - box.from;
   if (span <= 0 || box.max <= 0) return [];
   const out: Point[][] = [];
@@ -140,7 +140,7 @@ export function ticks(max: number, count = 4): number[] {
 }
 
 /** Index of the sample nearest in time to `t`, or -1 when there are none. */
-export function nearestIndex(samples: Sample[], t: number): number {
+export function nearestIndex(samples: { t: number }[], t: number): number {
   if (samples.length === 0) return -1;
   let lo = 0;
   let hi = samples.length - 1;
@@ -161,6 +161,8 @@ export function timeLabel(minutesAgo: number): string {
 /** An axis label for `ms` ago, in the unit that fits: minutes, hours or days. */
 export function agoLabel(ms: number): string {
   if (ms <= 0) return "now";
+  // A chart that has only just started covers a minute or so: seconds read better than "−1 min, −0 min".
+  if (ms < 90_000) return `−${Math.round(ms / 1000)} s`;
   const min = Math.round(ms / 60_000);
   if (min < 90) return `−${min} min`;
   const h = Math.round(ms / 3_600_000);

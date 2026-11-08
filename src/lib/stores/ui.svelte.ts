@@ -120,6 +120,7 @@ export type Modal =
   | { kind: "bulk-edit" }
   | { kind: "host-details"; id: Uuid }
   | { kind: "host-monitor"; id: Uuid }
+  | { kind: "host-metrics"; id: Uuid }
   | { kind: "onboarding" }
   | null;
 
