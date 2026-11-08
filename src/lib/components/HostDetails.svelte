@@ -110,6 +110,14 @@
             <button
               class="btn-ghost py-0.5 text-xs"
               disabled={!canMonitor}
+              title={canMonitor ? "CPU, memory, disks and network speeds, live" : "Needs saved credentials to run unattended"}
+              onclick={() => (ui.modal = { kind: "host-metrics", id })}
+            >
+              Host metrics…
+            </button>
+            <button
+              class="btn-ghost py-0.5 text-xs"
+              disabled={!canMonitor}
               title={canMonitor ? "Network, processes, ports and interfaces, while this window is open" : "Needs saved credentials to run unattended"}
               onclick={() => (ui.modal = { kind: "host-monitor", id })}
             >

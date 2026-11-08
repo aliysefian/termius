@@ -47,6 +47,7 @@
   import ContainersView from "$lib/components/ContainersView.svelte";
   import DashboardView from "$lib/components/DashboardView.svelte";
   import HostMonitor from "$lib/components/HostMonitor.svelte";
+  import HostMetricsModal from "$lib/components/hostmetrics/HostMetricsModal.svelte";
   import ContainerPull from "$lib/components/ContainerPull.svelte";
   import ContainerPrune from "$lib/components/ContainerPrune.svelte";
   import DbConnectionForm from "$lib/components/DbConnectionForm.svelte";
@@ -422,6 +423,10 @@
   {:else if ui.modal?.kind === "db-import"}
     {#key ui.modal.table}
       <DbImportDialog connId={ui.modal.connId} database={ui.modal.database} table={ui.modal.table} />
+    {/key}
+  {:else if ui.modal?.kind === "host-metrics"}
+    {#key ui.modal.id}
+      <HostMetricsModal id={ui.modal.id} />
     {/key}
   {:else if ui.modal?.kind === "host-monitor"}
     {#key ui.modal.id}

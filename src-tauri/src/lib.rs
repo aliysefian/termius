@@ -34,6 +34,7 @@ pub mod forward;
 pub mod health;
 pub mod hooks;
 pub mod hostkeys;
+pub mod hostmetrics;
 pub mod interchange;
 pub mod inventory;
 pub mod hostcreds;
@@ -309,6 +310,16 @@ pub fn run() {
             commands::containers::containers_prune_run,
             commands::containers::containers_pull,
             commands::containers::containers_compose,
+            commands::hostmetrics::hostmetrics_sample,
+            commands::hostmetrics::hostmetrics_latest,
+            commands::hostmetrics::hostmetrics_all_latest,
+            commands::hostmetrics::hostmetrics_history,
+            commands::hostmetrics::hostmetrics_cancel,
+            commands::hostmetrics::hostmetrics_forget,
+            commands::hostmetrics::hostmetrics_processes,
+            commands::hostmetrics::hostmetrics_ports,
+            commands::hostmetrics::hostmetrics_logins,
+            commands::hostmetrics::hostmetrics_signal,
             commands::monitoring::monitor_open,
             commands::monitoring::monitor_exec,
             commands::monitoring::monitor_net_sample,

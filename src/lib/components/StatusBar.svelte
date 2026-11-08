@@ -8,6 +8,7 @@
   import { settings } from "$lib/stores/settings.svelte";
   import { sessionFacts } from "$lib/sessioninfo";
   import { vaultStore } from "$lib/stores/vault.svelte";
+  import TerminalMetricsChips from "./hostmetrics/TerminalMetricsChips.svelte";
 
   /** Same "go to view" behaviour as the activity bar's icons, minus the toggle-on-repeat-click. */
   function goTo(view: View) {
@@ -63,6 +64,7 @@
           {#if telnet}<TriangleAlert size={13} class="text-warning" /><span class="text-warning">Telnet, unencrypted</span>{:else}<ShieldCheck size={14} />{facts.protocol}{/if}
         </span>
       {/if}
+      <TerminalMetricsChips />
     {:else}
       <span class="flex items-center gap-2 text-xs"><span class="h-2 w-2 rounded-full bg-fg-muted/40"></span>No open connection</span>
     {/if}

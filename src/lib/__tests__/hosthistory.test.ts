@@ -79,7 +79,7 @@ describe("drawing a series", () => {
     expect(chartSegments([s(1000, -50)], (x) => x.cpu, box)[0][0].y).toBe(50);
   });
   it("draws nothing for an empty or degenerate box", () => {
-    expect(chartSegments([], (x) => x.cpu, box)).toEqual([]);
+    expect(chartSegments<Sample>([], (x) => x.cpu, box)).toEqual([]);
     expect(chartSegments([s(1)], (x) => x.cpu, { ...box, to: 0 })).toEqual([]);
     expect(chartSegments([s(1)], (x) => x.cpu, { ...box, max: 0 })).toEqual([]);
   });
@@ -137,5 +137,16 @@ describe("finding the sample under the pointer", () => {
   it("copes with none and with one", () => {
     expect(nearestIndex([], 5)).toBe(-1);
     expect(nearestIndex([s(7)], 1000)).toBe(0);
+  });
+});
+
+describe("agoLabel for a chart that has just started", () => {
+  it("counts in seconds under a minute and a half, and is unchanged beyond", async () => {
+    const { agoLabel } = await import("../hosthistory");
+    expect(agoLabel(0)).toBe("now");
+    expect(agoLabel(20_000)).toBe("−20 s");
+    expect(agoLabel(60_000)).toBe("−60 s");
+    expect(agoLabel(120_000)).toBe("−2 min");
+    expect(agoLabel(900_000)).toBe("−15 min");
   });
 });

@@ -706,6 +706,33 @@ export const monitor = {
   streamStop: (streamId: Uuid) => invoke<void>("monitor_stream_stop", { streamId }),
 };
 
+/**
+ * The shared host-metrics engine: readings of CPU, memory, disks and network that every view draws from. A reading that
+ * is recent enough is shared, so asking for one from several places costs the host one reading, not several.
+ */
+export const hostSamples = {
+  /** A reading no older than `maxAgeMs` (default 2 s): taken from the host only if the shared one is older. */
+  sample: (hostId: Uuid, maxAgeMs?: number) => invoke<import("./hostsample").HostSample>("hostmetrics_sample", { hostId, maxAgeMs: maxAgeMs ?? null }),
+  /** The last reading of a host, with its age. Never connects. */
+  latest: (hostId: Uuid) => invoke<import("./hostsample").LatestSample | null>("hostmetrics_latest", { hostId }),
+  /** The last reading of every host that has one. Never connects. */
+  allLatest: () => invoke<import("./hostsample").LatestSample[]>("hostmetrics_all_latest"),
+  /** The points kept for charts since a time (milliseconds since 1970). In memory only. */
+  history: (hostId: Uuid, sinceMs: number) => invoke<import("./hostsample").HostSamplePoint[]>("hostmetrics_history", { hostId, sinceMs }),
+  cancel: (hostId: Uuid) => invoke<void>("hostmetrics_cancel", { hostId }),
+  forget: (hostId: Uuid) => invoke<void>("hostmetrics_forget", { hostId }),
+  /** The host's busiest processes (at most 500). Read when asked and shared between views. */
+  processes: (hostId: Uuid, maxAgeMs?: number) => invoke<import("./hostsample").ProcessList>("hostmetrics_processes", { hostId, maxAgeMs: maxAgeMs ?? null }),
+  ports: (hostId: Uuid, maxAgeMs?: number) => invoke<import("./hostsample").PortList>("hostmetrics_ports", { hostId, maxAgeMs: maxAgeMs ?? null }),
+  logins: (hostId: Uuid, maxAgeMs?: number) => invoke<import("./hostsample").LoginReport>("hostmetrics_logins", { hostId, maxAgeMs: maxAgeMs ?? null }),
+  /** Signal one process. The host checks it is still the same one (name and start time) before sending anything. */
+  signal: (hostId: Uuid, pid: number, startTicks: number, name: string, signal: import("./hostsample").SignalName) =>
+    invoke<import("./hostsample").SignalOutcome>("hostmetrics_signal", { hostId, pid, startTicks, name, signal }),
+  /** Every reading actually taken, once, however many views are open. */
+  onSample: (handler: (s: import("./hostsample").HostSample) => void): Promise<UnlistenFn> => listen<import("./hostsample").HostSample>("hostmetrics:sample", (e) => handler(e.payload)),
+  onFailed: (handler: (f: import("./hostsample").MetricsFailureEvent) => void): Promise<UnlistenFn> => listen<import("./hostsample").MetricsFailureEvent>("hostmetrics:failed", (e) => handler(e.payload)),
+};
+
 /** Operations → Logs: the journal (or a file) followed on several hosts, managed by the backend. */
 export interface OpsLogSpec {
   source: { kind: "journal"; unit?: string; kernel?: boolean; priority?: number } | { kind: "file"; path: string };

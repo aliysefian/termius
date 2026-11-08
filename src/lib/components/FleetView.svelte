@@ -122,6 +122,15 @@
               {/if}
               <button
                 class="icon-btn h-5 w-5 shrink-0"
+                title={hostMetrics.canMonitor(rec.id) ? "Host metrics: CPU, memory, disks and network speeds" : "Needs saved credentials"}
+                aria-label="Open the host metrics of {d.label}"
+                disabled={!hostMetrics.canMonitor(rec.id)}
+                onclick={() => (ui.modal = { kind: "host-metrics", id: rec.id })}
+              >
+                <Activity size={12} />
+              </button>
+              <button
+                class="icon-btn h-5 w-5 shrink-0"
                 title={hostMetrics.canMonitor(rec.id) ? "Open the detail view: network, processes, ports, interfaces" : "Needs saved credentials"}
                 aria-label="Open the detail view of {d.label}"
                 disabled={!hostMetrics.canMonitor(rec.id)}

@@ -21,8 +21,13 @@ pub struct AlertHost {
 }
 
 impl AlertHost {
-    fn new(app: AppHandle) -> Self {
+    pub(super) fn new(app: AppHandle) -> Self {
         Self { app, sessions: Default::default() }
+    }
+
+    /// Forget the connections remembered by host. The vault's lock closed them all; the next use logs in afresh.
+    fn reset(&self) {
+        self.sessions.lock().unwrap_or_else(|p| p.into_inner()).clear();
     }
 
     fn monitors(&self) -> Arc<crate::monitor::MonitorManager> {
@@ -117,8 +122,9 @@ fn saved_proxies(state: &AppState) -> Proxies {
 }
 
 /// Start the engine for the vault that was just unlocked.
-pub async fn start_alerting(app: &AppHandle, state: &AppState) {
-    state.alerting.start(Arc::new(AlertHost::new(app.clone()))).await;
+pub async fn start_alerting(_app: &AppHandle, state: &AppState) {
+    state.alert_host.reset();
+    state.alerting.start(state.alert_host.clone()).await;
 }
 
 // -- hosts to watch ----------------------------------------------------------------------------------------------------
