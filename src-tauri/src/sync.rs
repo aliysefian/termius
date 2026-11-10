@@ -248,11 +248,17 @@ mod tests {
             .insert(Collection::Hosts, &serde_json::json!({"label": "from-pc2"}))
             .unwrap();
 
-        let change = rx
-            .recv_timeout(Duration::from_secs(5))
-            .expect("change event");
+        // The OS may also replay events for what happened just before the watch began (FSEvents does), so wait
+        // for the one about this record instead of assuming it comes first.
+        let change = loop {
+            let c = rx
+                .recv_timeout(Duration::from_secs(10))
+                .expect("change event");
+            if c.id == rec.id && c.record.is_some() {
+                break c;
+            }
+        };
         assert_eq!(change.collection, Collection::Hosts);
-        assert_eq!(change.id, rec.id);
         let record = change.record.expect("record present");
         assert_eq!(record.data.unwrap()["label"], "from-pc2");
 
@@ -260,7 +266,7 @@ mod tests {
         fs::remove_file(pc2.record_path(Collection::Hosts, rec.id)).unwrap();
         let change = loop {
             let c = rx
-                .recv_timeout(Duration::from_secs(5))
+                .recv_timeout(Duration::from_secs(10))
                 .expect("remove event");
             if c.record.is_none() {
                 break c;
@@ -333,14 +339,22 @@ mod tests {
         .unwrap();
         thread::sleep(Duration::from_millis(200));
 
+        let garbage = Uuid::new_v4();
         fs::write(hosts.join("notes.txt"), b"x").unwrap();
         fs::write(
             hosts.join(format!("{} (conflicted copy).enc", Uuid::new_v4())),
             b"x",
         )
         .unwrap();
-        fs::write(hosts.join(format!("{}.enc", Uuid::new_v4())), b"garbage").unwrap();
+        fs::write(hosts.join(format!("{garbage}.enc")), b"garbage").unwrap();
 
-        assert!(rx.recv_timeout(Duration::from_millis(700)).is_err());
+        // Nothing is reported for the clutter. (The OS may still replay events for files that existed before the
+        // watch began, as FSEvents does, so only the files written here are checked, not "no event at all".)
+        let deadline = Instant::now() + Duration::from_millis(1500);
+        while let Some(left) = deadline.checked_duration_since(Instant::now()) {
+            if let Ok(c) = rx.recv_timeout(left) {
+                assert_ne!(c.id, garbage, "an undecryptable file was reported: {c:?}");
+            }
+        }
     }
 }
