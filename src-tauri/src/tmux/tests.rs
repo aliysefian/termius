@@ -334,9 +334,9 @@ async fn the_sink_hears_only_real_changes() {
 async fn one_poll_loop_serves_every_watcher_and_ends_with_the_last() {
     let exec = Scripted::new(vec![Ok(ready_text())], Duration::from_millis(1));
     let m = Arc::new(TmuxManager::new(Arc::clone(&exec), Config::default(), None));
-    m.watch(host(), Socket::Default, "monitor", Duration::from_secs(3)).unwrap();
-    m.watch(host(), Socket::Default, "panel:a", Duration::from_secs(5)).unwrap();
-    m.watch(host(), Socket::Default, "panel:b", Duration::from_secs(5)).unwrap();
+    m.watch(host(), Socket::Default, "monitor", Duration::from_secs(3)).await.unwrap();
+    m.watch(host(), Socket::Default, "panel:a", Duration::from_secs(5)).await.unwrap();
+    m.watch(host(), Socket::Default, "panel:b", Duration::from_secs(5)).await.unwrap();
     assert_eq!(m.watching(), 1, "three views, one loop");
     tokio::time::sleep(Duration::from_secs(10)).await;
     let calls = exec.calls.load(Ordering::SeqCst);
@@ -357,7 +357,7 @@ async fn one_poll_loop_serves_every_watcher_and_ends_with_the_last() {
 async fn locking_the_vault_stops_polling_and_forgets_everything() {
     let exec = Scripted::new(vec![Ok(ready_text())], Duration::from_millis(1));
     let m = Arc::new(TmuxManager::new(Arc::clone(&exec), Config::default(), None));
-    m.watch(host(), Socket::Default, "monitor", Duration::from_secs(3)).unwrap();
+    m.watch(host(), Socket::Default, "monitor", Duration::from_secs(3)).await.unwrap();
     tokio::time::sleep(Duration::from_secs(4)).await;
     assert!(m.latest(host(), &Socket::Default).is_some());
     m.clear();

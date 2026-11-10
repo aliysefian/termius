@@ -365,7 +365,9 @@ impl<E: HostExec> TmuxManager<E> {
 
     /// Keep this host's snapshot up to date every `interval` for as long as someone watches. `subscriber` names the view
     /// (`monitor`, `panel:<pane>`); watching again under the same name changes its interval. One loop serves everyone.
-    pub fn watch(self: &Arc<Self>, host: Uuid, socket: Socket, subscriber: &str, interval: Duration) -> Result<(), TmuxError> {
+    /// `async` so that it can only be called from inside the runtime that the poll loop is spawned on (a plain function reachable
+    /// from a sync Tauri command has none: see `spawnlint`).
+    pub async fn watch(self: &Arc<Self>, host: Uuid, socket: Socket, subscriber: &str, interval: Duration) -> Result<(), TmuxError> {
         socket.validate().map_err(|message| TmuxError::Invalid { message })?;
         let interval = interval.clamp(Duration::from_secs(1), Duration::from_secs(60));
         let key = (host, socket);
@@ -584,7 +586,8 @@ impl<E: HostExec> TmuxManager<E> {
         let now = sec.get("now").map(|s| s.trim().to_string()).unwrap_or_default();
         if rc != 0 || now != session {
             let said = sec.get("output").map(|s| s.trim().to_string()).unwrap_or_default();
-            return Err(TmuxError::Rejected { message: if said.is_empty() { "tmux did not move the client.".into() } else { super::model::clean(&said) } });
+            let now = if now.is_empty() { "unknown".to_string() } else { super::model::clean(&now) };
+            return Err(TmuxError::Rejected { message: if said.is_empty() { format!("tmux did not move the client (it is on session {now}).") } else { super::model::clean(&said) } });
         }
         let _ = self.refresh(host, socket).await;
         Ok(true)

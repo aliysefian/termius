@@ -90,7 +90,7 @@ pub async fn tmux_watch(state: State<'_, AppState>, host_id: Uuid, socket: Optio
     if subscriber.is_empty() || subscriber.len() > 80 || subscriber.chars().any(|c| c.is_control()) {
         return Err(ApiError::new("validation", "Not a view name."));
     }
-    state.tmux.watch(host_id, socket_of(socket)?, &subscriber, Duration::from_millis(interval_ms)).map_err(api_error)
+    state.tmux.watch(host_id, socket_of(socket)?, &subscriber, Duration::from_millis(interval_ms)).await.map_err(api_error)
 }
 
 /// A view closed or was hidden: stop its watching everywhere.

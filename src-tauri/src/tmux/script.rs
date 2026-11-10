@@ -231,6 +231,9 @@ echo '{end}'
     )
 }
 
+/// (The session a client ended up on is read from `list-clients`: `display-message -c` takes the session from the *target pane*,
+/// which on older tmux is not the client's.)
+///
 /// Find the tmux client that was started by the tab marked `tab` (the attach command exports `SSHVAULT_TAB`) and move
 /// *that* client to `session`. Nothing is typed into any terminal, so it works whatever the terminal is running; and it
 /// moves the right client, not "the most recent one".
@@ -248,7 +251,7 @@ for l in $list; do
 done
 if [ -z "$found" ]; then echo '{notatt}'; echo '{end}'; exit 0; fi
 out=$({t} switch-client -c "$found" -t {session} 2>&1); rc=$?
-now=$({t} display-message -c "$found" -p '#{{session_id}}' 2>/dev/null)
+now=$({t} list-clients -F '#{{client_name}} #{{session_id}}' 2>/dev/null | while IFS=' ' read -r n s; do [ "$n" = "$found" ] && echo "$s"; done)
 echo '{result}'; echo "$rc"
 echo '{now_m}'; echo "$now"
 echo '{output}'; printf '%s\n' "$out" | head -c 4096
