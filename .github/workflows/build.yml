@@ -117,7 +117,15 @@ jobs:
         working-directory: src-tauri
         env:
           SSHVAULT_SKIP_SSHD_TESTS: ${{ matrix.skip_sshd_tests }}
-        run: cargo test
+        # The failing tests' names and panic messages are copied into one annotation: Actions logs need a sign-in
+        # to read, annotations do not, so a flaky failure on a tag can be named without re-running anything.
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo test 2>&1 | tee "$RUNNER_TEMP/test.log" && exit 0
+          summary=$( { grep -E '^test .* FAILED$' "$RUNNER_TEMP/test.log"; grep -E -A4 '^---- ' "$RUNNER_TEMP/test.log"; grep -E '^error' "$RUNNER_TEMP/test.log"; } | head -80 | sed 's/%/%25/g' | sed ':a;N;$!ba;s/\n/%0A/g')
+          echo "::error title=Failing tests::$summary"
+          exit 1
 
   # Loads the built app in a real browser under the content security policy from tauri.conf.json and fails on any
   # violation (src/lib/__tests__/e2e/csp.py). Not blocking yet: it has not had a green run on this runner, and
