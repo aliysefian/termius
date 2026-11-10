@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { attachCommand, parseProbe, parseScreenList, parseTmuxVersion, prefixSequence, supportsControlMode, supportsHexKeys, validSessionName } from "$lib/tmux/discovery";
+import { attachCommand, fromSnapshot, parseProbe, parseScreenList, parseTmuxVersion, prefixSequence, supportsControlMode, supportsHexKeys, validSessionName } from "$lib/tmux/discovery";
 
 describe("tmux version", () => {
   it("reads releases, suffixes and builds from source", () => {
@@ -74,8 +74,8 @@ describe("probe output", () => {
 
 describe("commands typed into the shell", () => {
   it("quotes names that came from the host", () => {
-    expect(attachCommand.tmuxNative("deploy")).toBe("tmux -CC -u attach -t 'deploy'");
-    expect(attachCommand.tmuxStandard("x; rm -rf ~")).toBe(`[ -n "$TMUX" ] && tmux switch-client -t 'x; rm -rf ~' || tmux attach -t 'x; rm -rf ~'`);
+    expect(attachCommand.tmuxNative("deploy")).toBe("tmux -CC -u attach -t '=deploy'");
+    expect(attachCommand.tmuxStandard("x; rm -rf ~")).toBe(`[ -n "$TMUX" ] && tmux switch-client -t '=x; rm -rf ~' || tmux attach -t '=x; rm -rf ~'`);
     expect(attachCommand.newNative("")).toBe("tmux -CC -u new");
     expect(attachCommand.newNative("it's")).toBe("tmux -CC -u new -s 'it'\\''s'");
     expect(attachCommand.screen("4242.build")).toBe("screen -r '4242.build'");
@@ -85,9 +85,25 @@ describe("commands typed into the shell", () => {
     // Inside tmux `attach` is refused (nested sessions). Outside it, `switch-client` would move another client of the
     // host instead of failing, so it may only run behind the $TMUX check (a real tmux showed both).
     const cmd = attachCommand.tmuxStandard("deploy");
-    expect(cmd).toBe(`[ -n "$TMUX" ] && tmux switch-client -t 'deploy' || tmux attach -t 'deploy'`);
+    expect(cmd).toBe(`[ -n "$TMUX" ] && tmux switch-client -t '=deploy' || tmux attach -t '=deploy'`);
     expect(cmd.indexOf('[ -n "$TMUX" ]')).toBeLessThan(cmd.indexOf("switch-client"));
-    expect(cmd.endsWith("|| tmux attach -t 'deploy'")).toBe(true);
+    expect(cmd.endsWith("|| tmux attach -t '=deploy'")).toBe(true);
+  });
+  it("targets a session by exact name, because a bare name is a prefix match", () => {
+    // With only `db2` on the host, tmux resolves `-t db` to db2: the session that was killed since the list was read is
+    // quietly replaced by another one. `=db` matches only a session called exactly db (checked against a real tmux 3.4).
+    for (const cmd of [attachCommand.tmuxNative("db"), attachCommand.tmuxStandard("db")]) {
+      expect(cmd).not.toMatch(/-t 'db'/);
+      expect(cmd).toContain("-t '=db'");
+    }
+  });
+  it("turns the engine's reading into the bar's sessions", () => {
+    const s = fromSnapshot({
+      host_id: "h", socket: { kind: "default" }, generation: 1, taken_at_ms: 1, version: { major: 3, minor: 4, dev: false, raw: "tmux 3.4" }, state: { kind: "ready" }, server: null, other_sockets: [], stale: null,
+      sessions: [{ id: "$2", name: "db2", attached: 1, created: 5, activity: 9, group: null, mouse: null, windows: [{ id: "@1", index: 0, name: "psql", active: true, layout: "", zoomed: false, activity: false, bell: false, panes: [{ id: "%1", index: 0, active: true, title: "", command: "psql", path: "", pid: 1, width: 80, height: 24, dead: false, in_mode: false }] }] }],
+    });
+    expect(s.version).toMatchObject({ major: 3, minor: 4 });
+    expect(s.sessions).toEqual([{ id: "$2", name: "db2", windows: 1, attached: 1, created: 5, lastAttached: 9, windowList: [{ index: 0, name: "psql", command: "psql" }] }]);
   });
   it("accepts the names tmux accepts", () => {
     expect(["deploy", "my build", "a-b_c", "日本"].every(validSessionName)).toBe(true);

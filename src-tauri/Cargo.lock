@@ -7159,6 +7159,7 @@ dependencies = [
  "oracle-rs",
  "portable-pty",
  "rand 0.8.8",
+ "regex",
  "reqwest",
  "russh",
  "russh-sftp",

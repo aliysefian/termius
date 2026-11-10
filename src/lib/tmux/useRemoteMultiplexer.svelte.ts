@@ -9,7 +9,8 @@ import { ssh } from "$lib/ssh";
 import { ui } from "$lib/stores/ui.svelte";
 import { errorMessage } from "$lib/types";
 import { TmuxControlClient } from "./TmuxControlClient";
-import { attachCommand, parseProbe, prefixSequence, supportsControlMode, validSessionName, type MultiplexerProbe, type MuxAction } from "./discovery";
+import { DEFAULT_SOCKET } from "./monitor";
+import { attachCommand, fromSnapshot, parseProbe, prefixSequence, supportsControlMode, validSessionName, type MultiplexerProbe, type MuxAction } from "./discovery";
 
 export interface PaneMultiplexer {
   /** What the host has, once asked. */
@@ -48,19 +49,51 @@ class Multiplexers {
     return clients.get(paneId);
   }
 
-  /** Ask the host which sessions it has. Quiet: a host that says nothing just gets no bar. */
+  /**
+   * Ask the host which sessions it has. tmux's sessions come from the shared engine (`src-tauri/src/tmux`), which reads them
+   * safely whatever the names hold, and screen's from the pane's own probe. Quiet: a host that says nothing just gets no bar.
+   *
+   * A request that arrives while one is running is not dropped (the answer in flight may predate what the caller just
+   * did): it runs once more when the first ends. A failed refresh keeps what the bar already shows.
+   */
   async refresh(paneId: string) {
     const m = this.ensure(paneId);
-    if (m.probing) return;
+    if (m.probing) {
+      this.#again.add(paneId);
+      return;
+    }
     m.probing = true;
     try {
-      const out = await api.multiplexer.probe(paneId);
-      m.probe = out === null ? null : parseProbe(out);
+      const hostId = this.#hostOf(paneId);
+      const [out, snap] = await Promise.all([
+        api.multiplexer.probe(paneId),
+        hostId ? api.tmuxMonitor.snapshot(hostId, DEFAULT_SOCKET, 1500).catch(() => null) : Promise.resolve(null),
+      ]);
+      if (out === null) {
+        // Not a connected SSH session: nothing to list, and nothing worth keeping.
+        m.probe = null;
+      } else {
+        const probe = parseProbe(out);
+        if (snap && (snap.state.kind === "ready" || snap.state.kind === "no_server" || snap.state.kind === "empty")) probe.tmux = fromSnapshot(snap);
+        m.probe = probe;
+      }
     } catch {
-      m.probe = null;
+      // Keep the last list: a connection that blinked is not a host with no sessions.
     } finally {
       m.probing = false;
     }
+    if (this.#again.delete(paneId)) await this.refresh(paneId);
+  }
+
+  #again = new Set<string>();
+
+  /** The saved host a pane is connected to, when it is one (a quick-connect has none). */
+  #hostOf(paneId: string): string | null {
+    for (const t of ui.tabs) {
+      const p = t.panes.find((x) => x.id === paneId);
+      if (p?.target.kind === "host") return p.target.hostId;
+    }
+    return null;
   }
 
   /**

@@ -2,6 +2,18 @@
 
 export type Uuid = string;
 
+export type AutoTmuxBehavior = "attach_existing" | "create_if_missing" | "always_new";
+
+export interface AutoTmux {
+  enabled: boolean;
+  behavior: AutoTmuxBehavior;
+  /** Empty means `main`. */
+  session?: string;
+  mouse?: boolean;
+  /** `tmux -L <name>`; empty is the default socket. */
+  socket?: string;
+}
+
 export interface VaultRecord<T> {
   id: Uuid;
   /** Revision; saves send it back so edits from other devices aren't overwritten. */
@@ -83,6 +95,8 @@ export interface Host {
   environment?: string;
   /** Typed into the shell right after connecting. */
   startup_command?: string;
+  /** Attach to a tmux session by itself when a terminal opens on this host. */
+  auto_tmux?: AutoTmux;
   /** How this host's terminal looks; anything missing follows the settings. */
   profile?: TerminalProfile;
   /** Slash-separated group path, e.g. "Production/Databases". */

@@ -325,6 +325,15 @@
       form.jump_host_id = form.jump_host_id || undefined;
       form.environment = form.environment || undefined;
       form.startup_command = form.startup_command?.trim() || undefined;
+      if (form.auto_tmux) {
+        const a = form.auto_tmux;
+        // A name tmux would change, or a socket that is not a plain name, is refused here instead of failing at connect time.
+        a.session = (a.session ?? "").trim();
+        a.socket = (a.socket ?? "").trim();
+        if (a.session && (/[.:\\\x00-\x1f\x7f]/.test(a.session) || a.session.length > 100)) return void (error = "The tmux session name cannot contain '.', ':' or '\\'.");
+        if (a.socket && !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(a.socket)) return void (error = "The tmux socket name may contain letters, digits, '.', '_' and '-'.");
+        if (!a.enabled && !a.session && !a.socket && !a.mouse) form.auto_tmux = undefined;
+      }
       form.profile = cleanProfile({ theme: profTheme || undefined, font_size: profSize ?? undefined, scrollback: profScroll ?? undefined });
       form.completion = hostMode(form.completion);
       if (form.protocol === "rdp") {
@@ -1057,6 +1066,39 @@
             placeholder="sudo -i, cd /srv/app, tmux attach"
             spellcheck="false"
           />
+        </div>
+        <div data-testid="host-auto-tmux" class="rounded-lg border border-line p-3">
+          <label class="flex items-center gap-2 text-sm font-medium">
+            <input
+              type="checkbox"
+              checked={!!form.auto_tmux?.enabled}
+              onchange={(e) => (form.auto_tmux = { behavior: "create_if_missing", session: "", mouse: false, ...(form.auto_tmux ?? {}), enabled: e.currentTarget.checked })}
+            />
+            Auto tmux
+          </label>
+          <p class="mt-1 text-xs text-fg-muted">When a terminal opens on this host, attach to a tmux session instead of leaving you in the plain shell. Off by default. Nothing is changed on the host, and if tmux is not installed you keep the normal shell.</p>
+          {#if form.auto_tmux?.enabled}
+            <div class="mt-3 grid grid-cols-2 gap-3">
+              <div class="col-span-2">
+                <label class="label" for="h-autotmux-behavior">Behavior</label>
+                <select id="h-autotmux-behavior" class="input text-sm" value={form.auto_tmux.behavior} onchange={(e) => form.auto_tmux && (form.auto_tmux.behavior = e.currentTarget.value as "attach_existing" | "create_if_missing" | "always_new")}>
+                  <option value="create_if_missing">Attach to the session, and create it if it is missing</option>
+                  <option value="attach_existing">Attach to the session only if it already exists</option>
+                  <option value="always_new">Always start a new session</option>
+                </select>
+              </div>
+              <div>
+                <label class="label" for="h-autotmux-session">Preferred session</label>
+                <input id="h-autotmux-session" class="input font-mono text-xs" placeholder="main" disabled={form.auto_tmux.behavior === "always_new"} bind:value={form.auto_tmux.session} spellcheck="false" />
+              </div>
+              <div>
+                <label class="label" for="h-autotmux-socket">tmux socket (optional)</label>
+                <input id="h-autotmux-socket" class="input font-mono text-xs" placeholder="default" bind:value={form.auto_tmux.socket} spellcheck="false" />
+              </div>
+              <label class="col-span-2 flex items-center gap-2 text-sm"><input type="checkbox" checked={!!form.auto_tmux.mouse} onchange={(e) => form.auto_tmux && (form.auto_tmux.mouse = e.currentTarget.checked)} /> Turn on tmux mouse support for that session</label>
+              <p class="col-span-2 -mt-1 text-xs text-fg-muted">Mouse support is set on that session only; tmux key bindings and its config file are never changed. With it on, hold Shift to select text. A shell that is already inside tmux is left alone, so tmux is never nested.</p>
+            </div>
+          {/if}
         </div>
         <div data-testid="host-expect">
           <span class="label">Then wait for this, and send that</span>

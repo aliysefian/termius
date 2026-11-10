@@ -53,6 +53,7 @@
   import { networkStore } from "$lib/stores/network.svelte";
   import PortOffer from "./PortOffer.svelte";
   import { multiplexers } from "$lib/tmux/useRemoteMultiplexer.svelte";
+  import { tmuxMonitor } from "$lib/stores/tmuxmonitor.svelte";
   import { timeMachine } from "$lib/confighistory/useConfigTimeMachine.svelte";
 
   let {
@@ -1219,6 +1220,20 @@
           const startup = [host?.startup_command?.trim(), target.command?.trim()].filter(Boolean).join(" && ");
           // Give the remote shell a moment to print its prompt first.
           if (startup) setTimeout(() => void writeToPane(pane, render(startup, hostContextFor(target.hostId), {}) + "\r"), 300);
+          // Auto tmux. A pane opened to run a particular command (the tmux monitor's attach) is left to that command, and the
+          // command itself refuses to run inside tmux and falls back to the plain shell when tmux is missing, so nothing nests.
+          const auto = host?.auto_tmux;
+          if (auto?.enabled && muxCapable && !target.command?.trim()) {
+            const hostId = target.hostId;
+            setTimeout(
+              () =>
+                void tmuxMonitor
+                  .autoCommand(paneId, hostId, auto)
+                  .then((c) => (c ? writeToPane(pane, c + "\r") : undefined))
+                  .catch((err) => ui.notify("warning", `Auto tmux was skipped: ${errorMessage(err)}`)),
+              startup ? 900 : 400,
+            );
+          }
         }
       } else if (e.status.kind === "disconnected") {
         term.write(`\r\n\x1b[90m[session closed${e.status.code != null ? `, exit ${e.status.code}` : ""}]\x1b[0m\r\n`);

@@ -291,6 +291,36 @@ impl Host {
     }
 }
 
+/// What a terminal does with tmux when it opens on a host (see `tmux::script::auto_command`).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AutoTmux {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub behavior: AutoTmuxBehavior,
+    /// The session to use. Empty means `main`.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub session: String,
+    /// Turn tmux's mouse option on for that session (that session only; no server-wide setting is changed).
+    #[serde(default)]
+    pub mouse: bool,
+    /// The tmux server to use, as `tmux -L <name>`; empty is the default socket.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub socket: String,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AutoTmuxBehavior {
+    /// Attach to the session if it exists; otherwise leave the normal shell.
+    AttachExisting,
+    /// Attach to the session, creating it when it is missing.
+    #[default]
+    CreateIfMissing,
+    /// Start a new session every time.
+    AlwaysNew,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Host {
     pub label: String,
@@ -330,6 +360,9 @@ pub struct Host {
     /// `cd /srv/app && tmux attach`.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub startup_command: String,
+    /// Attach to a tmux session by itself when a terminal opens on this host.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_tmux: Option<AutoTmux>,
     /// Optional accent color as a CSS hex string, e.g. `"#7B61FF"`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color: Option<String>,
