@@ -4,6 +4,14 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## Unreleased
+
+- **New:** the Tmux page is redesigned as a workspace. A header counts hosts, sessions, windows and panes (and, once measured, CPU and memory), with a refresh button, a **Live · Ns / Paused** choice and **New Session**. Under it: an explorer with status dots and per-session CPU and memory; a breadcrumb and tabs (**Panes Grid**, **Panes List**, **Windows**, **Session Info**, **Resources**); and an inspector that offers only the actions that fit what is selected, with destructive ones set apart.
+- **New:** the grid draws a window's panes where tmux put them, using the window's own layout, and labels itself **Live Preview · Read Only**. A pane's tile can open its session in a terminal tab or show a menu of actions.
+- **New:** a resizable, collapsible panel under the preview with **Output** (the selected pane's text, filter, regex, case, pane chooser), **Search** (all panes), **Events** (sessions, windows and panes that appeared or ended, renames, attach and detach, seen between readings) and **Activity** (what you did here and whether it worked). They are kept in memory only.
+- **New:** a wide sidebar with a name beside each icon (the button at the bottom of the rail, or Settings), and drawers for the session list and details when the window is narrow.
+- **Fixed:** the Tmux entry in the left rail had no name (its tooltip and label were missing), so it was only an unlabeled icon.
+
 ## 0.58.0 - 2026-11-10
 
 - **New:** **Tmux** in the left rail: every tmux session on your hosts in one place, with no terminal open. Hosts hold their sessions, windows and panes in a tree you can walk with the arrow keys, search by host, session, window, pane title, command or tag, and manage from a menu: new, rename and kill sessions, windows and panes (killing asks first and says what is running), split right or down, resize, zoom. Add hosts from the bar above the list; a host that has no tmux says so and shows how to install it, and a host with no sessions offers **Create Session**.

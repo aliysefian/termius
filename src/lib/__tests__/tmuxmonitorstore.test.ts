@@ -6,6 +6,7 @@ const calls: [string, Record<string, unknown>][] = [];
 let handler: ((e: { payload: unknown }) => void) | undefined;
 let fail: Record<string, { code: string; message: string }> = {};
 let switched = true;
+let usageCpu: number | null = 12;
 let generation = 10;
 const typed: [string, string][] = [];
 
@@ -44,6 +45,8 @@ vi.mock("@tauri-apps/api/core", () => ({
       }
       case "tmux_capture":
         return { info: { id: args.paneId, width: 80, height: 24, command: "bash", dead: false, alternate: false, cursor_x: 0, cursor_y: 0, in_mode: false, history: 0, pid: 1, title: "" }, text: `text of ${String(args.paneId)}`, taken_at_ms: Date.now() };
+      case "tmux_resources":
+        return { host_id: String(args.hostId), taken_at_ms: Date.now(), sessions: [{ session_id: "$0", usage: { processes: 2, rss: 2048, cpu_pct: usageCpu, top: [["bash", 2]] }, panes_seen: 1, panes_total: 1 }], panes: {}, cpu_note: null, estimate: true };
       case "tmux_search":
         return { results: (args.targets as { session_id: string; window_id: string; pane_id: string }[]).map((t) => ({ ...t, hits: [{ line: 1, text: "needle", spans: [[0, 6]], before: [], after: [] }] })), failed: [], searched: (args.targets as unknown[]).length, limited: false, cancelled: false };
       default:
@@ -65,7 +68,8 @@ const { tmuxMonitor: mon, markerOf, paneKey } = await import("$lib/stores/tmuxmo
 const { vaultStore } = await import("$lib/stores/vault.svelte");
 const { ui } = await import("$lib/stores/ui.svelte");
 const { ask, askText } = await import("$lib/dialogs.svelte");
-const { serverKey, DEFAULT_SOCKET } = await import("$lib/tmux/monitor");
+const { serverKey, DEFAULT_SOCKET, nodeKey } = await import("$lib/tmux/monitor");
+const nodeKeyOf = (kind: "host" | "session", server: string, id = "") => (kind === "host" ? nodeKey.host(server) : nodeKey.session(server, id));
 
 const host = (id: string, label: string) => ({ id, rev: 1, updated_at: 1, deleted: false, data: { label, hostname: label, port: 22, group: "", tags: [], notes: "", favorite: false } });
 const S = (h: string) => serverKey(h, DEFAULT_SOCKET);
@@ -461,5 +465,122 @@ describe("markers", () => {
     expect(markerOf("ls")).toBeNull();
     expect(markerOf(undefined)).toBeNull();
     expect(markerOf("env SSHVAULT_TAB='bad;marker' tmux")).toBeNull();
+  });
+});
+
+describe("the redesigned workspace's state", () => {
+  const ka = S("a");
+
+  it("records what changed between readings as events, newest first, and nothing for the first reading", async () => {
+    mon.ingest(snapshot("a", [session("$0", "backend")]) as never);
+    expect(mon.events).toEqual([]);
+    mon.ingest(snapshot("a", [session("$0", "backend"), session("$5", "logs")]) as never);
+    mon.ingest(snapshot("a", [session("$0", "backend", { attached: 1 }), session("$5", "logs")]) as never);
+    expect(mon.events.map((e) => e.text)).toEqual(["A client attached to backend.", "Session logs created (1 window)."]);
+    expect(mon.events.every((e) => e.server === ka)).toBe(true);
+  });
+
+  it("does not turn a stale reading into events", () => {
+    mon.ingest(snapshot("a", [session("$0", "backend")]) as never);
+    mon.ingest(snapshot("a", [session("$0", "backend")], { stale: { since_ms: 1, message: "lost" } }) as never);
+    expect(mon.events).toEqual([]);
+  });
+
+  it("notes what was done and whether it worked, and keeps a failure's reason", async () => {
+    await mon.refresh("a", DEFAULT_SOCKET);
+    await mon.run("a", DEFAULT_SOCKET, { op: "kill_session", session: "$1" }, "Killed deploy.");
+    expect(mon.activity[0]).toMatchObject({ ok: true, text: "claude: Killed deploy." });
+    fail = { tmux_operate: { code: "tmux_rejected", message: "no such session" } };
+    await mon.run("a", DEFAULT_SOCKET, { op: "kill_session", session: "$1" });
+    expect(mon.activity[0]).toMatchObject({ ok: false, text: "claude: Kill session failed", detail: "no such session" });
+    expect(mon.activity).toHaveLength(2);
+  });
+
+  it("notes an attach, and a failed one", async () => {
+    await mon.refresh("a", DEFAULT_SOCKET);
+    await mon.attach(ka, "$0", "tab");
+    expect(mon.activity[0]).toMatchObject({ ok: true, text: "Attached claude · backend in a new tab" });
+    fail = { tmux_attach_command: { code: "tmux_rejected", message: "nope" } };
+    await mon.attach(ka, "$0", "tab");
+    expect(mon.activity[0].ok).toBe(false);
+  });
+
+  it("forgets events and activity when the vault locks", async () => {
+    mon.ingest(snapshot("a", [session("$0", "backend")]) as never);
+    mon.ingest(snapshot("a", [session("$0", "x")]) as never);
+    mon.record(true, "something");
+    expect(mon.events.length + mon.activity.length).toBeGreaterThan(0);
+    mon.reset();
+    expect([mon.events, mon.activity, mon.history]).toEqual([[], [], {}]);
+  });
+
+  it("keeps a series of readings per session and no zero for a CPU that was not measured", async () => {
+    await mon.refresh("a", DEFAULT_SOCKET);
+    await mon.loadResources(ka);
+    await mon.loadResources(ka);
+    expect(mon.history[`${ka}|$0`]).toEqual({ cpu: [12, 12], mem: [2048, 2048] });
+    usageCpu = null;
+    await mon.loadResources(ka);
+    expect(mon.history[`${ka}|$0`].cpu).toEqual([12, 12]);
+    expect(mon.history[`${ka}|$0`].mem).toHaveLength(3);
+    usageCpu = 12;
+  });
+
+  it("totals the page from the readings, with resources only once measured", async () => {
+    await mon.refresh("a", DEFAULT_SOCKET);
+    await mon.refresh("b", DEFAULT_SOCKET);
+    expect(mon.summary).toMatchObject({ hosts: 2, sessions: 3, windows: 3, panes: 3, cpuPct: null, rss: null });
+    await mon.loadResources(ka);
+    expect(mon.summary).toMatchObject({ cpuPct: 12, rss: 2048 });
+  });
+
+  it("follows the selection to a window and pane for the preview and the output", async () => {
+    await mon.refresh("a", DEFAULT_SOCKET);
+    expect(mon.focusTarget, "nothing selected").toBeNull();
+    mon.selected = `${ka}|host`;
+    mon.select(nodeKeyOf("host", ka));
+    expect(mon.focusTarget, "a host has no pane to preview").toBeNull();
+    mon.reveal(ka, "$0", "@0", "%0");
+    expect(mon.focusTarget).toMatchObject({ session: { id: "$0" }, window: { id: "@0" }, pane: { id: "%0" } });
+    mon.select(nodeKeyOf("session", ka, "$0"));
+    expect(mon.focusTarget?.window.id, "a session shows its active window").toBe("@0");
+    mon.revealWindow(ka, "$0", "@0");
+    expect(mon.focusTarget?.pane?.id, "a window shows its active pane").toBe("%0");
+    mon.select(nodeKeyOf("session", ka, "$99"));
+    expect(mon.focusTarget, "a session that is gone").toBeNull();
+  });
+
+  it("pauses the live refresh without losing the ability to read on request", async () => {
+    await mon.start();
+    calls.length = 0;
+    mon.setLive(false);
+    expect(mon.prefs.live).toBe(false);
+    expect(count("tmux_unwatch")).toBe(1);
+    expect(count("tmux_watch")).toBe(0);
+    await mon.refresh("a", DEFAULT_SOCKET);
+    expect(count("tmux_refresh")).toBe(1);
+    mon.setLive(true);
+    expect(count("tmux_watch")).toBe(2);
+    mon.setDiscoverSeconds(10);
+    expect(mon.prefs.discoverMs).toBe(10000);
+    expect(calls.filter(([c]) => c === "tmux_watch").at(-1)?.[1].intervalMs).toBe(10000);
+    mon.setDiscoverSeconds(1);
+    expect(mon.prefs.discoverMs, "never faster than 3 s").toBe(3000);
+    mon.prefs.live = true;
+    mon.prefs.discoverMs = 4000;
+  });
+
+  it("reads output at least as far back as the Output tab shows", async () => {
+    await mon.refresh("a", DEFAULT_SOCKET);
+    const key = paneKey(ka, "%0");
+    mon.prefs.scrollback = 200;
+    mon.prefs.bottom = { ...mon.prefs.bottom, open: true, lines: 500 };
+    mon.outputKey = key;
+    await mon.capture(key);
+    expect(calls.filter(([c]) => c === "tmux_capture").at(-1)?.[1].scrollback).toBe(500);
+    mon.outputKey = null;
+    await mon.capture(key);
+    expect(calls.filter(([c]) => c === "tmux_capture").at(-1)?.[1].scrollback).toBe(200);
+    mon.prefs.bottom.lines = 100;
   });
 });

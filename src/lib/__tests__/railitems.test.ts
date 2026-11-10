@@ -51,3 +51,18 @@ describe("the rail", () => {
     expect(move(RAIL_GROUPS, ["x"], "unknown" as never, 1)).toEqual(["x"]);
   });
 });
+
+describe("every entry can be named", () => {
+  it("has an English name for each rail entry, so no icon is ever drawn without a label or tooltip", async () => {
+    const { en } = await import("$lib/i18n/en");
+    const { translate } = await import("$lib/i18n/index.svelte");
+    for (const g of RAIL_GROUPS) {
+      for (const item of g) {
+        const key = `rail.${item.view}` as keyof typeof en;
+        expect(en[key], `rail.${item.view}`).toBeTruthy();
+        expect(translate("de", key)).toBeTruthy();
+        expect(translate("fa", key)).toBeTruthy();
+      }
+    }
+  });
+});

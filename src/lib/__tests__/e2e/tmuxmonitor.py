@@ -8,7 +8,7 @@ detail panel, the menus, attaching, the terminal panel, and the empty and error 
 SHOT=<folder> it also writes screenshots there. The backend is simulated, so this checks the interface, not tmux: the engine
 itself is tested against a real tmux server in src-tauri/src/tmux/tests.rs.
 """
-import asyncio, json, os, sys
+import asyncio, json, os, re, sys
 from playwright.async_api import async_playwright
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -20,7 +20,9 @@ SETUP = r"""
 localStorage.setItem('sshvault.tmuxmonitor.v1', JSON.stringify({ hostIds: ['h1', 'h2', 'h3', 'h4'], seeded: true }));
 const host = (id, label) => ({ id, rev: 1, updated_at: 1, deleted: false, data: { label, hostname: label + '.example', port: 22, group: '', tags: [], notes: '', identity_id: 'i1' } });
 const pane = (id, command, over = {}) => ({ id, index: 0, active: true, title: '', command, path: '/srv/app', pid: 4000 + Number(id.slice(1)), width: 120, height: 32, dead: false, in_mode: false, ...over });
-const win = (id, index, name, panes, over = {}) => ({ id, index, name, active: index === 0, layout: 'c1a2,120x32,0,0,0', zoomed: false, activity: false, bell: false, panes, ...over });
+const csum = (body) => { let c = 0; for (let i = 0; i < body.length; i++) { c = (c >> 1) + ((c & 1) << 15); c = (c + body.charCodeAt(i)) & 0xffff; } return c.toString(16).padStart(4, '0'); };
+const layoutOf = (panes) => { const body = panes.length === 2 ? '120x32,0,0{59x32,0,0,' + panes[0].id.slice(1) + ',60x32,60,0,' + panes[1].id.slice(1) + '}' : '120x32,0,0,' + panes[0].id.slice(1); return csum(body) + ',' + body; };
+const win = (id, index, name, panes, over = {}) => ({ id, index, name, active: index === 0, layout: layoutOf(panes), zoomed: false, activity: false, bell: false, panes, ...over });
 const sess = (id, name, windows, over = {}) => ({ id, name, attached: 0, created: 1790000000, activity: 1790000500, group: null, mouse: false, windows, ...over });
 const state = {
   h1: [
@@ -115,46 +117,93 @@ async def main():
         await pg.wait_for_timeout(1500)
         tree = pg.get_by_role("tree", name="Hosts, sessions, windows and panes")
         check(await tree.count() == 1, "the Tmux page opens from the command palette")
+        check(await pg.get_by_role("heading", name="Tmux Monitor").count() == 1, "the page has a clear title")
+        rail = await pg.get_by_role("navigation", name="Sections").inner_text() if await pg.get_by_role("navigation", name="Sections").count() else ""
+        check(await pg.get_by_role("button", name="Tmux", exact=True).count() >= 1, "the sidebar has a Tmux entry with a name, not just an icon")
+
+        # -- the numbers over the page: real counts, no resources until measured ---------------------------------------
+        summary = await pg.get_by_role("group", name="Summary").inner_text()
+        check("4\nHosts" in summary and "3\nSessions" in summary and "4\nWindows" in summary and "6\nPanes" in summary, "the header counts hosts, sessions, windows and panes from the readings")
 
         text = await tree.inner_text()
         check("claude" in text and "backend" in text and "deployment" in text, "sessions are grouped under their host")
         check("Elastic" in text and "monitoring" in text, "a second host's sessions are listed beside the first")
         check("Tmux is not installed on this host." in text and "sudo apt install tmux" in text, "a host without tmux says so and shows the install command")
         check("No tmux sessions found." in text and "Create Session" in text, "a host with no sessions says so and offers Create Session")
-        check(await pg.get_by_text("Nothing is attached").count() == 0 or True, "entering the page opens no terminal")
+        check("All Hosts (4)" in await pg.get_by_role("navigation", name="Session explorer").inner_text(), "the explorer says how many hosts it covers")
         tabs = await pg.evaluate("document.querySelectorAll('[data-tab-body]').length")
         check(tabs == 0, "no terminal tab is opened just by looking")
         await shot(pg, "tmux-1-explorer")
 
         # -- selecting previews without attaching ---------------------------------------------------------------------
         await tree.get_by_role("treeitem", name="backend").first.click()
-        await pg.wait_for_timeout(1200)
+        await pg.wait_for_timeout(1500)
         region = pg.get_by_role("region", name="Snapshot of pane %1")
         check(await region.count() == 1 and "git status" in await region.inner_text(), "selecting a session previews its active pane's text")
-        check(await pg.get_by_text("Snapshot · read-only").count() >= 1, "the preview says it is a read-only snapshot")
+        check(await pg.get_by_text("Live Preview").count() >= 1 and await pg.get_by_text("Read Only").count() >= 1, "the preview says it is a live, read-only preview")
         html = await region.inner_html()
         check("<img" not in html and "onerror" not in html, "the preview is text nodes only")
         colour = await pg.evaluate("[...document.querySelectorAll('[aria-label=\"Snapshot of pane %1\"] span')].some(s => s.style.color)")
         check(colour, "ANSI colours are drawn")
         calls = await pg.evaluate("window.__tmuxCalls.map(c => c[0])")
         check("tmux_capture" in calls and "tmux_attach_command" not in calls, "previewing captures but does not attach")
+        crumbs = await pg.get_by_label("Where you are").inner_text()
+        check("claude" in crumbs and "backend" in crumbs and "0: development" in crumbs and "2 panes" in crumbs, "the breadcrumb shows host, session, window and pane count")
         insp = await pg.get_by_role("complementary", name="Inspector").inner_text()
-        check("backend" in insp and "$0" in insp and "Attached (1 client)" in insp, "the inspector shows the session's identity and state")
-        check("12.4%" in insp and "284 MB" in insp and "Estimate" in insp, "estimated CPU and RAM are shown and labelled as estimates")
+        check("Session: backend" in insp and "$0" in insp and "Attached" in insp and "Yes (1 client)" in insp, "the inspector shows the session's identity and state")
+        check("12.4%" in insp and "284 MB" in insp and "estimate" in insp.lower(), "estimated CPU and memory are shown and labelled as estimates")
+        summary = await pg.get_by_role("group", name="Summary").inner_text()
+        check("CPU" in summary and "Memory" in summary, "once measured, the header adds CPU and memory (and says what they are)")
         await shot(pg, "tmux-2-preview")
 
+        # -- only the actions that fit what is selected ----------------------------------------------------------------
+        check(await pg.get_by_role("button", name="Kill Session…").count() == 1 and await pg.get_by_role("button", name="Kill Window…").count() == 0 and await pg.get_by_role("button", name="Kill Pane…").count() == 0, "a session offers Kill Session only, set apart from the other actions")
+
+        # -- tabs: grid keeps tmux's layout, windows, info, resources ------------------------------------------------
+        await pg.get_by_role("tab", name="Panes Grid").click()
+        await pg.wait_for_timeout(1500)
+        grid = pg.get_by_role("list", name="Pane snapshots, laid out as in the tmux window")
+        check(await grid.count() == 1 and await grid.get_by_role("listitem").count() == 2, "Panes Grid draws the window's panes where tmux put them")
+        boxes = await pg.evaluate("[...document.querySelectorAll('[aria-label=\"Pane snapshots, laid out as in the tmux window\"] [role=listitem]')].map(e => e.getBoundingClientRect()).map(r => [Math.round(r.left), Math.round(r.top), Math.round(r.width)])")
+        check(len(boxes) == 2 and boxes[0][0] < boxes[1][0] and abs(boxes[0][1] - boxes[1][1]) <= 2, "side-by-side panes are side by side")
+        await shot(pg, "tmux-3-grid")
+        await grid.get_by_role("listitem").nth(1).get_by_role("button", name=re.compile(r"^%2 ")).click()
+        await pg.wait_for_timeout(500)
+        check(await pg.get_by_role("complementary", name="Inspector").get_by_text("Pane: %2").count() == 1, "clicking a tile selects that pane and the inspector follows")
+        check(await pg.get_by_role("complementary", name="Inspector").get_by_role("button", name="Kill Pane…").count() == 1 and await pg.get_by_role("complementary", name="Inspector").get_by_role("button", name="Kill Session…").count() == 0, "a pane offers Kill Pane, not Kill Session")
+        await pg.get_by_role("tab", name="Windows (2)").click()
+        await pg.wait_for_timeout(300)
+        check("0: development" in await pg.get_by_role("tabpanel", name="Windows").inner_text() and "1: logs" in await pg.get_by_role("tabpanel", name="Windows").inner_text(), "the Windows tab lists the session's windows")
+        await pg.get_by_role("tabpanel", name="Windows").get_by_role("button", name="1: logs").click()
+        await pg.wait_for_timeout(500)
+        check("Window: 1: logs" in await pg.get_by_role("complementary", name="Inspector").inner_text(), "choosing a window selects it")
+        await pg.get_by_role("tab", name="Session Info").click()
+        check("$0" in await pg.get_by_role("tabpanel", name="Session info").inner_text(), "Session Info shows the session's details")
+        await pg.get_by_role("tab", name="Resources").click()
+        await pg.wait_for_timeout(300)
+        res = await pg.get_by_role("tabpanel", name="Resources").inner_text()
+        check("12.4%" in res and "284 MB" in res and "Not container or cgroup" in res, "the Resources tab shows the figures and says they are an estimate")
+        await pg.get_by_role("tab", name="Panes List").click()
+
         # -- keyboard navigation --------------------------------------------------------------------------------------
+        backend = tree.get_by_role("treeitem", name="backend").first
+        await backend.click()
         await tree.focus()
+        if await backend.get_attribute("aria-expanded") == "true":
+            await pg.keyboard.press("ArrowLeft")
+            await pg.wait_for_timeout(150)
+            check(await backend.get_attribute("aria-expanded") == "false", "the left arrow closes an open session")
         await pg.keyboard.press("ArrowRight")  # open the session
-        await pg.keyboard.press("ArrowDown")
         await pg.wait_for_timeout(200)
-        check(await tree.get_by_role("treeitem", name="0: development").count() == 1, "the right arrow opens a session and shows its windows")
-        await pg.keyboard.press("ArrowRight")
-        await pg.keyboard.press("ArrowRight")
-        await pg.keyboard.press("ArrowDown")
-        await pg.wait_for_timeout(1200)
-        check(await pg.get_by_role("region", name="Snapshot of pane %2").count() == 1, "arrow keys walk down to a pane and preview it")
-        check("Compiling" in await pg.get_by_role("region", name="Snapshot of pane %2").inner_text(), "the pane's own text is shown")
+        check(await backend.get_attribute("aria-expanded") == "true" and await tree.get_by_role("treeitem", name="0: development").count() == 1, "the right arrow opens a session and shows its windows")
+        await pg.keyboard.press("ArrowDown")  # the first window
+        if await tree.get_by_role("treeitem", name="0: development").get_attribute("aria-expanded") != "true":
+            await pg.keyboard.press("ArrowRight")
+        await pg.keyboard.press("ArrowDown")  # %1
+        await pg.keyboard.press("ArrowDown")  # %2
+        await pg.wait_for_timeout(1500)
+        check(await pg.get_by_role("region", name="Snapshot of pane %2").count() >= 1, "arrow keys walk down to a pane and preview it")
+        check("Compiling" in await pg.get_by_role("region", name="Snapshot of pane %2").first.inner_text(), "the pane's own text is shown")
 
         # -- resizing a pane from the inspector -----------------------------------------------------------------------
         before = await pg.evaluate("window.__tmuxCalls.filter(c => c[0] === 'tmux_operate').length")
@@ -163,14 +212,24 @@ async def main():
         ops = await pg.evaluate("window.__tmuxCalls.filter(c => c[0] === 'tmux_operate').map(c => c[1].op)")
         check(len(ops) == before + 1 and ops[-1] == {"op": "resize_pane", "pane": "%2", "dir": "right", "amount": 5}, "the inspector resizes the selected pane by its id")
 
-        # -- gallery ---------------------------------------------------------------------------------------------------
-        await tree.get_by_role("treeitem", name="backend").first.click()
-        await pg.get_by_role("button", name="All panes").click()
+        # -- bottom panel: output ---------------------------------------------------------------------------------------
+        out = pg.get_by_role("tabpanel", name="Output")
+        check("Compiling" in await out.inner_text(), "the Output tab shows the selected pane's captured text")
+        await pg.get_by_label("Filter the output shown").fill("warning")
+        await pg.wait_for_timeout(300)
+        t = await out.inner_text()
+        check("warning" in t and "Finished" not in t, "filtering the output keeps only matching lines")
+        await pg.get_by_label("Filter the output shown").fill("")
+        await pg.get_by_label("Pane", exact=True).select_option("%3")
         await pg.wait_for_timeout(1500)
-        check(await pg.get_by_role("list", name="Pane snapshots").count() == 1, "gallery mode draws every pane of the session")
-        check(await pg.get_by_role("listitem").count() >= 3, "each pane has a tile")
-        await shot(pg, "tmux-3-gallery")
-        await pg.get_by_role("button", name="One pane at a time").click()
+        check("sshd" in await out.inner_text(), "the pane chooser shows another pane's output")
+        await shot(pg, "tmux-4-output")
+        await pg.get_by_role("button", name="Collapse the panel").click()
+        await pg.wait_for_timeout(200)
+        check(await pg.get_by_role("tabpanel", name="Output").count() == 0, "the bottom panel collapses")
+        await pg.get_by_role("tab", name="Output").click()
+        await pg.wait_for_timeout(300)
+        check(await pg.get_by_role("tabpanel", name="Output").count() == 1, "and opens again from a tab")
 
         # -- metadata search -------------------------------------------------------------------------------------------
         await pg.get_by_label("Search sessions, windows, panes, commands and tags").fill("cargo")
@@ -180,28 +239,41 @@ async def main():
         await pg.get_by_label("Clear search").click()
 
         # -- output search ---------------------------------------------------------------------------------------------
-        await pg.get_by_role("button", name="Output").click()
+        await pg.keyboard.press("Control+Shift+F")
+        await pg.wait_for_timeout(300)
         await pg.get_by_label("Text to search for in pane output").fill("unused")
         await pg.keyboard.press("Enter")
         await pg.wait_for_timeout(800)
         body = await pg.get_by_role("region", name="Search pane output").inner_text()
         check("1 match" in body and "unused variable" in body, "searching pane output shows the matching line with its context")
         check("never saved or sent anywhere" in body, "the search says what it covers and that nothing is kept")
-        await shot(pg, "tmux-4-search")
-        await pg.get_by_label("Close search").click()
-        await pg.wait_for_timeout(300)
+        await shot(pg, "tmux-5-search")
 
-        # -- context menu and a change ---------------------------------------------------------------------------------
+        # -- context menu and changes ---------------------------------------------------------------------------------
         await tree.get_by_role("treeitem", name="deployment").first.click(button="right")
         await pg.wait_for_timeout(300)
         menu = pg.get_by_role("menu")
         items = await menu.inner_text()
         check(all(x in items for x in ["Attach in a new tab", "Open in split right", "Open in split down", "Rename", "Kill session"]), "the session menu offers attach, splits, rename and kill")
-        await shot(pg, "tmux-5-menu")
         await pg.keyboard.press("Escape")
+        await tree.get_by_role("treeitem", name="deployment").first.click()
+        await pg.get_by_role("complementary", name="Inspector").get_by_role("button", name="Rename").click()
+        await pg.wait_for_timeout(500)
+        await pg.get_by_role("alertdialog").get_by_role("textbox").fill("release")
+        await pg.get_by_role("alertdialog").get_by_role("button", name="Rename").click()
+        await pg.wait_for_timeout(1000)
+        check("release" in await tree.inner_text(), "renaming a session changes it on the host and the tree follows")
+        await pg.get_by_role("tab", name="Activity").click()
+        await pg.wait_for_timeout(300)
+        act = await pg.get_by_role("tabpanel", name="Activity").inner_text()
+        check("Renamed to release" in act, "the Activity tab records what was done")
+        await pg.get_by_role("tab", name=re.compile("^Events")).click()
+        await pg.wait_for_timeout(300)
+        ev = await pg.get_by_role("tabpanel", name=re.compile("Events")).inner_text()
+        check("Session deployment renamed to release." in ev, "the Events tab shows what changed on the host between readings")
+        await shot(pg, "tmux-6-events")
 
         # -- attaching opens a terminal tab with the backend's command ------------------------------------------------
-        await tree.get_by_role("treeitem", name="deployment").first.click()
         await pg.get_by_role("group", name="Attach").get_by_role("button", name="Attach").click()
         await pg.wait_for_timeout(1500)
         attach = await pg.evaluate("window.__tmuxCalls.filter(c => c[0] === 'tmux_attach_command').map(c => c[1])")
@@ -209,19 +281,42 @@ async def main():
         check(await pg.evaluate("document.querySelectorAll('[data-tab-body]').length") == 1, "and opens one terminal tab")
         sent = await pg.evaluate("window.__sent.map(s => typeof s === 'string' ? s : new TextDecoder().decode(new Uint8Array(s))).join('')")
         check("SSHVAULT_TAB=" in sent and "attach-session" in sent, "the attach command is typed into the new tab's shell")
-        await shot(pg, "tmux-6-attached")
+        await shot(pg, "tmux-7-attached")
 
         # -- the panel beside the terminal -----------------------------------------------------------------------------
         await pg.get_by_role("button", name="Show or hide the tmux panel").click()
         await pg.wait_for_timeout(1200)
         panel = pg.get_by_test_id("tmux-panel")
         check(await panel.count() == 1 and "backend" in await panel.inner_text(), "the tmux panel opens beside the terminal and lists the host's sessions")
-        check("You are" not in await panel.inner_text() or True, "panel text present")
-        await shot(pg, "tmux-7-panel")
+        await shot(pg, "tmux-8-panel")
         await pg.get_by_role("button", name="Close the tmux panel").click()
         await pg.wait_for_timeout(300)
         check(await pg.get_by_test_id("tmux-panel").count() == 0, "closing the panel removes it")
         check(await pg.evaluate("document.querySelectorAll('[data-tab-body]').length") == 1, "and leaves the terminal and its session alone")
+
+        # -- back on the page: the wide sidebar and a narrow window -----------------------------------------------------
+        await pg.keyboard.press("Control+Shift+P")
+        await pg.wait_for_timeout(300)
+        await pg.keyboard.type("Tmux Monitor")
+        await pg.wait_for_timeout(300)
+        await pg.keyboard.press("Enter")
+        await pg.wait_for_timeout(1200)
+        await pg.get_by_role("button", name="Expand the sidebar").click()
+        await pg.wait_for_timeout(300)
+        nav = await pg.get_by_role("navigation", name="Sections").inner_text()
+        check("Tmux" in nav and "Hosts" in nav and "Settings" in nav, "the wide sidebar names every entry")
+        await pg.get_by_role("button", name="Collapse the sidebar").click()
+        await pg.set_viewport_size({"width": 600, "height": 800})
+        await pg.wait_for_timeout(600)
+        check(await pg.get_by_role("navigation", name="Session explorer").count() == 0 and await pg.get_by_role("complementary", name="Inspector").count() == 0, "in a narrow window the explorer and details are not squeezed in beside the preview")
+        overflow = await pg.evaluate("document.documentElement.scrollWidth > document.documentElement.clientWidth")
+        check(not overflow, "and nothing overflows sideways")
+        await pg.get_by_role("button", name="Show the session list").click()
+        await pg.wait_for_timeout(300)
+        check(await pg.get_by_role("dialog", name="Session explorer").count() == 1, "the session list opens as a drawer")
+        await shot(pg, "tmux-9-narrow")
+        await pg.keyboard.press("Escape")
+        await pg.set_viewport_size({"width": 1440, "height": 900})
 
         check(not errors, "no page errors" + (": " + "; ".join(errors[:3]) if errors else ""))
         await b.close()

@@ -4,6 +4,7 @@
 // Nothing here touches Tauri, the DOM or a store, so all of it is tested directly. Remote tmux state (sessions, windows,
 // panes) is kept apart from SSHVault's own terminal state: a terminal tab is never part of a snapshot.
 import type { Uuid } from "$lib/types";
+import { layoutPanes, layoutSize, parseLayout } from "./tmuxLayoutParser";
 
 // -- what the backend sends ------------------------------------------------------------------------------------------
 
@@ -532,3 +533,172 @@ export function dragWidth(start: number, delta: number, side: "left" | "right", 
 export function layoutFor(width: number, prefs: { explorerOpen: boolean; inspectorOpen: boolean }): { explorer: boolean; inspector: boolean } {
   return { explorer: prefs.explorerOpen && width >= 560, inspector: prefs.inspectorOpen && width >= 900 };
 }
+
+// -- what changed between two readings ----------------------------------------------------------------------------------
+
+export type EventKind = "session_created" | "session_ended" | "session_renamed" | "window_created" | "window_ended" | "window_renamed" | "pane_created" | "pane_ended" | "attached" | "detached" | "server_restarted";
+
+export interface TmuxEvent {
+  at: number;
+  kind: EventKind;
+  /** The server it happened on (`serverKey`). */
+  server: string;
+  /** What the person sees, already worded. */
+  text: string;
+  /** Session id and name at the time, when the event is about one. */
+  sessionId?: string;
+  paneId?: string;
+}
+
+/**
+ * What differs between two readings of one tmux server, as events. Only things the readings show are reported (a session that
+ * is there now and was not before), and nothing is reported on a first reading, an unreadable one, or after a server
+ * restart (ids restart with the server, so comparing them would invent changes).
+ */
+export function diffEvents(prev: HostSnapshot | undefined, next: HostSnapshot, at: number): TmuxEvent[] {
+  const server = snapshotKey(next);
+  if (!prev || prev.state.kind !== "ready" || next.state.kind !== "ready") return [];
+  if (prev.server && next.server && (prev.server.pid !== next.server.pid || prev.server.started !== next.server.started)) {
+    return [{ at, kind: "server_restarted", server, text: "The tmux server was restarted; its sessions are new." }];
+  }
+  const out: TmuxEvent[] = [];
+  const before = new Map(prev.sessions.map((s) => [s.id, s]));
+  const after = new Map(next.sessions.map((s) => [s.id, s]));
+  for (const s of next.sessions) {
+    const old = before.get(s.id);
+    if (!old) {
+      out.push({ at, kind: "session_created", server, sessionId: s.id, text: `Session ${s.name} created (${s.windows.length} ${s.windows.length === 1 ? "window" : "windows"}).` });
+      continue;
+    }
+    if (old.name !== s.name) out.push({ at, kind: "session_renamed", server, sessionId: s.id, text: `Session ${old.name} renamed to ${s.name}.` });
+    if (old.attached === 0 && s.attached > 0) out.push({ at, kind: "attached", server, sessionId: s.id, text: `A client attached to ${s.name}.` });
+    if (old.attached > 0 && s.attached === 0) out.push({ at, kind: "detached", server, sessionId: s.id, text: `The last client detached from ${s.name}.` });
+    const oldWin = new Map(old.windows.map((w) => [w.id, w]));
+    const newWin = new Map(s.windows.map((w) => [w.id, w]));
+    for (const w of s.windows) {
+      const ow = oldWin.get(w.id);
+      if (!ow) out.push({ at, kind: "window_created", server, sessionId: s.id, text: `Window ${w.index}: ${w.name} created in ${s.name}.` });
+      else {
+        if (ow.name !== w.name) out.push({ at, kind: "window_renamed", server, sessionId: s.id, text: `Window ${ow.name} renamed to ${w.name} in ${s.name}.` });
+        const had = new Set(ow.panes.map((p) => p.id));
+        const has = new Set(w.panes.map((p) => p.id));
+        for (const p of w.panes) if (!had.has(p.id)) out.push({ at, kind: "pane_created", server, sessionId: s.id, paneId: p.id, text: `Pane ${p.id} (${p.command || "shell"}) opened in ${s.name}:${w.name}.` });
+        for (const p of ow.panes) if (!has.has(p.id)) out.push({ at, kind: "pane_ended", server, sessionId: s.id, paneId: p.id, text: `Pane ${p.id} (${p.command || "shell"}) closed in ${s.name}:${w.name}.` });
+      }
+    }
+    for (const w of old.windows) if (!newWin.has(w.id)) out.push({ at, kind: "window_ended", server, sessionId: s.id, text: `Window ${w.index}: ${w.name} closed in ${s.name}.` });
+  }
+  for (const s of prev.sessions) if (!after.has(s.id)) out.push({ at, kind: "session_ended", server, sessionId: s.id, text: `Session ${s.name} ended.` });
+  return out;
+}
+
+// -- the numbers over the top of the page ---------------------------------------------------------------------------------
+
+export interface Summary {
+  hosts: number;
+  sessions: number;
+  windows: number;
+  panes: number;
+  /** Summed over the sessions that were measured; `null` when nothing has been (never a made-up zero). */
+  cpuPct: number | null;
+  rss: number | null;
+  /** How many servers the counts cover and how many could not be read. */
+  servers: number;
+  unreadable: number;
+}
+
+/** Totals over the servers' newest readings. Resources are only what has been measured, so a figure with no data is `null`. */
+export function summarize(entries: HostEntry[], snapshots: Readonly<Record<string, HostSnapshot>>, resources: Readonly<Record<string, Resources>>): Summary {
+  const out: Summary = { hosts: new Set(entries.map((e) => e.hostId)).size, sessions: 0, windows: 0, panes: 0, cpuPct: null, rss: null, servers: entries.length, unreadable: 0 };
+  for (const e of entries) {
+    const key = serverKey(e.hostId, e.socket);
+    const snap = snapshots[key];
+    if (!snap || snap.state.kind !== "ready") {
+      if (!snap || snap.state.kind === "failed" || snap.state.kind === "permission_denied") out.unreadable++;
+      continue;
+    }
+    for (const s of snap.sessions) {
+      out.sessions++;
+      out.windows += s.windows.length;
+      out.panes += paneCount(s);
+    }
+    const res = resources[key];
+    for (const su of res?.sessions ?? []) {
+      if (!su.usage) continue;
+      out.rss = (out.rss ?? 0) + su.usage.rss;
+      if (su.usage.cpu_pct !== null) out.cpuPct = (out.cpuPct ?? 0) + su.usage.cpu_pct;
+    }
+  }
+  return out;
+}
+
+/** `list` with `value` added, keeping the newest `max`. */
+export function pushHistory(list: readonly number[] | undefined, value: number, max = 30): number[] {
+  const next = [...(list ?? []), value];
+  return next.length > max ? next.slice(next.length - max) : next;
+}
+
+/** An SVG polyline's points for a series, scaled to the box; empty when there are fewer than two readings. */
+export function sparkPoints(series: readonly number[], w: number, h: number): string {
+  if (series.length < 2) return "";
+  const max = Math.max(...series, 1e-9);
+  const min = Math.min(...series, 0);
+  const span = max - min || 1;
+  return series.map((v, i) => `${((i / (series.length - 1)) * w).toFixed(1)},${(h - ((v - min) / span) * (h - 2) - 1).toFixed(1)}`).join(" ");
+}
+
+/** The refresh intervals offered in the header, in seconds; 0 pauses the live refresh. */
+export const LIVE_CHOICES = [0, 3, 5, 10, 30] as const;
+
+// -- a window's panes where tmux put them --------------------------------------------------------------------------------
+
+export interface PaneRect {
+  /** Percentages of the window's area. */
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * Where each pane of a window sits, from tmux's own layout string, so the preview can look like the window. `null` when the layout
+ * is missing, does not check out, or does not describe exactly this window's panes: the caller then falls back to an even grid
+ * rather than draw something that is not the window.
+ */
+export function paneRects(w: Pick<Window, "layout" | "panes">): Map<string, PaneRect> | null {
+  const layout = parseLayout(w.layout);
+  if (!layout || w.panes.length === 0) return null;
+  const cells = layoutPanes(layout.root);
+  const ids = new Set(w.panes.map((p) => p.id));
+  if (cells.length !== ids.size || !cells.every((c) => ids.has(`%${c.paneId}`))) return null;
+  const { cols, rows } = layoutSize(layout);
+  if (cols <= 0 || rows <= 0) return null;
+  const out = new Map<string, PaneRect>();
+  for (const c of cells) out.set(`%${c.paneId}`, { left: (c.x / cols) * 100, top: (c.y / rows) * 100, width: (c.w / cols) * 100, height: (c.h / rows) * 100 });
+  return out;
+}
+
+// -- filtering captured output --------------------------------------------------------------------------------------------
+
+/** Lines of captured text (escape sequences removed), the last `max` of them, narrowed to those matching `query` when it is not empty. */
+export function filterOutput(text: string, query: string, opts: { regex: boolean; caseSensitive: boolean; max: number }): { lines: string[]; error: string | null; total: number } {
+  const plain = text.replace(/\x1b\[[0-9;:?]*[A-Za-z]/g, "").replace(/[\x00-\x08\x0b-\x1f\x7f]/g, "");
+  const all = plain.split("\n");
+  while (all.length && all[all.length - 1].trim() === "") all.pop();
+  const tail = all.slice(-opts.max);
+  if (!query) return { lines: tail, error: null, total: all.length };
+  if (query.length > 500) return { lines: [], error: "The search text is too long.", total: all.length };
+  // The browser's regex engine can backtrack without limit, so a pattern that repeats a repeated group is refused here; the
+  // full-text search across hosts runs in the backend on a linear-time engine and takes any pattern.
+  if (opts.regex && /\([^)]*[+*}][^)]*\)\s*[+*{]/.test(query)) return { lines: [], error: "That pattern is too complex for this filter. Use the Search tab for it.", total: all.length };
+  let re: RegExp;
+  try {
+    re = new RegExp(opts.regex ? query : query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), opts.caseSensitive ? "" : "i");
+  } catch {
+    return { lines: [], error: "That is not a valid pattern.", total: all.length };
+  }
+  return { lines: tail.filter((l) => re.test(l.slice(0, 2000))), error: null, total: all.length };
+}
+
+/** A server key's host id (the part before the socket). */
+export const hostOfServer = (server: string): string => server.split("|")[0];

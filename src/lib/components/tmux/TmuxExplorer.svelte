@@ -1,13 +1,37 @@
 <script lang="ts">
-  import { AlertTriangle, ChevronDown, ChevronRight, Columns2, Copy, Eye, LayoutPanelTop, Maximize2, Pencil, Plus, RefreshCw, Rows2, Server, type Server as ServerIcon, SquareTerminal, Tag, Trash2, Unplug, X } from "lucide-svelte";
+  import { AlertTriangle, AppWindow, ChevronDown, ChevronRight, Columns2, Copy, Eye, Layers, LayoutPanelTop, Maximize2, Pencil, PanelsTopLeft, Plus, RefreshCw, Rows2, Search, Server, SquareTerminal, Tag, Trash2, Unplug, X } from "lucide-svelte";
   import { tmuxMonitor as mon } from "$lib/stores/tmuxmonitor.svelte";
   import { actionsFor, type ActionId } from "$lib/tmux/actions";
-  import { parentOf, step, type Row } from "$lib/tmux/monitor";
+  import { bytes, parentOf, step, type Row } from "$lib/tmux/monitor";
   import TmuxMenu, { type MenuItem } from "./TmuxMenu.svelte";
 
   const rows = $derived(mon.rows);
   let menu = $state<{ row: Row; x: number; y: number } | null>(null);
   let list = $state<HTMLDivElement>();
+  let adding = $state("");
+  let filter = $state<HTMLInputElement>();
+  /** Lets the page put the cursor in the filter (Ctrl+F, "/"). */
+  export function focusFilter() {
+    filter?.focus();
+  }
+  const hostCount = $derived(new Set(mon.entries.map((e) => e.hostId)).size);
+
+  /** How a host's tmux server is doing, as a colour: read fine, last-known (stale), unreadable, or not read yet. */
+  function health(r: Row): { tone: string; text: string } {
+    const snap = mon.snapshotOf(r.server);
+    if (!snap) return mon.loading[r.server] ? { tone: "bg-fg-muted/50 animate-pulse", text: "Loading sessions from this host…" } : { tone: "bg-fg-muted/40", text: "Not read yet" };
+    if (snap.stale) return { tone: "bg-warning", text: "Connection to this host was lost; showing the last known state" };
+    if (snap.state.kind === "failed" || snap.state.kind === "permission_denied") return { tone: "bg-danger", text: "This host could not be read" };
+    if (snap.state.kind === "ready") return { tone: "bg-success", text: "Connected" };
+    return { tone: "bg-fg-muted/60", text: "Connected, no tmux sessions" };
+  }
+  /** "12.4% · 284 MB" for a session, only when it was measured. */
+  function usage(r: Row): string {
+    if (r.kind !== "session" || !r.sessionId) return "";
+    const u = mon.resources[r.server]?.sessions.find((x) => x.session_id === r.sessionId)?.usage;
+    if (!u) return "";
+    return `${u.cpu_pct === null ? "" : `${u.cpu_pct.toFixed(1)}% · `}${bytes(u.rss)}`;
+  }
 
   const ICONS: Partial<Record<ActionId, typeof Server>> = {
     refresh: RefreshCw, "new-session": Plus, "remove-host": X, "attach-tab": SquareTerminal, "attach-right": Columns2, "attach-down": Rows2, "attach-replace": LayoutPanelTop,
@@ -63,6 +87,32 @@
   const tone = { info: "text-fg-muted", warn: "text-warning", bad: "text-danger" } as const;
 </script>
 
+<div class="shrink-0 space-y-2 border-b border-line p-2">
+  <div class="relative">
+    <Search size={13} class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-muted" />
+    <input
+      bind:this={filter}
+      class="w-full rounded-lg border border-line bg-base py-1.5 pl-8 pr-7 text-xs focus:border-accent focus:outline-none"
+      placeholder="Search sessions, windows, or panes…"
+      aria-label="Search sessions, windows, panes, commands and tags"
+      bind:value={mon.query}
+    />
+    {#if mon.query}<button class="absolute right-1.5 top-1/2 grid h-5 w-5 -translate-y-1/2 place-items-center rounded text-fg-muted hover:text-fg" aria-label="Clear search" onclick={() => (mon.query = "")}><X size={12} /></button>{/if}
+  </div>
+  <div class="flex items-center gap-2">
+    <span class="flex items-center gap-1.5 text-xs font-semibold"><Server size={13} class="text-fg-muted" /> All Hosts ({hostCount})</span>
+    <select
+      class="ml-auto max-w-40 rounded-md border border-line bg-base px-1.5 py-1 text-[11px] text-fg focus:border-accent focus:outline-none"
+      aria-label="Add a host to the monitor"
+      bind:value={adding}
+      onchange={() => { if (adding) mon.addHost(adding as never); adding = ""; }}
+    >
+      <option value="">+ Add host…</option>
+      {#each mon.addable as h (h.id)}<option value={h.id}>{h.label}</option>{/each}
+    </select>
+  </div>
+</div>
+
 <div bind:this={list} class="min-h-0 flex-1 overflow-y-auto py-1" role="tree" aria-label="Hosts, sessions, windows and panes" tabindex="0" onkeydown={key}>
   {#each rows as row (row.key)}
     {#if row.kind === "notice" && row.notice}
@@ -100,19 +150,21 @@
           </button>
         {:else}<span class="w-5 shrink-0"></span>{/if}
         {#if row.kind === "host"}
-          <Server size={13} class="shrink-0 {row.stale ? 'text-warning' : 'text-fg-muted'}" />
+          {@const h = health(row)}
+          <span class="h-2 w-2 shrink-0 rounded-full {h.tone}" title={h.text} role="img" aria-label={h.text}></span>
         {:else}
-          <span class="h-1.5 w-1.5 shrink-0 rounded-full {dot(row)}" title={row.kind === "session" ? (row.attached ? "A client is attached" : "Detached") : row.active ? "Active" : ""}></span>
+          {@const Icon = row.kind === "session" ? Layers : row.kind === "window" ? AppWindow : PanelsTopLeft}
+          <Icon size={13} class="shrink-0 {row.kind === 'session' && row.attached ? 'text-success' : row.active ? 'text-accent' : 'text-fg-muted'}" />
         {/if}
         <span class="min-w-0 truncate {row.kind === 'pane' ? 'font-mono text-xs' : ''}" title={row.label}>{row.label}</span>
         {#each row.tags ?? [] as tag (tag)}<span class="shrink-0 rounded bg-accent/15 px-1 text-[10px] text-accent">{tag}</span>{/each}
-        <span class="ml-auto shrink-0 truncate pl-2 text-[11px] text-fg-muted">{row.meta}</span>
+        <span class="ml-auto shrink-0 truncate pl-2 text-[11px] text-fg-muted">{usage(row) || row.meta}</span>
         {#if row.stale}<span class="shrink-0" title="The host could not be read just now; this is the last known state."><Unplug size={12} class="text-warning" /></span>{/if}
       </div>
     {/if}
   {/each}
   {#if rows.length === 0}
-    <p class="px-4 py-6 text-center text-xs text-fg-muted">{mon.query ? "Nothing matches that search." : "No hosts yet. Add one from the bar above."}</p>
+    <p class="px-4 py-6 text-center text-xs text-fg-muted">{mon.query ? "Nothing matches that search." : "No hosts yet. Add one with “Add host” above."}</p>
   {/if}
 </div>
 

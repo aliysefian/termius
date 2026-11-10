@@ -1,9 +1,15 @@
 <script lang="ts">
   import { Search, X } from "lucide-svelte";
+  import { onMount } from "svelte";
   import { tmuxMonitor as mon } from "$lib/stores/tmuxmonitor.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
 
-  let { onclose }: { onclose: () => void } = $props();
+  let { onclose, embedded = false, focus = true }: { onclose?: () => void; focus?: boolean; /** Drawn inside the bottom panel: it does not close itself when a hit is opened. */ embedded?: boolean } = $props();
+
+  let input = $state<HTMLInputElement>();
+  onMount(() => {
+    if (focus) input?.focus();
+  });
 
   const scopes = [
     { id: "all", label: "All watched hosts" },
@@ -38,11 +44,11 @@
 
   function go(server: string, r: { session_id: string; window_id: string; pane_id: string }) {
     mon.reveal(server, r.session_id, r.window_id, r.pane_id);
-    onclose();
+    if (!embedded) onclose?.();
   }
   function key(e: KeyboardEvent) {
     if (e.key === "Enter") void mon.search();
-    if (e.key === "Escape") onclose();
+    if (e.key === "Escape" && !embedded) onclose?.();
   }
 </script>
 
@@ -50,12 +56,11 @@
   <header class="shrink-0 space-y-2 border-b border-line bg-panel/50 p-3">
     <div class="flex items-center gap-2">
       <Search size={14} class="text-fg-muted" />
-      <!-- svelte-ignore a11y_autofocus -->
       <input
         class="min-w-0 flex-1 rounded-md border border-line bg-base px-2 py-1 text-sm focus:border-accent focus:outline-none"
         placeholder="Search the text currently in the panes"
         aria-label="Text to search for in pane output"
-        autofocus
+        bind:this={input}
         bind:value={mon.searchText}
         onkeydown={key}
       />
@@ -64,7 +69,7 @@
       {:else}
         <button class="rounded-md border border-accent/50 bg-accent/10 px-2 py-1 text-xs text-accent hover:bg-accent/20 disabled:opacity-50" disabled={!mon.searchText} onclick={() => mon.search()}>Search</button>
       {/if}
-      <button class="grid h-6 w-6 place-items-center rounded-md text-fg-muted hover:bg-panel-hover hover:text-fg" aria-label="Close search" onclick={() => { mon.clearSearch(); onclose(); }}><X size={14} /></button>
+      {#if !embedded}<button class="grid h-6 w-6 place-items-center rounded-md text-fg-muted hover:bg-panel-hover hover:text-fg" aria-label="Close search" onclick={() => { mon.clearSearch(); onclose?.(); }}><X size={14} /></button>{/if}
     </div>
     <div class="flex flex-wrap items-center gap-3 text-xs text-fg-muted">
       <label class="flex items-center gap-1"><input type="checkbox" bind:checked={mon.searchCase} /> Match case</label>

@@ -37,9 +37,32 @@ pane. Each of these was reproduced against a real tmux 3.4 before it was changed
 * **Frontend**: `src/lib/tmux/monitor.ts` (pure logic), `ansi.ts` (pane text as data), `actions.ts` (menus as data),
   `stores/tmuxmonitor.svelte.ts`, `components/tmux/*`.
 
+## The workspace (layout)
+
+Header: title, then counts of hosts, sessions, windows and panes (from the newest readings) and, only once measured, CPU and memory
+of the sessions; a refresh button, **Live · Ns / Paused** (how often the session list is read; paused stops the host loops and
+the preview timers, Refresh still reads on request), settings, **New Session**. Below it, left to right:
+
+* **Explorer**: filter box, **All Hosts (n)**, Add host; hosts with a status dot (connected, last-known, unreadable, loading),
+  sessions with attached state and their CPU and memory when measured, windows, panes.
+* **Main area**: breadcrumb (host › session › window), then tabs **Panes Grid** (the window's panes placed where tmux put them,
+  from its own layout string, and an even grid when that layout does not check out), **Panes List**, **Windows**, **Session Info**,
+  **Resources**. Under it a resizable, collapsible panel: **Output** (the selected pane's text, filter, regex, case, pane chooser,
+  50 to 500 lines, copy), **Search** (all panes), **Events** and **Activity**.
+* **Inspector**: details of what is selected, a resources card with small charts (kept for this run only), and only the actions
+  that fit: a session offers session actions and **Kill Session**, a window window actions and **Kill Window**, a pane pane
+  actions, resize and **Kill Pane**. Destructive actions are set apart and ask first.
+* Below 560 px the explorer, and below 900 px the inspector, become drawers opened from the header, so the preview keeps its room.
+
+**Events** are what differs between two readings of a server while the page is open (a session, window or pane appeared or
+ended, a rename, a client attached or detached, a server restart). Nothing is reported for a first reading, an unreadable one, or
+across a restart, and nothing before the page was opened is invented. **Activity** is what was done from here and whether it
+worked, with the error when it did not. Both are held in memory only and are gone when the app closes or the vault locks.
+
 ## Behaviour worth knowing
 
-* **Previews are snapshots** from `capture-pane`, not terminals: no input. Only what is on screen is captured (selected pane about
+* **Previews are snapshots** from `capture-pane`, not terminals: no input (they are labelled *Live Preview · Read Only*; to type,
+  Attach: the Attach button, double-click or Enter on a session, or the tmux panel beside a terminal). Only what is on screen is captured (selected pane about
   every 3 s, other tiles every 8 s, at most 12 tiles), and nothing while the page is hidden. Pane text is held in memory only.
 * **Search** covers the screen plus the scrollback tmux still holds (up to 5000 lines per pane); output tmux has discarded cannot be
   found. A search can be cancelled; a new search replaces the old.
@@ -66,5 +89,6 @@ pane. Each of these was reproduced against a real tmux 3.4 before it was changed
 
 * `src-tauri/src/tmux/tests.rs`: 38 tests, most against a real tmux server on a private socket in a temp folder (`TMUX` is removed
   from every child, so the user's tmux is never touched). They skip when tmux (or `script`, for the pty ones) is missing.
-* `src/lib/__tests__/tmuxmonitor*.test.ts`, `multiplexer*.test.ts`: tree, search, previews, store and attach logic.
+* `src/lib/__tests__/tmuxmonitor*.test.ts`, `tmuxworkspace.test.ts`, `multiplexer*.test.ts`: tree, search, previews, events,
+  summary, layout placement, output filter, store and attach logic.
 * `src/lib/__tests__/e2e/tmuxmonitor.py`: the page in a headless browser with the backend simulated.
