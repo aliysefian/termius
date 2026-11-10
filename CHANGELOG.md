@@ -4,7 +4,7 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
-## Unreleased
+## 0.59.0 - 2026-11-10
 
 - **New:** the Tmux page is redesigned as a workspace. A header counts hosts, sessions, windows and panes (and, once measured, CPU and memory), with a refresh button, a **Live · Ns / Paused** choice and **New Session**. Under it: an explorer with status dots and per-session CPU and memory; a breadcrumb and tabs (**Panes Grid**, **Panes List**, **Windows**, **Session Info**, **Resources**); and an inspector that offers only the actions that fit what is selected, with destructive ones set apart.
 - **New:** the grid draws a window's panes where tmux put them, using the window's own layout, and labels itself **Live Preview · Read Only**. A pane's tile can open its session in a terminal tab or show a menu of actions.
