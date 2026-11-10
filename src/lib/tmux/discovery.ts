@@ -126,16 +126,22 @@ export function validSessionName(name: string): boolean {
   return name.length <= 100 && !/[.:\x00-\x1f\x7f]/.test(name);
 }
 
+/**
+ * `=name` is tmux's exact-match form. A bare `-t name` matches by prefix when no session has exactly that name, so after
+ * `db` is killed `attach -t db` quietly attaches to `db2`.
+ */
+const exact = (name: string) => shellQuote(`=${name}`);
+
 /** What to type into the remote shell. Every name is quoted: it came from the host. */
 export const attachCommand = {
-  tmuxNative: (name: string) => `tmux -CC -u attach -t ${shellQuote(name)}`,
+  tmuxNative: (name: string) => `tmux -CC -u attach -t ${exact(name)}`,
   /**
    * From inside tmux, `attach` is refused (sessions aren't nested); the way to move is `switch-client`, which acts on
    * the client of the pane it runs in. Outside tmux, `switch-client` doesn't fail: it pulls some other client of the
    * host onto the session and leaves this shell where it was. So it runs only when `$TMUX` says this shell is in tmux.
    */
   tmuxStandard: (name: string) => {
-    const q = shellQuote(name);
+    const q = exact(name);
     return `[ -n "$TMUX" ] && tmux switch-client -t ${q} || tmux attach -t ${q}`;
   },
   /** An empty name lets tmux number the session itself. */
@@ -144,6 +150,22 @@ export const attachCommand = {
   screen: (id: string) => `screen -r ${shellQuote(id)}`,
   newScreen: (name: string) => (name ? `screen -S ${shellQuote(name)}` : "screen"),
 };
+
+/** The legacy bar's shape for the sessions the shared engine found (see `monitor.ts`). */
+export function fromSnapshot(snap: import("./monitor").HostSnapshot): { version: TmuxVersion | null; sessions: TmuxSession[] } {
+  return {
+    version: snap.version ? { major: snap.version.major, minor: snap.version.minor, dev: snap.version.dev, raw: snap.version.raw } : null,
+    sessions: snap.sessions.map((s) => ({
+      id: s.id,
+      name: s.name,
+      windows: s.windows.length,
+      attached: s.attached,
+      created: s.created,
+      lastAttached: s.activity,
+      windowList: s.windows.map((w) => ({ index: w.index, name: w.name, command: (w.panes.find((p) => p.active) ?? w.panes[0])?.command ?? "" })),
+    })),
+  };
+}
 
 export type MuxAction = "newWindow" | "nextWindow" | "prevWindow" | "splitRight" | "splitDown" | "detach";
 

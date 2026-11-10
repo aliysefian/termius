@@ -516,3 +516,19 @@ export function previewsDue(now: number, selected: string | null, visible: strin
   }
   return due;
 }
+
+// -- resizing --------------------------------------------------------------------------------------------------------
+
+/**
+ * The width of a panel after its edge is dragged `delta` pixels to the right. A panel on the left of the divider grows with the
+ * pointer; one on the right shrinks with it. Held between `min` and `max`.
+ */
+export function dragWidth(start: number, delta: number, side: "left" | "right", min: number, max: number): number {
+  const w = start + (side === "left" ? delta : -delta);
+  return Math.round(Math.min(max, Math.max(min, w)));
+}
+
+/** Which panels a window of this width has room for: the inspector goes first, then the explorer. */
+export function layoutFor(width: number, prefs: { explorerOpen: boolean; inspectorOpen: boolean }): { explorer: boolean; inspector: boolean } {
+  return { explorer: prefs.explorerOpen && width >= 560, inspector: prefs.inspectorOpen && width >= 900 };
+}

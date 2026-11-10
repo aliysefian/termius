@@ -846,3 +846,121 @@ async fn sessions_get_cpu_and_memory_from_the_process_trees_of_their_panes() {
     assert!(bu.top.iter().any(|(n, _)| n == "sh"));
     l.tmux(&["kill-server"]);
 }
+
+// -- Auto tmux ---------------------------------------------------------------------------------------------------------
+
+#[cfg(unix)]
+fn run_auto(l: &real::Local, cmd: &str, tmux_env: Option<&str>) -> std::process::Output {
+    let mut c = std::process::Command::new("sh");
+    c.arg("-c").arg(cmd).env("TMUX_TMPDIR", l.dir.path());
+    match tmux_env {
+        Some(v) => c.env("TMUX", v),
+        None => c.env_remove("TMUX"),
+    };
+    c.output().unwrap()
+}
+
+#[cfg(unix)]
+#[test]
+fn auto_tmux_attaches_creating_the_session_once_and_sets_mouse_for_that_session_only() {
+    need_tmux!();
+    if !command_exists("script") {
+        eprintln!("skipped: no `script` to give tmux a terminal");
+        return;
+    }
+    let l = real::Local::new();
+    let sock = l.socket();
+    let cmd = script::auto_command(&sock, "main", true, false, true, "auto-1");
+    // The first terminal creates `main` and attaches to it.
+    let mut a = spawn_in_pty(&l, &cmd);
+    assert!(real::wait_for(|| l.tmux(&["list-clients", "-F", "#{session_name}"]) == "main"));
+    assert_eq!(l.tmux(&["list-sessions", "-F", "#{session_name}"]), "main");
+    assert_eq!(l.tmux(&["show-options", "-t", "main", "-v", "mouse"]), "on", "mouse is on for that session");
+    assert_eq!(l.tmux(&["show-options", "-g", "-v", "mouse"]), "off", "and not for the server");
+    // A second terminal (a reconnect, another tab) attaches to the same session: no duplicate.
+    let mut b = spawn_in_pty(&l, &cmd);
+    assert!(real::wait_for(|| l.tmux(&["list-clients", "-F", "#{session_name}"]).lines().count() == 2));
+    assert_eq!(l.tmux(&["list-sessions", "-F", "#{session_name}"]), "main", "still one session");
+    let _ = a.kill();
+    let _ = b.kill();
+    let _ = (a.wait(), b.wait());
+    assert!(real::wait_for(|| l.tmux(&["list-clients"]).is_empty()));
+    assert_eq!(l.tmux(&["list-sessions", "-F", "#{session_name}"]), "main", "the session outlives its terminals");
+}
+
+#[cfg(unix)]
+#[test]
+fn auto_tmux_matches_the_session_name_exactly_not_by_prefix() {
+    need_tmux!();
+    if !command_exists("script") {
+        return;
+    }
+    let l = real::Local::new();
+    let sock = l.socket();
+    // `main2` exists, `main` does not. Attaching "main" must not land in `main2`.
+    l.tmux(&["new-session", "-d", "-s", "main2"]);
+    let mut c = spawn_in_pty(&l, &script::auto_command(&sock, "main", false, false, false, "auto-2"));
+    std::thread::sleep(Duration::from_millis(800));
+    assert!(l.tmux(&["list-clients"]).is_empty(), "nothing attached: {}", l.tmux(&["list-clients"]));
+    assert_eq!(l.tmux(&["list-sessions", "-F", "#{session_name}"]), "main2");
+    let _ = c.kill();
+    let _ = c.wait();
+    // Created on demand, `main` is a session of its own next to `main2`.
+    let mut d = spawn_in_pty(&l, &script::auto_command(&sock, "main", true, false, false, "auto-3"));
+    assert!(real::wait_for(|| l.tmux(&["list-clients", "-F", "#{session_name}"]) == "main"));
+    assert_eq!(l.tmux(&["list-sessions", "-F", "#{session_name}"]).lines().count(), 2);
+    let _ = d.kill();
+    let _ = d.wait();
+}
+
+#[cfg(unix)]
+#[test]
+fn auto_tmux_attach_only_leaves_the_plain_shell_when_the_session_is_missing() {
+    need_tmux!();
+    let l = real::Local::new();
+    let out = run_auto(&l, &script::auto_command(&l.socket(), "nope", false, false, false, "auto-4"), None);
+    assert!(out.status.success(), "the shell goes on");
+    assert!(String::from_utf8_lossy(&out.stdout).contains("no tmux session called nope was found"), "{}", String::from_utf8_lossy(&out.stdout));
+    assert_eq!(l.tmux(&["list-sessions"]), "", "nothing was created");
+}
+
+#[cfg(unix)]
+#[test]
+fn auto_tmux_never_nests_inside_a_tmux_client() {
+    need_tmux!();
+    let l = real::Local::new();
+    l.tmux(&["new-session", "-d", "-s", "outer"]);
+    let out = run_auto(&l, &script::auto_command(&l.socket(), "main", true, false, false, "auto-5"), Some("/anything,1,0"));
+    assert!(out.status.success());
+    assert_eq!(l.tmux(&["list-sessions", "-F", "#{session_name}"]), "outer", "no new session, no attach");
+}
+
+#[cfg(unix)]
+#[test]
+fn auto_tmux_without_tmux_on_the_host_says_so_and_leaves_the_shell_alone() {
+    // A PATH that holds `sh` and nothing else: no tmux.
+    let bin = tempfile::TempDir::new().unwrap();
+    std::os::unix::fs::symlink("/bin/sh", bin.path().join("sh")).unwrap();
+    let out = std::process::Command::new("/bin/sh")
+        .arg("-c")
+        .arg(script::auto_command(&Socket::Default, "main", true, false, false, "auto-6"))
+        .env("PATH", bin.path())
+        .env_remove("TMUX")
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    assert!(String::from_utf8_lossy(&out.stdout).contains("tmux is not installed on this host"), "{}", String::from_utf8_lossy(&out.stdout));
+}
+
+#[cfg(unix)]
+#[test]
+fn auto_tmux_session_names_cannot_inject_commands() {
+    need_tmux!();
+    let l = real::Local::new();
+    let marker = l.dir.path().join("pwned");
+    // Not a valid session name for the app (the form and the command refuse it), and still harmless if one reached the script.
+    let name = format!("x'; touch {}; echo '", marker.display());
+    let out = run_auto(&l, &script::auto_command(&l.socket(), &name, false, false, false, "auto-7"), None);
+    assert!(out.status.success());
+    assert!(!marker.exists(), "the name was one quoted word");
+}

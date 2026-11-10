@@ -376,7 +376,7 @@ describe("previews", () => {
   it("drops previews of panes that have left the server", async () => {
     const gone = paneKey(S("a"), "%7");
     mon.previews[gone] = { at: 1, loading: false, capture: { text: "old", info: {} as never, taken_at_ms: 1 } };
-    mon.ingest(snapshot("a", [session("$0", "backend")]));
+    mon.ingest(snapshot("a", [session("$0", "backend")]) as never);
     expect(mon.previews[gone]).toBeUndefined();
   });
 });

@@ -12,7 +12,7 @@ import { ask, askText } from "$lib/dialogs.svelte";
 import { ssh } from "$lib/ssh";
 import { ui } from "$lib/stores/ui.svelte";
 import { vaultStore } from "$lib/stores/vault.svelte";
-import { errorMessage, isApiError, type Uuid } from "$lib/types";
+import { errorMessage, isApiError, type AutoTmux, type Uuid } from "$lib/types";
 import { type ActionId } from "$lib/tmux/actions";
 import {
   DEFAULT_SOCKET, PREVIEW_DEFAULTS, accept, buildRows, clampPrefs, closedKey, errorNotice, locate, nodeKey, panesOf, previewsDue, sameContent, serverKey, socketKey,
@@ -140,10 +140,14 @@ class TmuxMonitor {
   visiblePanes = $state<string[]>([]);
   /** The pane the preview is centred on (may be the active pane of a selected session), captured at the selected-pane rate. */
   focusKey = $state<string | null>(null);
+  /** The tmux panel beside the active terminal is open. */
+  panelOpen = $state(false);
   /** Whether the monitor page is on screen. A hidden monitor watches and captures nothing. */
   visible = $state(false);
   /** The session each terminal marker is attached to, as far as this app has put it there. */
   attached = $state<Record<string, { server: string; sessionId: string }>>({});
+  /** The marker of the tmux client Auto tmux started in a terminal pane, by pane. */
+  autoMarker = $state<Record<string, string>>({});
 
   searchText = $state("");
   searchCase = $state(false);
@@ -243,17 +247,33 @@ class TmuxMonitor {
 
   // -- lifecycle ---------------------------------------------------------------------------------------------------
 
+  /** Listen for the changes the engine pushes (once, for every view). */
+  async listen() {
+    if (this.#unlisten) return;
+    try {
+      this.#unlisten = await api.tmuxMonitor.onSnapshot((s) => this.ingest(s));
+    } catch {
+      // Outside the app (tests, the browser preview) there is no event channel; requests still work.
+    }
+  }
+
+  /**
+   * Keep one host's list current for the panel beside a terminal. The engine runs a single loop per host however many views
+   * watch it; the returned function ends this view's share of it.
+   */
+  watchPanel(paneId: string, hostId: Uuid, socket: Socket = DEFAULT_SOCKET): () => void {
+    const subscriber = `panel:${paneId}`;
+    void this.listen();
+    void api.tmuxMonitor.watch(hostId, socket, subscriber, this.prefs.discoverMs).catch((e) => this.#fail(serverKey(hostId, socket), e));
+    void this.refresh(hostId, socket, false);
+    return () => void api.tmuxMonitor.unwatch(subscriber).catch(() => {});
+  }
+
   /** The monitor page opened: listen for pushed changes and watch the hosts. */
   async start() {
     this.visible = true;
     this.seed();
-    if (!this.#unlisten) {
-      try {
-        this.#unlisten = await api.tmuxMonitor.onSnapshot((s) => this.ingest(s));
-      } catch {
-        // Outside the app (tests, the browser preview) there is no event channel; requests still work.
-      }
-    }
+    await this.listen();
     this.#started = true;
     this.#watchAll();
     for (const e of this.entries) void this.refresh(e.hostId, e.socket, false);
@@ -286,6 +306,7 @@ class TmuxMonitor {
     this.resourceError = {};
     this.searchReport = null;
     this.attached = {};
+    this.autoMarker = {};
     this.selected = null;
     this.#lastCapture.clear();
   }
@@ -555,17 +576,34 @@ class TmuxMonitor {
 
   // -- attaching ---------------------------------------------------------------------------------------------------
 
-  /** The session a terminal pane's tmux client was last put on by this app, if it was started by it. */
-  attachmentOf(paneId: string): { server: string; sessionId: string; marker: string } | null {
+  /** The marker of the tmux client a terminal pane started: from the monitor's attach command, or from Auto tmux. */
+  markerForPane(paneId: string): string | null {
     for (const t of ui.tabs) {
       const p = t.panes.find((x) => x.id === paneId);
-      if (p?.target.kind === "host") {
-        const marker = markerOf(p.target.command);
-        const a = marker ? this.attached[marker] : undefined;
-        if (marker && a) return { ...a, marker };
-      }
+      if (p?.target.kind === "host") return markerOf(p.target.command) ?? this.autoMarker[paneId] ?? null;
     }
     return null;
+  }
+
+  /** The session a terminal pane's tmux client was last put on by this app, if it was started by it. */
+  attachmentOf(paneId: string): { server: string; sessionId: string; marker: string } | null {
+    const marker = this.markerForPane(paneId);
+    const a = marker ? this.attached[marker] : undefined;
+    return marker && a ? { ...a, marker } : null;
+  }
+
+  /**
+   * Auto tmux: the command to type into a shell that just connected, or null when the host has it off. The shell is checked
+   * for being inside tmux already, and for tmux being installed, on the host (see `tmux::script::auto_command`).
+   */
+  async autoCommand(paneId: string, hostId: Uuid, auto: AutoTmux | undefined): Promise<string | null> {
+    if (!auto?.enabled) return null;
+    const socket: Socket = auto.socket?.trim() ? { kind: "name", value: auto.socket.trim() } : DEFAULT_SOCKET;
+    const marker = newMarker();
+    const command = await api.tmuxMonitor.autoCommand(socket, auto.session?.trim() || "main", auto.behavior !== "attach_existing", auto.behavior === "always_new", !!auto.mouse, marker);
+    this.autoMarker[paneId] = marker;
+    this.attached[marker] = { server: serverKey(hostId, socket), sessionId: "" };
+    return command;
   }
 
   /**
@@ -607,7 +645,7 @@ class TmuxMonitor {
       ui.notify("warning", "The active terminal is not on this host. Open the session in a new tab instead.");
       return false;
     }
-    const marker = markerOf(pane.target.command);
+    const marker = this.markerForPane(pane.id);
     if (marker) {
       const moved = await api.tmuxMonitor.switchClient(snap.host_id, snap.socket, marker, session.id);
       if (moved) {

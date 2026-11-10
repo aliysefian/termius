@@ -307,7 +307,9 @@ pub fn auto_command(socket: &Socket, name: &str, create_if_missing: bool, always
     inner.push_str("if ! command -v tmux >/dev/null 2>&1; then echo 'SSHVault: tmux is not installed on this host; using the normal shell.'; exit 0; fi; ");
     // `=name` is an exact match: plain `name` also matches a session whose name merely starts with it.
     let exact = quote(&format!("={name}"));
-    let mouse_flag = if mouse { format!(" \\; set-option -t {exact} mouse on") } else { String::new() };
+    // No `-t`: the command that follows runs against the session just attached or created, which is exactly the one meant.
+    // (`-t '=name'` is not accepted by set-option and fails without a word.)
+    let mouse_flag = if mouse { " \\; set-option mouse on".to_string() } else { String::new() };
     if always_new {
         // A new session each time; the name is only a prefix, so it never collides with an existing one.
         inner.push_str(&format!("exec {env} {t} new-session"));

@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { actionsFor } from "$lib/tmux/actions";
 import { parseAnsi, plainText } from "$lib/tmux/ansi";
 import {
-  DEFAULT_SOCKET, PREVIEW_DEFAULTS, accept, activePane, ago, buildRows, bytes, clampPrefs, closedKey, installHint, locate, matches, noticeFor, nodeKey, parentOf, previewsDue, sameContent, serverKey, socketKey, step,
+  DEFAULT_SOCKET, PREVIEW_DEFAULTS, dragWidth, layoutFor, accept, activePane, ago, buildRows, bytes, clampPrefs, closedKey, installHint, locate, matches, noticeFor, nodeKey, parentOf, previewsDue, sameContent, serverKey, socketKey, step,
   type HostEntry, type HostSnapshot, type Pane, type Session, type Window,
 } from "$lib/tmux/monitor";
 
@@ -331,5 +331,23 @@ describe("drawing a captured pane", () => {
   it("survives an unfinished escape at the end", () => {
     expect(plainText(parseAnsi("ok\x1b[3"))).toBe("ok");
     expect(plainText(parseAnsi("ok\x1b"))).toBe("ok");
+  });
+});
+
+describe("resizing the panels", () => {
+  it("grows the left panel with the pointer and the right panel against it, within the limits", () => {
+    expect(dragWidth(300, 40, "left", 200, 560)).toBe(340);
+    expect(dragWidth(300, 40, "right", 200, 520)).toBe(260);
+    expect(dragWidth(300, -500, "left", 200, 560)).toBe(200);
+    expect(dragWidth(300, 900, "left", 200, 560)).toBe(560);
+    expect(dragWidth(300, 3.4, "left", 200, 560)).toBe(303);
+  });
+
+  it("gives a narrow window to the preview: the inspector goes first, then the explorer", () => {
+    const open = { explorerOpen: true, inspectorOpen: true };
+    expect(layoutFor(1400, open)).toEqual({ explorer: true, inspector: true });
+    expect(layoutFor(800, open)).toEqual({ explorer: true, inspector: false });
+    expect(layoutFor(500, open)).toEqual({ explorer: false, inspector: false });
+    expect(layoutFor(1400, { explorerOpen: false, inspectorOpen: true })).toEqual({ explorer: false, inspector: true });
   });
 });

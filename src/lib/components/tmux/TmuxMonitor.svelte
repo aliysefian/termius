@@ -3,7 +3,7 @@
   import { onMount } from "svelte";
   import { tmuxMonitor as mon } from "$lib/stores/tmuxmonitor.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
-  import { serverKey } from "$lib/tmux/monitor";
+  import { layoutFor, serverKey } from "$lib/tmux/monitor";
   import Splitter from "./Splitter.svelte";
   import TmuxExplorer from "./TmuxExplorer.svelte";
   import TmuxInspector from "./TmuxInspector.svelte";
@@ -27,8 +27,9 @@
   });
 
   // Narrow windows give the room to the preview: the inspector goes first, then the explorer.
-  const showInspector = $derived(mon.prefs.inspectorOpen && width >= 900);
-  const showExplorer = $derived(mon.prefs.explorerOpen && width >= 560);
+  const room = $derived(layoutFor(width, mon.prefs));
+  const showInspector = $derived(room.inspector);
+  const showExplorer = $derived(room.explorer);
   const explorerW = $derived(Math.min(mon.prefs.explorerWidth, Math.max(200, width * 0.4)));
   const inspectorW = $derived(Math.min(mon.prefs.inspectorWidth, Math.max(220, width * 0.35)));
 

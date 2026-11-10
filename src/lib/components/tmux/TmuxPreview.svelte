@@ -1,6 +1,6 @@
 <script lang="ts">
   import { AlertTriangle, Camera, Columns2, Copy, LayoutGrid, List, RefreshCw, Rows2, SquareTerminal, type Server } from "lucide-svelte";
-  import { onMount } from "svelte";
+  import { onMount, untrack } from "svelte";
   import { paneKey, tmuxMonitor as mon } from "$lib/stores/tmuxmonitor.svelte";
   import { activePane, ago, locate, noticeFor, type Pane, type Session, type Window } from "$lib/tmux/monitor";
   import TmuxMenu, { type MenuItem } from "./TmuxMenu.svelte";
@@ -41,19 +41,29 @@
   const tiles = $derived(panes.slice(0, mon.prefs.preview.maxThumbnails));
   const key = (id: string) => paneKey(sel!.server, id);
 
-  // Tell the store what is on screen: only that is captured.
+  // Tell the store what is on screen: only that is captured. The store is written without being tracked (this effect must not
+  // depend on what it writes), and cleared once, when the preview goes away.
+  const keysOnScreen = $derived(!sel ? [] : grid ? tiles.map((t) => key(t.pane.id)) : focused ? [key(focused.pane.id)] : []);
+  const focusOnScreen = $derived(sel && focused ? key(focused.pane.id) : null);
   $effect(() => {
-    if (!sel) return mon.setVisiblePanes([]);
-    mon.focusKey = focused ? key(focused.pane.id) : null;
-    mon.setVisiblePanes(grid ? tiles.map((t) => key(t.pane.id)) : focused ? [key(focused.pane.id)] : []);
-    return () => {
+    const [keys, focusKey] = [keysOnScreen, focusOnScreen];
+    untrack(() => {
+      mon.focusKey = focusKey;
+      mon.setVisiblePanes(keys);
+    });
+  });
+  $effect(() => () => {
+    untrack(() => {
       mon.focusKey = null;
       mon.setVisiblePanes([]);
-    };
+    });
   });
   // Capture at once when something new comes on screen, instead of waiting for the next tick.
   $effect(() => {
-    for (const k of mon.visiblePanes) if (!mon.previews[k]) void mon.capture(k);
+    const keys = keysOnScreen;
+    untrack(() => {
+      for (const k of keys) if (!mon.previews[k]) void mon.capture(k);
+    });
   });
 
   let now = $state(Date.now());

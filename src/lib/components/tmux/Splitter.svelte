@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { dragWidth } from "$lib/tmux/monitor";
   // A thin draggable divider between two panels. It reports a new width for the panel on one side; the page keeps it.
   let { width, min = 180, max = 640, side = "left", onchange, label }: { width: number; min?: number; max?: number; side?: "left" | "right"; onchange: (w: number) => void; label: string } = $props();
 
@@ -17,9 +18,7 @@
   }
   function move(e: PointerEvent) {
     if (!dragging) return;
-    // The panel on the left grows with the pointer; the one on the right shrinks.
-    const delta = side === "left" ? e.clientX - startX : startX - e.clientX;
-    onchange(Math.round(Math.min(max, Math.max(min, startW + delta))));
+    onchange(dragWidth(startW, e.clientX - startX, side, min, max));
   }
   function up() {
     dragging = false;
@@ -27,10 +26,10 @@
   }
   function key(e: KeyboardEvent) {
     const step = e.shiftKey ? 40 : 10;
-    const dir = (e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0) * (side === "left" ? 1 : -1);
+    const dir = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
     if (!dir) return;
     e.preventDefault();
-    onchange(Math.min(max, Math.max(min, width + dir * step)));
+    onchange(dragWidth(width, dir * step, side, min, max));
   }
 </script>
 
@@ -49,5 +48,5 @@
   onpointerup={up}
   onpointercancel={up}
   onkeydown={key}
-  ondblclick={() => onchange(Math.min(max, Math.max(min, side === "left" ? 300 : 300)))}
+  ondblclick={() => onchange(dragWidth(300, 0, side, min, max))}
 ></div>

@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { Columns2, Pencil, Rows2, SquareTerminal, Tag, Trash2 } from "lucide-svelte";
+  import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Columns2, Maximize2, Pencil, Rows2, SquareTerminal, Tag, Trash2 } from "lucide-svelte";
+  import { untrack } from "svelte";
   import { paneKey, tmuxMonitor as mon } from "$lib/stores/tmuxmonitor.svelte";
   import { bytes, locate, paneCount, socketLabel, when, type Usage } from "$lib/tmux/monitor";
   import { vaultStore } from "$lib/stores/vault.svelte";
@@ -14,10 +15,17 @@
   const paneUsage = $derived<Usage | undefined>(sel?.paneId ? res?.panes[sel.paneId] : undefined);
   const lastText = $derived(sel?.paneId ? mon.previews[paneKey(sel.server, sel.paneId)]?.capture?.text : undefined);
 
-  // Figures follow the selection (and the store's timer keeps them current while it is on screen).
+  // Figures follow the selected session (and the store's timer keeps them current while it is on screen). The effect depends on
+  // which session is selected, not on the readings that change under it.
+  const resourceServer = $derived(sel && here.session ? sel.server : null);
   $effect(() => {
-    if (sel && here.session) void mon.loadResources(sel.server);
+    const server = resourceServer;
+    if (server) untrack(() => void mon.loadResources(server));
   });
+
+  function resize(dir: "up" | "down" | "left" | "right") {
+    if (sel?.paneId) void mon.run(sel.hostId, sel.socket, { op: "resize_pane", pane: sel.paneId, dir, amount: 5 });
+  }
 
   const cpu = (u: Usage) => (u.cpu_pct === null ? "measuring…" : `${u.cpu_pct.toFixed(1)}%`);
 </script>
@@ -121,6 +129,21 @@
           <dt class="text-fg-muted">PID</dt><dd class="tabular-nums">{p.pid ?? "unknown"}</dd>
           <dt class="text-fg-muted">Active</dt><dd>{p.active ? "Yes" : "No"}{p.dead ? " · ended" : ""}{p.in_mode ? " · copy mode" : ""}</dd>
         </dl>
+        {@render section("Resize")}
+        <div class="flex items-center gap-2">
+          <div class="grid grid-cols-3 gap-1 text-fg-muted" role="group" aria-label="Move this pane's borders">
+            <span></span>
+            <button class="grid h-6 w-6 place-items-center rounded border border-line hover:bg-panel-hover hover:text-fg disabled:opacity-50" title="Move the border up by 5 rows" aria-label="Resize up" disabled={!!snap?.stale} onclick={() => resize("up")}><ArrowUp size={12} /></button>
+            <span></span>
+            <button class="grid h-6 w-6 place-items-center rounded border border-line hover:bg-panel-hover hover:text-fg disabled:opacity-50" title="Move the border left by 5 columns" aria-label="Resize left" disabled={!!snap?.stale} onclick={() => resize("left")}><ArrowLeft size={12} /></button>
+            <button class="grid h-6 w-6 place-items-center rounded border border-line hover:bg-panel-hover hover:text-fg disabled:opacity-50" title={here.window?.zoomed ? "Unzoom" : "Zoom this pane to fill the window"} aria-label={here.window?.zoomed ? "Unzoom" : "Zoom"} disabled={!!snap?.stale || (here.window?.panes.length ?? 0) < 2} onclick={() => mon.act("zoom-pane", sel)}><Maximize2 size={12} /></button>
+            <button class="grid h-6 w-6 place-items-center rounded border border-line hover:bg-panel-hover hover:text-fg disabled:opacity-50" title="Move the border right by 5 columns" aria-label="Resize right" disabled={!!snap?.stale} onclick={() => resize("right")}><ArrowRight size={12} /></button>
+            <span></span>
+            <button class="grid h-6 w-6 place-items-center rounded border border-line hover:bg-panel-hover hover:text-fg disabled:opacity-50" title="Move the border down by 5 rows" aria-label="Resize down" disabled={!!snap?.stale} onclick={() => resize("down")}><ArrowDown size={12} /></button>
+            <span></span>
+          </div>
+          <p class="text-[11px] text-fg-muted">Moves the pane's border by 5 cells, as tmux's resize-pane does.</p>
+        </div>
         {@render section("Pane resources (estimate)")}
         {@render usage(paneUsage)}
         {#if lastText}

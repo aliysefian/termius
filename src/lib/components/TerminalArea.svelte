@@ -6,7 +6,7 @@
   import { writeText } from "@tauri-apps/plugin-clipboard-manager";
   import { sshCommand } from "$lib/sshcmd";
   import { ACTIONS, comboFor } from "$lib/shortcuts";
-  import { ArrowLeftRight, BellRing, Check, ChevronDown, Circle, Columns2, History, Command, Copy, Ellipsis, FolderSync, Keyboard, List, Loader2, Maximize2, Minimize2, Plus, RefreshCw, Rows2, Search, SquareTerminal, Terminal, TextSelect, X, Zap } from "lucide-svelte";
+  import { LayoutList, ArrowLeftRight, BellRing, Check, ChevronDown, Circle, Columns2, History, Command, Copy, Ellipsis, FolderSync, Keyboard, List, Loader2, Maximize2, Minimize2, Plus, RefreshCw, Rows2, Search, SquareTerminal, Terminal, TextSelect, X, Zap } from "lucide-svelte";
   import Badge from "./Badge.svelte";
   import Kbd from "./Kbd.svelte";
   import { save } from "@tauri-apps/plugin-dialog";
@@ -32,6 +32,8 @@
   import MultiplexerHeaderBar from "./MultiplexerHeaderBar.svelte";
   import TmuxNativeView from "./TmuxNativeView.svelte";
   import { multiplexers } from "$lib/tmux/useRemoteMultiplexer.svelte";
+  import TmuxSidePanel from "./tmux/TmuxSidePanel.svelte";
+  import { tmuxMonitor } from "$lib/stores/tmuxmonitor.svelte";
   import TerminalMetricsPanel from "./hostmetrics/TerminalMetricsPanel.svelte";
   import { terminalMetrics } from "$lib/stores/terminalmetrics.svelte";
 
@@ -59,6 +61,30 @@
     const p = vaultStore.hostById.get(hostId)?.data?.protocol ?? "";
     return p === "" || p === "ssh";
   };
+
+  /** The SSH host of the active terminal, when the tmux panel can be shown for it. */
+  const tmuxPanelTarget = $derived.by(() => {
+    const t = ui.tabs.find((x) => x.id === ui.activeTabId);
+    const p = t?.panes.find((x) => x.id === t.activePaneId);
+    if (!p || p.target.kind !== "host" || !isSshHost(p.target.hostId) || !tmuxMonitor.panelEnabledFor(p.target.hostId)) return null;
+    return { paneId: p.id, hostId: p.target.hostId };
+  });
+
+  // Auto-open: a terminal whose host the multiplexer bar already found tmux sessions on (it read them when the pane
+  // connected, so this costs no extra connection). Closing the panel by hand is respected for that pane.
+  const tmuxPanelDismissed = new Set<string>();
+  $effect(() => {
+    // Closing it by hand counts for this terminal.
+    if (!tmuxMonitor.panelOpen && tmuxPanelTarget) tmuxPanelDismissed.add(tmuxPanelTarget.paneId);
+  });
+  $effect(() => {
+    const target = tmuxPanelTarget;
+    if (!target || !tmuxMonitor.prefs.panel.autoOpen || tmuxMonitor.panelOpen || tmuxPanelDismissed.has(target.paneId)) return;
+    if ((multiplexers.get(target.paneId).probe?.tmux.sessions.length ?? 0) > 0) {
+      tmuxMonitor.panelOpen = true;
+      tmuxPanelDismissed.add(target.paneId);
+    }
+  });
 
   const hasProd = (t: Tab) => t.panes.some((p) => paneEnv(p).value === "production");
 
@@ -578,6 +604,11 @@
           <button class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-panel-hover" role="menuitem" onclick={() => { void copyPaneSsh(menuPane); paneMenu = null; }}>
             <SquareTerminal size={13} /> Copy ssh command
           </button>
+          {#if isSshHost(hid) && tmuxMonitor.panelEnabledFor(hid)}
+            <button class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-panel-hover" role="menuitem" onclick={() => { menuTab.activePaneId = menuPane.id; tmuxMonitor.panelOpen = !tmuxMonitor.panelOpen; paneMenu = null; }}>
+              <LayoutList size={13} /> {tmuxMonitor.panelOpen ? "Hide" : "Show"} the tmux panel
+            </button>
+          {/if}
         {/if}
         <div class="my-1 border-t border-line"></div>
         {#if menuInfo?.mouseTracked}
@@ -655,6 +686,7 @@
        without the terminals being rebuilt: the connection is not touched. -->
   <div class="min-h-0 min-w-0 {ui.tabs.length ? 'flex flex-1' : 'hidden'}">
   {#if terminalMetrics.panelShown}<TerminalMetricsPanel />{/if}
+  {#if tmuxMonitor.panelOpen && tmuxPanelTarget && tmuxMonitor.prefs.panel.side === "left"}{#key tmuxPanelTarget.paneId}<TmuxSidePanel {...tmuxPanelTarget} />{/key}{/if}
   <div class="flex min-h-0 min-w-0 flex-1 flex-col">
   {#each ui.tabs as t (t.id)}
     {@const rects = layoutRects(t.layout)}
@@ -759,6 +791,9 @@
                   {#if pane.target.kind === "host" && isSshHost(pane.target.hostId)}
                     {@const hid = pane.target.hostId}
                     <button class="icon-btn h-8 w-8" title="Config Time-Machine" aria-label="Config Time-Machine" onclick={() => (ui.configHistory = { hostId: hid })}><History size={16} /></button>
+                    {#if tmuxMonitor.panelEnabledFor(hid)}
+                      <button class="icon-btn h-8 w-8 {tmuxMonitor.panelOpen ? 'text-accent' : ''}" title="tmux sessions on this host" aria-label="Show or hide the tmux panel" aria-pressed={tmuxMonitor.panelOpen} onclick={() => { t.activePaneId = pane.id; tmuxMonitor.panelOpen = !tmuxMonitor.panelOpen; }}><LayoutList size={16} /></button>
+                    {/if}
                   {/if}
                   <button class="icon-btn relative h-8 w-8" title="More actions" aria-label="More pane actions" onclick={(e) => openPaneMenu(e, t.id, pane.id)}>
                     <Ellipsis size={16} />
@@ -797,6 +832,7 @@
     </div>
   {/each}
   </div>
+  {#if tmuxMonitor.panelOpen && tmuxPanelTarget && tmuxMonitor.prefs.panel.side === "right"}{#key tmuxPanelTarget.paneId}<TmuxSidePanel {...tmuxPanelTarget} />{/key}{/if}
   </div>
 
   {#if !tab}
