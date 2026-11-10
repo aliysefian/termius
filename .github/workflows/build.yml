@@ -123,6 +123,8 @@ jobs:
         run: |
           set -o pipefail
           cargo test 2>&1 | tee "$RUNNER_TEMP/test.log" && exit 0
+          # From here a grep that finds nothing must not end the script before the annotation is written.
+          set +e +o pipefail
           summary=$( { grep -E '^test .* FAILED$' "$RUNNER_TEMP/test.log"; grep -E -A4 '^---- ' "$RUNNER_TEMP/test.log"; grep -E '^error' "$RUNNER_TEMP/test.log"; } | head -80 | sed 's/%/%25/g' | sed ':a;N;$!ba;s/\n/%0A/g')
           echo "::error title=Failing tests::$summary"
           exit 1

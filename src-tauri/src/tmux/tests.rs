@@ -3,6 +3,9 @@
 //! child, the default socket folder (`TMUX_TMPDIR`) points into the test's folder, and every `kill-server` names its socket.
 //! A machine without tmux (or without Unix) skips them.
 
+// Windows builds the pure tests only; what the Unix-only tests alone use would be unused there.
+#![cfg_attr(not(unix), allow(unused_imports, dead_code, unused_macros))]
+
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
