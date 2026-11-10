@@ -4,6 +4,16 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## 0.58.0 - 2026-11-10
+
+- **New:** **Tmux** in the left rail: every tmux session on your hosts in one place, with no terminal open. Hosts hold their sessions, windows and panes in a tree you can walk with the arrow keys, search by host, session, window, pane title, command or tag, and manage from a menu: new, rename and kill sessions, windows and panes (killing asks first and says what is running), split right or down, resize, zoom. Add hosts from the bar above the list; a host that has no tmux says so and shows how to install it, and a host with no sessions offers **Create Session**.
+- **New:** previews of panes without attaching. Select a session, window or pane to see its text with colours, or switch to the gallery to see every pane at once. Previews are snapshots, not terminals (they take no typing) and are read only for what is on screen, never while the page is hidden. **Search the output** of all the panes at once, by text or pattern, in the screen and the scrollback tmux still holds; nothing is saved or sent anywhere.
+- **New:** **Attach** opens the session in a new tab, or beside the current terminal (split right or down), or moves the current terminal onto it. Closing a tab never ends a session, and a session can be switched without typing into whatever the terminal is running. Each session shows an estimate of its CPU, memory and processes.
+- **New:** a **tmux panel beside SSH terminals** (the list button in the terminal's toolbar, its menu, or the command palette): the host's sessions and windows next to the terminal, on the side and at the width you choose, off per host if you like. Closing it leaves every session running.
+- **New:** **Auto tmux** on a host (Edit host, off by default): attach to a session by name when a terminal opens, create it if it is missing, or always start a new one. It never starts tmux inside tmux, leaves a host without tmux alone, and can turn on tmux's mouse option for that session only. tmux's key bindings and config file are never changed.
+- **Fixed:** the older tmux bar could attach you to the wrong session: tmux matches a session name by its beginning, so after `db` was killed it attached to `db2`. It now asks for the exact name. It also no longer loses a refresh requested while another was running, keeps its list when one refresh fails, and cannot be fooled by a window named like part of tmux's own output.
+- **Safer:** names given to tmux are escaped, because tmux runs `#(command)` found in a name, and tmux's session numbers are checked against the server they came from, since a restarted server reuses them.
+
 ## 0.57.1 - 2026-11-10
 
 - **Fixed:** the 0.57.0 release did not publish because one automated check failed once on macOS and passed on the identical code. The checks that watch the vault folder for changes made by another copy of the app no longer trip over older file events that macOS replays. Nothing in the app itself changes.
