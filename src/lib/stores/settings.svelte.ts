@@ -187,6 +187,8 @@ export interface Prefs {
   crashSeenAt: number;
   /** The names under the sidebar icons. */
   railLabels: boolean;
+  /** The sidebar is drawn wide, with a name beside each icon, instead of the narrow icon strip. */
+  railExpanded: boolean;
   /** Show pictures a program draws in the terminal (Sixel, iTerm2). Takes effect in terminals opened afterwards. */
   terminalImages: boolean;
   /** Words coloured in terminal output, and which of them raise a notice. */
@@ -356,6 +358,7 @@ export const DEFAULT_PREFS: Prefs = {
   metricsKeep: "off",
   crashSeenAt: 0,
   railLabels: false,
+  railExpanded: false,
   terminalImages: true,
   highlightRules: [],
   commandBlocks: true,

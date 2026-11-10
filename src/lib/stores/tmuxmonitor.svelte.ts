@@ -15,13 +15,33 @@ import { vaultStore } from "$lib/stores/vault.svelte";
 import { errorMessage, isApiError, type AutoTmux, type Uuid } from "$lib/types";
 import { type ActionId } from "$lib/tmux/actions";
 import {
-  DEFAULT_SOCKET, PREVIEW_DEFAULTS, accept, buildRows, clampPrefs, closedKey, errorNotice, locate, nodeKey, panesOf, previewsDue, sameContent, serverKey, socketKey,
-  type HostEntry, type HostSnapshot, type Notice, type Op, type OpResult, type PaneCapture, type PaneHits, type PreviewPrefs, type Resources, type Row, type SearchReport, type Session, type Socket,
+  DEFAULT_SOCKET, PREVIEW_DEFAULTS, accept, buildRows, clampPrefs, closedKey, diffEvents, errorNotice, locate, nodeKey, panesOf, previewsDue, pushHistory, sameContent, serverKey, socketKey, summarize,
+  type HostEntry, type Pane, type Summary, type TmuxEvent, type Window, type HostSnapshot, type Notice, type Op, type OpResult, type PaneCapture, type PaneHits, type PreviewPrefs, type Resources, type Row, type SearchReport, type Session, type Socket,
 } from "$lib/tmux/monitor";
 
 const KEY = "sshvault.tmuxmonitor.v1";
 
 export type PreviewMode = "list" | "grid";
+/** What the main area shows for the selection. */
+export type WorkTab = "grid" | "list" | "windows" | "info" | "resources";
+export type BottomTab = "output" | "search" | "events" | "activity";
+
+export interface BottomPrefs {
+  open: boolean;
+  height: number;
+  tab: BottomTab;
+  /** Lines of the focused pane's output shown in the Output tab. */
+  lines: number;
+}
+
+/** One thing the person did here and how it went. Kept in memory for this run only. */
+export interface Activity {
+  at: number;
+  ok: boolean;
+  text: string;
+  /** The error, when it failed. */
+  detail?: string;
+}
 
 export interface PanelPrefs {
   /** Show the tmux panel beside SSH terminals at all. */
@@ -56,6 +76,10 @@ export interface Prefs {
   /** Session labels, by `server|session name`. */
   tags: Record<string, string[]>;
   panel: PanelPrefs;
+  /** The area below the previews (Output, Search, Events, Activity). */
+  bottom: BottomPrefs;
+  /** Live refresh is paused when false; the Refresh button still reads on request. */
+  live: boolean;
 }
 
 const DEFAULTS: Prefs = {
@@ -74,6 +98,8 @@ const DEFAULTS: Prefs = {
   inspectorOpen: true,
   tags: {},
   panel: { enabled: true, autoOpen: false, side: "right", width: 280, offFor: [] },
+  bottom: { open: true, height: 220, tab: "output", lines: 100 },
+  live: true,
 };
 
 function load(): Prefs {
@@ -85,6 +111,11 @@ function load(): Prefs {
       ...raw,
       preview: clampPrefs({ ...PREVIEW_DEFAULTS, ...(raw.preview ?? {}) }),
       panel: { ...DEFAULTS.panel, ...(raw.panel ?? {}) },
+      bottom: (() => {
+        const b = { ...DEFAULTS.bottom, ...(raw.bottom ?? {}) };
+        return { ...b, height: Math.min(600, Math.max(120, Number(b.height) || 220)), lines: [50, 100, 200, 500].includes(Number(b.lines)) ? Number(b.lines) : 100 };
+      })(),
+      live: raw.live !== false,
       scrollback: Math.min(5000, Math.max(0, Number(raw.scrollback ?? DEFAULTS.scrollback))),
       searchScrollback: Math.min(5000, Math.max(0, Number(raw.searchScrollback ?? DEFAULTS.searchScrollback))),
       discoverMs: Math.min(60000, Math.max(3000, Number(raw.discoverMs ?? DEFAULTS.discoverMs))),
@@ -120,6 +151,12 @@ export function markerOf(command: string | undefined): string | null {
   return m ? m[1] : null;
 }
 
+/** An operation in words, for the activity list when the caller gave none. */
+function describeOp(op: Op): string {
+  const t = op.op.replace(/_/g, " ");
+  return t.charAt(0).toUpperCase() + t.slice(1);
+}
+
 const newMarker = (): string => (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `m${Date.now()}${Math.floor(Math.random() * 1e9)}`);
 
 class TmuxMonitor {
@@ -149,6 +186,19 @@ class TmuxMonitor {
   /** The marker of the tmux client Auto tmux started in a terminal pane, by pane. */
   autoMarker = $state<Record<string, string>>({});
 
+  /** What changed between readings, newest first. Kept in memory, this run only. */
+  events = $state<TmuxEvent[]>([]);
+  /** What was done from here and how it went, newest first. */
+  activity = $state<Activity[]>([]);
+  /** Which tab of the main area is on, per selection kind it makes sense for. */
+  tab = $state<WorkTab>(this.prefs.mode);
+  /** The pane the Output tab is reading (set by that tab while it is on screen), captured at the selected-pane rate. */
+  outputKey = $state<string | null>(null);
+  /** CPU % and resident bytes of each session over the last readings, by `server|session id`, for the small charts. */
+  history = $state<Record<string, { cpu: number[]; mem: number[] }>>({});
+  /** When any server was last read successfully (ms). */
+  lastReadAt = $state(0);
+
   searchText = $state("");
   searchCase = $state(false);
   searchRegex = $state(false);
@@ -163,6 +213,7 @@ class TmuxMonitor {
   #lastCapture = new Map<string, number>();
   #inflight = new Set<string>();
   #searchSeq = 0;
+  #resourceTicks = 0;
   #started = false;
 
   constructor() {
@@ -275,7 +326,7 @@ class TmuxMonitor {
     this.seed();
     await this.listen();
     this.#started = true;
-    this.#watchAll();
+    if (this.prefs.live) this.#watchAll();
     for (const e of this.entries) void this.refresh(e.hostId, e.socket, false);
     this.#previewTimer ??= setInterval(() => void this.#tickPreviews(), 1000);
     this.#resourceTimer ??= setInterval(() => void this.#tickResources(), 5000);
@@ -307,11 +358,15 @@ class TmuxMonitor {
     this.searchReport = null;
     this.attached = {};
     this.autoMarker = {};
+    this.events = [];
+    this.activity = [];
+    this.history = {};
     this.selected = null;
     this.#lastCapture.clear();
   }
 
   #watchAll() {
+    if (!this.prefs.live) return;
     // One subscriber name for the whole page: dropping it stops every loop that nobody else watches.
     void api.tmuxMonitor.unwatch("monitor").catch(() => {});
     for (const e of this.entries) void api.tmuxMonitor.watch(e.hostId, e.socket, "monitor", this.prefs.discoverMs).catch((err) => this.#fail(serverKey(e.hostId, e.socket), err));
@@ -325,6 +380,9 @@ class TmuxMonitor {
     const current = this.snapshots[key];
     const next = accept(current, s);
     if (next === current) return;
+    const changes = diffEvents(current, next, Date.now());
+    if (changes.length) this.events = [...changes.reverse(), ...this.events].slice(0, 200);
+    if (next.state.kind === "ready" && !next.stale) this.lastReadAt = next.taken_at_ms;
     // Same content, only newer: keep the old object so nothing redraws.
     this.snapshots[key] = current && sameContent(current, next) ? { ...current, generation: next.generation, taken_at_ms: next.taken_at_ms } : next;
     delete this.failures[key];
@@ -368,6 +426,49 @@ class TmuxMonitor {
   get rows(): Row[] {
     const map = new Map(Object.entries(this.snapshots));
     return buildRows(this.entries, map, new Set(Object.keys(this.expanded)), this.query, this.tagsFor);
+  }
+
+  /**
+   * What the main area is about, from the selection: a pane as selected, else the window selected (or the session's active one),
+   * and the pane that is active in it. Null while nothing is selected or what was selected is gone.
+   */
+  get focusTarget(): { session: Session; window: Window; pane: Pane | undefined } | null {
+    const sel = this.selectedRow;
+    if (!sel || sel.kind === "host" || sel.kind === "notice") return null;
+    const here = locate(this.snapshots[sel.server], sel);
+    if (!here.session) return null;
+    const window = here.window ?? here.session.windows.find((w) => w.active) ?? here.session.windows[0];
+    if (!window) return null;
+    const pane = here.pane ?? window.panes.find((p) => p.active) ?? window.panes[0];
+    return { session: here.session, window, pane };
+  }
+
+  /** Select a window (opening its session) without picking one of its panes. */
+  revealWindow(server: string, sessionId: string, windowId: string) {
+    delete this.expanded[closedKey(nodeKey.host(server))];
+    this.expanded[nodeKey.session(server, sessionId)] = true;
+    this.selected = nodeKey.window(server, windowId);
+  }
+
+  /** The totals over the page: counts from the readings, CPU and memory only from what was measured. */
+  get summary(): Summary {
+    return summarize(this.entries, this.snapshots, this.resources);
+  }
+
+  /** Pause or resume the live refresh. Pausing stops the host loops and the preview timers; Refresh still reads on request. */
+  setLive(on: boolean) {
+    this.prefs.live = on;
+    if (!this.#started) return;
+    if (on) {
+      this.#watchAll();
+      this.refreshAll();
+    } else void api.tmuxMonitor.unwatch("monitor").catch(() => {});
+  }
+
+  /** Change how often the session list is read, and restart the loops with it. */
+  setDiscoverSeconds(sec: number) {
+    this.prefs.discoverMs = Math.min(60, Math.max(3, Math.round(sec))) * 1000;
+    if (this.#started && this.prefs.live) this.#watchAll();
   }
 
   get selectedRow(): Row | undefined {
@@ -437,7 +538,8 @@ class TmuxMonitor {
     this.#lastCapture.set(key, Date.now());
     this.previews[key] = { ...(this.previews[key] ?? { at: 0 }), loading: true, at: Date.now() };
     try {
-      const capture = await api.tmuxMonitor.capture(r.hostId, r.socket, r.paneId, this.prefs.ansi, opts.scrollback ?? this.prefs.scrollback);
+      const wanted = key === this.outputKey && this.prefs.bottom.open ? this.prefs.bottom.lines : 0;
+      const capture = await api.tmuxMonitor.capture(r.hostId, r.socket, r.paneId, this.prefs.ansi, opts.scrollback ?? Math.max(this.prefs.scrollback, wanted));
       // The pane may have been selected away from while this ran; the text is still right for its own key.
       this.previews[key] = { capture, at: Date.now(), loading: false };
     } catch (e) {
@@ -449,10 +551,11 @@ class TmuxMonitor {
   }
 
   async #tickPreviews() {
-    if (!this.visible || (typeof document !== "undefined" && document.hidden)) return;
+    if (!this.visible || !this.prefs.live || (typeof document !== "undefined" && document.hidden)) return;
     const sel = this.selectedRow;
     const selected = this.focusKey ?? (sel?.paneId ? paneKey(sel.server, sel.paneId) : null);
-    const due = previewsDue(Date.now(), selected, this.visiblePanes, this.#lastCapture, this.prefs.preview, this.visible);
+    const shown = this.outputKey && !this.visiblePanes.includes(this.outputKey) ? [...this.visiblePanes, this.outputKey] : this.visiblePanes;
+    const due = previewsDue(Date.now(), selected ?? this.outputKey, shown, this.#lastCapture, this.prefs.preview, this.visible);
     // A few at a time; the engine bounds what reaches the hosts.
     for (const key of due.slice(0, 3)) void this.capture(key);
   }
@@ -463,17 +566,28 @@ class TmuxMonitor {
     const snap = this.snapshots[server];
     if (!snap || snap.state.kind !== "ready") return;
     try {
-      this.resources[server] = await api.tmuxMonitor.resources(snap.host_id, snap.socket);
+      const res = await api.tmuxMonitor.resources(snap.host_id, snap.socket);
+      this.resources[server] = res;
       delete this.resourceError[server];
+      // A reading per session for the small charts; a session with nothing measured adds nothing rather than a zero.
+      for (const su of res.sessions) {
+        if (!su.usage) continue;
+        const k = `${server}|${su.session_id}`;
+        const h = this.history[k] ?? { cpu: [], mem: [] };
+        this.history[k] = { cpu: su.usage.cpu_pct === null ? h.cpu : pushHistory(h.cpu, su.usage.cpu_pct), mem: pushHistory(h.mem, su.usage.rss) };
+      }
     } catch (e) {
       this.resourceError[server] = errorMessage(e);
     }
   }
 
   async #tickResources() {
-    if (!this.visible || !this.prefs.inspectorOpen || (typeof document !== "undefined" && document.hidden)) return;
-    const server = this.selectedRow?.server;
-    if (server) await this.loadResources(server);
+    if (!this.visible || !this.prefs.live || (typeof document !== "undefined" && document.hidden)) return;
+    this.#resourceTicks++;
+    const selected = this.selectedRow?.server;
+    if (selected) await this.loadResources(selected);
+    // The totals over the page cover every server, so the others are read too, less often.
+    if (this.#resourceTicks % 3 === 0) for (const e of this.entries) if (serverKey(e.hostId, e.socket) !== selected) void this.loadResources(serverKey(e.hostId, e.socket));
   }
 
   // -- changes -----------------------------------------------------------------------------------------------------
@@ -484,14 +598,26 @@ class TmuxMonitor {
       const r = await api.tmuxMonitor.operate(hostId, socket, op);
       this.ingest(r.snapshot);
       if (done) ui.notify("info", done);
+      this.record(true, `${this.#hostLabel(hostId)}: ${done ?? describeOp(op)}`);
       return r;
     } catch (e) {
       const code = isApiError(e) ? e.code : "";
+      this.record(false, `${this.#hostLabel(hostId)}: ${describeOp(op)} failed`, errorMessage(e));
       ui.notify(code === "tmux_server_changed" ? "warning" : "error", errorMessage(e));
       // The engine refreshed after a refusal; mirror that for a connection that failed outright.
       if (code && code !== "validation") void this.refresh(hostId, socket);
       return null;
     }
+  }
+
+  /** Note something done from here, newest first, capped. */
+  record(ok: boolean, text: string, detail?: string) {
+    this.activity = [{ at: Date.now(), ok, text, detail }, ...this.activity].slice(0, 100);
+  }
+
+  #hostLabel(hostId: Uuid): string {
+    const d = vaultStore.hostById.get(hostId)?.data;
+    return d?.label || d?.hostname || "host";
   }
 
   async newSession(hostId: Uuid, socket: Socket, seedName = "") {
@@ -631,9 +757,11 @@ class TmuxMonitor {
         ui.notify("warning", "This tab is full. Opened the session in a new tab instead.");
         ui.openTerminal(snap.host_id, title, command);
       }
+      this.record(true, `Attached ${title}${mode === "tab" ? " in a new tab" : mode === "right" ? " in a split to the right" : " in a split below"}`);
       return true;
     } catch (e) {
       ui.notify("error", `Unable to attach to the selected tmux session. ${errorMessage(e)}`);
+      this.record(false, `Attach to ${title} failed`, errorMessage(e));
       return false;
     }
   }

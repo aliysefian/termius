@@ -3,6 +3,8 @@
     ArrowLeftRight,
     ArrowUpCircle,
     ChevronRight,
+    ChevronsLeft,
+    ChevronsRight,
     Code,
     Container,
     Database,
@@ -46,7 +48,7 @@
   ];
 
   /** A rail entry's name in the chosen language. */
-  const name = (item: Item) => t(`rail.${item.view}` as Key);
+  const name = (item: Item) => t(`rail.${item.view}` as Key) ?? item.label;
   const isCurrent = (item: Item) => ui.view === item.view || !!item.also?.includes(ui.view);
   const inManage = $derived(manage.some((m) => m.view === ui.view) || arranged.away.some((a) => isCurrent(a)));
   let open = $state(false);
@@ -104,6 +106,9 @@
     if (!panel?.contains(t) && !manageButton?.contains(t)) open = false;
   }
 
+  // Wide: a name beside each icon. Narrow: the icon strip, with the name under the icon when "Show a name" is on, and as a tooltip.
+  const wide = $derived(settings.prefs.railExpanded);
+  const row = "group relative flex h-9 w-full shrink-0 items-center gap-3 rounded-lg px-3 text-[13px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
   const rail = "group relative flex shrink-0 flex-col items-center justify-center gap-0.5 rounded-xl transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
   // The current page is a tile with a violet outline, like a selected tab.
   const tone = (on: boolean) => (on ? "bg-accent/15 text-accent ring-1 ring-inset ring-accent/60" : "text-fg-muted hover:bg-panel-hover hover:text-fg");
@@ -111,40 +116,40 @@
 
 <svelte:window onpointerdown={outside} />
 
-<nav class="flex {settings.prefs.railLabels ? 'w-[68px]' : 'w-14'} flex-col items-center overflow-y-auto bg-base py-2" aria-label={t("rail.sections")}>
+<nav class="flex {wide ? 'w-[196px] items-stretch px-2' : settings.prefs.railLabels ? 'w-[68px] items-center' : 'w-14 items-center'} flex-col overflow-y-auto bg-base py-2" aria-label={t("rail.sections")}>
   {#each groups as group, g (g)}
-    {#if g > 0}<div class="my-1.5 h-px w-8 shrink-0 bg-line" role="separator"></div>{/if}
+    {#if g > 0}<div class="my-1.5 h-px {wide ? 'w-full' : 'w-8'} shrink-0 bg-line" role="separator"></div>{/if}
     {#each group as item (item.view)}
       <button
-        class="{rail} mb-0.5 {settings.prefs.railLabels ? 'h-[46px] w-[56px]' : 'h-10 w-10'} {tone(isCurrent(item))}"
+        class="{wide ? row : `${rail} ${settings.prefs.railLabels ? 'h-[46px] w-[56px]' : 'h-10 w-10'}`} mb-0.5 {tone(isCurrent(item))}"
         onclick={() => go(item.view)}
         title={name(item)}
         aria-label={name(item)}
         aria-current={isCurrent(item) ? "page" : undefined}
       >
-        <item.icon size={settings.prefs.railLabels ? 19 : 21} />
-        {#if settings.prefs.railLabels}<span class="text-[10px] font-medium leading-none">{name(item)}</span>{/if}
+        <item.icon size={wide ? 18 : settings.prefs.railLabels ? 19 : 21} class="shrink-0" />
+        {#if wide}<span class="truncate">{name(item)}</span>{:else if settings.prefs.railLabels}<span class="text-[10px] font-medium leading-none">{name(item)}</span>{/if}
         {#if item.view === "ops" && alerts.unread > 0}
-          <span class="absolute right-2 top-1.5 h-2 w-2 rounded-full bg-danger" title="{alerts.unread} new alert{alerts.unread === 1 ? '' : 's'}"></span>
+          <span class="absolute {wide ? 'right-3 top-3.5' : 'right-2 top-1.5'} h-2 w-2 rounded-full bg-danger" title="{alerts.unread} new alert{alerts.unread === 1 ? '' : 's'}"></span>
         {/if}
       </button>
     {/each}
   {/each}
 
-  <div class="my-1.5 h-px w-6 shrink-0 bg-line" role="separator"></div>
+  <div class="my-1.5 h-px {wide ? 'w-full' : 'w-6'} shrink-0 bg-line" role="separator"></div>
   <button
     bind:this={manageButton}
-    class="{rail} mb-0.5 w-10 {settings.prefs.railLabels ? 'h-[46px] w-[56px]' : 'h-10'} {tone(inManage || open)}"
+    class="{wide ? row : `${rail} w-10 ${settings.prefs.railLabels ? 'h-[46px] w-[56px]' : 'h-10'}`} mb-0.5 {tone(inManage || open)}"
     onclick={toggleManage}
     title="Groups, keys, credentials, known hosts and the vault"
     aria-label={t("rail.manage")}
     aria-haspopup="menu"
     aria-expanded={open}
   >
-    <LayoutGrid size={settings.prefs.railLabels ? 19 : 21} />
-    {#if settings.prefs.railLabels}<span class="text-[10px] font-medium leading-none">{t("rail.manage")}</span>{/if}
+    <LayoutGrid size={wide ? 18 : settings.prefs.railLabels ? 19 : 21} class="shrink-0" />
+    {#if wide}<span class="truncate">{t("rail.manage")}</span>{:else if settings.prefs.railLabels}<span class="text-[10px] font-medium leading-none">{t("rail.manage")}</span>{/if}
     {#if vaultStore.openConflicts > 0}
-      <span class="absolute right-2 top-1.5 h-2 w-2 rounded-full bg-warning" title="Sync conflicts need attention"></span>
+      <span class="absolute {wide ? 'right-3 top-3.5' : 'right-2 top-1.5'} h-2 w-2 rounded-full bg-warning" title="Sync conflicts need attention"></span>
     {/if}
   </button>
 
@@ -152,28 +157,38 @@
 
   {#if updates.available}
     <button
-      class="{rail} mb-1 h-10 w-10 text-accent hover:bg-accent/15"
+      class="{wide ? row : `${rail} h-10 w-10`} mb-1 text-accent hover:bg-accent/15"
       onclick={() => (updates.dismissed = null)}
       title={updates.installing ? "Installing the update…" : `Update to SSHVault ${updates.available.version}`}
       aria-label="Update available"
     >
-      <ArrowUpCircle size={20} class={updates.installing ? "animate-pulse" : ""} />
-      <span class="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-accent"></span>
+      <ArrowUpCircle size={wide ? 18 : 20} class="shrink-0 {updates.installing ? 'animate-pulse' : ''}" />
+      {#if wide}<span class="truncate">Update available</span>{/if}
+      <span class="absolute {wide ? 'right-3 top-3.5' : 'right-1.5 top-1.5'} h-2 w-2 rounded-full bg-accent"></span>
     </button>
   {/if}
 
-  <button class="{rail} mb-1 h-10 w-10 {tone(false)}" onclick={() => vaultStore.lock()} title="{t("rail.lock")} (Ctrl+Shift+L)" aria-label={t("rail.lock")}>
-    <Lock size={20} />
+  <button class="{wide ? row : `${rail} h-10 w-10`} mb-1 {tone(false)}" onclick={() => vaultStore.lock()} title="{t("rail.lock")} (Ctrl+Shift+L)" aria-label={t("rail.lock")}>
+    <Lock size={wide ? 18 : 20} class="shrink-0" />{#if wide}<span class="truncate">{t("rail.lock")}</span>{/if}
   </button>
-  <button class="{rail} h-10 w-10 {tone(ui.view === 'settings')}" onclick={() => go("settings")} title={t("rail.settings")} aria-label={t("rail.settings")} aria-current={ui.view === "settings" ? "page" : undefined}>
-    <Settings size={20} />
+  <button class="{wide ? row : `${rail} h-10 w-10`} mb-1 {tone(ui.view === 'settings')}" onclick={() => go("settings")} title={t("rail.settings")} aria-label={t("rail.settings")} aria-current={ui.view === "settings" ? "page" : undefined}>
+    <Settings size={wide ? 18 : 20} class="shrink-0" />{#if wide}<span class="truncate">{t("rail.settings")}</span>{/if}
+  </button>
+  <button
+    class="{wide ? row : `${rail} h-10 w-10`} text-fg-muted hover:bg-panel-hover hover:text-fg"
+    onclick={() => (settings.prefs.railExpanded = !wide)}
+    title={wide ? t("rail.collapse") : t("rail.expand")}
+    aria-label={wide ? t("rail.collapse") : t("rail.expand")}
+    aria-expanded={wide}
+  >
+    {#if wide}<ChevronsLeft size={18} class="shrink-0" /><span class="truncate">{t("rail.collapse")}</span>{:else}<ChevronsRight size={20} />{/if}
   </button>
 
 {#if open}
     <!-- Beside the rail, level with the button; fixed so the rail's own scrolling can't clip it. -->
     <div
       bind:this={panel}
-      class="anim-pop-left fixed {settings.prefs.railLabels ? 'left-[72px]' : 'left-[60px]'} z-40 max-h-[calc(100vh-1rem)] w-72 overflow-y-auto overscroll-contain rounded-xl border border-line bg-panel p-1.5 shadow-xl"
+      class="anim-pop-left fixed {wide ? 'left-[204px]' : settings.prefs.railLabels ? 'left-[72px]' : 'left-[60px]'} z-40 max-h-[calc(100vh-1rem)] w-72 overflow-y-auto overscroll-contain rounded-xl border border-line bg-panel p-1.5 shadow-xl"
       style:top="{flyout.top}px"
       role="menu"
       aria-label={t("rail.manage")}

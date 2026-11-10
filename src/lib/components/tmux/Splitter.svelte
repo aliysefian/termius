@@ -1,7 +1,7 @@
 <script lang="ts">
   import { dragWidth } from "$lib/tmux/monitor";
   // A thin draggable divider between two panels. It reports a new width for the panel on one side; the page keeps it.
-  let { width, min = 180, max = 640, side = "left", onchange, label }: { width: number; min?: number; max?: number; side?: "left" | "right"; onchange: (w: number) => void; label: string } = $props();
+  let { width, min = 180, max = 640, side = "left", vertical = false, onchange, label }: { width: number; min?: number; max?: number; side?: "left" | "right"; /** A horizontal bar between panels stacked top over bottom; `width` is then the height of the panel it resizes. */ vertical?: boolean; onchange: (w: number) => void; label: string } = $props();
 
   let dragging = $state(false);
   let startX = 0;
@@ -11,14 +11,14 @@
     if (e.button !== 0) return;
     e.preventDefault();
     dragging = true;
-    startX = e.clientX;
+    startX = vertical ? e.clientY : e.clientX;
     startW = width;
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     document.body.style.userSelect = "none";
   }
   function move(e: PointerEvent) {
     if (!dragging) return;
-    onchange(dragWidth(startW, e.clientX - startX, side, min, max));
+    onchange(dragWidth(startW, (vertical ? e.clientY : e.clientX) - startX, side, min, max));
   }
   function up() {
     dragging = false;
@@ -26,7 +26,7 @@
   }
   function key(e: KeyboardEvent) {
     const step = e.shiftKey ? 40 : 10;
-    const dir = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
+    const dir = e.key === (vertical ? "ArrowDown" : "ArrowRight") ? 1 : e.key === (vertical ? "ArrowUp" : "ArrowLeft") ? -1 : 0;
     if (!dir) return;
     e.preventDefault();
     onchange(dragWidth(width, dir * step, side, min, max));
@@ -35,9 +35,9 @@
 
 <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
 <div
-  class="group relative z-10 w-1 shrink-0 cursor-col-resize bg-line/40 transition-colors hover:bg-accent/60 focus-visible:bg-accent/60 focus-visible:outline-none {dragging ? 'bg-accent/70' : ''}"
+  class="group relative z-10 shrink-0 {vertical ? 'h-1 w-full cursor-row-resize' : 'w-1 cursor-col-resize'} bg-line/40 transition-colors hover:bg-accent/60 focus-visible:bg-accent/60 focus-visible:outline-none {dragging ? 'bg-accent/70' : ''}"
   role="separator"
-  aria-orientation="vertical"
+  aria-orientation={vertical ? "horizontal" : "vertical"}
   aria-label={label}
   aria-valuenow={width}
   aria-valuemin={min}
