@@ -245,6 +245,7 @@
       ["Go to Fleet", Activity, go("fleet")],
       ["Go to Topology (how hosts, proxies, tunnels and databases connect)", Network, go("topology")],
       ["Go to Operations (logs, services, alerts)", Wrench, go("ops")],
+      ["Go to Tmux Monitor (sessions, windows, panes)", SquareTerminal, go("tmux")],
       ["Go to Runbooks (saved steps to run on hosts)", ListChecks, go("runbooks")],
       ["Go to Monitoring (ping, ports, CPU, alerts to Telegram, Bale, email)", HeartPulse, go("monitoring")],
       ["Go to Kubernetes", Ship, go("kubernetes")],

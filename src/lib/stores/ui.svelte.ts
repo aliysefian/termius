@@ -26,6 +26,7 @@ export type View =
   | "fleetlist"
   | "topology"
   | "ops"
+  | "tmux"
   | "monitoring"
   | "runbooks"
   | "kubernetes"
@@ -35,7 +36,7 @@ export type View =
   | "changelog";
 
 /** Views that fill the window instead of sitting beside the terminals. */
-export const PAGE_VIEWS: View[] = ["dashboard", "groups", "keys", "knownhosts", "vault", "security-review", "fleet", "topology", "ops", "monitoring", "runbooks", "databases", "containers", "kubernetes", "settings", "changelog", "forwarding"];
+export const PAGE_VIEWS: View[] = ["dashboard", "groups", "keys", "knownhosts", "vault", "security-review", "fleet", "topology", "ops", "tmux", "monitoring", "runbooks", "databases", "containers", "kubernetes", "settings", "changelog", "forwarding"];
 
 /** What a pane connects to: a saved host, or an unsaved quick connection. */
 export type PaneTarget =
@@ -623,6 +624,23 @@ class UiStore {
     tab.panes.push(pane);
     tab.layout = split($state.snapshot(tab.layout) as LayoutNode, source.id, pane.id, direction === "vertical" ? "row" : "column");
     tab.activePaneId = pane.id;
+  }
+
+  /**
+   * Split the active pane and open `target` in the new one (the tmux monitor opens a session this way). "vertical" puts the
+   * new pane to the right, "horizontal" below. Returns false when the tab is already full.
+   */
+  splitWith(direction: "vertical" | "horizontal", target: PaneTarget): boolean {
+    const tab = this.activeTab;
+    if (!tab || tab.panes.length >= MAX_PANES) return false;
+    const source = tab.panes.find((p) => p.id === tab.activePaneId) ?? tab.panes[0];
+    const pane: Pane = { id: nextId("pane"), target };
+    tab.panes.push(pane);
+    tab.layout = split($state.snapshot(tab.layout) as LayoutNode, source.id, pane.id, direction === "vertical" ? "row" : "column");
+    tab.activePaneId = pane.id;
+    // Terminals live in the Hosts layouts, not in pages.
+    if (this.view === "sftp" || PAGE_VIEWS.includes(this.view)) this.view = "hosts";
+    return true;
   }
 
   closePane(tabId: string, paneId: string) {

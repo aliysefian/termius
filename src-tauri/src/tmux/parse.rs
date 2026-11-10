@@ -158,6 +158,11 @@ pub fn parse_probe(out: &str, nonce: &str, socket: &Socket) -> Result<Probed, Pa
             created: num(&r[3]),
             activity: num(&r[4]),
             group: Some(clean(&r[5])).filter(|g| !g.is_empty()),
+            mouse: match r[9].trim() {
+                "on" | "1" => Some(true),
+                "off" | "0" => Some(false),
+                _ => None,
+            },
             windows: Vec::new(),
         });
     }

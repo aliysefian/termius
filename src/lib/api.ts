@@ -756,6 +756,30 @@ export const opsLogs = {
   units: (hostId: Uuid) => invoke<string[]>("ops_units", { hostId }),
 };
 
+/**
+ * tmux on hosts: sessions, windows and panes as the host's own tmux server has them, found over the connection the monitoring
+ * engine keeps (no terminal tab needed). See `tmux/monitor.ts` for the shapes and src-tauri/src/tmux for the engine.
+ */
+export const tmuxMonitor = {
+  snapshot: (hostId: Uuid, socket: import("./tmux/monitor").Socket, maxAgeMs?: number) => invoke<import("./tmux/monitor").HostSnapshot>("tmux_snapshot", { hostId, socket, maxAgeMs: maxAgeMs ?? null }),
+  refresh: (hostId: Uuid, socket: import("./tmux/monitor").Socket) => invoke<import("./tmux/monitor").HostSnapshot>("tmux_refresh", { hostId, socket }),
+  latest: () => invoke<import("./tmux/monitor").HostSnapshot[]>("tmux_latest"),
+  watch: (hostId: Uuid, socket: import("./tmux/monitor").Socket, subscriber: string, intervalMs: number) => invoke<void>("tmux_watch", { hostId, socket, subscriber, intervalMs }),
+  unwatch: (subscriber: string) => invoke<void>("tmux_unwatch", { subscriber }),
+  capture: (hostId: Uuid, socket: import("./tmux/monitor").Socket, paneId: string, ansi: boolean, scrollback: number) => invoke<import("./tmux/monitor").PaneCapture>("tmux_capture", { hostId, socket, paneId, ansi, scrollback }),
+  search: (hostId: Uuid, socket: import("./tmux/monitor").Socket, searchId: string, targets: { session_id: string; window_id: string; pane_id: string }[], query: { text: string; case_sensitive: boolean; regex: boolean }, scrollback: number) =>
+    invoke<import("./tmux/monitor").SearchReport>("tmux_search", { hostId, socket, searchId, targets, query, scrollback }),
+  searchCancel: (searchId: string) => invoke<void>("tmux_search_cancel", { searchId }),
+  operate: (hostId: Uuid, socket: import("./tmux/monitor").Socket, op: import("./tmux/monitor").Op) => invoke<import("./tmux/monitor").OpResult>("tmux_operate", { hostId, socket, op }),
+  attachCommand: (hostId: Uuid, socket: import("./tmux/monitor").Socket, sessionId: string, tab: string, detachOthers: boolean) => invoke<string>("tmux_attach_command", { hostId, socket, sessionId, tab, detachOthers }),
+  switchClient: (hostId: Uuid, socket: import("./tmux/monitor").Socket, tab: string, sessionId: string) => invoke<boolean>("tmux_switch_client", { hostId, socket, tab, sessionId }),
+  autoCommand: (socket: import("./tmux/monitor").Socket, session: string, createIfMissing: boolean, alwaysNew: boolean, mouse: boolean, tab: string) =>
+    invoke<string>("tmux_auto_command", { socket, session, createIfMissing, alwaysNew, mouse, tab }),
+  resources: (hostId: Uuid, socket: import("./tmux/monitor").Socket) => invoke<import("./tmux/monitor").Resources>("tmux_resources", { hostId, socket }),
+  forget: (hostId: Uuid) => invoke<void>("tmux_forget", { hostId }),
+  onSnapshot: (handler: (s: import("./tmux/monitor").HostSnapshot) => void): Promise<UnlistenFn> => listen<import("./tmux/monitor").HostSnapshot>("tmux:snapshot", (e) => handler(e.payload)),
+};
+
 /** tmux and screen sessions on a host, found over an extra channel of a pane's connection. */
 export const multiplexer = {
   /** The probe's raw text (see `tmux/discovery.ts`), or null when the pane isn't a connected SSH session. */

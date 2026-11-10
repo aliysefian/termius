@@ -65,6 +65,7 @@ pub const SESSION_VARS: &[&str] = &[
     "pid",
     "start_time",
     "socket_path",
+    "mouse",
 ];
 
 pub const PANE_VARS: &[&str] = &[

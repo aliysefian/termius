@@ -60,7 +60,7 @@ fn socket_names_and_paths_are_checked() {
         assert!(Socket::Name(bad.into()).validate().is_err(), "{bad:?}");
     }
     assert!(Socket::Path("/run/user/1000/tmux-x".into()).validate().is_ok());
-    assert!(Socket::Path("relative/x".into()).validate().is_err() && Socket::Path("/a\nb".into()).validate().is_err());
+    assert!(Socket::Path("relative/x".into()).validate().is_err() && Socket::Path("/a\nb".into()).validate().is_err() && Socket::Path("/a/{{host}}".into()).validate().is_err());
     assert_eq!(Socket::Name("w".into()).key(), "L:w");
 }
 
@@ -239,7 +239,7 @@ impl HostExec for Scripted {
 fn ready_text() -> String {
     // One session, one window, one pane, written the way the script prints it, with the nonce filled in by Scripted.
     let d = "@@NONCE|";
-    let s = format!("{d}$0{d}main{d}1{d}1700000000{d}1700000100{d}{d}4242{d}1699999999{d}/tmp/tmux-1/default{d}");
+    let s = format!("{d}$0{d}main{d}1{d}1700000000{d}1700000100{d}{d}4242{d}1699999999{d}/tmp/tmux-1/default{d}off{d}");
     let p = format!("{d}$0{d}@0{d}0{d}bash{d}1{d}layout{d}0{d}0{d}0{d}%0{d}0{d}1{d}title{d}bash{d}/home{d}4243{d}80{d}24{d}0{d}0{d}");
     format!("@@NONCE:os\nLinux\n@@NONCE:version\ntmux 3.4\n@@NONCE:sockets\n@@NONCE:sessions-rc\n0\n@@NONCE:sessions\n{s}\n@@NONCE:panes-rc\n0\n@@NONCE:panes\n{p}\n@@NONCE:end\n")
 }
@@ -589,7 +589,9 @@ async fn the_whole_session_lifecycle_works_against_a_real_server_and_is_verified
     let r = m.operate(host(), &sock, &Op::KillWindow { window: wid.clone() }).await.unwrap();
     assert!(!r.snapshot.sessions[0].windows.iter().any(|w| w.id == wid));
     // Mouse: this session only, and the server's own setting is untouched.
-    m.operate(host(), &sock, &Op::SetMouse { session: sid.clone(), on: true }).await.unwrap();
+    assert_eq!(m.latest(host(), &sock).unwrap().sessions[0].mouse, Some(false));
+    let r = m.operate(host(), &sock, &Op::SetMouse { session: sid.clone(), on: true }).await.unwrap();
+    assert_eq!(r.snapshot.sessions[0].mouse, Some(true), "the reading after the change shows it");
     assert_eq!(l.tmux(&["show-options", "-t", &sid, "-v", "mouse"]), "on");
     assert_eq!(l.tmux(&["show-options", "-g", "-v", "mouse"]), "off");
     let r = m.operate(host(), &sock, &Op::KillSession { session: sid.clone() }).await;
@@ -783,6 +785,16 @@ async fn the_attach_command_will_not_nest_and_will_not_follow_a_stale_server() {
     let out = l.sh(&cmd);
     assert!(!out.status.success());
     assert!(String::from_utf8_lossy(&out.stdout).contains("server on this host has changed"), "{}", String::from_utf8_lossy(&out.stdout));
+}
+
+#[test]
+fn the_tab_marker_appears_in_the_command_in_the_form_the_interface_reads() {
+    // src/lib/stores/tmuxmonitor.svelte.ts `markerOf` finds a tab's tmux client by this exact text: the marker is quoted for
+    // `env`, and the whole command is quoted again for `sh -c`, so each quote around it comes out as '\''.
+    let cmd = script::attach_command(&Socket::Default, "$3", None, "11111111-2222-3333-4444-555555555555", false);
+    assert!(cmd.contains(r"SSHVAULT_TAB='\''11111111-2222-3333-4444-555555555555'\''"), "{cmd}");
+    let auto = script::auto_command(&Socket::Default, "main", true, false, false, "abc-1");
+    assert!(auto.contains(r"SSHVAULT_TAB='\''abc-1'\''"), "{auto}");
 }
 
 #[cfg(unix)]

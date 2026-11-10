@@ -30,6 +30,7 @@
   import FleetView from "$lib/components/FleetView.svelte";
   import TopologyView from "$lib/components/TopologyView.svelte";
   import OpsView from "$lib/components/OpsView.svelte";
+  import TmuxMonitor from "$lib/components/tmux/TmuxMonitor.svelte";
   import MonitoringView from "$lib/components/MonitoringView.svelte";
   import DbExportDialog from "$lib/components/databases/ExportDialog.svelte";
   import DbImportDialog from "$lib/components/databases/ImportDialog.svelte";
@@ -103,7 +104,7 @@
   /** The name of the page being shown, for screen readers (pages that draw their own heading say it twice, which is harmless). */
   const VIEW_TITLES: Record<string, string> = {
     hosts: "Hosts", favorites: "Favorite hosts", fleetlist: "Fleet", keychain: "Credentials", snippets: "Snippets", forwarding: "Tunnels", sftp: "Files", databases: "Databases",
-    containers: "Containers", kubernetes: "Kubernetes", ops: "Operations", monitoring: "Monitoring", runbooks: "Runbooks", fleet: "Fleet", settings: "Settings", keys: "Keys", groups: "Groups and proxies",
+    containers: "Containers", kubernetes: "Kubernetes", ops: "Operations", tmux: "Tmux", monitoring: "Monitoring", runbooks: "Runbooks", fleet: "Fleet", settings: "Settings", keys: "Keys", groups: "Groups and proxies",
     knownhosts: "Known hosts", vault: "Vault", "security-review": "Security review", changelog: "Changelog",
   };
 
@@ -360,6 +361,8 @@
       <RunbooksView />
     {:else if ui.view === "ops"}
       <OpsView />
+    {:else if ui.view === "tmux"}
+      <TmuxMonitor />
     {:else if ui.view === "monitoring"}
       <MonitoringView />
     {:else if ui.view === "kubernetes"}

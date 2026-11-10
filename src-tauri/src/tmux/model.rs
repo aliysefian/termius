@@ -37,8 +37,9 @@ impl Socket {
                 }
             }
             Socket::Path(p) => {
-                if !p.starts_with('/') || p.len() > 400 || p.chars().any(|c| c.is_control()) {
-                    Err("A tmux socket path must be absolute and free of control characters.".into())
+                // `{{` is the app's own placeholder syntax in commands typed into a terminal.
+                if !p.starts_with('/') || p.len() > 400 || p.chars().any(|c| c.is_control()) || p.contains("{{") {
+                    Err("A tmux socket path must be absolute and free of control characters and '{{'.".into())
                 } else {
                     Ok(())
                 }
@@ -152,6 +153,8 @@ pub struct Session {
     pub activity: u64,
     /// Sessions in a group share their windows.
     pub group: Option<String>,
+    /// The session's `mouse` option as tmux reports it; `None` when this tmux does not say.
+    pub mouse: Option<bool>,
     pub windows: Vec<Window>,
 }
 
