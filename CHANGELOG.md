@@ -4,6 +4,10 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## 0.57.1 - 2026-11-10
+
+- **Fixed:** the 0.57.0 release did not publish because one automated check failed once on macOS and passed on the identical code. The checks that watch the vault folder for changes made by another copy of the app no longer trip over older file events that macOS replays. Nothing in the app itself changes.
+
 ## 0.57.0 - 2026-11-08
 
 - **New:** **Host Metrics**, an agentless view of a Linux host read over the SSH connection the app already keeps (nothing is installed on the host). Open it from a host's details or from the Fleet page. It shows CPU (total and per core, load, frequency), memory (a composition bar that never counts cache twice), filesystems (how full) and physical disks (read and write rates, busy share, latency) as separate things, and network speed per interface with RX and TX charts, peaks, since-boot totals and a choice of MB/s or Mbps. Bridges, tunnels, containers and members of a bond are left out of the total so the same traffic is never counted twice.
