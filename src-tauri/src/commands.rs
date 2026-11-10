@@ -64,6 +64,7 @@ pub use interchange::*;
 pub mod alerting;
 pub use alerting::*;
 pub mod hostmetrics;
+pub mod tmux;
 pub mod confighistory;
 pub mod sshconfig;
 pub use sshconfig::*;
@@ -148,6 +149,8 @@ pub struct AppState {
     pub alert_host: Arc<alerting::AlertHost>,
     /// Host readings (CPU, memory, disks, network...) shared by every view, taken over `alert_host`.
     pub hostmetrics: Arc<crate::hostmetrics::manager::HostMetricsManager<alerting::AlertHost>>,
+    /// tmux sessions, windows and panes on hosts, shared by every view and read over `alert_host`.
+    pub tmux: Arc<tmux::Manager>,
     pub edits: Arc<crate::remoteedit::EditManager>,
     /// Where remote files are downloaded for editing.
     pub edit_dir: PathBuf,
@@ -799,6 +802,8 @@ pub async fn close_everything(state: &AppState) {
     state.alerting.stop();
     // What was read from hosts is forgotten with the lock, and nothing is read until the vault is open again.
     state.hostmetrics.clear();
+    // Pane text and session lists are forgotten with the lock, and nothing keeps polling.
+    state.tmux.clear();
     // Followed logs stop first, and must not log in again once the vault is locked.
     state.ops_logs.stop_all();
     state.monitors.close_all().await;
@@ -3071,6 +3076,11 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             Arc::clone(&alert_host),
             Default::default(),
             Some(Arc::new(hostmetrics::AppSink(app.handle().clone()))),
+        )),
+        tmux: Arc::new(crate::tmux::manager::TmuxManager::new(
+            Arc::clone(&alert_host),
+            Default::default(),
+            Some(Arc::new(tmux::AppSink(app.handle().clone()))),
         )),
         edits: Arc::new(crate::remoteedit::EditManager::new()),
         edit_dir,

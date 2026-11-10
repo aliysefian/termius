@@ -35,6 +35,7 @@ pub mod health;
 pub mod hooks;
 pub mod hostkeys;
 pub mod hostmetrics;
+pub mod tmux;
 pub mod interchange;
 pub mod inventory;
 pub mod hostcreds;
@@ -320,6 +321,20 @@ pub fn run() {
             commands::hostmetrics::hostmetrics_ports,
             commands::hostmetrics::hostmetrics_logins,
             commands::hostmetrics::hostmetrics_signal,
+            commands::tmux::tmux_snapshot,
+            commands::tmux::tmux_refresh,
+            commands::tmux::tmux_latest,
+            commands::tmux::tmux_watch,
+            commands::tmux::tmux_unwatch,
+            commands::tmux::tmux_capture,
+            commands::tmux::tmux_search,
+            commands::tmux::tmux_search_cancel,
+            commands::tmux::tmux_operate,
+            commands::tmux::tmux_attach_command,
+            commands::tmux::tmux_switch_client,
+            commands::tmux::tmux_auto_command,
+            commands::tmux::tmux_resources,
+            commands::tmux::tmux_forget,
             commands::monitoring::monitor_open,
             commands::monitoring::monitor_exec,
             commands::monitoring::monitor_net_sample,

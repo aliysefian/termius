@@ -51,6 +51,7 @@ base64 = "0.22"
 
 # --- Vault / storage ---
 uuid = { version = "1", features = ["v4", "serde"] }
+regex = "1"
 thiserror = "2"
 sha2 = "0.10"
 # SHA-1 for one-time codes (RFC 6238); every authenticator app and PAM module defaults to it.
