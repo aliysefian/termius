@@ -214,6 +214,20 @@ describe("what each node's menu offers", () => {
     expect(actionsFor(row("session", { sessionId: "$0" }), snap("h", [sess("$0", "m", [win("@0", 0, "w", [pane("%0")])], { mouse: true })])).some((x) => x.id === "mouse-off")).toBe(true);
   });
 
+  it("offers the live terminal first, only where the page can show it, and says why when it cannot", () => {
+    const t = { canSplit: true, canReplace: true };
+    expect(ids(actionsFor(row("session", { sessionId: "$0" }), claude, t))).not.toContain("attach-live");
+    const on = actionsFor(row("session", { sessionId: "$0" }), claude, { ...t, live: { allowed: true } });
+    expect(ids(on)[0]).toBe("attach-live");
+    expect(on[0].disabled).toBeFalsy();
+    const off = actionsFor(row("session", { sessionId: "$0" }), claude, { ...t, live: { allowed: false, why: "No hooks." } });
+    expect(off[0]).toMatchObject({ id: "attach-live", disabled: true, why: "No hooks." });
+    for (const kind of ["window", "pane"] as const) {
+      const r = kind === "window" ? row("window", { sessionId: "$0", windowId: "@0" }) : row("pane", { sessionId: "$0", windowId: "@0", paneId: "%1" });
+      expect(ids(actionsFor(r, claude, { ...t, live: { allowed: true } }))).toContain("attach-live");
+    }
+  });
+
   it("disables splitting and replacing when there is no terminal to do it in, and says why", () => {
     const a = actionsFor(row("session", { sessionId: "$0" }), claude, { canSplit: false, canReplace: false });
     const right = a.find((x) => x.id === "attach-right")!;

@@ -10,7 +10,7 @@
 import * as api from "$lib/api";
 import { ask, askText } from "$lib/dialogs.svelte";
 import { ssh } from "$lib/ssh";
-import { ui } from "$lib/stores/ui.svelte";
+import { ui, type Pane as TerminalPaneSpec } from "$lib/stores/ui.svelte";
 import { vaultStore } from "$lib/stores/vault.svelte";
 import { errorMessage, isApiError, type AutoTmux, type Uuid } from "$lib/types";
 import { type ActionId } from "$lib/tmux/actions";
@@ -23,7 +23,18 @@ const KEY = "sshvault.tmuxmonitor.v1";
 
 export type PreviewMode = "list" | "grid";
 /** What the main area shows for the selection. */
-export type WorkTab = "grid" | "list" | "windows" | "info" | "resources";
+export type WorkTab = "grid" | "list" | "windows" | "info" | "resources" | "terminal";
+
+/** The terminal shown in the Terminal tab: one SSH connection whose tmux client is on `sessionId`. */
+export interface LiveTerminal {
+  /** What the terminal component runs: a normal host pane whose startup command attaches to the session. */
+  pane: TerminalPaneSpec;
+  server: string;
+  hostId: Uuid;
+  sessionId: string;
+  /** Names the tmux client this terminal started, so it can be moved to another session without reconnecting. */
+  marker: string;
+}
 export type BottomTab = "output" | "search" | "events" | "activity";
 
 export interface BottomPrefs {
@@ -185,6 +196,9 @@ class TmuxMonitor {
   attached = $state<Record<string, { server: string; sessionId: string }>>({});
   /** The marker of the tmux client Auto tmux started in a terminal pane, by pane. */
   autoMarker = $state<Record<string, string>>({});
+  /** The terminal in the Terminal tab, if one is open. At most one: it is a real connection to a host. */
+  live = $state<LiveTerminal | null>(null);
+  #liveBusy = false;
 
   /** What changed between readings, newest first. Kept in memory, this run only. */
   events = $state<TmuxEvent[]>([]);
@@ -356,6 +370,7 @@ class TmuxMonitor {
     this.resources = {};
     this.resourceError = {};
     this.searchReport = null;
+    this.closeLive(false);
     this.attached = {};
     this.autoMarker = {};
     this.events = [];
@@ -704,6 +719,7 @@ class TmuxMonitor {
 
   /** The marker of the tmux client a terminal pane started: from the monitor's attach command, or from Auto tmux. */
   markerForPane(paneId: string): string | null {
+    if (this.live?.pane.id === paneId) return this.live.marker;
     for (const t of ui.tabs) {
       const p = t.panes.find((x) => x.id === paneId);
       if (p?.target.kind === "host") return markerOf(p.target.command) ?? this.autoMarker[paneId] ?? null;
@@ -766,6 +782,91 @@ class TmuxMonitor {
     }
   }
 
+  // -- the live terminal (the Terminal tab) -------------------------------------------------------------------------
+
+  /** Why a live terminal cannot be opened for a host, or null when it can. */
+  liveBlocker(hostId: Uuid): string | null {
+    const host = vaultStore.hostById.get(hostId)?.data;
+    if (!host) return "This host is no longer in the vault.";
+    const proto = host.protocol ?? "";
+    if (proto !== "" && proto !== "ssh") return "The live terminal needs an SSH host. Use Attach to open this one in a tab.";
+    if (host.hook_before || host.hook_after) return "This host runs a command before or after connecting, which is approved when a tab is opened. Use Attach to open it in a tab.";
+    return null;
+  }
+
+  /** The session the live terminal is on, from the latest reading (undefined once it is gone). */
+  get liveSession(): Session | undefined {
+    const l = this.live;
+    return l ? this.snapshots[l.server]?.sessions.find((s) => s.id === l.sessionId) : undefined;
+  }
+
+  /**
+   * Show a session in the live terminal. With a terminal already on this server, its tmux client is moved to the session, so
+   * there is no new connection (and nothing typed into the terminal's shell). Otherwise a terminal connects and attaches, and
+   * any terminal on another host is closed: it only held a tmux client, and the sessions keep running.
+   * The window and pane asked for are made active first, because that is what the client shows.
+   */
+  async openLive(server: string, sessionId: string, focus: { windowId?: string; paneId?: string } = {}): Promise<boolean> {
+    if (this.#liveBusy) return false;
+    const snap = this.snapshots[server];
+    const session = snap?.sessions.find((s) => s.id === sessionId);
+    if (!snap || !session) {
+      ui.notify("error", "This session no longer exists on the remote host.");
+      return false;
+    }
+    const why = this.liveBlocker(snap.host_id);
+    if (why) {
+      ui.notify("warning", why);
+      return false;
+    }
+    this.#liveBusy = true;
+    const title = `${this.#hostLabel(snap.host_id)} · ${session.name}`;
+    try {
+      const cur = this.live;
+      const moved = !!cur && cur.server === server && (await api.tmuxMonitor.switchClient(snap.host_id, snap.socket, cur.marker, sessionId));
+      if (moved && cur) {
+        this.attached[cur.marker] = { server, sessionId };
+        cur.sessionId = sessionId;
+        await this.#showIn(snap, session, focus);
+        this.record(true, `Live terminal moved to ${title}`);
+      } else {
+        const marker = newMarker();
+        const command = await api.tmuxMonitor.attachCommand(snap.host_id, snap.socket, sessionId, marker, false);
+        await this.#showIn(snap, session, focus);
+        this.closeLive(false);
+        this.attached[marker] = { server, sessionId };
+        this.live = { pane: { id: newMarker(), target: { kind: "host", hostId: snap.host_id, command } }, server, hostId: snap.host_id, sessionId, marker };
+        this.record(true, `Opened a live terminal on ${title}`);
+      }
+      return true;
+    } catch (e) {
+      ui.notify("error", `Unable to open the live terminal. ${errorMessage(e)}`);
+      this.record(false, `Live terminal on ${title} failed`, errorMessage(e));
+      return false;
+    } finally {
+      this.#liveBusy = false;
+    }
+  }
+
+  /** Make a window (and a pane in it) the one tmux shows, so a terminal opened on the session starts there. */
+  async #showIn(snap: HostSnapshot, session: Session, focus: { windowId?: string; paneId?: string }) {
+    const win = (focus.windowId ? session.windows.find((w) => w.id === focus.windowId) : undefined) ?? session.windows.find((w) => w.active);
+    if (win && focus.windowId && !win.active) await this.run(snap.host_id, snap.socket, { op: "select_window", window: win.id });
+    const pane = focus.paneId ? win?.panes.find((p) => p.id === focus.paneId) : undefined;
+    if (pane && !pane.active) await this.run(snap.host_id, snap.socket, { op: "select_pane", pane: pane.id });
+  }
+
+  /** Close the live terminal. Its tmux client detaches; the session keeps running. */
+  closeLive(note = true) {
+    const l = this.live;
+    if (!l) return;
+    this.live = null;
+    delete this.attached[l.marker];
+    // The terminal component clears its own state when it goes; this is for anything it wrote on the way out.
+    setTimeout(() => delete ui.paneInfo[l.pane.id], 0);
+    if (note) this.record(true, `Closed the live terminal on ${this.#hostLabel(l.hostId)}`);
+  }
+
   async #replace(snap: HostSnapshot, session: Session, server: string): Promise<boolean> {
     const tab = ui.activeTab;
     const pane = tab?.panes.find((p) => p.id === tab.activePaneId);
@@ -815,6 +916,11 @@ class TmuxMonitor {
         return;
       }
       case "remove-host": return this.removeHost(row.hostId);
+      case "attach-live": {
+        const id = here.session?.id ?? row.sessionId;
+        if (id && (await this.openLive(row.server, id, { windowId: row.windowId, paneId: row.paneId }))) this.tab = "terminal";
+        return;
+      }
       case "attach-tab": return void (row.sessionId && (await this.attach(row.server, row.sessionId, "tab")));
       case "attach-right": return void (row.sessionId && (await this.attach(row.server, row.sessionId, "right")));
       case "attach-down": return void (row.sessionId && (await this.attach(row.server, row.sessionId, "down")));
