@@ -8,7 +8,7 @@
   import { actionsFor, type ActionId } from "$lib/tmux/actions";
 
   // The panes of one window, as read-only snapshots. "Grid" places them where tmux put them (from the window's own layout) when
-  // that layout checks out, and in an even grid otherwise; "List" shows one pane large. Nothing here takes input: to type, attach.
+  // that layout checks out, and in an even grid otherwise; "List" shows one pane large. Nothing here takes input: to type, use the Terminal tab (or Attach).
 
   const sel = $derived(mon.selectedRow);
   const snap = $derived(sel ? mon.snapshotOf(sel.server) : undefined);
@@ -58,12 +58,12 @@
   const fp = $derived(focused ? mon.previews[key(focused.pane.id)] : undefined);
 
   let menu = $state<{ paneId: string; x: number; y: number } | null>(null);
-  const ICONS: Partial<Record<ActionId, typeof Server>> = { "attach-tab": SquareTerminal, "split-right": Columns2, "split-down": Rows2, "copy-pane": Copy };
+  const ICONS: Partial<Record<ActionId, typeof Server>> = { "attach-live": SquareTerminal, "attach-tab": SquareTerminal, "split-right": Columns2, "split-down": Rows2, "copy-pane": Copy };
   function menuItems(paneId: string): MenuItem[] {
     if (!sel) return [];
     const p = panes.find((x) => x.pane.id === paneId);
     const row = { kind: "pane" as const, sessionId: p?.session.id ?? sel.sessionId, windowId: p?.window.id, paneId };
-    return actionsFor(row, snap, { canSplit: mon.canSplit, canReplace: false }).map((a) => ({ id: a.id, label: a.label, danger: a.danger, disabled: a.disabled, why: a.why, group: a.group, icon: ICONS[a.id] }));
+    return actionsFor(row, snap, { canSplit: mon.canSplit, canReplace: false, live: { allowed: !mon.liveBlocker(sel.hostId), why: mon.liveBlocker(sel.hostId) ?? undefined } }).map((a) => ({ id: a.id, label: a.label, danger: a.danger, disabled: a.disabled, why: a.why, group: a.group, icon: ICONS[a.id] }));
   }
   function actOn(id: string, paneId: string) {
     if (!sel) return;
@@ -161,6 +161,7 @@
         <label class="flex items-center gap-1 text-fg-muted"><input type="checkbox" checked={mon.prefs.ansi} onchange={(e) => { mon.prefs.ansi = e.currentTarget.checked; refreshShown(); }} /> Colours</label>
         <button class="grid h-6 w-6 place-items-center rounded-md border border-line text-fg-muted hover:bg-panel-hover hover:text-fg" title="Refresh the preview" aria-label="Refresh the preview" onclick={refreshShown}><RefreshCw size={12} class={fp?.loading ? "animate-spin" : ""} /></button>
         <button class="grid h-6 w-6 place-items-center rounded-md border border-line text-fg-muted hover:bg-panel-hover hover:text-fg" title="Copy the visible text" aria-label="Copy the visible text" onclick={() => actOn("copy-pane", focused.pane.id)}><Copy size={12} /></button>
+        <button class="flex items-center gap-1 rounded-md bg-accent-solid px-2 py-1 text-white disabled:opacity-50" title={mon.liveBlocker(sel.hostId) ?? "Type in this session: open a live terminal here in the workspace"} disabled={!!mon.liveBlocker(sel.hostId) || !!snap?.stale} onclick={() => actOn("attach-live", focused.pane.id)}><SquareTerminal size={13} /> Live Terminal</button>
         <div class="flex overflow-hidden rounded-md border border-accent/50 text-accent" role="group" aria-label="Attach">
           <button class="flex items-center gap-1 bg-accent/10 px-2 py-1 hover:bg-accent/20" title="Attach to this session in a new terminal tab" onclick={() => attach("tab", focused.session.id)}><SquareTerminal size={13} /> Attach</button>
           <button class="border-l border-accent/40 px-1.5 hover:bg-accent/20 disabled:opacity-40" title="Open in a split to the right" aria-label="Open in split right" onclick={() => attach("right", focused.session.id)} disabled={!mon.canSplit}><Columns2 size={13} /></button>

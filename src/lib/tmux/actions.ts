@@ -5,7 +5,7 @@ import { locate } from "./monitor";
 
 export type ActionId =
   | "refresh" | "new-session" | "add-socket" | "remove-host"
-  | "attach-tab" | "attach-right" | "attach-down" | "attach-replace" | "rename-session" | "new-window" | "tags" | "mouse-on" | "mouse-off" | "kill-session"
+  | "attach-live" | "attach-tab" | "attach-right" | "attach-down" | "attach-replace" | "rename-session" | "new-window" | "tags" | "mouse-on" | "mouse-off" | "kill-session"
   | "select-window" | "rename-window" | "kill-window"
   | "select-pane" | "split-right" | "split-down" | "zoom-pane" | "title-pane" | "copy-pane" | "kill-pane";
 
@@ -21,8 +21,14 @@ export interface Action {
 
 export type Target = Pick<Row, "kind" | "sessionId" | "windowId" | "paneId">;
 
-/** The actions for a node. `terminalOpen` says whether a terminal is open to split or replace; `sameHost` whether it is on this host. */
-export function actionsFor(row: Target, snap: HostSnapshot | undefined, ctx: { canSplit: boolean; canReplace: boolean } = { canSplit: true, canReplace: true }): Action[] {
+/**
+ * The actions for a node. `canSplit` says whether a terminal tab has room to split; `canReplace` whether the active terminal is on
+ * this host. `live` is given only where the live terminal can be shown (the monitor page, not the panel beside a terminal): it says
+ * whether it can be opened for this host and, if not, why.
+ */
+export interface ActionContext { canSplit: boolean; canReplace: boolean; live?: { allowed: boolean; why?: string } }
+export function actionsFor(row: Target, snap: HostSnapshot | undefined, ctx: ActionContext = { canSplit: true, canReplace: true }): Action[] {
+  const live: Action[] = ctx.live ? [{ id: "attach-live", label: "Open live terminal here", group: "a", disabled: !ctx.live.allowed, why: ctx.live.allowed ? undefined : ctx.live.why }] : [];
   const here = locate(snap, row);
   const stale = !!snap?.stale;
   const out: Action[] = [];
@@ -34,6 +40,7 @@ export function actionsFor(row: Target, snap: HostSnapshot | undefined, ctx: { c
     case "session": {
       if (!here.session) return gone("Session");
       out.push(
+        ...live,
         { id: "attach-tab", label: "Attach in a new tab", group: "a" },
         { id: "attach-right", label: "Open in split right", group: "a", disabled: !ctx.canSplit, why: ctx.canSplit ? undefined : "There is no terminal tab with room to split." },
         { id: "attach-down", label: "Open in split down", group: "a", disabled: !ctx.canSplit, why: ctx.canSplit ? undefined : "There is no terminal tab with room to split." },
@@ -49,6 +56,7 @@ export function actionsFor(row: Target, snap: HostSnapshot | undefined, ctx: { c
     case "window": {
       if (!here.window) return gone("Window");
       out.push(
+        ...live,
         { id: "select-window", label: "Make this the active window", group: "a", disabled: here.window.active, why: here.window.active ? "It is already the active window." : undefined },
         { id: "rename-window", label: "Rename…", group: "a" },
         { id: "new-window", label: "New window…", group: "a" },
@@ -63,6 +71,7 @@ export function actionsFor(row: Target, snap: HostSnapshot | undefined, ctx: { c
         { id: "split-right", label: "Split right", group: "a" },
         { id: "split-down", label: "Split down", group: "a" },
         { id: "zoom-pane", label: here.window?.zoomed ? "Unzoom" : "Zoom", group: "a", disabled: (here.window?.panes.length ?? 0) < 2, why: "A window with one pane has nothing to zoom." },
+        ...live,
         { id: "title-pane", label: "Set title…", group: "b" },
         { id: "copy-pane", label: "Copy visible text", group: "b" },
         { id: "attach-tab", label: "Attach to its session in a new tab", group: "b" },

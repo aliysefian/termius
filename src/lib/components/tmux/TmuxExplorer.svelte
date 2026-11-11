@@ -34,14 +34,16 @@
   }
 
   const ICONS: Partial<Record<ActionId, typeof Server>> = {
-    refresh: RefreshCw, "new-session": Plus, "remove-host": X, "attach-tab": SquareTerminal, "attach-right": Columns2, "attach-down": Rows2, "attach-replace": LayoutPanelTop,
+    "attach-live": SquareTerminal, refresh: RefreshCw, "new-session": Plus, "remove-host": X, "attach-tab": SquareTerminal, "attach-right": Columns2, "attach-down": Rows2, "attach-replace": LayoutPanelTop,
     "rename-session": Pencil, "rename-window": Pencil, "new-window": Plus, tags: Tag, "kill-session": Trash2, "kill-window": Trash2, "kill-pane": Trash2, "split-right": Columns2,
     "split-down": Rows2, "zoom-pane": Maximize2, "copy-pane": Copy, "select-pane": Eye, "select-window": Eye, "title-pane": Pencil,
   };
 
+  const liveCtx = (row: Row) => ({ allowed: !mon.liveBlocker(row.hostId), why: mon.liveBlocker(row.hostId) ?? undefined });
+
   function items(row: Row): MenuItem[] {
     const snap = mon.snapshotOf(row.server);
-    return actionsFor(row, snap, { canSplit: mon.canSplit, canReplace: mon.canReplaceOn(row.hostId) }).map((a) => ({ id: a.id, label: a.label, danger: a.danger, disabled: a.disabled, why: a.why, group: a.group, icon: ICONS[a.id] }));
+    return actionsFor(row, snap, { canSplit: mon.canSplit, canReplace: mon.canReplaceOn(row.hostId), live: liveCtx(row) }).map((a) => ({ id: a.id, label: a.label, danger: a.danger, disabled: a.disabled, why: a.why, group: a.group, icon: ICONS[a.id] }));
   }
 
   function openMenu(row: Row, x: number, y: number) {

@@ -160,6 +160,7 @@
           {:else}
             <button class={plain} disabled={stale} onclick={() => mon.act("title-pane", row)}><Pencil size={14} /> Set Title</button>
           {/if}
+          <button class={plain} disabled={stale || !!mon.liveBlocker(sel.hostId)} title={mon.liveBlocker(sel.hostId) ?? "Open a live terminal on this session in the workspace, where you can type"} onclick={() => mon.act("attach-live", row)}><SquareTerminal size={14} /> Live Terminal</button>
           <button class={plain} disabled={!mon.canSplit} title="Open this session in a terminal split to the right" onclick={() => mon.attach(sel.server, s.id, "right")}><Columns2 size={14} /> Terminal Right</button>
           <button class={plain} disabled={!mon.canSplit} title="Open this session in a terminal split below" onclick={() => mon.attach(sel.server, s.id, "down")}><Rows2 size={14} /> Terminal Below</button>
           {#if sel.kind === "pane"}

@@ -49,6 +49,8 @@
 
   function keys(e: KeyboardEvent) {
     const t = e.target as HTMLElement;
+    // Keys typed into the live terminal belong to the shell and to tmux (Ctrl+F is "forward" in readline), not to this page.
+    if (t instanceof Element && t.closest("[data-live-terminal]")) return;
     const typing = t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement;
     const focusFilter = () => {
       if (!room.explorer) {

@@ -47,7 +47,7 @@ the preview timers, Refresh still reads on request), settings, **New Session**. 
   sessions with attached state and their CPU and memory when measured, windows, panes.
 * **Main area**: breadcrumb (host › session › window), then tabs **Panes Grid** (the window's panes placed where tmux put them,
   from its own layout string, and an even grid when that layout does not check out), **Panes List**, **Windows**, **Session Info**,
-  **Resources**. Under it a resizable, collapsible panel: **Output** (the selected pane's text, filter, regex, case, pane chooser,
+  **Resources**, **Terminal**. Under it a resizable, collapsible panel: **Output** (the selected pane's text, filter, regex, case, pane chooser,
   50 to 500 lines, copy), **Search** (all panes), **Events** and **Activity**.
 * **Inspector**: details of what is selected, a resources card with small charts (kept for this run only), and only the actions
   that fit: a session offers session actions and **Kill Session**, a window window actions and **Kill Window**, a pane pane
@@ -62,8 +62,21 @@ worked, with the error when it did not. Both are held in memory only and are gon
 ## Behaviour worth knowing
 
 * **Previews are snapshots** from `capture-pane`, not terminals: no input (they are labelled *Live Preview · Read Only*; to type,
-  Attach: the Attach button, double-click or Enter on a session, or the tmux panel beside a terminal). Only what is on screen is captured (selected pane about
+  use the **Terminal** tab, or Attach: the Attach button, double-click or Enter on a session, or the tmux panel beside a
+  terminal). Only what is on screen is captured (selected pane about
   every 3 s, other tiles every 8 s, at most 12 tiles), and nothing while the page is hidden. Pane text is held in memory only.
+* **Terminal tab** is a real terminal (the same component as a terminal tab, so keys, paste, selection, themes and reconnecting
+  behave the same) on one SSH connection to the host, attached to the selected session with the same command **Attach** uses.
+  Nothing is emulated, so everything you type goes to tmux. **Live Terminal** (the preview's toolbar, the inspector, or *Open live
+  terminal here* in a menu) opens it on the selected session and first makes the selected window and pane the ones tmux shows;
+  with no window chosen nothing is changed in tmux. There is at most one. Selecting another session on the same host does not
+  move it by itself: the bar says which session it is on and **Switch to it** moves the tmux client (`switch-client`, found by
+  its marker; nothing is typed, nothing reconnects). Another host closes it and opens a new one. If the window you selected is
+  not the one tmux shows, the bar offers to show that window. Other tabs hide the terminal without disconnecting it; **Close terminal**,
+  leaving the page or locking the vault ends the connection, which only detaches: the session keeps running. Keys typed in it
+  belong to the shell and tmux: the page's own shortcuts (Ctrl+F, `/`) are off while it has focus. Hosts that run a command
+  before or after connecting, and hosts that are not plain SSH, are refused with the reason, because those commands are approved
+  when a tab is opened; use Attach for them.
 * **Search** covers the screen plus the scrollback tmux still holds (up to 5000 lines per pane); output tmux has discarded cannot be
   found. A search can be cancelled; a new search replaces the old.
 * **Attach** types one `sh -c '…'` into a new tab (or split) of the host, so bash, zsh and fish read it the same way. Inside tmux on

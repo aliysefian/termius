@@ -66,6 +66,7 @@ window.__invoke = async (cmd, args) => {
   if (cmd === 'tmux_search') return { searched: args.targets.length, limited: false, cancelled: false, failed: [],
     results: args.targets.filter((t) => t.pane_id === '%2').map((t) => ({ ...t, hits: [{ line: 3, text: '    warning: unused variable: `x`', spans: [[4, 11]], before: ['   Compiling tokio v1.47.0'], after: ['   Finished dev profile in 4.20s'] }] })) };
   if (cmd === 'tmux_attach_command') return "sh -c 'exec env SSHVAULT_TAB='\\''" + args.tab + "'\\'' tmux -u attach-session -t '\\''" + args.sessionId + "'\\'''";
+  if (cmd === 'tmux_switch_client') return true;
   if (cmd === 'tmux_operate') {
     const o = args.op;
     const list = state[args.hostId];
@@ -273,11 +274,58 @@ async def main():
         check("Session deployment renamed to release." in ev, "the Events tab shows what changed on the host between readings")
         await shot(pg, "tmux-6-events")
 
+        # -- the live terminal: a real terminal in the workspace, attached to the session, that takes typing -------------
+        sentjs = "window.__sent.map(s => typeof s === 'string' ? s : new TextDecoder().decode(new Uint8Array(s))).join('')"
+        await pg.get_by_role("tab", name="Terminal").click()
+        await pg.wait_for_timeout(400)
+        check(await pg.get_by_role("button", name=re.compile("^Open terminal on ")).count() == 1 and await pg.evaluate("document.querySelectorAll('[data-live-terminal]').length") == 0, "the Terminal tab offers a terminal and has not connected anywhere yet")
+        before = await pg.evaluate("window.__tmuxCalls.filter(c => c[0] === 'tmux_attach_command').length")
+        await pg.get_by_role("button", name=re.compile("^Open terminal on ")).click()
+        await pg.wait_for_timeout(2000)
+        live_calls = await pg.evaluate("window.__tmuxCalls.filter(c => c[0] === 'tmux_attach_command').map(c => c[1])")
+        check(len(live_calls) == before + 1 and live_calls[-1]["sessionId"] == "$1" and live_calls[-1]["hostId"] == "h1", "opening it asks the engine for the attach command of the selected session")
+        check(await pg.evaluate("document.querySelectorAll('[data-live-terminal] .xterm').length") == 1, "and shows a terminal in the workspace")
+        check(await pg.evaluate("document.querySelectorAll('[data-tab-body]').length") == 0, "that is not a terminal tab")
+        check("attach-session" in await pg.evaluate(sentjs), "the attach command is typed into its shell")
+        await shot(pg, "tmux-6b-live")
+        await pg.locator("[data-live-terminal] .xterm-helper-textarea").focus()
+        n0 = len(await pg.evaluate(sentjs))
+        await pg.keyboard.type("ls -la")
+        await pg.wait_for_timeout(300)
+        check((await pg.evaluate(sentjs))[n0:].endswith("ls -la"), "what is typed goes to the terminal")
+        await pg.keyboard.press("Control+f")
+        await pg.wait_for_timeout(200)
+        check(await pg.evaluate("!!document.activeElement.closest('[data-live-terminal]')"), "Ctrl+F stays with the terminal instead of jumping to the session filter")
+        # Another session: the bar offers to move the same terminal, and doing so does not connect again.
+        await pg.get_by_role("tree").get_by_role("treeitem", name="backend").first.click()
+        await pg.wait_for_timeout(400)
+        bar = await pg.locator("[data-live-terminal]").inner_text()
+        check("You selected" in bar and "backend" in bar, "selecting another session says the terminal is still on the first one")
+        await pg.get_by_role("button", name="Switch to it").click()
+        await pg.wait_for_timeout(800)
+        sw = await pg.evaluate("window.__tmuxCalls.filter(c => c[0] === 'tmux_switch_client').map(c => c[1])")
+        check(len(sw) == 1 and sw[0]["sessionId"] == "$0", "Switch moves the tmux client to the selected session")
+        check(await pg.evaluate("window.__tmuxCalls.filter(c => c[0] === 'tmux_attach_command').length") == before + 1, "without connecting again")
+        # Looking at another tab does not drop the connection.
+        await pg.get_by_role("tab", name="Resources").click()
+        await pg.wait_for_timeout(300)
+        check(await pg.evaluate("document.querySelectorAll('[data-live-terminal] .xterm').length") == 1 and not await pg.locator("[data-live-terminal]").is_visible(), "another tab hides the terminal but keeps it connected")
+        await pg.get_by_role("tab", name="Terminal").click()
+        await pg.wait_for_timeout(300)
+        check(await pg.locator("[data-live-terminal]").is_visible(), "and it comes back as it was")
+        await pg.get_by_role("button", name="Close terminal").click()
+        await pg.wait_for_timeout(500)
+        check(await pg.evaluate("document.querySelectorAll('[data-live-terminal]').length") == 0 and await pg.get_by_role("button", name=re.compile("^Open terminal on ")).count() == 1, "closing it detaches and offers to open one again")
+        await pg.get_by_role("tab", name=re.compile("^Panes Grid")).click()
+        await pg.wait_for_timeout(300)
+        await pg.get_by_role("tree").get_by_role("treeitem", name="release").first.click()
+        await pg.wait_for_timeout(300)
+
         # -- attaching opens a terminal tab with the backend's command ------------------------------------------------
         await pg.get_by_role("group", name="Attach").get_by_role("button", name="Attach").click()
         await pg.wait_for_timeout(1500)
         attach = await pg.evaluate("window.__tmuxCalls.filter(c => c[0] === 'tmux_attach_command').map(c => c[1])")
-        check(len(attach) == 1 and attach[0]["sessionId"] == "$1" and attach[0]["hostId"] == "h1", "Attach asks the engine for the command for the right host and session id")
+        check(len(attach) == before + 2 and attach[-1]["sessionId"] == "$1" and attach[-1]["hostId"] == "h1", "Attach asks the engine for the command for the right host and session id")
         check(await pg.evaluate("document.querySelectorAll('[data-tab-body]').length") == 1, "and opens one terminal tab")
         sent = await pg.evaluate("window.__sent.map(s => typeof s === 'string' ? s : new TextDecoder().decode(new Uint8Array(s))).join('')")
         check("SSHVAULT_TAB=" in sent and "attach-session" in sent, "the attach command is typed into the new tab's shell")

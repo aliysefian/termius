@@ -584,3 +584,124 @@ describe("the redesigned workspace's state", () => {
     mon.prefs.bottom.lines = 100;
   });
 });
+
+describe("the live terminal", () => {
+  const ka = S("a");
+  beforeEach(async () => {
+    await mon.refresh("a", DEFAULT_SOCKET);
+    await mon.refresh("b", DEFAULT_SOCKET);
+  });
+  afterEach(() => mon.closeLive(false));
+
+  it("opens one terminal on the host, attached to the session, with the marker that finds it again", async () => {
+    expect(await mon.openLive(ka, "$1")).toBe(true);
+    const live = mon.live!;
+    expect(live.server).toBe(ka);
+    expect(live.pane.target).toMatchObject({ kind: "host", hostId: "a" });
+    const command = (live.pane.target as { command: string }).command;
+    expect(command).toContain("attach-session");
+    expect(markerOf(command)).toBe(live.marker);
+    expect(mon.markerForPane(live.pane.id)).toBe(live.marker);
+    expect(mon.attachmentOf(live.pane.id)).toMatchObject({ server: ka, sessionId: "$1" });
+    expect(mon.liveSession?.name).toBe("deploy");
+    expect(ui.tabs, "it is not a tab").toEqual([]);
+  });
+
+  it("moves the same terminal to another session on the host instead of connecting again", async () => {
+    await mon.openLive(ka, "$1");
+    const first = mon.live!.pane.id;
+    calls.length = 0;
+    expect(await mon.openLive(ka, "$0")).toBe(true);
+    expect(mon.live!.pane.id, "same connection").toBe(first);
+    expect(mon.live!.sessionId).toBe("$0");
+    expect(count("tmux_switch_client")).toBe(1);
+    expect(count("tmux_attach_command")).toBe(0);
+    expect(mon.attachmentOf(first)?.sessionId).toBe("$0");
+  });
+
+  it("connects a new terminal when the old one cannot be moved, or is on another host", async () => {
+    await mon.openLive(ka, "$1");
+    const first = mon.live!.pane.id;
+    const oldMarker = mon.live!.marker;
+    switched = false;
+    expect(await mon.openLive(ka, "$0")).toBe(true);
+    expect(mon.live!.pane.id).not.toBe(first);
+    expect(mon.attached[oldMarker], "the old client is forgotten").toBeUndefined();
+    switched = true;
+    const second = mon.live!.pane.id;
+    expect(await mon.openLive(S("b"), "$0")).toBe(true);
+    expect(mon.live!.pane.id).not.toBe(second);
+    expect(mon.live!.hostId).toBe("b");
+    expect(count("tmux_switch_client"), "another host is never switched").toBe(1);
+  });
+
+  it("makes the chosen window and pane the ones tmux shows before it connects", async () => {
+    const win = (id: string, index: number, active: boolean, panes: unknown[]) => ({ id, index, name: id, active, layout: "", zoomed: false, activity: false, bell: false, panes });
+    served.a = snapshot("a", [session("$0", "backend", { windows: [win("@0", 0, true, [pane("%0")]), win("@1", 1, false, [pane("%1"), pane("%2", { active: false })])] })]);
+    await mon.refresh("a", DEFAULT_SOCKET);
+    calls.length = 0;
+    await mon.openLive(ka, "$0", { windowId: "@1", paneId: "%2" });
+    const ops = calls.filter(([c]) => c === "tmux_operate").map(([, a]) => (a.op as { op: string }).op);
+    expect(ops).toEqual(["select_window", "select_pane"]);
+  });
+
+  it("changes nothing in tmux when no window was asked for", async () => {
+    calls.length = 0;
+    await mon.openLive(ka, "$0");
+    expect(count("tmux_operate")).toBe(0);
+  });
+
+  it("refuses a host that is not plain SSH or that has connect hooks, and says why", async () => {
+    vaultStore.hosts = [host("a", "claude"), { ...host("b", "Elastic"), data: { ...host("b", "Elastic").data, hook_before: "vpn up" } }] as never;
+    expect(mon.liveBlocker("a")).toBeNull();
+    expect(mon.liveBlocker("b")).toMatch(/before or after connecting/);
+    expect(await mon.openLive(S("b"), "$0")).toBe(false);
+    expect(mon.live).toBeNull();
+    expect(ui.toasts.at(-1)?.text).toMatch(/before or after connecting/);
+    vaultStore.hosts = [{ ...host("a", "claude"), data: { ...host("a", "claude").data, protocol: "telnet" } }] as never;
+    expect(mon.liveBlocker("a")).toMatch(/needs an SSH host/);
+    expect(mon.liveBlocker("zzz")).toMatch(/no longer in the vault/);
+  });
+
+  it("says so when the session has gone, and leaves any open terminal alone", async () => {
+    await mon.openLive(ka, "$1");
+    const id = mon.live!.pane.id;
+    expect(await mon.openLive(ka, "$77")).toBe(false);
+    expect(mon.live!.pane.id).toBe(id);
+  });
+
+  it("reports a failure to build the command and opens nothing", async () => {
+    fail = { tmux_attach_command: { code: "tmux_rejected", message: "nope" } };
+    expect(await mon.openLive(ka, "$0")).toBe(false);
+    expect(mon.live).toBeNull();
+    expect(ui.toasts.at(-1)?.text).toMatch(/^Unable to open the live terminal\./);
+    expect(mon.activity[0]).toMatchObject({ ok: false });
+  });
+
+  it("closes without touching the session, and is forgotten when the vault locks", async () => {
+    await mon.openLive(ka, "$1");
+    const marker = mon.live!.marker;
+    calls.length = 0;
+    mon.closeLive();
+    expect(mon.live).toBeNull();
+    expect(mon.attached[marker]).toBeUndefined();
+    expect(calls.filter(([c]) => c === "tmux_operate")).toEqual([]);
+    expect(mon.activity[0].text).toMatch(/Closed the live terminal/);
+    await mon.openLive(ka, "$1");
+    mon.reset();
+    expect(mon.live).toBeNull();
+  });
+
+  it("opens from the menu action and shows the Terminal tab", async () => {
+    mon.tab = "grid";
+    await mon.act("attach-live", { kind: "pane", server: ka, hostId: "a", socket: DEFAULT_SOCKET, sessionId: "$0", windowId: "@0", paneId: "%0" } as never);
+    expect(mon.live?.sessionId).toBe("$0");
+    expect(mon.tab).toBe("terminal");
+  });
+
+  it("does not switch to the Terminal tab when nothing opened", async () => {
+    mon.tab = "grid";
+    await mon.act("attach-live", { kind: "session", server: ka, hostId: "a", socket: DEFAULT_SOCKET, sessionId: "$77" } as never);
+    expect(mon.tab).toBe("grid");
+  });
+});
