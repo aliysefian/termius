@@ -55,9 +55,11 @@ jobs:
 
       - name: Install Linux system dependencies
         if: runner.os == 'Linux'
+        # The runner's Ubuntu mirrors sometimes stall; scripts/ci-apt.sh bounds each try, retries and changes mirror, so a bad
+        # mirror costs minutes instead of the whole job (v0.60.0 lost 45 minutes twice).
+        timeout-minutes: 25
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
+          scripts/ci-apt.sh install \
             libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev \
             libxdo-dev libssl-dev patchelf build-essential file \
             openssh-server
@@ -97,6 +99,10 @@ jobs:
       - name: Test the release signing scripts
         if: runner.os == 'Linux'
         run: scripts/test-signing.sh
+
+      - name: Test the apt retry script
+        if: runner.os == 'Linux'
+        run: scripts/test-ci-apt.sh
 
       # The frontend is the same on every OS; check it once.
       - name: Type-check frontend
@@ -150,7 +156,9 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install playwright==1.49.1
-      - run: python -m playwright install --with-deps chromium
+      - name: Install the browser
+        timeout-minutes: 15
+        run: scripts/ci-apt.sh run python -m playwright install --with-deps chromium
       - run: python src/lib/__tests__/e2e/csp.py
 
   # Installers: for version tags, and on demand from the Actions tab
@@ -206,9 +214,11 @@ jobs:
 
       - name: Install Linux system dependencies
         if: runner.os == 'Linux'
+        # The runner's Ubuntu mirrors sometimes stall; scripts/ci-apt.sh bounds each try, retries and changes mirror, so a bad
+        # mirror costs minutes instead of the whole job (v0.60.0 lost 45 minutes twice).
+        timeout-minutes: 25
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
+          scripts/ci-apt.sh install \
             libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev \
             libxdo-dev libssl-dev patchelf build-essential file \
             openssh-server
