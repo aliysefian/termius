@@ -4,7 +4,7 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
-## Unreleased
+## 0.60.0 - 2026-11-11
 
 - **New:** a **Terminal** tab in the Tmux workspace: a real terminal, attached to the selected session, that you can type in. It opens from **Live Terminal** (the preview's toolbar, the details panel, or a menu) on the selected window and pane, moves to another session on the same host without reconnecting (**Switch to it**), keeps its connection while you look at other tabs, and detaches when closed; the session keeps running. Hosts that run a command before or after connecting, and hosts that are not plain SSH, are pointed to Attach instead. The page's own shortcuts (Ctrl+F, `/`) are off while the terminal has focus, so they reach the shell.
 
