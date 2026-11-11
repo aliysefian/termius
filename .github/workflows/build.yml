@@ -55,9 +55,9 @@ jobs:
 
       - name: Install Linux system dependencies
         if: runner.os == 'Linux'
-        # The runner's Ubuntu mirrors sometimes stall; scripts/ci-apt.sh bounds each try, retries and changes mirror, so a bad
-        # mirror costs minutes instead of the whole job (v0.60.0 lost 45 minutes twice).
-        timeout-minutes: 25
+        # The runner's Ubuntu mirrors are sometimes very slow or silent; scripts/ci-apt.sh measures the mirrors, uses the
+        # fastest and cuts each try short, so a bad mirror costs minutes instead of the whole job (v0.60.0 lost 45 minutes twice).
+        timeout-minutes: 32
         run: |
           scripts/ci-apt.sh install \
             libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev \
@@ -142,7 +142,7 @@ jobs:
     name: Content security policy
     runs-on: ubuntu-22.04
     continue-on-error: true
-    timeout-minutes: 20
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6: version comes from package.json "packageManager"
@@ -157,7 +157,7 @@ jobs:
           python-version: "3.12"
       - run: pip install playwright==1.49.1
       - name: Install the browser
-        timeout-minutes: 15
+        timeout-minutes: 30
         run: scripts/ci-apt.sh run python -m playwright install --with-deps chromium
       - run: python src/lib/__tests__/e2e/csp.py
 
@@ -214,9 +214,9 @@ jobs:
 
       - name: Install Linux system dependencies
         if: runner.os == 'Linux'
-        # The runner's Ubuntu mirrors sometimes stall; scripts/ci-apt.sh bounds each try, retries and changes mirror, so a bad
-        # mirror costs minutes instead of the whole job (v0.60.0 lost 45 minutes twice).
-        timeout-minutes: 25
+        # The runner's Ubuntu mirrors are sometimes very slow or silent; scripts/ci-apt.sh measures the mirrors, uses the
+        # fastest and cuts each try short, so a bad mirror costs minutes instead of the whole job (v0.60.0 lost 45 minutes twice).
+        timeout-minutes: 32
         run: |
           scripts/ci-apt.sh install \
             libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev \
