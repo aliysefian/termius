@@ -4,6 +4,14 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## Unreleased
+
+- **New:** hardware keys. A YubiKey or another FIDO2 security key, a smart card or a PKCS#11 token logs in through the ssh-agent already running on your computer: add the key to that agent, then choose **ssh-agent** as the host's or credential's login. While the key waits for a touch, the terminal says so. **Settings → Connections → Hardware keys and the system SSH agent** shows which agent was found and the keys it holds, and lets you point SSHVault at a different agent socket (gpg-agent, yubikey-agent, a password manager's).
+- **Fixed:** logging in with ssh-agent failed with "no ssh-agent available: Agent failure" as soon as one key in the agent could not sign, for example a security key that was unplugged or not touched. Each key is now tried in turn, and if none works the message names the key that would not sign.
+- **Fixed:** an app opened from the desktop menu often could not find the agent your terminal uses. With no `SSH_AUTH_SOCK`, SSHVault now reads `IdentityAgent` from `~/.ssh/config` and then looks in the usual places agents keep their sockets. Agent forwarding uses the same agent.
+- **Fixed:** a security key's file pasted in as a private key now says it cannot log in by itself and what to do instead.
+- Tested with a stand-in for the device against a real OpenSSH server, not yet with a physical key.
+
 ## 0.60.1 - 2026-11-11
 
 - **Fixed:** the 0.60.0 installers were never published, because the Linux build stalled while downloading its system packages. This release is the same app with the build repaired, so it is the first one that has the Terminal tab described under 0.60.0.

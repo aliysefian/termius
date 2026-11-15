@@ -43,6 +43,8 @@ pub mod keys;
 pub use keys::*;
 pub mod twofactor;
 pub use twofactor::*;
+pub mod sysagent;
+pub use sysagent::*;
 pub mod knownhosts;
 pub use knownhosts::*;
 pub mod localterm;
@@ -99,6 +101,12 @@ fn knock_event_notifier(app: &AppHandle, context: String) -> crate::portknock::K
     Arc::new(move |message: &str| {
         let _ = app.emit(EVENT_KNOCK_PROGRESS, KnockProgressEvent { context: context.clone(), message: message.to_string() });
     })
+}
+
+/// What a login is waiting for (a touch on a security key), written dimmed into the pane's own terminal.
+fn login_terminal_notifier(sink: &Arc<PaneSink>) -> crate::sysagent::Notice {
+    let sink = Arc::clone(sink);
+    Arc::new(move |message: &str| sink.data(format!("\x1b[2m{message}\x1b[0m\r\n").as_bytes()))
 }
 
 /// Progress lines written into the pane's own terminal, dimmed, so the person sees why the tab is still connecting.
@@ -292,6 +300,7 @@ impl From<SshError> for ApiError {
             SshError::Timeout(_) => "timeout",
             SshError::Proxy { .. } => "proxy",
             SshError::Knock(_) => "knock",
+            SshError::NoAgent(_) | SshError::AgentNoKeys | SshError::AgentRefused { .. } => "agent",
             _ => "ssh",
         };
         Self::new(code, e.to_string())
@@ -2201,6 +2210,7 @@ pub async fn ssh_connect(
         log: state.log_slot(&pane_id),
     });
     target.set_knock_notify(knock_terminal_notifier(&sink));
+    target.set_notice(login_terminal_notifier(&sink));
     let params = ConnectParams {
         target,
         cols: cols.max(2),
@@ -3029,6 +3039,8 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     crate::crashlog::install(config_dir.clone());
     // The ProxyCommands this computer has approved to run (kept here, not in the synced vault).
     crate::proxyapproval::load(AppConfig::load(&config_dir).map(|c| c.approved_commands).unwrap_or_default());
+    // The agent socket chosen for this computer, for logins with keys the system's ssh-agent holds (hardware keys).
+    crate::sysagent::set_socket(AppConfig::load(&config_dir).ok().and_then(|c| c.agent_socket));
     // Leftovers from a run that didn't exit cleanly are plaintext copies of
     // remote files; remove them before anything else.
     // Per-user cache folder (not the shared system temp directory, where

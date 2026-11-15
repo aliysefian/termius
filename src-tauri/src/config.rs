@@ -37,6 +37,10 @@ pub struct AppConfig {
     /// the master password is needed to open the vault again (otherwise the lock screen unlocks itself at once).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub keep_key_on_lock: bool,
+    /// The ssh-agent socket (on Windows, named pipe) logins and agent forwarding use on this computer, when it is not
+    /// the one `SSH_AUTH_SOCK` names: a hardware key's own agent, a password manager's. None: look for one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_socket: Option<String>,
     /// Fingerprints of the commands this computer may run: ProxyCommands and hooks (see `proxyapproval`). Never synced.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub approved_commands: Vec<String>,

@@ -110,6 +110,11 @@ pub enum SshError {
     #[error("ssh-agent holds no usable keys")]
     AgentNoKeys,
 
+    /// The agent holds keys but would not sign with any the server could have accepted: a security key nobody
+    /// touched, a token that is unplugged, a request that was denied.
+    #[error("the ssh-agent would not sign with {keys}. If it is a hardware key, check that it is plugged in and touch it when it blinks")]
+    AgentRefused { keys: String },
+
     #[error("a session for this pane already exists")]
     AlreadyConnected,
 
@@ -211,9 +216,19 @@ pub struct Target {
     /// Port knocking to send right before this hop is dialled from this computer. Not used for a hop reached
     /// through a jump host: the firewall would see the jump host, not this computer.
     pub knock: Option<crate::portknock::Knock>,
+    /// Tells the person what the login is waiting for, such as a touch on a security key. None: nothing is said.
+    pub notice: Option<crate::sysagent::Notice>,
 }
 
 impl Target {
+    /// Say what a login is waiting for, for this hop and every jump behind it.
+    pub fn set_notice(&mut self, notice: crate::sysagent::Notice) {
+        if let Some(j) = self.jump.as_mut() {
+            j.set_notice(Arc::clone(&notice));
+        }
+        self.notice = Some(notice);
+    }
+
     /// Report knock progress for this hop and every jump behind it (the hops that are knocked, and the ones
     /// skipped with a notice).
     pub fn set_knock_notify(&mut self, notify: crate::portknock::KnockNotify) {
@@ -1122,17 +1137,9 @@ async fn connect_hop(
     Ok((handle, fp, info))
 }
 
-/// Connect to this computer's ssh-agent, for agent forwarding.
-#[cfg(unix)]
-async fn local_agent() -> std::io::Result<tokio::net::UnixStream> {
-    let path = std::env::var_os("SSH_AUTH_SOCK")
-        .ok_or_else(|| std::io::Error::other("SSH_AUTH_SOCK is not set"))?;
-    tokio::net::UnixStream::connect(path).await
-}
-
-#[cfg(windows)]
-async fn local_agent() -> std::io::Result<tokio::net::windows::named_pipe::NamedPipeClient> {
-    tokio::net::windows::named_pipe::ClientOptions::new().open(r"\\.\pipe\openssh-ssh-agent")
+/// Connect to this computer's ssh-agent, for agent forwarding: the same agent a login would use.
+async fn local_agent() -> std::io::Result<Box<dyn keys::agent::client::AgentStream + Send + Unpin>> {
+    crate::sysagent::stream().await
 }
 
 // ---------------------------------------------------------------------------
@@ -1330,6 +1337,13 @@ async fn key_login(
     certificate: Option<&str>,
 ) -> Result<(), SshError> {
     let key = Arc::new(keys::decode_secret_key(pem, passphrase)?);
+    // A security key's "private key" file is only a handle: the device signs, and only the agent talks to it.
+    if key.algorithm().as_str().starts_with("sk-") {
+        return Err(SshError::KeyFile {
+            path: "(security key)".into(),
+            reason: "this file belongs to a hardware security key and cannot sign by itself. Add it to your ssh-agent (ssh-add) and set the login to ssh-agent".into(),
+        });
+    }
     let user = params.username.as_str();
     let result = match certificate {
         Some(cert) => {
@@ -1415,59 +1429,36 @@ async fn keyboard_interactive(
     Ok(false)
 }
 
-#[cfg(unix)]
-async fn authenticate_with_agent(
-    handle: &mut Handle<ClientHandler>,
-    params: &Target,
-) -> Result<(), SshError> {
-    use keys::agent::client::AgentClient;
-    let mut agent = AgentClient::connect_env()
-        .await
-        .map_err(|e| SshError::NoAgent(e.to_string()))?;
-    agent_auth_loop(handle, params, &mut agent).await
-}
-
-#[cfg(windows)]
-async fn authenticate_with_agent(
-    handle: &mut Handle<ClientHandler>,
-    params: &Target,
-) -> Result<(), SshError> {
-    use keys::agent::client::AgentClient;
-    // OpenSSH for Windows exposes the agent on a well-known named pipe.
-    match AgentClient::connect_named_pipe(r"\\.\pipe\openssh-ssh-agent").await {
-        Ok(mut agent) => agent_auth_loop(handle, params, &mut agent).await,
-        Err(pipe_err) => match AgentClient::connect_pageant().await {
-            Ok(mut agent) => agent_auth_loop(handle, params, &mut agent).await,
-            Err(_) => Err(SshError::NoAgent(pipe_err.to_string())),
-        },
-    }
-}
-
-async fn agent_auth_loop<S>(
-    handle: &mut Handle<ClientHandler>,
-    params: &Target,
-    agent: &mut keys::agent::client::AgentClient<S>,
-) -> Result<(), SshError>
-where
-    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send,
-{
-    let identities = agent
-        .request_identities()
-        .await
-        .map_err(|e| SshError::NoAgent(e.to_string()))?;
-    if identities.is_empty() {
+/// Log in with a key held by this computer's ssh-agent. Every key the agent lists is offered in turn, as `ssh`
+/// does. A key the agent will not sign with (a security key nobody touched) does not end the login; the next is tried.
+async fn authenticate_with_agent(handle: &mut Handle<ClientHandler>, params: &Target) -> Result<(), SshError> {
+    use crate::sysagent::{AgentError, Usable};
+    let mut agent = crate::sysagent::open().await.map_err(|e| SshError::NoAgent(e.to_string()))?;
+    let identities = agent.identities().await.map_err(|e| SshError::NoAgent(e.to_string()))?;
+    if !identities.iter().any(|id| id.usable.is_some()) {
         return Err(SshError::AgentNoKeys);
     }
     let hash = handle.best_supported_rsa_hash().await?.flatten();
-    for id in identities {
-        let key = id.public_key().into_owned();
-        let result = handle
-            .authenticate_publickey_with(params.username.as_str(), key, hash, agent)
-            .await
-            .map_err(|e| SshError::NoAgent(e.to_string()))?;
-        if result.success() {
-            return Ok(());
+    let user = params.username.as_str();
+    let mut refused: Vec<String> = Vec::new();
+    for id in &identities {
+        let Some(usable) = &id.usable else { continue };
+        let mut signer = agent.signer(id, params.notice.as_ref());
+        let attempt = match usable {
+            Usable::Key(key) => handle.authenticate_publickey_with(user, key.clone(), hash, &mut signer).await,
+            Usable::Certificate(cert) => handle.authenticate_certificate_with(user, (**cert).clone(), hash, &mut signer).await,
+        };
+        match attempt {
+            Ok(result) if result.success() => return Ok(()),
+            // The server did not want this key.
+            Ok(_) => {}
+            Err(AgentError::Refused) => refused.push(format!("\"{}\"", id.label())),
+            Err(AgentError::Send) => return Err(SshError::Ssh(russh::Error::SendError)),
+            Err(e) => return Err(SshError::NoAgent(e.to_string())),
         }
+    }
+    if !refused.is_empty() {
+        return Err(SshError::AgentRefused { keys: refused.join(", ") });
     }
     Err(SshError::AuthFailed {
         user: params.username.clone(),
@@ -1629,6 +1620,7 @@ pub(crate) mod testutil {
             agent_gate: None,
             totp: None,
             knock: None,
+            notice: None,
         }
     }
 }
@@ -1652,6 +1644,7 @@ pub fn testutil_target() -> Target {
         agent_gate: None,
         totp: None,
         knock: None,
+        notice: None,
     }
 }
 
@@ -2194,6 +2187,124 @@ mod tests {
             self.origins.lock().unwrap().push(origin.map(str::to_string));
             Box::pin(async { true })
         }
+    }
+
+    /// A hardware key is only reachable through the agent. The agent here answers the way OpenSSH's does for a
+    /// FIDO2 key, and a real `sshd` checks the signature.
+    #[cfg(unix)]
+    fn hardware_agent(dir: &std::path::Path, keys: Vec<crate::sysagent::testutil::Held>) {
+        use std::io::Write;
+        let mut authorized = std::fs::OpenOptions::new().append(true).open(dir.join("authorized_keys")).unwrap();
+        for k in keys.iter().filter(|k| !matches!(k, crate::sysagent::testutil::Held::Unknown)) {
+            authorized.write_all(k.authorized_line().as_bytes()).unwrap();
+        }
+        let sock = dir.join("hw.sock");
+        crate::sysagent::testutil::serve(&sock, keys);
+        crate::sysagent::set_socket(None);
+        std::env::set_var("SSH_AUTH_SOCK", &sock);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_security_key_in_the_agent_logs_in_past_keys_that_cannot() {
+        use crate::sysagent::testutil::Held;
+        let _env = AGENT_ENV.lock().await;
+        let dir = tempfile::TempDir::new().unwrap();
+        let Some(sshd) = spawn_sshd(dir.path()) else {
+            eprintln!("skipping: no usable sshd on this machine");
+            return;
+        };
+        // In the agent's order: a key type nobody can read, a security key that is never touched, and the one that
+        // is touched after a moment. The server would accept either security key.
+        let Held::SecurityKey { pair, .. } = Held::security_key() else { unreachable!() };
+        let untouched = Held::SecurityKey { pair, touch: false, delay: Duration::ZERO };
+        let Held::SecurityKey { pair, .. } = Held::security_key() else { unreachable!() };
+        let touched = Held::SecurityKey { pair, touch: true, delay: Duration::from_millis(1800) };
+        hardware_agent(dir.path(), vec![Held::Unknown, untouched, touched]);
+
+        let mut t = target(&sshd, &sshd.client_key, dir.path().join("kh"));
+        t.auth = AuthMethod::Agent;
+        let said = Arc::new(Mutex::new(Vec::<String>::new()));
+        let hear = Arc::clone(&said);
+        t.set_notice(Arc::new(move |m: &str| hear.lock().unwrap().push(m.to_string())));
+
+        let manager = Arc::new(SshManager::new());
+        let (tx, rx) = std_mpsc::channel();
+        manager.connect("hw".into(), ConnectParams { target: t, cols: 80, rows: 24 }, Arc::new(TestSink(tx))).unwrap();
+        wait_status(&rx, |s| matches!(s, SessionStatus::Connected));
+        manager.write("hw", b"echo HW$((20+3))\n".to_vec()).await.unwrap();
+        wait_output(&rx, "HW23");
+        manager.disconnect("hw").await;
+
+        // The key that took a while was announced. (A slow machine may also announce the one that answered "no".)
+        let said = said.lock().unwrap();
+        assert!(said.iter().any(|m| m.contains("security key") && m.contains("touch it") && m.contains("key-2")), "{said:?}");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_ordinary_key_in_the_agent_still_logs_in_and_says_nothing() {
+        use crate::sysagent::testutil::Held;
+        let _env = AGENT_ENV.lock().await;
+        let dir = tempfile::TempDir::new().unwrap();
+        let Some(sshd) = spawn_sshd(dir.path()) else {
+            eprintln!("skipping: no usable sshd on this machine");
+            return;
+        };
+        hardware_agent(dir.path(), vec![Held::plain()]);
+        let mut t = target(&sshd, &sshd.client_key, dir.path().join("kh"));
+        t.auth = AuthMethod::Agent;
+        let said = Arc::new(Mutex::new(Vec::<String>::new()));
+        let hear = Arc::clone(&said);
+        t.set_notice(Arc::new(move |m: &str| hear.lock().unwrap().push(m.to_string())));
+        let manager = Arc::new(SshManager::new());
+        let (tx, rx) = std_mpsc::channel();
+        manager.connect("pl".into(), ConnectParams { target: t, cols: 80, rows: 24 }, Arc::new(TestSink(tx))).unwrap();
+        wait_status(&rx, |s| matches!(s, SessionStatus::Connected));
+        manager.disconnect("pl").await;
+        assert!(said.lock().unwrap().is_empty(), "a key that signs at once needs no notice");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_security_key_nobody_touches_is_named_in_the_error() {
+        use crate::sysagent::testutil::Held;
+        let _env = AGENT_ENV.lock().await;
+        let dir = tempfile::TempDir::new().unwrap();
+        let Some(sshd) = spawn_sshd(dir.path()) else {
+            eprintln!("skipping: no usable sshd on this machine");
+            return;
+        };
+        let Held::SecurityKey { pair, .. } = Held::security_key() else { unreachable!() };
+        hardware_agent(dir.path(), vec![Held::SecurityKey { pair, touch: false, delay: Duration::ZERO }]);
+
+        let mut t = target(&sshd, &sshd.client_key, dir.path().join("kh"));
+        t.auth = AuthMethod::Agent;
+        let manager = Arc::new(SshManager::new());
+        let (tx, rx) = std_mpsc::channel();
+        manager.connect("hw2".into(), ConnectParams { target: t, cols: 80, rows: 24 }, Arc::new(TestSink(tx))).unwrap();
+        let SessionStatus::Error { message } = wait_status(&rx, |s| matches!(s, SessionStatus::Error { .. })) else { unreachable!() };
+        assert!(message.contains("would not sign with \"key-0\"") && message.contains("touch it"), "{message}");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_agent_with_only_unreadable_keys_has_no_usable_keys() {
+        use crate::sysagent::testutil::Held;
+        let _env = AGENT_ENV.lock().await;
+        let dir = tempfile::TempDir::new().unwrap();
+        let Some(sshd) = spawn_sshd(dir.path()) else {
+            eprintln!("skipping: no usable sshd on this machine");
+            return;
+        };
+        hardware_agent(dir.path(), vec![Held::Unknown]);
+        let mut t = target(&sshd, &sshd.client_key, dir.path().join("kh"));
+        t.auth = AuthMethod::Agent;
+        let manager = Arc::new(SshManager::new());
+        let (tx, rx) = std_mpsc::channel();
+        manager.connect("hw3".into(), ConnectParams { target: t, cols: 80, rows: 24 }, Arc::new(TestSink(tx))).unwrap();
+        let SessionStatus::Error { message } = wait_status(&rx, |s| matches!(s, SessionStatus::Error { .. })) else { unreachable!() };
+        assert!(message.contains("no usable keys"), "{message}");
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

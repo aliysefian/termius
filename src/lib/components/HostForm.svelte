@@ -775,7 +775,7 @@
                   required
                 ></textarea>
               {:else}
-                <p class="text-xs text-fg-muted">Keys come from the ssh-agent running on each computer.</p>
+                <p class="text-xs text-fg-muted">Keys come from the ssh-agent running on each computer. Use this for hardware keys (YubiKey and other FIDO2 keys, smart cards); Settings shows which agent and keys are found.</p>
               {/if}
 
               {#if keySource === "keep" || keySource === "file" || keySource === "paste"}
