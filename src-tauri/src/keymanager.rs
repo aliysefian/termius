@@ -420,6 +420,7 @@ pub fn resolve_target_with(
             agent_gate: None,
             totp,
             knock,
+            notice: None,
         }));
     }
 
@@ -447,6 +448,7 @@ pub fn resolve_target_with(
         agent_gate: None,
         totp,
         knock,
+        notice: None,
     })
 }
 

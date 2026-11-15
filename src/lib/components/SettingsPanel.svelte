@@ -3,7 +3,7 @@
   import NotifyChannelsSettings from "./NotifyChannelsSettings.svelte";
   import HighlightRules from "./HighlightRules.svelte";
   import specSource from "$lib/completion/specs/SOURCE.json";
-  import { ChevronDown, ChevronUp, Copy, Download, ExternalLink, Loader2, Lock, Palette, RefreshCw, RotateCcw, Search, ShieldAlert, ShieldCheck, SquareTerminal, TerminalSquare, X } from "lucide-svelte";
+  import { ChevronDown, ChevronUp, Copy, Download, ExternalLink, KeyRound, Loader2, Lock, Palette, RefreshCw, RotateCcw, Search, ShieldAlert, ShieldCheck, SquareTerminal, TerminalSquare, X } from "lucide-svelte";
   import { onMount } from "svelte";
     import { RELEASES_URL, formatSize, installHint, installUpdate, updates } from "$lib/stores/updates.svelte";
   import { openUrl } from "@tauri-apps/plugin-opener";
@@ -21,7 +21,7 @@
   import { open as openFile } from "@tauri-apps/plugin-dialog";
   import * as api from "$lib/api";
   import { vaultStore } from "$lib/stores/vault.svelte";
-  import { errorMessage, type VaultSettings } from "$lib/types";
+  import { errorMessage, type SystemAgentStatus, type VaultSettings } from "$lib/types";
   import { ask } from "$lib/dialogs.svelte";
   import Badge from "./Badge.svelte";
   import TerminalPreview from "./TerminalPreview.svelte";
@@ -75,6 +75,7 @@
   const SIDEBAR_KEYWORDS = "sidebar rail icons labels hide show reorder order pin manage layout";
   const OPS_KEYWORDS = "alerts alert notify notification host down cpu memory disk threshold quiet hours mute monitoring history charts keep week day operations";
   const NOTIFY_KEYWORDS = "notification channels telegram bale email smtp bot token chat id messages send test monitoring alerts proxy socks socks5 blocked";
+  const AGENT_KEYWORDS = "hardware key yubikey fido fido2 security key smart card pkcs11 token system ssh-agent agent socket ssh_auth_sock gpg 1password pageant touch";
   const TOTP_KEYWORDS = "two-factor codes totp one-time verification code authenticator 2fa mfa otp";
   const SMART_COMPLETION_KEYWORDS = "smart completion autocomplete auto complete suggestions suggest ghost inline tab history snippets options paths";
 
@@ -88,6 +89,7 @@
     "local terminal shell bash zsh fish powershell wsl start folder cwd",
     SMART_COMPLETION_KEYWORDS,
     TOTP_KEYWORDS,
+    AGENT_KEYWORDS,
     OPS_KEYWORDS,
     NOTIFY_KEYWORDS,
     SIDEBAR_KEYWORDS,
@@ -141,6 +143,30 @@
   const aliasLine = $derived(
     cli?.executable ? (isWindows ? `Set-Alias sshvault "${cli.executable}"` : `alias sshvault='${cli.executable.replace(/'/g, "'\\''")}'`) : "",
   );
+
+  // -- hardware keys: the system's ssh-agent ---------------------------------------
+  let agent = $state<SystemAgentStatus | null>(null);
+  let agentBusy = $state(false);
+  let agentSocket = $state("");
+  let agentMsg = $state<Msg>(null);
+  const agentShown = $derived(visible("connections", AGENT_KEYWORDS));
+  async function loadAgent(run: () => Promise<SystemAgentStatus> = api.systemAgent.status) {
+    agentBusy = true;
+    agentMsg = null;
+    try {
+      agent = await run();
+      agentSocket = agent.setting ?? "";
+    } catch (e) {
+      agentMsg = { ok: false, text: errorMessage(e) };
+    } finally {
+      agentBusy = false;
+    }
+  }
+  // Asked only once the section is on screen: it talks to the agent.
+  $effect(() => {
+    if (agentShown && !agent && !agentBusy && !agentMsg) void loadAgent();
+  });
+  const saveAgentSocket = (path: string) => loadAgent(() => api.systemAgent.setSocket(path));
 
   // -- two-factor codes ----------------------------------------------------------
   const totpOn = $derived(vaultStore.totpStatus?.enabled ?? false);
@@ -693,6 +719,74 @@
           Opening a second connection to the same host in the same 30 seconds waits for the next code, because servers refuse a code they
           have already accepted.
         </p>
+      {/if}
+    </section>
+    {/if}
+
+    {#if agentShown}
+    <section class="rounded-xl border border-line bg-panel p-5" data-testid="system-agent">
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <h2 class="mb-1 flex items-center gap-2 text-sm font-semibold"><KeyRound size={15} class="text-accent" /> Hardware keys and the system SSH agent</h2>
+          <p class="text-xs text-fg-muted">
+            A key that lives on a device (a YubiKey or another FIDO2 security key, a smart card, a PKCS#11 token) can't be copied into the
+            vault. SSHVault uses it through the ssh-agent already running on this computer: add the key to that agent
+            (<code>ssh-add</code>), then choose <strong>ssh-agent</strong> as the host's or credential's login. When the key needs a touch,
+            the terminal says so.
+          </p>
+        </div>
+        <button class="btn-ghost shrink-0 border border-line" onclick={() => loadAgent()} disabled={agentBusy}>
+          {#if agentBusy}<Loader2 size={14} class="animate-spin" />{:else}<RefreshCw size={14} />{/if} Check
+        </button>
+      </div>
+      {@render msgBox(agentMsg)}
+      {#if agent}
+        {#if agent.source}
+          <p class="mt-3 text-xs text-fg-muted">Agent in use: <code class="break-all">{agent.source}</code></p>
+        {/if}
+        {#if agent.error}
+          <p class="mt-2 rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-fg-muted" data-testid="system-agent-error">{agent.error}</p>
+        {:else if agent.keys.length === 0}
+          <p class="mt-2 rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-fg-muted">
+            This agent holds no keys. Add one with <code>ssh-add</code>, or point SSHVault at the agent that has your key below.
+          </p>
+        {:else}
+          <ul class="mt-2 divide-y divide-line rounded-md border border-line text-xs" data-testid="system-agent-keys">
+            {#each agent.keys as k (k.fingerprint + k.algorithm)}
+              <li class="flex flex-wrap items-center gap-x-2 gap-y-1 px-3 py-2">
+                <span class="font-medium">{k.comment || "(no name)"}</span>
+                {#if k.security_key}<Badge tone="accent">security key · touch</Badge>{/if}
+                {#if k.certificate}<Badge>certificate</Badge>{/if}
+                {#if !k.usable}<Badge tone="warning">not supported</Badge>{/if}
+                <span class="text-fg-muted">{k.algorithm}</span>
+                <code class="basis-full break-all text-fg-muted">{k.fingerprint}</code>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+        <label class="mt-4 block text-xs font-medium" for="agent-socket">Agent socket on this computer</label>
+        <div class="mt-1 flex gap-2">
+          <input id="agent-socket" class="input flex-1 font-mono text-xs" bind:value={agentSocket} placeholder="Found automatically" spellcheck="false" autocomplete="off" />
+          <button class="btn-primary shrink-0" onclick={() => saveAgentSocket(agentSocket)} disabled={agentBusy || agentSocket.trim() === (agent.setting ?? "")}>Use</button>
+          {#if agent.setting}
+            <button class="btn-ghost shrink-0 border border-line" onclick={() => saveAgentSocket("")} disabled={agentBusy}>Find automatically</button>
+          {/if}
+        </div>
+        <p class="mt-1 text-xs text-fg-muted">
+          Leave empty to use <code>SSH_AUTH_SOCK</code>, then <code>IdentityAgent</code> from <code>~/.ssh/config</code>, then the usual
+          sockets of ssh-agent, GNOME Keyring, yubikey-agent, 1Password, Secretive, Bitwarden and gpg-agent (on Windows: OpenSSH's agent,
+          then Pageant). Set it when your key's agent is a different one, for example
+          <code>~/.gnupg/S.gpg-agent.ssh</code>. An app opened from the desktop menu often doesn't see the
+          <code>SSH_AUTH_SOCK</code> your terminal has. Agent forwarding uses the same agent.
+        </p>
+        {#if !agent.setting && agent.places.length > 1}
+          <div class="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-fg-muted">
+            Found:
+            {#each agent.places as p (p.path)}
+              <button class="rounded border border-line px-1.5 py-0.5 hover:bg-panel-hover" title={p.path} onclick={() => saveAgentSocket(p.path)}>{p.from}</button>
+            {/each}
+          </div>
+        {/if}
       {/if}
     </section>
     {/if}

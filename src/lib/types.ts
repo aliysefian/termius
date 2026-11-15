@@ -462,6 +462,31 @@ export interface AgentStatus {
   enabled: boolean;
 }
 
+/** One key the ssh-agent on this computer lists. */
+export interface SystemAgentKey {
+  /** The key type, such as `ssh-ed25519` or `sk-ssh-ed25519@openssh.com`. */
+  algorithm: string;
+  fingerprint: string;
+  comment: string;
+  /** A FIDO2 security key: logging in with it needs a touch. */
+  security_key: boolean;
+  certificate: boolean;
+  /** False for a key type this build cannot offer to a server. */
+  usable: boolean;
+}
+
+/** The ssh-agent on this computer, as a login would find it. This is how hardware keys are used. */
+export interface SystemAgentStatus {
+  /** The agent that answered: a socket path, a pipe name or "Pageant". Null when none did. */
+  source: string | null;
+  keys: SystemAgentKey[];
+  error: string | null;
+  /** Every place that would be tried, in order. */
+  places: { path: string; from: string }[];
+  /** The socket chosen in Settings, if any. */
+  setting: string | null;
+}
+
 /** Answering a server's "Verification code" prompt from an identity's saved secret. Off until switched on. */
 export interface TotpStatus {
   enabled: boolean;

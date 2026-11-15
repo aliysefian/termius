@@ -346,6 +346,39 @@ written.
 - Encrypted keys need their passphrase saved in the vault to be offered,
   because the agent can't ask for it.
 
+## Hardware keys (YubiKey, FIDO2, smart cards)
+
+A key that lives on a device can't be copied into the vault: the device signs,
+and only an ssh-agent talks to it. SSHVault uses such a key through the
+ssh-agent already running on your computer.
+
+1. Add the key to your agent the way you do for `ssh`: `ssh-add
+   ~/.ssh/id_ed25519_sk` for a FIDO2 key, `ssh-add -s <library>` for a PKCS#11
+   token, or the agent your device came with (gpg-agent, yubikey-agent, a
+   password manager).
+2. In the host or credential, choose **ssh-agent** as the login.
+3. Connect. If the key needs a touch, the terminal says so; touch it when it
+   blinks.
+
+**Settings → Connections → Hardware keys and the system SSH agent** shows
+which agent SSHVault found and the keys it holds. A security key is marked
+"touch". If your key is in a different agent than the one found, type that
+agent's socket there, for example `~/.gnupg/S.gpg-agent.ssh`. When nothing is
+set, SSHVault looks at `SSH_AUTH_SOCK`, then `IdentityAgent` in
+`~/.ssh/config`, then the usual sockets of ssh-agent, GNOME Keyring,
+yubikey-agent, 1Password, Secretive, Bitwarden and gpg-agent. On Windows it
+uses OpenSSH's agent, then Pageant. The choice is for this computer only.
+
+Every key in the agent is offered to the server in turn, as `ssh` does. A key
+that isn't touched or whose device is unplugged is skipped and the next one is
+tried. A server with a low `MaxAuthTries` may hang up before the right key is
+reached when the agent holds many keys; remove the ones you don't need from
+the agent.
+
+A security key's file (`id_ed25519_sk`) pasted in as a private key can't log
+in by itself; SSHVault says so and points here. The built-in SSH agent serves
+vault keys only, not hardware keys.
+
 ## Command line
 
 Turn on **Settings → Command line**, then script against your hosts while
@@ -1586,6 +1619,13 @@ Another program is using that port. Pick another port, or use `0` for a free
 one.
 
 **ssh-agent authentication fails with "no ssh-agent available".**
-On Linux, `SSH_AUTH_SOCK` must be set in the environment SSHVault was started
-from. On Windows, start the **OpenSSH Authentication Agent** service or
-Pageant.
+SSHVault found no agent. An app opened from the desktop menu often doesn't see
+the `SSH_AUTH_SOCK` your terminal has. Open **Settings → Connections →
+Hardware keys and the system SSH agent** and enter your agent's socket (in a
+terminal, `echo $SSH_AUTH_SOCK` prints it). On Windows, start the **OpenSSH
+Authentication Agent** service or Pageant.
+
+**"the ssh-agent would not sign with …".**
+The agent has the key but answered no. For a hardware key: plug it in, and
+touch it when it blinks during the login. Check that `ssh` works with the same
+key from a terminal.

@@ -17,6 +17,7 @@ import type {
   HostsResolution,
   CliStatus,
   TotpPreview,
+  SystemAgentStatus,
   TotpStatus,
   ComposeVerb,
   ContainerAction,
@@ -195,6 +196,13 @@ export const agent = {
     invoke<VaultRecord<SshKey>>("set_key_agent", { id, baseRev, mode }),
   onPrompt: (handler: (p: AgentPrompt) => void): Promise<UnlistenFn> =>
     listen<AgentPrompt>("agent:prompt", (e) => handler(e.payload)),
+};
+
+/** The ssh-agent already running on this computer, which is where hardware keys live. */
+export const systemAgent = {
+  status: () => invoke<SystemAgentStatus>("system_agent_status"),
+  /** Use this socket (empty: look for one), then report what is there. */
+  setSocket: (path: string) => invoke<SystemAgentStatus>("system_agent_set_socket", { path: path.trim() || null }),
 };
 
 /** Two-factor codes (TOTP) for servers that ask for a verification code. Off until switched on. */

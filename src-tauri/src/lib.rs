@@ -77,6 +77,7 @@ pub mod spawnlint;
 pub mod ssh;
 pub mod sshconfig;
 pub mod sync;
+pub mod sysagent;
 pub mod totp;
 pub mod tray;
 pub mod unlockguard;
@@ -382,6 +383,8 @@ pub fn run() {
             commands::agent_set_enabled,
             commands::totp_status,
             commands::totp_set_enabled,
+            commands::system_agent_status,
+            commands::system_agent_set_socket,
             commands::totp_preview,
             commands::answer_agent_request,
             commands::set_key_agent,

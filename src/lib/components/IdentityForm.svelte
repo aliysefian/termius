@@ -275,7 +275,7 @@
           <input id="i-kfpass" class="input" type="password" bind:value={passphrase} autocomplete="off" />
         </div>
       {:else}
-        <p class="text-sm text-fg-muted">Keys are supplied by the local ssh-agent on each computer.</p>
+        <p class="text-sm text-fg-muted">Keys are supplied by the local ssh-agent on each computer. Use this for hardware keys (YubiKey and other FIDO2 keys, smart cards); Settings shows which agent and keys are found.</p>
       {/if}
 
       {#if totpOn && authType !== "agent"}

@@ -209,8 +209,13 @@ matter in a working day.
 - [ ] **Updates for a private repository**: its release files can't be
   downloaded anonymously, so the feed needs a public home (public
   releases, or a public mirror the release job copies files to).
-- [ ] **Hardware keys**: FIDO2 (`sk-ssh-ed25519`) and PKCS#11 keys through
-  the local agent; and unlocking the vault with a hardware-backed key.
+- [x] **Hardware keys through the local agent**: FIDO2 (`sk-ssh-ed25519`,
+  `sk-ecdsa`) and PKCS#11 keys held by this computer's ssh-agent log in, with
+  a touch notice, a choice of agent socket, and a list of the agent's keys in
+  Settings. Tested against a real `sshd` with a stand-in for the device, not
+  yet with a physical key.
+- [ ] **Hardware keys without an agent**: talking to a FIDO2 device directly,
+  and unlocking the vault with a hardware-backed key.
 - [ ] **Team sharing**: a second vault (or a group inside one) encrypted to
   several people's public keys, so a team can share hosts without sharing a
   master password.

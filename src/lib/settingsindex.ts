@@ -31,6 +31,7 @@ export const SETTING_ENTRIES: SettingEntry[] = [
   { label: "Remember commands and history", query: "remember", words: "command history" },
   { label: "Reopen tabs from last time", query: "restore session", words: "reopen tabs" },
   { label: "Paste protection", query: "paste", words: "newline confirm multi-line" },
+  { label: "Hardware keys and the system SSH agent", query: "hardware key", words: "yubikey fido fido2 security key smart card pkcs11 ssh-agent agent socket gpg 1password pageant touch" },
   { label: "Two-factor codes (one-time codes)", query: "two-factor", words: "totp 2fa mfa otp authenticator verification code" },
   { label: "Command line (CLI)", query: "command line", words: "cli scripting sshvault" },
   { label: "Shell integration", query: "shell integration", words: "osc 133 prompt directory" },

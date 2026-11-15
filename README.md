@@ -129,6 +129,10 @@ Linux, Windows and macOS · Built with Rust, Tauri, Svelte and xterm.js
   it follows
 - **Built-in SSH agent**: `ssh`, `git` and your editor use vault keys, with
   per-key "ask every time" approval, also over agent forwarding
+- **Hardware keys** (YubiKey and other FIDO2 security keys, smart cards,
+  PKCS#11 tokens) through the ssh-agent already on your computer, with a
+  "touch your key" notice in the terminal and a Settings page that shows the
+  agent and keys found
 - Server keys are trusted explicitly (old and new fingerprints shown if one
   changes) and synced across devices
 
@@ -240,8 +244,8 @@ server, but the app hasn't had wide real-world use yet. Keep backups of
 anything important, and please
 [report problems](https://github.com/aliysefian/termius/issues).
 
-**Not available yet:** an Apple-notarized macOS app, code-signed installers, hardware
-security keys and team sharing. See the [roadmap](ROADMAP.md).
+**Not available yet:** an Apple-notarized macOS app, code-signed installers, unlocking the
+vault with a hardware key, and team sharing. See the [roadmap](ROADMAP.md).
 
 ## Contributing
 
