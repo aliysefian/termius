@@ -4,6 +4,12 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## 0.62.0 - 2026-11-16
+
+- **Fixed:** typing `exit` could reconnect the terminal again. SSHVault told "the shell ended" from "the connection dropped" only by whether the server sent an exit status, and some servers do not (network gear, nested `su` and `sudo -i`, a shell started inside tmux). It now tells them apart by how the session ended: a closed or finished channel is the end of the session, and only a connection that died is retried. An exit status that arrives just after the end of the session is still shown.
+- **Fixed:** a server that accepted the login and then cut the connection every time was retried for ever. After three tries in a row it now gives up and offers **Reconnect**; a connection that stays up for half a minute starts the count again.
+- **New:** **Settings → Connections → Close tab when session ends**, off by default. On, a tab or pane closes by itself when you exit the shell (SSH or a local shell); off, it stays open with the `[session closed]` notice as before. A connection that dropped always stays open.
+
 ## 0.61.0 - 2026-11-15
 
 - **New:** hardware keys. A YubiKey or another FIDO2 security key, a smart card or a PKCS#11 token logs in through the ssh-agent already running on your computer: add the key to that agent, then choose **ssh-agent** as the host's or credential's login. While the key waits for a touch, the terminal says so. **Settings → Connections → Hardware keys and the system SSH agent** shows which agent was found and the keys it holds, and lets you point SSHVault at a different agent socket (gpg-agent, yubikey-agent, a password manager's).

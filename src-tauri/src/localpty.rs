@@ -142,7 +142,7 @@ impl LocalManager {
                     .lock()
                     .unwrap_or_else(|p| p.into_inner())
                     .remove(&pane_id);
-                sink.status(SessionStatus::Disconnected { code });
+                sink.status(SessionStatus::Disconnected { code, ended: true });
             })
             .map_err(LocalError::Io)?;
         Ok(())
@@ -262,7 +262,7 @@ mod tests {
 
         m.write("p", b"exit 7\n").unwrap();
         let code = loop {
-            if let Ev::Status(SessionStatus::Disconnected { code }) =
+            if let Ev::Status(SessionStatus::Disconnected { code, .. }) =
                 rx.recv_timeout(Duration::from_secs(10)).unwrap()
             {
                 break code;

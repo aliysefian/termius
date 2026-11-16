@@ -145,9 +145,14 @@ pub enum SessionStatus {
     },
     Connected,
     /// The remote shell exited or the connection dropped. `code` is the exit
-    /// status when the server reported one.
+    /// status when the server reported one. `ended` is true when the other end
+    /// finished the session itself (the shell exited or the server closed the
+    /// channel, with or without a status) and false when the link died under
+    /// it, which is the only case worth reconnecting.
     Disconnected {
         code: Option<u32>,
+        #[serde(default)]
+        ended: bool,
     },
     /// A pinned host key no longer matches. Carries enough for the UI to
     /// offer a deliberate "trust the new key" action.
@@ -477,7 +482,7 @@ impl SshManager {
                 .unwrap_or_else(|p| p.into_inner())
                 .remove(&pane_id);
             match outcome {
-                Ok(code) => sink.status(SessionStatus::Disconnected { code }),
+                Ok(end) => sink.status(SessionStatus::Disconnected { code: end.code, ended: end.ended }),
                 Err(e) => match e.host_key_changed() {
                     Some((host, port, fingerprint)) => sink.status(SessionStatus::HostKeyChanged {
                         host: host.to_string(),
@@ -1166,7 +1171,7 @@ async fn run_session(
     mut rx: mpsc::Receiver<Cmd>,
     sink: &dyn TermSink,
     client_cell: Arc<std::sync::OnceLock<Arc<Client>>>,
-) -> Result<Option<u32>, SshError> {
+) -> Result<SessionEnd, SshError> {
     // Close ends a connection attempt that is still waiting (a server that accepts and never answers would otherwise
     // hold the pane until the time limit). What was typed meanwhile is kept and sent once there is a shell.
     let mut early: Vec<Cmd> = Vec::new();
@@ -1176,7 +1181,7 @@ async fn run_session(
         tokio::select! {
             done = &mut connecting => break done?,
             cmd = rx.recv() => match cmd {
-                Some(Cmd::Close) | None => return Ok(None),
+                Some(Cmd::Close) | None => return Ok(SessionEnd { code: None, ended: true }),
                 Some(other) if early.len() < MAX_EARLY_COMMANDS => early.push(other),
                 Some(_) => {}
             },
@@ -1230,6 +1235,8 @@ async fn run_session(
 
     let (mut reader, writer) = channel.split();
     let mut exit_code: Option<u32> = None;
+    // The server ended the session (a status, a signal, EOF or a close) as opposed to the link dying under it.
+    let mut ended = false;
     for cmd in early {
         match cmd {
             Cmd::Write(bytes) => {
@@ -1249,8 +1256,37 @@ async fn run_session(
             msg = reader.wait() => match msg {
                 Some(ChannelMsg::Data { data }) => sink.data(&data),
                 Some(ChannelMsg::ExtendedData { data, .. }) => sink.data(&data),
-                Some(ChannelMsg::ExitStatus { exit_status }) => exit_code = Some(exit_status),
-                Some(ChannelMsg::Eof) | Some(ChannelMsg::Close) | None => break,
+                Some(ChannelMsg::ExitStatus { exit_status }) => {
+                    exit_code = Some(exit_status);
+                    ended = true;
+                }
+                Some(ChannelMsg::ExitSignal { .. }) => ended = true,
+                Some(ChannelMsg::Eof) => {
+                    ended = true;
+                    // Some servers send the status after EOF; give it a moment so the tab can say how the shell ended.
+                    if exit_code.is_none() {
+                        let _ = tokio::time::timeout(EXIT_STATUS_GRACE, async {
+                            while let Some(m) = reader.wait().await {
+                                match m {
+                                    ChannelMsg::ExitStatus { exit_status } => {
+                                        exit_code = Some(exit_status);
+                                        break;
+                                    }
+                                    ChannelMsg::Close => break,
+                                    _ => {}
+                                }
+                            }
+                        })
+                        .await;
+                    }
+                    break;
+                }
+                Some(ChannelMsg::Close) => {
+                    ended = true;
+                    break;
+                }
+                // The channel went away with no close message: the connection itself is gone.
+                None => break,
                 Some(_) => {}
             },
             cmd = rx.recv() => match cmd {
@@ -1263,6 +1299,7 @@ async fn run_session(
                 Some(Cmd::Close) | None => {
                     let _ = writer.eof().await;
                     let _ = writer.close().await;
+                    ended = true;
                     break;
                 }
             },
@@ -1270,7 +1307,17 @@ async fn run_session(
     }
 
     handle.close().await;
-    Ok(exit_code)
+    Ok(SessionEnd { code: exit_code, ended })
+}
+
+/// How long to wait after EOF for an exit status that arrives late.
+const EXIT_STATUS_GRACE: Duration = Duration::from_millis(500);
+
+/// How a shell session finished.
+struct SessionEnd {
+    code: Option<u32>,
+    /// The other end finished it (see `SessionStatus::Disconnected`).
+    ended: bool,
 }
 
 async fn authenticate(handle: &mut Handle<ClientHandler>, params: &Target) -> Result<(), SshError> {
@@ -2777,5 +2824,74 @@ mod tests {
         let out = wait_output(&rx, "A_ALIVE_B");
         assert!(out.contains("A_ALIVE_B"), "{out}");
         manager.disconnect("term2").await;
+    }
+
+    /// Run `lines` in a fresh terminal and return how the session ended.
+    async fn ended_after(sshd: &Sshd, dir: &std::path::Path, name: &str, lines: &[&str]) -> SessionStatus {
+        let manager = Arc::new(SshManager::new());
+        let (tx, rx) = std_mpsc::channel();
+        manager.connect(name.into(), params(sshd, &sshd.client_key, dir.join("kh")), Arc::new(TestSink(tx))).unwrap();
+        wait_status(&rx, |s| matches!(s, SessionStatus::Connected));
+        for line in lines {
+            manager.write(name, format!("{line}\n").into_bytes()).await.unwrap();
+            tokio::time::sleep(Duration::from_millis(400)).await;
+        }
+        wait_status(&rx, |s| matches!(s, SessionStatus::Disconnected { .. }))
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn typing_exit_ends_the_session_for_good() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let Some(sshd) = spawn_sshd(dir.path()) else {
+            eprintln!("skipping: no usable sshd on this machine");
+            return;
+        };
+        let end = ended_after(&sshd, dir.path(), "exit", &["exit"]).await;
+        assert_eq!(end, SessionStatus::Disconnected { code: Some(0), ended: true });
+        let end = ended_after(&sshd, dir.path(), "exit-7", &["exit 7"]).await;
+        assert_eq!(end, SessionStatus::Disconnected { code: Some(7), ended: true });
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn exit_from_a_nested_shell_only_leaves_that_shell() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let Some(sshd) = spawn_sshd(dir.path()) else {
+            eprintln!("skipping: no usable sshd on this machine");
+            return;
+        };
+        // The inner `exit` must not end the session; the outer one must, and as a finished session.
+        let manager = Arc::new(SshManager::new());
+        let (tx, rx) = std_mpsc::channel();
+        manager.connect("nested".into(), params(&sshd, &sshd.client_key, dir.path().join("kh")), Arc::new(TestSink(tx))).unwrap();
+        wait_status(&rx, |s| matches!(s, SessionStatus::Connected));
+        // One line at a time: a shell that starts may discard typeahead.
+        for line in ["sh", "exit", "printf 'A%sB\\n' _STILL_"] {
+            manager.write("nested", format!("{line}\n").into_bytes()).await.unwrap();
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+        let out = wait_output(&rx, "A_STILL_B");
+        assert!(out.contains("A_STILL_B"), "{out}");
+        assert!(manager.is_connected("nested"));
+        manager.write("nested", b"exit\n".to_vec()).await.unwrap();
+        let end = wait_status(&rx, |s| matches!(s, SessionStatus::Disconnected { .. }));
+        assert_eq!(end, SessionStatus::Disconnected { code: Some(0), ended: true });
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn leaving_tmux_and_then_the_shell_is_an_ordinary_exit() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let Some(sshd) = spawn_sshd(dir.path()) else {
+            eprintln!("skipping: no usable sshd on this machine");
+            return;
+        };
+        if std::process::Command::new("tmux").arg("-V").output().is_err() {
+            eprintln!("skipping: no tmux on this machine");
+            return;
+        }
+        // A private tmux socket, so the test never touches the person's own sessions.
+        let sock = dir.path().join("tmux.sock");
+        let new = format!("tmux -S {} -f /dev/null new-session", sock.display());
+        let end = ended_after(&sshd, dir.path(), "tmux", &[&new, "printf 'A%sB\\n' _IN_TMUX_", "exit", "exit"]).await;
+        assert_eq!(end, SessionStatus::Disconnected { code: Some(0), ended: true });
     }
 }

@@ -93,7 +93,7 @@
     OPS_KEYWORDS,
     NOTIFY_KEYWORDS,
     SIDEBAR_KEYWORDS,
-    "connections auto-reconnect notify background command history remember restore session reopen tabs last time production paste trailing newline",
+    "connections auto-reconnect notify background command history remember restore session reopen tabs last time production paste trailing newline close tab when session ends exit logout",
     "command line cli scripting sshvault run list connect",
     "shell integration osc 133 7 prompt directory",
     "safety clipboard clear paste confirm destructive production backup retention pattern config time-machine snapshot history rollback",
@@ -627,7 +627,7 @@
     </section>
     {/if}
 
-    {#if visible("connections", "connections auto-reconnect notify background command history remember restore session reopen tabs last time production paste trailing newline tray system tray minimize close window keep running exit quit")}
+    {#if visible("connections", "connections auto-reconnect notify background command history remember restore session reopen tabs last time production paste trailing newline tray system tray minimize close window keep running exit quit close tab when session ends logout")}
     <section class="rounded-xl border border-line bg-panel p-5">
       <h2 class="mb-1 text-sm font-semibold">Connections</h2>
       <label class="flex items-start gap-2 text-sm">
@@ -648,6 +648,13 @@
         <span>
           Reconnect automatically when a connection drops
           <span class="block text-xs text-fg-muted">Up to three attempts, a few seconds apart. Typing <code>exit</code> or closing the tab never reconnects.</span>
+        </span>
+      </label>
+      <label class="mt-3 flex items-start gap-2 text-sm">
+        <input type="checkbox" class="mt-0.5 accent-input" bind:checked={settings.prefs.closeTabOnSessionEnd} />
+        <span>
+          Close tab when session ends
+          <span class="block text-xs text-fg-muted">When you type <code>exit</code> or the server ends the session, the tab closes by itself. Off: it stays open with a "session closed" notice, so you can read the output and reconnect. A connection that drops always stays open.</span>
         </span>
       </label>
       <label class="mt-3 flex items-start gap-2 text-sm">

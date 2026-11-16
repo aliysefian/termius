@@ -395,7 +395,7 @@ impl RawManager {
                 }
             }
             me.unregister(&pane_id);
-            sink.status(SessionStatus::Disconnected { code: None });
+            sink.status(SessionStatus::Disconnected { code: None, ended: false });
         });
         Ok(())
     }
@@ -465,7 +465,7 @@ impl RawManager {
                 }
                 stop.store(true, std::sync::atomic::Ordering::Relaxed);
                 me.unregister(&pane_id);
-                sink.status(SessionStatus::Disconnected { code: None });
+                sink.status(SessionStatus::Disconnected { code: None, ended: false });
             })
             .map_err(|e| err(e.to_string()))?;
         Ok(())

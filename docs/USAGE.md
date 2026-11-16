@@ -453,7 +453,14 @@ For a one-off connection, type an `ssh -J` command in Quick connect instead
   your clipboard. Turn this off under **Settings → Terminal** if you would
   rather remote programs could not write to it.
 - If the connection drops, a **Reconnect** button appears at the bottom of the
-  pane.
+  pane, and with **Reconnect automatically** on (Settings → Connections) SSHVault tries up to
+  three times by itself. It only does that when the link died: typing `exit` or `logout`,
+  or a server that closes the session (even without saying why), ends the session and
+  leaves the tab showing `[session closed]`. A connection that comes up and is cut off
+  at once is given up on after three tries rather than retried for ever.
+- **Close tab when session ends** (Settings → Connections, off by default) closes the tab
+  or pane by itself when you leave the shell, instead of keeping the output on screen. A
+  connection that dropped always stays open so you can reconnect.
 - **Command blocks.** On a host with shell integration, each command gets a thin bar in the left margin: green
   if it succeeded, red if it failed, grey if the shell didn't say. Hover for the command, outcome and how long
   it took. Click it to copy the output or the command, select the output, or pin the command (pinned bars are
