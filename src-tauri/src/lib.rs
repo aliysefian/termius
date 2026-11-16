@@ -5,6 +5,8 @@ mod acceptance_tests;
 #[cfg(test)]
 mod agentchan_tests;
 #[cfg(test)]
+mod session_end_tests;
+#[cfg(test)]
 mod twofactor_tests;
 pub mod agent;
 pub mod agentgate;

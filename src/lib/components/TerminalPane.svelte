@@ -29,6 +29,7 @@
   import { DEFAULT_PREFS, settings } from "$lib/stores/settings.svelte";
   import { localShells } from "$lib/stores/localshells.svelte";
   import { adhocLabel, ui, type Pane } from "$lib/stores/ui.svelte";
+  import { attemptsAfterDrop, MAX_RECONNECTS, wasDropped } from "$lib/sessionend";
   import { vaultStore } from "$lib/stores/vault.svelte";
   import { allThemes, themeById } from "$lib/themes";
   import { effectiveLook } from "$lib/terminalprofile";
@@ -660,7 +661,8 @@
   // Reconnect by itself after a dropped connection (never after `exit`).
   let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
   let reconnectAttempts = 0;
-  const MAX_RECONNECTS = 3;
+  /** When the current connection came up, to tell a run that worked from one cut off at once. */
+  let connectedAt = 0;
 
   function scheduleReconnect() {
     if (target.kind === "local" || target.kind === "serial" || !settings.prefs.autoReconnect || needsCredentials || reconnectAttempts >= MAX_RECONNECTS) return;
@@ -895,6 +897,8 @@
   }
 
   function reconnect() {
+    // Asked for by hand: the automatic tries start over.
+    reconnectAttempts = 0;
     if (needsCredentials) started = false;
     else connect(null);
   }
@@ -1198,7 +1202,7 @@
       if (e.status.kind !== "connecting") multiplexers.reset(paneId);
       if (e.status.kind === "connected") {
         if (muxCapable) void multiplexers.refresh(paneId);
-        reconnectAttempts = 0;
+        connectedAt = Date.now();
         safeFit();
         term.focus();
         logId = connectionLog.start(hostId, label, logKind);
@@ -1242,8 +1246,17 @@
           connectionLog.end(logId, e.status.code, e.status.code != null ? "exited" : "dropped");
           logId = null;
         }
-        // No exit code means the link dropped rather than the shell ending.
-        if (wasConnected && e.status.code == null) scheduleReconnect();
+        // Only a dead link is retried; a shell that exited, or a server that closed the channel, is finished.
+        if (wasConnected && wasDropped(e.status)) {
+          reconnectAttempts = attemptsAfterDrop(reconnectAttempts, Date.now() - connectedAt);
+          scheduleReconnect();
+        } else if (wasConnected && settings.prefs.closeTabOnSessionEnd) {
+          // After the notices above, and not inside this handler: closing the pane unmounts this component.
+          setTimeout(() => {
+            const tab = ui.tabs.find((t) => t.panes.some((p) => p.id === paneId));
+            if (tab) ui.closePane(tab.id, paneId);
+          }, 0);
+        }
       } else if (e.status.kind === "error" && logId) {
         connectionLog.end(logId, null, "failed");
         logId = null;

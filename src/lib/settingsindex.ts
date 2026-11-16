@@ -27,6 +27,7 @@ export const SETTING_ENTRIES: SettingEntry[] = [
   { label: "Alerts and monitoring history", query: "alerts", words: "notify cpu memory disk quiet hours charts" },
   { label: "Notification channels (Telegram, Bale, email)", query: "telegram", words: "bale email smtp bot token chat monitoring alerts messages proxy socks socks5 http blocked" },
   { label: "Auto-reconnect", query: "auto-reconnect", words: "connection drop" },
+  { label: "Close tab when session ends", query: "close tab", words: "exit logout session ended finished terminal pane" },
   { label: "Keep running in the tray when the window is closed", query: "tray", words: "system tray minimize close window background exit quit notification area" },
   { label: "Remember commands and history", query: "remember", words: "command history" },
   { label: "Reopen tabs from last time", query: "restore session", words: "reopen tabs" },

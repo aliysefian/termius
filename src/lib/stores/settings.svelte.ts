@@ -129,6 +129,8 @@ export interface Prefs {
   tunnelsDetailWidth: number;
   /** Reconnect by itself when a connection drops (not when you exit). */
   autoReconnect: boolean;
+  /** Close the tab (or pane) when its session ends, rather than leaving the "session closed" notice up. */
+  closeTabOnSessionEnd: boolean;
   /** Reopen the tabs that were open when the vault was last locked or the app quit. */
   restoreLastSession: boolean;
   /** When restoring, leave production hosts closed; reconnect them by hand. */
@@ -330,6 +332,7 @@ export const DEFAULT_PREFS: Prefs = {
   alertLogService: false,
   tunnelsDetailWidth: 440,
   autoReconnect: true,
+  closeTabOnSessionEnd: false,
   restoreLastSession: true,
   restoreSkipProduction: true,
   confirmCloseSessions: true,

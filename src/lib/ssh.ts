@@ -7,7 +7,7 @@ export type SessionStatus =
   | { kind: "connecting" }
   | { kind: "new_host_key"; host: string; fingerprint: string }
   | { kind: "connected" }
-  | { kind: "disconnected"; code: number | null }
+  | { kind: "disconnected"; code: number | null; /** The other end finished the session (false: the link died). */ ended?: boolean }
   | { kind: "host_key_changed"; host: string; port: number; fingerprint: string }
   | { kind: "error"; message: string };
 
