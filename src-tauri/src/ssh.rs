@@ -2846,7 +2846,7 @@ mod tests {
             eprintln!("skipping: no usable sshd on this machine");
             return;
         };
-        let end = ended_after(&sshd, dir.path(), "exit", &["exit"]).await;
+        let end = ended_after(&sshd, dir.path(), "exit", &["exit 0"]).await;
         assert_eq!(end, SessionStatus::Disconnected { code: Some(0), ended: true });
         let end = ended_after(&sshd, dir.path(), "exit-7", &["exit 7"]).await;
         assert_eq!(end, SessionStatus::Disconnected { code: Some(7), ended: true });
@@ -2872,7 +2872,8 @@ mod tests {
         let out = wait_output(&rx, "A_STILL_B");
         assert!(out.contains("A_STILL_B"), "{out}");
         assert!(manager.is_connected("nested"));
-        manager.write("nested", b"exit\n".to_vec()).await.unwrap();
+        // A bare `exit` returns the status of the last command, which is not what this test is about.
+        manager.write("nested", b"exit 0\n".to_vec()).await.unwrap();
         let end = wait_status(&rx, |s| matches!(s, SessionStatus::Disconnected { .. }));
         assert_eq!(end, SessionStatus::Disconnected { code: Some(0), ended: true });
     }
@@ -2891,7 +2892,7 @@ mod tests {
         // A private tmux socket, so the test never touches the person's own sessions.
         let sock = dir.path().join("tmux.sock");
         let new = format!("tmux -S {} -f /dev/null new-session", sock.display());
-        let end = ended_after(&sshd, dir.path(), "tmux", &[&new, "printf 'A%sB\\n' _IN_TMUX_", "exit", "exit"]).await;
+        let end = ended_after(&sshd, dir.path(), "tmux", &[&new, "printf 'A%sB\\n' _IN_TMUX_", "exit", "exit 0"]).await;
         assert_eq!(end, SessionStatus::Disconnected { code: Some(0), ended: true });
     }
 }
