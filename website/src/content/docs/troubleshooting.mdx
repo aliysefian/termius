@@ -1,0 +1,98 @@
+---
+title: "Troubleshooting"
+description: "Answers to common problems: blank terminals, changed host keys, sync, tunnels, ssh-agent, hardware keys and dropped sessions."
+section: "Help"
+order: 1
+---
+
+Short answers to the problems people hit most often. If yours is not here, [report it](https://github.com/aliysefian/termius/issues).
+
+## Terminal and connections
+
+### The terminal is blank or garbled on Linux.
+
+Some GPU and driver combinations misbehave with WebGL in WebKitGTK. Try starting with `WEBKIT_DISABLE_DMABUF_RENDERER=1`. xterm.js falls back to its slower DOM renderer when WebGL is unavailable.
+
+```bash
+WEBKIT_DISABLE_DMABUF_RENDERER=1 /path/to/SSHVault.AppImage
+```
+
+### The terminal says the host key changed.
+
+The server presented a different key from the one trusted before. If you expected this, for example because the server was reinstalled, reconnect and replace the key after comparing fingerprints (you type `replace`). If you did not expect it, do not connect. See [Connecting](/docs/connecting).
+
+### My tab says `[session closed]` and did not reconnect.
+
+SSHVault only reconnects when the link died. Typing `exit` or `logout`, or a server that closes the session (even without saying why), ends the session on purpose. A real drop shows a **Reconnect** button, and with **Reconnect automatically** on it tries up to three times by itself.
+
+### The connection came up and was cut off at once, and it gave up.
+
+A connection that is cut off immediately is given up on after three tries rather than retried for ever. Use the **Reconnect** button once the cause is fixed.
+
+### The tab closed by itself when I left the shell.
+
+**Close tab when session ends** is on (**Settings**, then **Connections**; it is off by default). A connection that dropped always stays open so you can reconnect.
+
+### Tabs came back after unlocking, but production hosts did not.
+
+Unlocking reopens last time's tabs, but production hosts are left closed by default, to reconnect by hand. You can turn tab restoring off under **Settings**, then **Connections**.
+
+## tmux
+
+### My tmux session is still there after the tab closed. Is that a bug?
+
+No. Tmux sessions belong to the remote tmux server, not to terminal tabs. Closing a tab, or **Close terminal** in the tmux workspace, only detaches. See [tmux](/docs/tmux).
+
+### I cannot select text in tmux or vim.
+
+When a program has the mouse, hold **Shift** while dragging to select, or click the **Program has the mouse** pill to make plain drags select until you switch back.
+
+### The tmux preview does not accept typing.
+
+Previews are read-only snapshots. Use the **Terminal** tab or Attach.
+
+## Vault and sync
+
+### "master password is incorrect" on a second computer.
+
+Check that the sync client has finished downloading `vault.json`, and that you chose the same folder as on the first computer.
+
+### Changes from another computer do not appear.
+
+Check that the sync client is running and has finished syncing. Comparing the **Revision** value on each computer's **Vault** screen tells you whether they hold the same data.
+
+### "Another device changed the same item" when saving.
+
+Someone (or you, on another computer) edited the same field before the change synced. The current version is now shown; make your change again.
+
+### A dot appeared on the Vault icon.
+
+Your sync service may have kept two copies of a file after offline edits. Open **Vault**, then **Sync conflicts** to pick between the versions. See [Vault and sync](/docs/vault-and-sync).
+
+## Tunnels and agents
+
+### A forwarding rule shows "cannot listen on ...".
+
+Another program is using that port. Pick another port, or use `0` for a free one.
+
+### A tunnel shows Failed.
+
+It lost its SSH connection. Tunnels do not reconnect by themselves; start it again. See [Port forwarding](/docs/port-forwarding).
+
+### ssh-agent authentication fails with "no ssh-agent available".
+
+SSHVault found no agent. An app opened from the desktop menu often does not see the `SSH_AUTH_SOCK` your terminal has. Open **Settings**, then **Connections**, then **Hardware keys and the system SSH agent** and enter your agent's socket (in a terminal, `echo $SSH_AUTH_SOCK` prints it). On Windows, start the **OpenSSH Authentication Agent** service or Pageant.
+
+### "the ssh-agent would not sign with ...".
+
+The agent has the key but answered no. For a hardware key: plug it in, and touch it when it blinks during the login. Check that `ssh` works with the same key from a terminal. See [Keys and agent](/docs/keys-and-agent).
+
+## Installing
+
+### Windows warns about the installer, or macOS says the app is damaged.
+
+The installers are not signed yet. See [Install](/docs/install) for the SmartScreen and macOS steps.
+
+### There is no tray icon on Linux.
+
+The tray needs an AppIndicator library (`libayatana-appindicator3-1` on Debian and Ubuntu, `libayatana-appindicator-gtk3` on Fedora). Without one, closing the window quits the app.

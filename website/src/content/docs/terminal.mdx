@@ -1,0 +1,78 @@
+---
+title: "Terminal"
+description: "Tabs, split panes, synchronized typing, recording, shell integration, smart completion and local shells."
+section: "Work"
+order: 1
+---
+
+The terminal is built on xterm.js with WebGL rendering. Tabs stay connected in the background, and every tab works the same way for SSH, local shells and the other connection types.
+
+## Tabs and panes
+
+- Split any pane right or down with the buttons in its header, up to six panes per tab. Drag the line between panes to resize them; focus it (Tab) and use the arrow keys, or double-click to centre it.
+- Drag tabs to reorder them. Double-click a tab to rename it. Right-click it to duplicate it or close others. Middle-click closes it.
+- **Ctrl+Shift+Enter** maximizes or restores the active pane. **Alt+Shift+arrows** move focus between panes.
+- Tabs show unread output, a running command or a bell while in the background, with a searchable tab list once they overflow the strip.
+- The dot on each tab shows its connection: green connected, yellow connecting, red failed, grey closed.
+
+### Synchronized typing
+
+Turn it on for any split tab with the keyboard icon in a pane header, or **Ctrl+Shift+B**. Each keystroke goes to every pane, like `tmux synchronize-panes`. Synced tabs show a yellow **SYNC** badge. SSHVault asks before synchronized typing touches a production host.
+
+## Working in a terminal
+
+- Right-click for copy, paste, select all, find, clear and copying the entire scroll buffer. **Ctrl+Shift+F** finds in the terminal.
+- Zoom with **Ctrl+=**, **Ctrl+-**, **Ctrl+0** or Ctrl+scroll.
+- Ctrl/Cmd+click a link a program printed. Only web and mail addresses are followed, and you are asked first when the address differs from the text shown.
+- Ctrl+click an absolute or `./relative` path to browse to it in SFTP, or a `host:port` to quick connect to it.
+- Drop a file from your file manager onto a terminal to upload it over SFTP to that pane's current directory (needs shell integration to know it; otherwise the home directory). Drop plain text to paste it.
+- **Search all terminals:** command palette, then *Search all open terminals...*, looks through the screen and scrollback of every open terminal.
+- Sixel and iTerm2 pictures are drawn in the terminal (Settings can turn this off).
+
+### Paste protection
+
+Pasting several lines, or anything that would run immediately on a production host, shows you the text first. A paste that looks like a private key or an API token asks to confirm. On production hosts, destructive commands such as `rm -rf /`, `DROP TABLE`, `kubectl delete` or `terraform destroy` ask for confirmation before Enter is sent. This is a safety net, not a guarantee: SSHVault only sees what you type, not what aliases or scripts turn it into.
+
+### Mouse, tmux and vim
+
+When a program such as tmux, vim or Claude Code takes the mouse, hold **Shift** while dragging to select text, or click the **Program has the mouse** pill. Programs that copy through the terminal (tmux with `set-clipboard on`, Claude Code, Neovim's OSC 52 provider) put the text on your clipboard; turn this off under **Settings**, then **Terminal**. See also [tmux](/docs/tmux).
+
+## Recording
+
+The record button in a pane's header saves everything the session prints to a file you choose, until you press it again. Logs are plain text by default; under **Settings** you can keep colours and control codes so `cat` replays the session.
+
+## Shell integration
+
+With shell integration on the host you get the current directory in the header, jumping between prompts (**Ctrl+Shift+Up** and **Ctrl+Shift+Down**), copying the last command's output, and notifications when long commands finish.
+
+- **Command blocks:** each command gets a thin bar in the left margin, green if it succeeded, red if it failed, grey if the shell did not say. Click it to copy the output or the command. Turn the bars off under **Settings**, then **Terminal**.
+- **One-click install:** right-click in a pane, then *Install shell integration on this host...*. It shows the exact lines for bash, zsh or fish, then adds or removes them. A copy is kept as `<file>.sshvault.bak`, and on production hosts you type the host's name first.
+- PowerShell and cmd have no integration yet.
+
+## Highlight words
+
+Under **Settings**, then **Terminal**, add ordered rules that colour words in the output (plain text or a pattern). Start from Errors, Warnings, Success or IP addresses. *Notify me* raises a desktop notice when new output matches while the app is in the background.
+
+## Smart completion
+
+Off by default; turn it on under **Settings**, then **Terminal**, then **Smart completion**. Nothing is typed for you.
+
+- A faint suggestion appears after the cursor, taken from commands you ran before. **Right arrow** or **End** accepts it, **Ctrl+Right** takes one word, **Esc** hides it. **Enter is always yours.**
+- **Ctrl+Space** opens a list of subcommands and options for about 60 common commands, file names from the host, snippets and matching history.
+- It stays out of vim, tmux, password prompts and while a command runs.
+- **Production hosts default to History only.** Commands that look like they contain a password or token are never suggested or stored; this is a best-effort filter, not a guarantee.
+- Each host can override it: Use default, Always on, History only or Off (host form, **Automation**).
+
+## Local shells, Telnet, serial and Mosh
+
+``Ctrl+Shift+` `` opens your own shell in a tab. The arrow beside the terminal icon lists every shell found, and on Windows each WSL distribution. **Settings**, then **Local terminal**, sets the default. Local tabs work with splits, recording, snippets and synchronized typing. Telnet, serial and Mosh are described in [Hosts](/docs/hosts).
+
+## Appearance
+
+Change the colour theme, font, cursor, scrollback, letter spacing, padding and minimum contrast under **Settings**, with a live preview. Themes can be imported from VS Code, Windows Terminal and iTerm2. These settings are per computer and are not synced. A host can also set its own theme, text size and scrollback under *Terminal look on this host*, handy for telling production apart.
+
+## Running in the tray
+
+Closing the window keeps SSHVault running in the system tray, with sessions and tunnels still open. The tray icon brings it back, and its **Exit** quits. Untick **Keep running in the tray when the window is closed** under **Settings**, then **Connections**, to quit on close.
+
+See [Shortcuts](/docs/shortcuts) for the full key list, and [Troubleshooting](/docs/troubleshooting) if the terminal renders badly.

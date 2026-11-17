@@ -1,0 +1,68 @@
+---
+title: "Shortcuts"
+description: "Keyboard shortcuts for tabs, panes, the command palette, locking and smart completion."
+section: "Work"
+order: 6
+---
+
+Shortcuts are listed for Ctrl. Open the full list, and rebind keys, with **Ctrl+Shift+/**.
+
+## Main shortcuts
+
+| Keys | Action |
+|---|---|
+| Ctrl+Shift+P | Command palette |
+| Ctrl+Shift+T | Quick connect |
+| Ctrl+Shift+W | Close tab |
+| Ctrl+Tab, Ctrl+Shift+Tab | Next or previous tab |
+| Ctrl+PageDown, Ctrl+PageUp | Next or previous tab |
+| Ctrl+1 to Ctrl+9 | Go to tab 1 to 9 |
+| Ctrl+Shift+D, Ctrl+Shift+E | Split right, split down |
+| Ctrl+Shift+F | Find in terminal |
+| Ctrl+Shift+C, Ctrl+Shift+V | Copy, paste |
+| Shift+drag | Select text while a program (tmux, vim) is using the mouse |
+| Ctrl+=, Ctrl+-, Ctrl+0, Ctrl+scroll | Zoom in, out, reset |
+| Ctrl+Shift+L | Lock vault |
+| Ctrl+Shift+B | Type into all panes of the tab (toggle) |
+| Ctrl+Shift+H | Hide or show the list panel |
+| Ctrl+Alt+B | Hide or show the right panel (Files, Processes, Session, Snippets) |
+| Ctrl+Alt+J | Hide or show the bottom panel (terminals, sessions, connection log) |
+| Ctrl+Alt+\ | Shell focus: hide every panel, then restore exactly what was showing |
+| Ctrl+Alt+T | New terminal in the bottom panel, on the focused host |
+| Ctrl+Shift+Enter | Maximize or restore the active pane |
+| Ctrl+Shift+U | Focus mode: only the terminal |
+| Ctrl+Shift+/ | Keyboard shortcuts (and rebinding them) |
+| Ctrl+Shift+Up, Ctrl+Shift+Down | Previous or next prompt (with shell integration) |
+| `` Ctrl+Shift+` `` | New local terminal |
+| Alt+Shift+arrows | Focus the pane to the left, right, up or down in a split |
+| Shift+End | Jump a terminal to the bottom |
+
+## Smart completion
+
+Only while a suggestion is showing, and only if [smart completion](/docs/terminal) is turned on.
+
+| Keys | Action |
+|---|---|
+| Right arrow, End | Accept the suggestion |
+| Ctrl+Right | Accept one word |
+| Esc | Dismiss it |
+| Ctrl+Space | Open the suggestion list |
+
+Tab is left to the shell's own completion. You can bind it to the list under **Keyboard shortcuts** (*Open the suggestion list (Tab)*).
+
+## Why plain Ctrl shortcuts are not taken
+
+Plain Ctrl shortcuts such as Ctrl+W, Ctrl+T and Ctrl+K go to the remote shell, where editors and readline use them. Pane navigation uses Alt+Shift, not plain Alt, so it does not take over Alt+Left and Alt+Right, which readline uses for back and forward a word. Outside a terminal, **Ctrl+K** also opens the command palette.
+
+## Host list and splits
+
+- The host list is a full keyboard tree: arrow keys move between hosts and groups, Left and Right collapse or expand a group, Home and End jump to the top or bottom, typing jumps to the next matching name, **F2** edits the focused host and **Delete** removes it after confirming.
+- A split's divider can be dragged, or focused (Tab) and resized with the arrow keys. Double-click or Home or Enter centres it.
+
+## In other workspaces
+
+- Databases: **Ctrl+Enter** runs the selection or current statement, **Ctrl+Shift+Enter** runs a script, **Ctrl+S** saves, **Ctrl+Shift+F** formats, **Ctrl+/** comments.
+- Runbooks: **Ctrl+S** saves, **Ctrl+Enter** validates, **Ctrl+N** makes a new runbook. Nothing starts a run from the keyboard alone.
+- RDP and VNC tabs: the app's own shortcuts (Ctrl+Shift combinations and the fixed tab keys) work first; other keys go to the remote computer.
+
+Related: [Terminal](/docs/terminal), [Connecting](/docs/connecting).

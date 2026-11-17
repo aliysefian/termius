@@ -1,0 +1,73 @@
+---
+title: "Security"
+description: "How the vault is encrypted, what your sync service sees, what is not protected, and what is not available yet."
+section: "Secure"
+order: 2
+---
+
+SSHVault's central rule is that the sync provider never has to be trusted. Everything it stores is encrypted and authenticated on your device, and nothing it holds is enough to open the vault.
+
+## What your sync service sees
+
+Random file names, how many records of each type there are, their sizes and when they change. Never host names, users, addresses, keys, passwords, snippets or anything that unlocks the vault.
+
+## How it is encrypted
+
+- A random 256-bit vault key, unlocked by your master password through Argon2id or by the recovery key.
+- Every record is encrypted separately with XChaCha20-Poly1305 and bound to its vault and ID, so tampered or swapped files are rejected.
+- Writes are atomic, and a crash never leaves a half-written record.
+- The primitives come from RustCrypto (`argon2`, `chacha20poly1305`, `sha2`/`hmac`); there is no custom cryptography.
+- The default key derivation is Argon2id v1.3 with 64 MiB, 3 passes and 4 lanes.
+
+The vault key never changes, so changing the master password only rewraps it. The full design is in the [vault architecture](https://github.com/aliysefian/termius/blob/main/docs/vault-architecture.md).
+
+<Callout type="note">
+
+Because the vault key itself does not change, changing the password does not revoke the old one against an older copy of `vault.json` (a sync provider's version history, a backup, a device that kept a copy). Revoking an exposed password for good needs a new vault key, and that operation does not exist yet.
+
+</Callout>
+
+## On your computer
+
+- Secrets stay in the Rust backend, and the interface sees redacted copies.
+- The vault key is wiped when the vault locks.
+- **Remember on this device** uses the OS keychain and stores the vault key, never the password.
+- Saved passwords and keys stay hidden until you confirm your master password. Five wrong attempts block reveals for 30 seconds, and the wait doubles with each further round of failures.
+- Copied secrets are cleared from the clipboard after 30 seconds by default, if nothing else has been copied.
+- Directories are created `0700` and files `0600` on Unix.
+
+## Server trust
+
+Server keys are trusted explicitly and synced across devices. If a key changes, the connection stops and shows old and new fingerprints, and replacing it needs you to type `replace`. RDP and FTPS certificates are pinned the same way. See [Connecting](/docs/connecting).
+
+## Guard rails
+
+- Red PROD banners, confirmation for multi-line pastes and destructive commands on production hosts, and typed host names for risky actions.
+- A paste that looks like a private key or an API token asks first.
+- Undo for deletes, auto-lock, encrypted automatic backups, integrity checks and sync-conflict resolution. See [Vault and sync](/docs/vault-and-sync).
+- A **Security review** page checks certificate expiry, weak or ageing keys and passwords worth rotating, locally. A connection log stays on this computer and is never synced.
+- A host's detail view can run a read-only hardening audit of a Linux server, only when you press **Run the audit**. It never applies fixes.
+
+## What is not protected
+
+A computer that is already compromised while the vault is unlocked. Malware running as you can read memory, keystrokes and the screen, and can use open SSH sessions. No password manager can protect you from that. Lock the vault when you step away, and keep your computers updated.
+
+Also outside the design: someone who controls the sync service can restore an older complete, validly encrypted copy of the folder. Each device records the newest revision it has seen of every record and reports rollbacks of anything it has already seen, but this detects rather than prevents, and a device that never saw the newer data cannot tell.
+
+## Not available yet
+
+- An Apple-notarized macOS app
+- Code-signed installers (the signing machinery exists, but no release has been signed yet)
+- Unlocking the vault with a hardware key
+- Team sharing
+- An apt or yum repository with a published key
+
+See the [roadmap](https://github.com/aliysefian/termius/blob/main/ROADMAP.md) and [signing notes](https://github.com/aliysefian/termius/blob/main/docs/SIGNING.md).
+
+## Project status
+
+SSHVault is young. The SSH engine, vault, agent and sync are covered by more than 150 automated tests, many of them end to end against a real OpenSSH server, but the app has not had wide real-world use yet. Some features say so themselves: for example the MySQL, SQL Server and Oracle database paths were not yet tried against real servers. Keep backups of anything important.
+
+## Reporting a vulnerability
+
+Please do not open a public issue. Use [Report a vulnerability](https://github.com/aliysefian/termius/security/advisories/new) on GitHub (the **Security** tab, then **Advisories**). Include what an attacker can do and what they need first, steps to reproduce with the SSHVault version and operating system, and any mitigation you have in mind. You should get a reply within a few days. Only the latest release gets security fixes. The full policy is in [SECURITY.md](https://github.com/aliysefian/termius/blob/main/SECURITY.md).

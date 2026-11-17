@@ -1,0 +1,72 @@
+name: Deploy website
+
+# Builds /website and publishes it to GitHub Pages (https://aliysefian.github.io/termius/).
+# One-time repository setting, done by a maintainer: Settings > Pages > Source = "GitHub Actions".
+# Nothing here changes repository settings.
+on:
+  push:
+    branches: [main]
+    paths: ["website/**", ".github/workflows/deploy-website.yml"]
+  pull_request:
+    paths: ["website/**", ".github/workflows/deploy-website.yml"]
+  workflow_dispatch:
+
+# Least privilege for the build; the deploy job asks for Pages permissions itself.
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+defaults:
+  run:
+    working-directory: website
+
+jobs:
+  build:
+    name: Validate and build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+      - run: npm ci
+      - name: Type-check
+        run: npm run typecheck
+      - name: Lint
+        run: npm run lint
+      - name: Unit and component tests
+        run: npm test
+      - name: Build (Vite, per-route HTML, sitemap, Pagefind index)
+        run: npm run build
+      - name: Browser tests
+        run: |
+          npx playwright install --with-deps chromium
+          npx playwright test
+        env:
+          CI: "true"
+      - uses: actions/configure-pages@v5
+        if: github.event_name != 'pull_request'
+      - uses: actions/upload-pages-artifact@v3
+        if: github.event_name != 'pull_request'
+        with:
+          path: website/dist
+
+  deploy:
+    name: Deploy to GitHub Pages
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

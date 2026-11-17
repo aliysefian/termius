@@ -1,0 +1,63 @@
+---
+title: "Getting started"
+description: "Create an encrypted vault, add your first hosts and connect, then open the same vault on a second computer."
+section: "Start"
+order: 1
+---
+
+SSHVault is an SSH client for people who live in terminals, with an encrypted vault you sync yourself. Hosts, keys, credentials, tunnels and snippets are encrypted on your computer and synced through a folder you already use (Dropbox, OneDrive, Nextcloud, Syncthing, iCloud Drive). There is no account and no server, and the sync service only ever stores ciphertext.
+
+It runs on Linux, Windows and macOS. See [Install](/docs/install) first if you have not downloaded it yet.
+
+## Three steps
+
+### 1. Create a vault
+
+Start SSHVault and choose **Create New Vault**. You are asked for:
+
+1. **Vault name**: the folder name, for example `MySSHVault`.
+2. **Location**: where that folder goes. Pick a folder that syncs, such as `~/Dropbox`, `OneDrive` or a Syncthing folder.
+3. **Master password**: at least 8 characters, longer is better.
+4. **Create a recovery key** (recommended): a one-time code that can reset a forgotten master password.
+5. **Remember on this device** (optional): unlock without typing the password on this computer.
+
+<Callout type="warning">
+
+The master password is never stored anywhere. Without it or the recovery key, nobody can open the vault, including you. The recovery key is shown once: print it or write it down and keep it offline, not in the synced folder.
+
+</Callout>
+
+**Import SSH Config** does the same as Create New Vault and then brings in `~/.ssh/config`.
+
+### 2. Add hosts
+
+Click **+** in the **Hosts** view to create a host, or import from `~/.ssh/config`, Ansible, PuTTY, MobaXterm or a CSV. Double-click a host to connect. See [Hosts](/docs/hosts) for the host form and importing.
+
+### 3. Use it on another computer
+
+Wait until your sync service has copied the folder, then choose **Open Existing Vault**, pick the same folder and enter the same password. Changes show up on your other computers within seconds. See [Vault and sync](/docs/vault-and-sync).
+
+## A first connection without saving anything
+
+Press **Ctrl+Shift+T** (or the **+** next to the tabs) and type `user@host` or `user@host:port`. Leave the password empty to use ssh-agent. Nothing is saved.
+
+```text
+demo@192.0.2.10:22
+```
+
+More on this in [Connecting](/docs/connecting).
+
+## What to read next
+
+| If you want to | Read |
+|---|---|
+| Organise servers into groups and share credentials | [Hosts](/docs/hosts) |
+| Use jump hosts, trust server keys, reconnect | [Connecting](/docs/connecting) |
+| Split panes, record sessions, local shells | [Terminal](/docs/terminal) |
+| Move files | [SFTP](/docs/sftp) |
+| Use vault keys with `ssh` and `git` | [Keys and agent](/docs/keys-and-agent) |
+| Learn how the vault is protected | [Security](/docs/security) |
+
+## Status
+
+SSHVault is young. The SSH engine, vault, agent and sync are covered by more than 150 automated tests, many of them end to end against a real OpenSSH server, but the app has not had wide real-world use yet. Keep backups of anything important, and please [report problems](https://github.com/aliysefian/termius/issues).

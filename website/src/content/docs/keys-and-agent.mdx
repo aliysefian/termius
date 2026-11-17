@@ -1,0 +1,68 @@
+---
+title: "Keys and agent"
+description: "The Key Manager, OpenSSH certificates, the built-in SSH agent and hardware keys such as YubiKey and FIDO2."
+section: "Secure"
+order: 1
+---
+
+The **Keys** screen is the Key Manager. Credentials refer to keys, so replacing a key applies everywhere it is used. A built-in SSH agent lets `ssh`, `git` and your editor use vault keys with nothing written to disk.
+
+## Key Manager
+
+- **Generate** Ed25519 (recommended), ECDSA or RSA keys, optionally with a passphrase. You choose whether the passphrase is saved in the vault.
+- **Import** an existing private key by pasting it or picking the file. OpenSSH, PEM, PKCS#8 and PuTTY formats are accepted, and the key and passphrase are checked before saving. You can also add colleagues' public keys.
+- Click a key to copy its public key (for `~/.ssh/authorized_keys`), see which credentials and hosts use it, rename it, add an OpenSSH **certificate** (used automatically when connecting), change its passphrase, or delete it.
+- **Export private key** is deliberately awkward. It asks for your master password every time, will not overwrite an existing file, and writes a file only you can read. Delete the file when you are done with it.
+
+To use a key, create a credential with authentication **Key Manager**, or pick it in a host's own credentials. See [Hosts](/docs/hosts).
+
+## The built-in SSH agent
+
+**Keys**, then **SSH agent**, then **Turn on** starts an SSH agent backed by the vault. Copy the `SSH_AUTH_SOCK` line it shows into your shell profile, and `ssh`, `git`, `scp` and editors use your vault keys directly. No private key file is ever written.
+
+```bash
+# after adding the SSH_AUTH_SOCK line to your shell profile,
+# list the keys the agent offers
+ssh-add -l
+```
+
+- Keys are offered only after you switch them on, one by one: **Ask every time** (the app asks before each signature) or **Allow while unlocked**. Approval also applies over agent forwarding.
+- The agent stops when the vault locks, and starts again at the next unlock if it is turned on for that computer.
+- It only lists keys and signs. `ssh-add` cannot add, remove or lock keys in it.
+- Encrypted keys need their passphrase saved in the vault to be offered, because the agent cannot ask for it.
+
+### Agent forwarding
+
+**Forward ssh-agent** in the host form lets that server use the keys in this computer's agent, for example to reach another server or a git remote.
+
+<Callout type="warning">
+
+Anyone with root on the server can use your agent while you are connected, so only enable forwarding for servers you trust.
+
+</Callout>
+
+## Hardware keys
+
+A key that lives on a device (YubiKey and other FIDO2 security keys, smart cards, PKCS#11 tokens) cannot be copied into the vault: the device signs, and only an ssh-agent talks to it. SSHVault uses such a key through the ssh-agent already running on your computer.
+
+1. Add the key to your agent the way you do for `ssh`: `ssh-add ~/.ssh/id_ed25519_sk` for a FIDO2 key, `ssh-add -s <library>` for a PKCS#11 token, or the agent your device came with (gpg-agent, yubikey-agent, a password manager).
+2. In the host or credential, choose **ssh-agent** as the login.
+3. Connect. If the key needs a touch, the terminal says so; touch it when it blinks.
+
+**Settings**, then **Connections**, then **Hardware keys and the system SSH agent** shows which agent SSHVault found and the keys it holds. A security key is marked "touch". If your key is in a different agent, type that agent's socket there, for example `~/.gnupg/S.gpg-agent.ssh`.
+
+When nothing is set, SSHVault looks at `SSH_AUTH_SOCK`, then `IdentityAgent` in `~/.ssh/config`, then the usual sockets of ssh-agent, GNOME Keyring, yubikey-agent, 1Password, Secretive, Bitwarden and gpg-agent. On Windows it uses OpenSSH's agent, then Pageant. The choice is for this computer only.
+
+Every key in the agent is offered to the server in turn, as `ssh` does. A key that is not touched or whose device is unplugged is skipped. A server with a low `MaxAuthTries` may hang up before the right key is reached when the agent holds many keys; remove the ones you do not need from the agent.
+
+A security key's file (`id_ed25519_sk`) pasted in as a private key cannot log in by itself; SSHVault says so and points here. The built-in agent serves vault keys only, not hardware keys.
+
+<Callout type="note">
+
+Unlocking the vault itself with a hardware key is not available yet. See [Security](/docs/security).
+
+</Callout>
+
+## Security review
+
+**Vault**, then **Security review** lists certificates nearing or past expiry, weak (RSA under 3072 bits) or deprecated (DSA) keys, keys older than five years, hosts still using a saved password when a key is available, and passwords that have not changed in a while. Everything is computed locally; nothing is sent anywhere and nothing is fixed automatically.

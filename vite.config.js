@@ -10,6 +10,9 @@ const host = process.env.TAURI_DEV_HOST;
 export default defineConfig(() => ({
   plugins: [tailwindcss(), sveltekit()],
 
+  // /website is a separate project with its own tests (run from there); keep the app's test run to the app.
+  test: { exclude: ["**/node_modules/**", "**/.svelte-kit/**", "website/**"] },
+
   // The version the Dashboard shows, read here so no page has to import package.json (the dev server will not serve it).
   define: { __APP_VERSION__: JSON.stringify(pkg.version) },
 
