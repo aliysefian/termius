@@ -1,0 +1,310 @@
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/* Site tokens. Dark is the default; the values mirror the desktop app's own palette. */
+:root,
+:root[data-theme="dark"] {
+  --bg: #0a0f19;
+  --bg-elev: #0f1622;
+  --panel: #131b2a;
+  --panel-hover: #1a2436;
+  --line: #243047;
+  --line-soft: #1a2436;
+  --fg: #e8edf5;
+  --fg-muted: #9aa8bd;
+  --accent: #a592ff;
+  --accent-solid: #7657f5;
+  --accent-solid-hover: #6547e6;
+  --on-accent: #ffffff;
+  --success: #2dd59a;
+  --warning: #f5b942;
+  --danger: #f5707f;
+  --glow: rgba(118, 87, 245, 0.35);
+  --code-bg: #0c1220;
+  color-scheme: dark;
+}
+:root[data-theme="light"] {
+  --bg: #f6f7fb;
+  --bg-elev: #ffffff;
+  --panel: #ffffff;
+  --panel-hover: #eef0f6;
+  --line: #d9dde7;
+  --line-soft: #e8ebf2;
+  --fg: #181a22;
+  --fg-muted: #565c6d;
+  --accent: #5a3ee0;
+  --accent-solid: #5a3ee0;
+  --accent-solid-hover: #4a2fc9;
+  --on-accent: #ffffff;
+  --success: #0f6b3e;
+  --warning: #7a4a00;
+  --danger: #a3201a;
+  --glow: rgba(90, 62, 224, 0.18);
+  --code-bg: #f1f3f9;
+  color-scheme: light;
+}
+
+@theme inline {
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --color-bg: var(--bg);
+  --color-bg-elev: var(--bg-elev);
+  --color-panel: var(--panel);
+  --color-panel-hover: var(--panel-hover);
+  --color-line: var(--line);
+  --color-line-soft: var(--line-soft);
+  --color-fg: var(--fg);
+  --color-muted: var(--fg-muted);
+  --color-accent: var(--accent);
+  --color-accent-solid: var(--accent-solid);
+  --color-accent-solid-hover: var(--accent-solid-hover);
+  --color-on-accent: var(--on-accent);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+  --color-code: var(--code-bg);
+}
+
+/* The simulated app always uses the desktop app's dark palette, whatever the site theme. */
+@theme {
+  --color-sim-base: #0d1420;
+  --color-sim-panel: #151e2d;
+  --color-sim-hover: #1b2636;
+  --color-sim-line: #243047;
+  --color-sim-accent: #a592ff;
+  --color-sim-solid: #7657f5;
+  --color-sim-fg: #e8edf5;
+  --color-sim-muted: #91a0b5;
+  --color-sim-success: #2dd59a;
+  --color-sim-warning: #f5b942;
+  --color-sim-danger: #f5707f;
+  --color-sim-term: #0a0f18;
+}
+
+html {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  scroll-behavior: smooth;
+  scroll-padding-top: 5.5rem;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+body {
+  min-height: 100vh;
+  font-feature-settings: "cv11", "ss01";
+}
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+::selection {
+  background: color-mix(in srgb, var(--accent-solid) 40%, transparent);
+}
+
+.skip-link {
+  position: absolute;
+  left: 1rem;
+  top: -4rem;
+  z-index: 100;
+  background: var(--accent-solid);
+  color: var(--on-accent);
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+}
+.skip-link:focus {
+  top: 1rem;
+}
+
+.bg-grid {
+  background-image: linear-gradient(var(--line-soft) 1px, transparent 1px), linear-gradient(90deg, var(--line-soft) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 0%, #000 30%, transparent 75%);
+}
+.text-gradient {
+  background: linear-gradient(120deg, var(--fg) 20%, var(--accent) 80%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Docs prose */
+.prose-doc {
+  --tw-prose-body: var(--fg);
+  --tw-prose-headings: var(--fg);
+  --tw-prose-links: var(--accent);
+  --tw-prose-bold: var(--fg);
+  --tw-prose-code: var(--fg);
+  --tw-prose-th-borders: var(--line);
+  --tw-prose-td-borders: var(--line-soft);
+  --tw-prose-hr: var(--line);
+  --tw-prose-bullets: var(--fg-muted);
+  --tw-prose-counters: var(--fg-muted);
+  --tw-prose-quotes: var(--fg);
+  --tw-prose-quote-borders: var(--accent);
+  --tw-prose-captions: var(--fg-muted);
+  --tw-prose-pre-bg: var(--code-bg);
+  --tw-prose-pre-code: var(--fg);
+}
+.prose-doc :where(code):not(:where(pre *)) {
+  background: var(--code-bg);
+  border: 1px solid var(--line-soft);
+  padding: 0.1rem 0.35rem;
+  border-radius: 0.35rem;
+  font-weight: 500;
+  font-size: 0.85em;
+}
+.prose-doc :where(code):not(:where(pre *))::before,
+.prose-doc :where(code):not(:where(pre *))::after {
+  content: none;
+}
+.prose-doc h2,
+.prose-doc h3 {
+  position: relative;
+  scroll-margin-top: 5.5rem;
+}
+.prose-doc a.anchor {
+  text-decoration: none;
+  opacity: 0;
+  margin-left: 0.4rem;
+  text-decoration: none;
+  color: var(--fg-muted);
+}
+.prose-doc :is(h2, h3):hover a.anchor,
+.prose-doc a.anchor:focus-visible {
+  opacity: 1;
+}
+.prose-doc pre {
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  line-height: 1.65;
+  overflow-x: auto;
+}
+.prose-doc table {
+  display: block;
+  overflow-x: auto;
+}
+
+/* highlight.js tokens, tuned for contrast on both themes */
+.hljs-comment,
+.hljs-quote {
+  color: #7d8aa3;
+  font-style: italic;
+}
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-built_in {
+  color: #c4b5ff;
+}
+.hljs-string,
+.hljs-attr,
+.hljs-addition {
+  color: #7ee0b5;
+}
+.hljs-number,
+.hljs-literal,
+.hljs-variable,
+.hljs-template-variable {
+  color: #f5c06a;
+}
+.hljs-title,
+.hljs-section,
+.hljs-name {
+  color: #7cc4ff;
+}
+.hljs-deletion {
+  color: #f5707f;
+}
+:root[data-theme="light"] .hljs-comment,
+:root[data-theme="light"] .hljs-quote {
+  color: #5d6577;
+}
+:root[data-theme="light"] .hljs-keyword,
+:root[data-theme="light"] .hljs-selector-tag,
+:root[data-theme="light"] .hljs-built_in {
+  color: #5a3ee0;
+}
+:root[data-theme="light"] .hljs-string,
+:root[data-theme="light"] .hljs-attr,
+:root[data-theme="light"] .hljs-addition {
+  color: #0f6b3e;
+}
+:root[data-theme="light"] .hljs-number,
+:root[data-theme="light"] .hljs-literal,
+:root[data-theme="light"] .hljs-variable {
+  color: #8a4b00;
+}
+:root[data-theme="light"] .hljs-title,
+:root[data-theme="light"] .hljs-section,
+:root[data-theme="light"] .hljs-name {
+  color: #0b5aa6;
+}
+
+/* Simulated cursor and click ripple. Transform-only, so nothing reflows. */
+@keyframes sim-ripple {
+  from {
+    transform: translate(-50%, -50%) scale(0.2);
+    opacity: 0.9;
+  }
+  to {
+    transform: translate(-50%, -50%) scale(1.5);
+    opacity: 0;
+  }
+}
+@keyframes sim-caret {
+  50% {
+    opacity: 0;
+  }
+}
+.sim-caret {
+  animation: sim-caret 1s steps(1) infinite;
+}
+/* Opacity only: a transform here would move dialog fields while the cursor is measuring where they are. */
+@keyframes sim-pop {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.sim-pop {
+  animation: sim-pop 0.22s ease-out both;
+}
+@keyframes sim-pulse-ring {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(165, 146, 255, 0.55);
+  }
+  50% {
+    box-shadow: 0 0 0 5px rgba(165, 146, 255, 0);
+  }
+}
+.sim-highlight {
+  animation: sim-pulse-ring 1.4s ease-in-out infinite;
+  outline: 2px solid var(--color-sim-accent);
+  outline-offset: 1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  .sim-caret,
+  .sim-highlight {
+    animation: none;
+  }
+  .sim-pop {
+    animation: none;
+  }
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+  }
+}

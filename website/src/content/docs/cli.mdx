@@ -1,0 +1,60 @@
+---
+title: "Command line"
+description: "Script against your vault hosts with the sshvault command: list, connect and run commands, with approval in the app."
+section: "Work"
+order: 7
+---
+
+The `sshvault` command lets you script against your hosts while the vault is unlocked. It talks to the running app over a socket only you can open, so it never sees passwords or keys.
+
+## Turning it on
+
+Turn on **Settings**, then **Command line**. The CLI is the SSHVault program itself; Settings shows the alias to add if it is not on your PATH. The status bar also shows the CLI state.
+
+## Commands
+
+```bash
+sshvault status
+sshvault list --group Production
+sshvault connect web-01                         # opens a tab in the app
+sshvault run --tag frontend -- uptime           # asks you in the app first
+sshvault run web-01 db-01 --json -- df -h /     # JSON lines for scripts
+```
+
+| Command | What it does |
+|---|---|
+| `sshvault status` | Reports whether the app is reachable |
+| `sshvault list` | Lists hosts, optionally filtered with `--group` |
+| `sshvault connect NAME` | Opens a tab in the app for that host |
+| `sshvault run` | Runs a command on one or more hosts, chosen by name, `--group` or `--tag` |
+
+Add `--json` to `run` to get JSON lines for scripts.
+
+## Approval
+
+Every `run` is approved in the app. A 10-minute "don't ask again" never covers production hosts. Hosts need saved credentials to run unattended.
+
+## Exit codes
+
+| Code | Meaning |
+|---|---|
+| 0 | Success |
+| 1 | A host failed |
+| 2 | Usage error |
+| 3 | The app is not reachable |
+
+## Using your hosts with plain ssh
+
+Separately from the CLI, **Settings**, then **Use your hosts from the command line** saves every host as an OpenSSH config file. Add an `Include` line to `~/.ssh/config`:
+
+```text
+Include /path/to/sshvault.config
+```
+
+Then `ssh web-1` works from any shell with the same names, users, ports and jump hosts. Private keys stay in the vault, so the file has no `IdentityFile` lines, and `ssh` uses your agent or default keys. Pair it with the [built-in SSH agent](/docs/keys-and-agent) to use vault keys from `ssh` and `git`.
+
+## Notes
+
+- If the app is closed to the tray, it keeps running and the CLI keeps working. See [Terminal](/docs/terminal).
+- If the vault is locked, the CLI cannot reach your hosts. Exit code 3 means the app is not reachable.
+- To run a saved snippet on many hosts from the interface instead, see [Snippets](/docs/snippets).

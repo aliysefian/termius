@@ -1,0 +1,64 @@
+---
+title: "Port forwarding"
+description: "Local, remote and SOCKS tunnels: create, start and stop them, and how they sync between computers."
+section: "Work"
+order: 3
+---
+
+Open the **Tunnels** page to manage port forwarding. It lists every tunnel with its type, port mapping, host, state and uptime, and cards at the top count how many are active, stopped and failed. Tunnels are searchable, with one-click start, stop and "open in browser".
+
+## Tunnel types
+
+| Type | OpenSSH equivalent | What it does |
+|---|---|---|
+| Local | `ssh -L 127.0.0.1:8080:db:5432 host` | Listens on this computer. Connections are carried to the destination from the server. |
+| Remote | `ssh -R 127.0.0.1:9000:localhost:3000 host` | The server listens. Connections come back and are dialled from this computer. |
+| Dynamic | `ssh -D 127.0.0.1:1080 host` | A SOCKS5 proxy on this computer that exits through the server. |
+
+Set the port to `0` to have a free port chosen for you. The chosen port is shown under the rule. A green dot means the rule is running. Errors, such as a port already in use, are shown under the rule.
+
+## Creating and managing
+
+**Create Tunnel** walks through the type, the details and a review. Creating and starting are separate steps. Tick several tunnels to start, stop or delete them together.
+
+Click a tunnel to see its details beside the list:
+
+- **Overview:** state, a picture of the mapping, the route through any bastion, and connection health.
+- **Configuration:** edit it.
+- **Logs:** what the tunnel did, with secrets removed.
+
+**Open SSH Terminal** in a tunnel's menu opens a terminal to its host without touching the tunnel. Tunnels and terminals are separate connections, so closing one never stops the other.
+
+## Example: reach a database through a bastion
+
+A local tunnel listens on your computer and carries connections to a destination as seen from the server. To reach a PostgreSQL server that only the host can see:
+
+```bash
+ssh -L 127.0.0.1:8080:db.example.com:5432 demo@203.0.113.10
+```
+
+In SSHVault you create the same thing as a Local tunnel on that host, with listen port `8080` and destination `db.example.com:5432`, then start it. Point your client at `127.0.0.1:8080`.
+
+## Failures
+
+A tunnel that loses its SSH connection is shown as **Failed** with the reason. It does not reconnect by itself, so start it again.
+
+## Syncing and automatic start
+
+Rules are synced like hosts, but running state is not: each computer starts its own rules. Tick **Start automatically** to start a rule every time the vault is unlocked, on every computer. A host's **Automation** tab also picks which of its tunnels start automatically. The rule's host needs an identity, because forwarding runs without prompting you.
+
+**Import / Export** moves tunnel definitions (host names and forwarding, no credentials) between computers. Forwards imported from `~/.ssh/config` arrive as tunnels that do not start automatically.
+
+## Where each side listens
+
+- A local tunnel and a SOCKS tunnel listen on this computer, on `127.0.0.1` in the examples above.
+- A remote tunnel listens on the server; connections come back and are dialled from this computer.
+- A tunnel for a host in a [jump host](/docs/connecting) chain goes through the whole chain.
+
+## Related
+
+- Jump hosts apply to tunnels: see [Connecting](/docs/connecting).
+- The status bar shows tunnels, and closing the window to the tray keeps them open: see [Terminal](/docs/terminal).
+- Containers and databases can reach services through an SSH host, so the port is never exposed. A container's published port on a host has **Open via tunnel**.
+- Mosh sessions do not support port forwarding.
+- Kubernetes port-forward (this computer only) is a separate feature of the Containers page and uses your own `kubectl`.

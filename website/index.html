@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SSHVault: an SSH client with an encrypted vault you sync yourself</title>
+    <meta name="description" content="SSHVault is an open-source SSH client for Linux, Windows and macOS. Hosts, keys and credentials are encrypted on your computer and synced through a folder you already use." />
+    <meta name="theme-color" content="#0b111b" />
+    <link rel="icon" type="image/svg+xml" href="%BASE_URL%logo.svg" />
+    <meta property="og:title" content="SSHVault" />
+    <meta property="og:description" content="An SSH client for people who live in terminals, with an encrypted vault you sync yourself." />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="https://aliysefian.github.io/termius/og.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <script>
+      // Set the theme before first paint so there is no flash. Dark is the default.
+      try {
+        var t = localStorage.getItem("sshvault-theme");
+        document.documentElement.dataset.theme = t === "light" ? "light" : "dark";
+      } catch (e) {}
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

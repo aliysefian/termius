@@ -1,0 +1,75 @@
+---
+title: "Connecting"
+description: "Quick connect, the command palette, jump hosts, trusting host keys and reconnecting dropped sessions."
+section: "Connect"
+order: 2
+---
+
+You can connect to a saved host by double-clicking it, or to anything else without saving a thing.
+
+## Quick connect
+
+Press **Ctrl+Shift+T**, or the **+** next to the tabs, and type `user@host` or `user@host:port`. Leave the password empty to use ssh-agent. Nothing is saved.
+
+```text
+demo@203.0.113.7:2222
+```
+
+For Telnet, type `telnet://host:port`. For a serial console, choose **Serial console...** in Quick connect or the palette.
+
+## Command palette
+
+Press **Ctrl+Shift+P**. It searches hosts, recent connections, snippets, tunnels, keys, credentials, groups, trusted servers, settings and actions. Typing `user@host` there offers a quick connection too. Outside a terminal, **Ctrl+K** also opens it. Plain Ctrl+K inside a terminal goes to the remote shell.
+
+## Jump hosts
+
+In the host form, pick another saved host under **Jump host**. The form shows the full route, such as `bastion -> gateway -> this host`. Terminals, SFTP and port forwarding all go through the chain.
+
+- Jump hosts can be set per host or per group, and can be chained.
+- Every jump host needs an identity attached, because only the final host can ask you for one-time credentials.
+- SSHVault refuses to save a chain that loops.
+
+A **proxy** (SOCKS5, HTTP CONNECT, or an OpenSSH `ProxyCommand`) is used to reach a host, or the first jump of its chain. A ProxyCommand runs a program on your computer, so it only runs after you tick **Allow this command to run on my computers**; imported ones always start switched off.
+
+### One-off jumps in quick connect
+
+Type the command the way you would for OpenSSH:
+
+```bash
+ssh -J bastion demo@198.51.100.5
+ssh -J bastion,demo@gw.example.com:2222 -p 2200 demo@198.51.100.20
+```
+
+A jump host written without a user (`bastion`) must be a saved host, found by label or address, and connects with its saved credentials, proxy and jump chain. One written with a user uses the saved host with that address and login if there is one, otherwise ssh-agent. The dialog shows the route before you connect. `-p`, `-l` and `-o ProxyJump=/Port=/User=` are understood; other options are refused rather than silently ignored. **Copy as ssh command** on a host gives you the same syntax.
+
+## Host keys
+
+The first connection to a server shows its **fingerprint** and asks whether to trust it. Compare it with the fingerprint your administrator or hosting provider gives you. Trusted keys are stored in the vault, so your other computers do not ask again.
+
+If a key **changes**, the connection stops and you see the old and new fingerprints. That is normal after a server is reinstalled, but it is also what an attack looks like. Only replace the key if you know why it changed; you must type `replace`. The **Known hosts** screen lists every trusted key with its history, and can import your existing `~/.ssh/known_hosts`.
+
+## Reconnecting
+
+If the connection drops, a **Reconnect** button appears at the bottom of the pane. With **Reconnect automatically** on (**Settings**, then **Connections**), SSHVault tries up to three times by itself.
+
+- It only does that when the link died. Typing `exit` or `logout`, or a server that closes the session (even without saying why), ends the session and leaves the tab showing `[session closed]`.
+- A connection that comes up and is cut off at once is given up on after three tries rather than retried for ever.
+- **Close tab when session ends** (**Settings**, then **Connections**, off by default) closes the tab or pane by itself when you leave the shell. A connection that dropped always stays open so you can reconnect.
+
+The dot on each tab shows its state: green connected, yellow connecting, red failed, grey closed.
+
+## Two-factor codes
+
+Some servers ask for a **Verification code**. SSHVault can answer from a secret saved on a credential. It is off until you turn it on under **Settings**, then **Connections**, then **Two-factor codes**, and you can always keep typing the code yourself. It handles password then code, and key then code. Duo, push approvals and PINs are not answered.
+
+<Callout type="warning">
+
+A second factor saved next to the first protects less: anyone who can open your vault can log in without your phone. If that matters for a server, leave its secret out and type the code.
+
+</Callout>
+
+## Other ways in
+
+- **Wake-on-LAN:** when a connection to a host with a MAC address fails, **Wake it up** appears next to Reconnect.
+- **Restoring tabs:** unlocking reopens the tabs from last time, unless turned off.
+- **Command line:** `sshvault connect web-01` opens a tab in the app, see [Command line](/docs/cli).

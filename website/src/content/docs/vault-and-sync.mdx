@@ -1,0 +1,65 @@
+---
+title: "Vault and sync"
+description: "How the vault folder works, syncing it between computers, backups, conflicts, recovery and moving it."
+section: "Start"
+order: 3
+---
+
+SSHVault keeps your hosts, credentials, SSH keys and trusted server keys in a **vault**: an ordinary folder of encrypted files. Put it in a folder your sync service already syncs, and every computer you use sees the same hosts. The sync service only ever stores encrypted files. It cannot read your data, and it never sees your master password.
+
+## Creating and opening
+
+See [Getting started](/docs/getting-started) for creating a vault. On a second computer, wait until your sync service has downloaded the folder, then choose **Open Existing Vault**, pick the folder and enter the master password.
+
+- If a remembered device key no longer matches (for example, the folder now holds a different vault), you are asked for the password.
+- **Forgot password?** Enter your recovery key and choose a new master password. Your data is not touched, and the new password works on every device.
+
+### Remember on this device
+
+Optional. The vault key (never the password) goes into the system's credential store: Windows Credential Manager, macOS Keychain, or the Secret Service on Linux. Only enable it on a computer you alone use.
+
+## Several computers at once
+
+The vault can be open on several computers at the same time. The **Vault** screen shows where else it is open. Changes appear on the other computers within a few seconds of your sync service copying them.
+
+- **Different changes to the same item** (notes on one computer, tags on another) are merged automatically.
+- **The same field changed on two computers** before they synced: the second save is refused with an explanation, and you see the current version to redo your change. Credentials are never silently overwritten.
+- **Offline edits** sometimes make a sync service keep two copies of a file. SSHVault merges them when it can. Otherwise a dot appears on the Vault icon, and **Vault**, then **Sync conflicts** shows both versions to pick from.
+
+What is synced and what is not: hosts, keys, credentials, snippets and tunnel rules sync. Tunnel running state does not, so each computer starts its own rules. Per-computer settings such as theme and font are not synced, and neither are query history, runbook history or connection logs.
+
+## Backups and restore
+
+- An encrypted backup is taken automatically once a day when you unlock, and you can **Back up now** at any time. Backups live in the vault's `backups/` folder, so they sync too.
+- **Settings**, then **Safety**, then **Keep backups** sets how many are kept (30 by default).
+- **Restore** checks the backup completely first. It then takes a backup of the current state (so a restore can itself be undone) and writes the restored items as normal changes, so your other computers pick them up.
+- **Verify integrity** checks every record, reference and backup, and reports what it finds. It never changes anything.
+
+## Changing things later
+
+- **Change master password:** instant. Other computers need the new password the next time they unlock; remembered devices keep working.
+- **Recovery key:** create one, replace it (the old one stops working on this vault, though not on an older copy such as a backup) or remove it, from the Vault screen. Each needs your master password.
+- **Move vault:** copies the vault to an empty folder, verifies the copy, and switches to it. The old folder is left in place: once your other computers have opened the new folder, delete the old one.
+- **Remember or forget on this device:** on the Vault screen.
+
+## Upgrading from an older version
+
+The first time a newer SSHVault unlocks a vault made by an older version, it upgrades the vault:
+
+- The original encrypted files are copied to `backups/v1-…` first, and the upgraded copy is checked before anything is replaced.
+- If the computer loses power mid-upgrade, the next start finishes or rolls back cleanly.
+- Update SSHVault on all your computers: older versions refuse to open the new format rather than risk damaging it.
+
+## Locking
+
+The lock icon at the bottom of the sidebar, or **Ctrl+Shift+L**, closes every terminal, SFTP session and forwarding rule, removes temporary copies of remote files, and wipes the key from memory. Under **Settings**, then **Auto-lock**, you can lock automatically after 5, 15, 30 or 60 minutes without keyboard or mouse activity.
+
+Unlocking again (or restarting the app) reopens the tabs that were open last time, each reconnecting on its own, unless you turn this off under **Settings**, then **Connections**. Production hosts are left closed by default, to reconnect by hand.
+
+## What is and is not protected
+
+- **Protected:** everything in the vault folder, against anyone who gets a copy of it, including the sync provider.
+- **Not protected:** a computer that is already compromised while the vault is unlocked.
+- **Your master password is the key to everything.** Use a long, unique one, and keep the recovery key somewhere safe and offline.
+
+The design is described in [Security](/docs/security). Troubleshooting sync problems is in [Troubleshooting](/docs/troubleshooting).

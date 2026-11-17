@@ -9,9 +9,9 @@ on:
     branches: [main, "feat/**", "fix/**"]
     tags: ["v*"]
     # Docs-only changes need no build. (Tag pushes ignore path filters.)
-    paths-ignore: ["**/*.md", "docs/**", "LICENSE"]
+    paths-ignore: ["**/*.md", "docs/**", "LICENSE", "website/**", ".github/workflows/deploy-website.yml"]
   pull_request:
-    paths-ignore: ["**/*.md", "docs/**", "LICENSE"]
+    paths-ignore: ["**/*.md", "docs/**", "LICENSE", "website/**", ".github/workflows/deploy-website.yml"]
   workflow_dispatch:
 
 # A newer push to the same branch or PR supersedes an in-flight build.

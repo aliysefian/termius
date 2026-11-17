@@ -1,0 +1,61 @@
+---
+title: "Snippets"
+description: "Saved commands with folders, tags and variables, run or pasted into a terminal, or run on many hosts at once."
+section: "Work"
+order: 5
+---
+
+Snippets are saved commands with folders, tags and `{{variables}}`. They are stored in the vault, so they sync with everything else. Snippets only run when you click Run.
+
+## Using a snippet
+
+Add snippets under **Snippets**. To use one:
+
+- Hover over it in the Snippets panel and click **Run** or **Paste**.
+- Click the `</>` button at the right of the terminal tab bar, search, then run or paste. In a split tab, tick **Send to every pane in this tab** to broadcast.
+
+Paste sends the text without pressing Enter, so you can edit it before running. Snippets also appear in the command palette.
+
+## Variables
+
+Snippets can contain placeholders in double braces:
+
+| Placeholder | Filled with |
+|---|---|
+| `{{host}}` | The host's label |
+| `{{hostname}}` | Its address |
+| `{{port}}` | Its port |
+| `{{user}}` | The username it logs in with |
+| `{{date}}`, `{{time}}` | Today's date and the current time |
+| Any other name, like `{{lines}}` | A value you are asked for when the snippet runs |
+
+When a snippet runs on several panes or hosts, each gets its own `{{host}}`, `{{user}}` and so on. Write `{{{{` for a literal `{{`. Typed values are remembered until you quit, and never written to disk.
+
+```bash
+tail -n {{lines}} /var/log/syslog
+```
+
+Snippet variables also work in a host's startup command, see [Hosts](/docs/hosts).
+
+## Running on several hosts
+
+Choose **Run on several hosts** on a snippet, or "Run a command on several hosts" in the command palette. Pick hosts, adjust the command if needed, and run it.
+
+- Up to eight hosts run at a time, each with a timeout.
+- Every host's exit code, duration and output appear in the results, and you can copy any of them.
+- Hosts need saved credentials to run unattended.
+- SSHVault asks before "Run on hosts" touches a production host.
+
+The same thing is available from a shell with `sshvault run`, see [Command line](/docs/cli).
+
+## Snippet packs
+
+The **library** button on the Snippets list adds a starter set (disk, memory, processes, services, logs, network, Docker and Git: read-only commands) or the snippets in a pack file. **Export** saves yours as a `.json` pack. Snippets already in your list are not offered again, and nothing from a pack runs.
+
+## Abbreviations and completion
+
+Give a snippet an **Abbreviation** (one word, such as `gco`). With [smart completion](/docs/terminal) on, typing it in full and opening the list puts that snippet first. Nothing is expanded until you accept it. Single-line snippets also appear in the completion list; a snippet with `{{variables}}` asks for them first.
+
+## Runbooks
+
+For multi-step work, runbooks are saved, checked sequences of steps (commands, waits, uploads, simple conditions) with parameters, run on many hosts with a dry run, live results, a typed approval for production and a history. Open them from the checklist button on the left rail. Schedules run only while SSHVault is open and the vault is unlocked.

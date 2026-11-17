@@ -1,0 +1,82 @@
+---
+title: "Install"
+description: "Download SSHVault for Windows, Linux or macOS, and what to expect from unsigned installers on first launch."
+section: "Start"
+order: 2
+---
+
+Download the file for your system from the [latest release](https://github.com/aliysefian/termius/releases/latest). The file names contain the version number, shown as `…` below.
+
+## Downloads
+
+| System | File | Install |
+|---|---|---|
+| Windows 10/11 | `SSHVault_…_x64-setup.exe` | Run it. |
+| Windows (managed) | `SSHVault_…_x64_en-US.msi` | Run it, or deploy it with your tools. |
+| Debian, Ubuntu, Mint, Pop!_OS | `SSHVault_…_amd64.deb` | `sudo apt install ./SSHVault_*_amd64.deb` |
+| Fedora, RHEL, openSUSE | `SSHVault-…x86_64.rpm` | `sudo dnf install ./SSHVault-*.x86_64.rpm` |
+| Any Linux | `SSHVault_…_amd64.AppImage` | `chmod +x SSHVault_*.AppImage` and run it. |
+| macOS (Apple Silicon and Intel) | `SSHVault_…_universal.dmg` | Open it and drag SSHVault to Applications. See below for the first launch. |
+
+Linux commands, copied from the table:
+
+```bash
+# Debian, Ubuntu, Mint, Pop!_OS
+sudo apt install ./SSHVault_*_amd64.deb
+
+# Fedora, RHEL, openSUSE
+sudo dnf install ./SSHVault-*.x86_64.rpm
+
+# Any Linux
+chmod +x SSHVault_*.AppImage
+```
+
+## Windows
+
+The installers are not code-signed yet, so SmartScreen may warn: choose **More info**, then **Run anyway**. Signing (Authenticode for Windows, GPG signatures and checksums for every file) is built and switches on when the keys are added. The WebView2 runtime is already part of Windows 10 and 11, and the installer fetches it if it is missing.
+
+## Linux
+
+The packages need glibc 2.35 or newer (Ubuntu 22.04 and later).
+
+The system tray needs an AppIndicator library (`libayatana-appindicator3-1` on Debian and Ubuntu, `libayatana-appindicator-gtk3` on Fedora; the .deb and .rpm recommend it). Without one there is no tray icon, and closing the window quits the app.
+
+## macOS
+
+One app serves Apple Silicon and Intel Macs. It is not signed with an Apple Developer ID yet, so macOS blocks it the first time:
+
+- Choose **System Settings**, then **Privacy & Security**, then **Open Anyway**. On older macOS, right-click the app and choose **Open**.
+- If macOS says the app is "damaged", run this once:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/SSHVault.app
+```
+
+Updates are not applied in place on macOS: the app opens the releases page, and you install the new `.dmg`.
+
+## Updates
+
+New versions appear on the [releases page](https://github.com/aliysefian/termius/releases). In-app updates for the AppImage and Windows builds are built in and switch on once signed updates are published.
+
+## Verifying a download
+
+<Callout type="note">
+
+No release has been signed yet. The signing machinery is in place and switches on when the keys are added, so until then installers are unsigned and there is no release key fingerprint to compare against.
+
+</Callout>
+
+Once signed releases exist, the repository's `scripts/verify-release.sh` checks the GPG signatures and checksums of a downloaded release. The full procedure is in [SIGNING.md](https://github.com/aliysefian/termius/blob/main/docs/SIGNING.md). Note that the `.deb` and `.rpm` files carry no signature inside them and there is no apt or yum repository yet, so `apt` and `dnf` do not check anything by themselves.
+
+## Not available yet
+
+- An Apple-notarized macOS app
+- Code-signed installers
+- Unlocking the vault with a hardware key
+- Team sharing
+
+See the [roadmap](https://github.com/aliysefian/termius/blob/main/ROADMAP.md).
+
+## Next
+
+[Getting started](/docs/getting-started) walks through creating your first vault.

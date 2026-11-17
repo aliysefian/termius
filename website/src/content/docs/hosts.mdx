@@ -1,0 +1,86 @@
+---
+title: "Hosts"
+description: "Create hosts, organise them in groups and environments, share credentials, and import from ssh config, Ansible, PuTTY and more."
+section: "Connect"
+order: 1
+---
+
+Hosts are the servers in your vault. They live in nested groups, can share credentials and jump hosts through their group, and sync with the rest of the vault. See [Vault and sync](/docs/vault-and-sync).
+
+## Creating a host
+
+Click **+** in the **Hosts** view. The form has four tabs:
+
+| Tab | What it holds |
+|---|---|
+| Connection | Address, port and credentials |
+| Route | Jump host, proxy, agent and X11 forwarding, keep-alive |
+| Organise | Group, environment, tags, colour, notes |
+| Automation | A startup command and which of this host's tunnels start automatically |
+
+**Test connection** checks reachability for an already-saved host. Enter the hostname and port, then choose how to log in under **Credentials**:
+
+- **Password**: a username and password.
+- **SSH key**: a username and a key. Generate a new Ed25519 key, load a key file, paste a key, or use ssh-agent. A generated key's public half is shown after saving, ready for `~/.ssh/authorized_keys`.
+- **Credential**: reuse a credential that several hosts share.
+- **Ask**: save nothing and prompt at every connection, with a "Remember for this host" option.
+
+When editing a host, leave the password or key empty to keep the saved one.
+
+## Credentials
+
+Credentials entered in a host's form belong to that host. They are listed under **Credentials**, then **Saved with hosts**, and are removed with the host. Tick "Also save to Credentials" to make them shareable instead.
+
+To share one login across many hosts, create it under **Credentials** and pick it in each host's form, or set it as the default of their group under **Groups and proxies**. Credentials are separate from hosts: rotate a key once and every host using it follows.
+
+Saved passwords, private keys and passphrases stay hidden until you confirm your master password. After a correct password you can reveal more secrets for 2 minutes. Shown secrets hide themselves after a minute, and copied secrets are cleared from the clipboard after 30 seconds.
+
+## Groups and environments
+
+- A host's **group** is a path such as `Production/Databases`. Set defaults on a group under **Groups and proxies** (credential, jump host, proxy, environment) and every host inside it, including sub-groups, uses them unless the host sets its own.
+- **Environments:** Development, Staging, Production, or any custom name. Production hosts get a red **PROD** badge, and SSHVault asks before multi-line pastes, commands that look destructive, synchronized typing and "Run on hosts".
+- Hosts can also hold tags, notes, custom fields (`owner=platform-team`), a keep-alive interval, a proxy, and a command to run after connecting.
+
+In the tree, double-click a host to open it in a new terminal tab, hover to duplicate, edit or delete, and drag a host onto a group to move it. The tree is fully keyboard-driven: arrows move, Left and Right collapse or expand a group, **F2** edits and **Delete** removes after confirming.
+
+## Run after connecting
+
+A host's startup command, such as `sudo -i` or `tmux attach -t main`, is typed for you once the shell is ready. Snippet variables like `{{user}}` work there too (see [Snippets](/docs/snippets)).
+
+## Working with many servers
+
+- **Open a whole group:** hover a group in the tree. The list icon opens every host in its own tab. The grid icon tiles up to six of them in one tab with synchronized typing turned on.
+- **Reachability:** the pulse icon at the top of the host list opens a TCP connection to every host's SSH port without logging in, and shows latency or "down". Hosts behind a jump host are marked "jump" rather than probed.
+- **Fleet view:** a tile per host with reachability colour-coding and a 30-second auto-refresh. Monitoring (CPU, memory, disk, load, uptime) is off by default, per host, never synced, and needs a saved credential.
+
+## Importing
+
+Use the import icon at the top of the host list, or the command palette.
+
+- **`~/.ssh/config`:** shows a preview of every host found. `HostName`, `User`, `Port`, `IdentityFile`, single-hop `ProxyJump`, `ProxyCommand`, `ForwardAgent`, `ForwardX11`, `LocalForward`, `RemoteForward`, `DynamicForward` and `ServerAliveInterval` are imported, with `Host *` defaults applied as `ssh` does. Key files are referenced by path by default, or choose **Copy into the vault**. ProxyCommands are imported switched off until you approve them, and forwards become tunnels that do not start automatically. `Match`, `Include` and multi-hop `ProxyJump` are reported as warnings.
+- **Ansible inventory** (INI): groups, group variables, host ranges like `web[01:03]`, and the `ansible_host`, `ansible_port`, `ansible_user` and `ansible_ssh_private_key_file` variables. Hosts land in folders mirroring the group tree.
+- **MobaXterm**, **PuTTY** and **CSV** exports from other tools.
+- **Clouds and tools:** AWS, Google Cloud, Azure, DigitalOcean, Hetzner, Tailscale, Kubernetes or Terraform. This runs that product's own command-line program on your computer, so the app never sees its credentials, and the command is shown before it runs. A refresh does not overwrite hosts you have edited.
+
+## Exporting
+
+**Settings**, then **Use your hosts from the command line**, saves every host as an OpenSSH config file. Add an `Include` line to `~/.ssh/config`:
+
+```text
+Include /path/to/sshvault.config
+```
+
+Then `ssh web-1` works from any shell with the same names, users, ports and jump hosts. Private keys stay in the vault, so the file has no `IdentityFile` lines. You can also export an Ansible inventory from the command palette.
+
+## Other host types
+
+- **RDP** and **VNC** hosts open in a tab beside your terminals. VNC goes through SSH by default.
+- **Telnet** and **serial** consoles for devices without SSH. Telnet is unencrypted and its panes say so.
+- **Mosh**: tick **Use Mosh** in the host form. Mosh must be installed on your computer, and port, agent and X11 forwarding do not work over it.
+- **A command** as protocol, for example AWS Session Manager or `kubectl exec`: opening the host shows the exact command and asks you to approve it.
+- **FTP and FTPS** hosts, see [SFTP](/docs/sftp).
+- **Wake-on-LAN** for a host with a MAC address, under **Automation**.
+
+## Next
+
+[Connecting](/docs/connecting) covers quick connect, jump hosts and trusted server keys.

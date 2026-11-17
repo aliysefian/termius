@@ -1,0 +1,70 @@
+---
+title: "tmux"
+description: "A tmux workspace that reads sessions from the remote server: previews, search, attach, auto tmux and limits."
+section: "Work"
+order: 4
+---
+
+Tmux sessions belong to the **remote tmux server**, not to SSHVault's terminal tabs. A session can exist with no tab attached, closing a tab never touches a session, and the app reads tmux over the connection it already keeps for monitoring, without opening a terminal.
+
+```text
+SSH host -> SSH transport -> tmux server -> session -> window -> pane
+                |
+                +-> PTY / shell -> terminal tab -> split
+```
+
+## The workspace
+
+The header shows counts of hosts, sessions, windows and panes and, once measured, CPU and memory of the sessions. It has a refresh button, **Live / Paused** (how often the session list is read), settings and **New Session**.
+
+- **Explorer:** a filter box, **All Hosts**, hosts with a status dot, sessions with attached state, windows and panes.
+- **Main area:** a breadcrumb (host, session, window) and tabs **Panes Grid** (panes placed where tmux put them), **Panes List**, **Windows**, **Session Info**, **Resources** and **Terminal**. Below it, a resizable panel with **Output** (the selected pane's text, with filter, regex and copy), **Search** (all panes), **Events** and **Activity**.
+- **Inspector:** details of what is selected, and only the actions that fit: session, window and pane actions, resize, and **Kill Session**, **Kill Window** and **Kill Pane**. Destructive actions are set apart and ask first.
+
+On narrow windows the explorer and inspector become drawers.
+
+**Events** are what differs between two readings of a server while the page is open (a session, window or pane appeared or ended, a rename, a client attached or detached, a server restart). Nothing before the page was opened is invented. **Activity** is what was done from here and whether it worked. Both are held in memory only and are gone when the app closes or the vault locks.
+
+## Behaviour worth knowing
+
+### Previews are snapshots
+
+Previews come from `capture-pane`, not terminals: they accept no input and are labelled *Live Preview, Read Only*. To type, use the **Terminal** tab or Attach. Only what is on screen is captured, and nothing while the page is hidden. Pane text is held in memory only.
+
+### Terminal tab
+
+The **Terminal** tab is a real terminal on one SSH connection to the host, attached to the selected session. Everything you type goes to tmux. **Close terminal**, leaving the page or locking the vault ends the connection, which only detaches: the session keeps running. Hosts that run a command before or after connecting, and hosts that are not plain SSH, are refused with the reason; use Attach for them.
+
+### Attach
+
+Attach (the button, double-click or Enter on a session, or the tmux panel beside a terminal) opens the session in a new tab or split of the host. Inside tmux on the same server it switches; inside another tmux it refuses instead of nesting.
+
+### Search
+
+Search covers the screen plus the scrollback tmux still holds (up to 5000 lines per pane). Output tmux has discarded cannot be found.
+
+### Auto tmux
+
+Per host, off by default: attach to a named session, create it if missing, or always start a new one. A shell already inside tmux and a host without tmux are left alone. Mouse support sets the `mouse` option of that session only; key bindings and the tmux config file are never modified.
+
+### Resources
+
+CPU and memory figures are estimates: processes under each pane's shell, resident memory summed per process, CPU from two readings. A pane whose process cannot be seen is reported as not measured, never as zero.
+
+## Reliability
+
+The workspace was built after reproducing problems against a real tmux 3.4, for example that `tmux attach -t NAME` matches by prefix, so attach uses the session id and `=name` forms. Names are escaped so tmux cannot run `#(cmd)` from a session name, and the last good list stays visible, marked stale, when a refresh fails.
+
+## Limits
+
+- tmux older than 2.0 is reported as unsupported.
+- Session tags are stored on this computer by session name, because tmux ids do not survive a server restart.
+- Names cannot contain `.`, `:` or a backslash, because tmux rewrites them.
+- Resource figures need Linux hosts.
+- A terminal tab is limited to six panes.
+- Interface text is English only.
+- Dragging a session into a split is not implemented; the context menu has the same actions.
+
+## Using tmux in the terminal
+
+When tmux owns the mouse, hold **Shift** while dragging to select text, and tmux can copy to your clipboard through OSC 52. Closing a tab never touches a session: it keeps running on the server. See [Terminal](/docs/terminal) and [Troubleshooting](/docs/troubleshooting).
