@@ -4,6 +4,10 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## 0.62.1 - 2026-11-18
+
+- **Fixed:** the close (✕) button of the "Host key trusted" notice was hidden under the toolbar on the right of the terminal, so clicking it opened Find instead. The notice now stops short of the toolbar, its ✕ is a full-size button, and long host names and fingerprints are cut off with an ellipsis instead of overflowing. The Find bar sits under the notice instead of on top of it.
+
 ## 0.62.0 - 2026-11-16
 
 - **Fixed:** typing `exit` could reconnect the terminal again. SSHVault told "the shell ended" from "the connection dropped" only by whether the server sent an exit status, and some servers do not (network gear, nested `su` and `sudo -i`, a shell started inside tmux). It now tells them apart by how the session ended: a closed or finished channel is the end of the session, and only a connection that died is retried. An exit status that arrives just after the end of the session is still shown.
