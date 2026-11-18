@@ -4,6 +4,10 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
+## 0.62.2 - 2026-11-19
+
+- **Fixed:** drop-down lists could be unreadable, light text on a white list, on some Windows and Linux systems. The Tmux Monitor's **Live refresh** list was the worst case. Every list now uses the theme's colours, and the light theme no longer draws its lists in the dark colour scheme.
+
 ## 0.62.1 - 2026-11-18
 
 - **Fixed:** the close (✕) button of the "Host key trusted" notice was hidden under the toolbar on the right of the terminal, so clicking it opened Find instead. The notice now stops short of the toolbar, its ✕ is a full-size button, and long host names and fingerprints are cut off with an ellipsis instead of overflowing. The Find bar sits under the notice instead of on top of it.
