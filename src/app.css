@@ -65,12 +65,41 @@
   background-color: var(--color-danger-solid);
 }
 
+/* The page's colour scheme is set once, on the root, and follows the theme (dark here, light in the light theme
+   above). It was also set to dark on body, which beat the light root for everything inside: native form
+   controls, and the popup list of every <select>, drew dark-scheme in the light theme. */
+:root {
+  color-scheme: dark;
+}
 html,
 body {
   height: 100%;
   background-color: var(--color-base);
   color: var(--color-fg);
-  color-scheme: dark;
+}
+
+/* A native <select> popup is drawn by the OS or the WebView, not by the page, and it takes its colours from the
+   select's own background and the colour scheme. A select with a transparent background (the Live refresh one)
+   got the system's white list under the theme's light text. Every select and option now has explicit token
+   colours, so the list reads the same on WebView2, WebKitGTK and Chromium, light or dark system theme. */
+select {
+  background-color: var(--color-base);
+  color: var(--color-fg);
+}
+select option,
+select optgroup {
+  background-color: var(--color-panel);
+  color: var(--color-fg);
+}
+select option:checked {
+  background-color: var(--color-accent-solid);
+  color: #ffffff;
+}
+select option:disabled {
+  color: var(--color-fg-muted);
+}
+select:disabled {
+  opacity: 0.6;
 }
 
 @layer components {

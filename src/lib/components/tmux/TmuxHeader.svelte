@@ -60,7 +60,7 @@
     <label class="flex items-center gap-1.5 rounded-md border border-line bg-base px-2 py-1 text-xs" title="How often the session list is read. Last read: {readAt}">
       <span class="h-2 w-2 rounded-full {mon.prefs.live ? (sum.unreadable ? 'bg-warning' : 'bg-success') : 'bg-fg-muted/50'}"></span>
       <span class="sr-only">Refresh</span>
-      <select class="bg-transparent py-0.5 text-xs text-fg focus:outline-none" aria-label="Live refresh" value={liveValue} onchange={(e) => setLive(e.currentTarget.value)}>
+      <select class="py-0.5 text-xs text-fg focus:outline-none" aria-label="Live refresh" value={liveValue} onchange={(e) => setLive(e.currentTarget.value)}>
         {#each choices as n (n)}<option value={String(n)}>{`Live · ${n}s`}</option>{/each}
         <option value="0">Paused</option>
       </select>
