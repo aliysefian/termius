@@ -1558,23 +1558,43 @@
     </div>
   {/if}
 
-  {#if findOpen}
-    <div class="absolute right-3 top-2 z-20 flex items-center gap-1 rounded-md border border-line bg-panel px-2 py-1 shadow-lg">
-      <Search size={13} class="text-fg-muted" />
-      <input
-        bind:this={findInput}
-        class="w-48 bg-transparent px-1 py-0.5 text-xs outline-none"
-        placeholder="Find"
-        bind:value={findQuery}
-        oninput={() => findQuery && search.findNext(findQuery, { decorations: searchDecorations(), incremental: true })}
-        onkeydown={(e) => {
-          if (e.key === "Enter") findNext(e.shiftKey);
-          else if (e.key === "Escape") closeFind();
-        }}
-      />
-      <button class="icon-btn h-6 w-6" title="Previous (Shift+Enter)" onclick={() => findNext(true)}><ChevronUp size={13} /></button>
-      <button class="icon-btn h-6 w-6" title="Next (Enter)" onclick={() => findNext()}><ChevronDown size={13} /></button>
-      <button class="icon-btn h-6 w-6" title="Close (Esc)" onclick={closeFind}><X size={13} /></button>
+  <!-- Notices and the Find bar share one strip along the top, so they stack instead of covering each other. It
+       stops short of the floating pane toolbar (see .pane-notice-strip), which is drawn above the terminal. -->
+  {#if hostKeyNotices.length || findOpen}
+    <div class="pane-notice-strip pointer-events-none absolute left-2 top-2 z-20 flex flex-col items-end gap-2">
+      {#if hostKeyNotices.length}
+        <div class="pointer-events-auto flex w-full min-w-0 items-start gap-2 rounded-md border border-line bg-panel/95 py-1.5 pl-3 pr-1.5 text-xs shadow-lg" role="status" data-testid="hostkey-notice">
+          <ShieldAlert size={14} class="mt-1 shrink-0 text-accent" />
+          <div class="min-w-0 flex-1 space-y-1 py-0.5">
+            {#each hostKeyNotices as k (k.host)}
+              <div class="min-w-0">
+                <div class="truncate font-medium" title={k.host}>Host key trusted for {k.host}</div>
+                <div class="truncate font-mono text-fg-muted" title={k.fingerprint}>{k.fingerprint}</div>
+              </div>
+            {/each}
+          </div>
+          <button class="icon-btn h-6 w-6 shrink-0" title="Dismiss" aria-label="Dismiss" data-testid="hostkey-dismiss" onclick={() => (hostKeyNotices = [])}><X size={13} /></button>
+        </div>
+      {/if}
+      {#if findOpen}
+        <div class="pointer-events-auto flex max-w-full items-center gap-1 rounded-md border border-line bg-panel px-2 py-1 shadow-lg">
+          <Search size={13} class="shrink-0 text-fg-muted" />
+          <input
+            bind:this={findInput}
+            class="w-48 min-w-0 shrink bg-transparent px-1 py-0.5 text-xs outline-none"
+            placeholder="Find"
+            bind:value={findQuery}
+            oninput={() => findQuery && search.findNext(findQuery, { decorations: searchDecorations(), incremental: true })}
+            onkeydown={(e) => {
+              if (e.key === "Enter") findNext(e.shiftKey);
+              else if (e.key === "Escape") closeFind();
+            }}
+          />
+          <button class="icon-btn h-6 w-6 shrink-0" title="Previous (Shift+Enter)" onclick={() => findNext(true)}><ChevronUp size={13} /></button>
+          <button class="icon-btn h-6 w-6 shrink-0" title="Next (Enter)" onclick={() => findNext()}><ChevronDown size={13} /></button>
+          <button class="icon-btn h-6 w-6 shrink-0" title="Close (Esc)" onclick={closeFind}><X size={13} /></button>
+        </div>
+      {/if}
     </div>
   {/if}
 
@@ -1660,21 +1680,6 @@
           </button>
         </div>
       </div>
-    </div>
-  {/if}
-
-  {#if hostKeyNotices.length}
-    <div class="absolute inset-x-2 top-2 z-10 flex items-start gap-2 rounded-md border border-line bg-panel/95 px-3 py-2 text-xs shadow-lg">
-      <ShieldAlert size={14} class="mt-0.5 shrink-0 text-accent" />
-      <div class="min-w-0 flex-1 space-y-1">
-        {#each hostKeyNotices as k (k.host)}
-          <div>
-            <div class="font-medium">Host key trusted for {k.host}</div>
-            <div class="truncate font-mono text-fg-muted">{k.fingerprint}</div>
-          </div>
-        {/each}
-      </div>
-      <button class="text-fg-muted hover:text-fg" aria-label="Dismiss" onclick={() => (hostKeyNotices = [])}>✕</button>
     </div>
   {/if}
 

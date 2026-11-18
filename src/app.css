@@ -92,6 +92,11 @@ body {
   .btn-danger {
     @apply inline-flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 text-danger hover:bg-danger/10;
   }
+  /* The strip along the top of a terminal pane for notices and the Find bar. Its right edge stops short of the
+     floating pane toolbar (TerminalArea publishes that toolbar's width as --pane-toolbar-inset; 0 without one). */
+  .pane-notice-strip {
+    right: calc(var(--pane-toolbar-inset, 0px) + 0.5rem);
+  }
   .icon-btn {
     @apply inline-flex h-8 w-8 items-center justify-center rounded-md text-fg-muted transition-colors hover:bg-panel-hover hover:text-fg;
   }

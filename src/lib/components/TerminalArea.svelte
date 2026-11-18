@@ -2,7 +2,7 @@
   import Illustration from "./Illustration.svelte";
   import { t as tr } from "$lib/i18n/index.svelte";
   import { onMount } from "svelte";
-  import { keepInView } from "$lib/actions";
+  import { keepInView, reservePaneInset } from "$lib/actions";
   import { writeText } from "@tauri-apps/plugin-clipboard-manager";
   import { sshCommand } from "$lib/sshcmd";
   import { ACTIONS, comboFor } from "$lib/shortcuts";
@@ -780,7 +780,7 @@
             {/if}
             <!-- One pane: no header row. Its actions float in the corner, so the terminal gets the whole card. -->
             {#if !multi && !settings.prefs.focusMode && t.id === ui.activeTabId}
-              <div class="pointer-events-none absolute right-3 top-3 z-20 flex items-start gap-2">
+              <div class="pointer-events-none absolute right-3 top-3 z-20 flex items-start gap-2" use:reservePaneInset>
                 <div class="pointer-events-auto flex items-center gap-1 rounded-lg border border-line bg-panel/90 empty:hidden">{#if pane.target.kind === "host" && isSshHost(pane.target.hostId)}<PaneForwards paneId={pane.id} /><AgentControl paneId={pane.id} />{/if}</div>
                 <div class="pointer-events-auto flex flex-col gap-0.5 rounded-xl border border-line bg-panel/90 p-1 shadow-lg backdrop-blur" role="toolbar" aria-label="Terminal actions" aria-orientation="vertical">
                   <button class="icon-btn h-8 w-8" title="Find in terminal (Ctrl+Shift+F)" aria-label="Find in terminal" onclick={() => ui.findRequest++}><Search size={16} /></button>
