@@ -8,7 +8,8 @@ use std::time::Duration;
 
 use super::*;
 use crate::hostmetrics::manager::{BoxFuture, EventSink, HostExec, MetricsError};
-use crate::hostmetrics::model::{HistoryPoint, LoginReport, PortList, ProcessList, Sample};
+use crate::hostmetrics::investigate::{Investigation, Target};
+use crate::hostmetrics::model::{Proto, HistoryPoint, LoginReport, PortList, ProcessList, Sample};
 use crate::hostmetrics::procs::SignalOutcome;
 use crate::monitoring::engine::EngineHost;
 
@@ -157,4 +158,22 @@ pub async fn hostmetrics_logins(state: State<'_, AppState>, host_id: Uuid, max_a
 pub async fn hostmetrics_signal(state: State<'_, AppState>, host_id: Uuid, pid: u32, start_ticks: u64, name: String, signal: String) -> ApiResult<SignalOutcome> {
     unlocked(&state)?;
     state.hostmetrics.signal(host_id, pid, start_ticks, &name, &signal).await.map_err(|e| ApiError::new("validation", e.to_string()))
+}
+
+/// Why a process is running: what it is, who owns it, what started it, and the systemd unit its cgroup is in. Read-only,
+/// one run on the host, only when asked.
+#[tauri::command]
+pub async fn hostmetrics_investigate_pid(state: State<'_, AppState>, host_id: Uuid, pid: u64) -> ApiResult<Investigation> {
+    unlocked(&state)?;
+    let target = Target::pid(pid).map_err(|e| ApiError::new("validation", e.to_string()))?;
+    state.hostmetrics.investigate(host_id, target).await.map_err(api_error)
+}
+
+/// Why a port is open: the listening sockets on it (both address families), the processes that own them and, for each,
+/// the same answer as for a pid.
+#[tauri::command]
+pub async fn hostmetrics_investigate_port(state: State<'_, AppState>, host_id: Uuid, port: u64, protocol: Proto) -> ApiResult<Investigation> {
+    unlocked(&state)?;
+    let target = Target::port(port, protocol).map_err(|e| ApiError::new("validation", e.to_string()))?;
+    state.hostmetrics.investigate(host_id, target).await.map_err(api_error)
 }

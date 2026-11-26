@@ -1,8 +1,10 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { writeText } from "@tauri-apps/plugin-clipboard-manager";
-  import { AlertTriangle, ArrowDown, ArrowUp, Copy, Loader2, RefreshCw, ScrollText, Waypoints } from "lucide-svelte";
+  import { AlertTriangle, ArrowDown, ArrowUp, Copy, Loader2, RefreshCw, ScrollText, Search, Waypoints } from "lucide-svelte";
   import { addressText, filterPorts, scopeText, sortPorts, tunnelFor, type Dir, type PortFilter, type PortSort } from "$lib/hostlists";
+  import type { InvestigateTarget } from "$lib/investigate";
+  import WhyRunning from "./WhyRunning.svelte";
   import { hostDetails } from "$lib/stores/hostdetails.svelte";
   import { ops } from "$lib/stores/ops.svelte";
   import { ui } from "$lib/stores/ui.svelte";
@@ -18,6 +20,7 @@
   let f = $state<PortFilter>({ query: "", proto: "all", scope: "all", process: "" });
   let sort = $state<{ key: PortSort; dir: Dir }>({ key: "port", dir: "asc" });
   let refreshing = $state(false);
+  let why = $state<InvestigateTarget | null>(null);
 
   onMount(() => hostDetails.watch("ports", hostId));
 
@@ -46,7 +49,7 @@
   const HEADS: [PortSort | null, string][] = [["proto", "Proto"], ["address", "Address"], ["port", "Port"], ["process", "Process"], [null, "User"], [null, "Reach"]];
 </script>
 
-<div class="flex h-full min-h-0 flex-col gap-2" data-testid="port-table">
+<div class="relative flex h-full min-h-0 flex-col gap-2" data-testid="port-table">
   <div class="flex flex-wrap items-center gap-2 text-xs">
     <input class="input h-8 w-56 text-xs" placeholder="Search port, address or process…" aria-label="Search ports" bind:value={f.query} />
     <select class="input h-8 w-24 py-0 text-xs" aria-label="Protocol" bind:value={f.proto}><option value="all">All protocols</option><option value="tcp">TCP</option><option value="udp">UDP</option></select>
@@ -86,6 +89,7 @@
               <td class="px-2 py-1 {p.local_only ? '' : 'text-fg-muted'}" title={scopeText(p)}>{p.local_only ? "This host only" : "Bound beyond loopback"}</td>
               <td class="px-2 py-1">
                 <div class="flex justify-end gap-0.5">
+                  <button class="icon-btn h-6 w-6" title="Why is this port open?" aria-label="Why is port {p.port} open?" onclick={() => (why = { type: "port", port: p.port, protocol: p.proto })}><Search size={13} /></button>
                   <button class="icon-btn h-6 w-6" title="Copy {addressText(p)}" aria-label="Copy address {addressText(p)}" onclick={() => copy(addressText(p))}><Copy size={13} /></button>
                   {#if tunnel}<button class="icon-btn h-6 w-6" title="Open an SSH tunnel to this port from this computer" aria-label="Create an SSH tunnel to port {p.port}" onclick={() => (ui.modal = { kind: "forward", id: null, template: tunnel })}><Waypoints size={13} /></button>{/if}
                   {#if p.process}<button class="icon-btn h-6 w-6" title="Show {p.process}'s logs in Operations" aria-label="Show logs of {p.process}" onclick={() => { ui.modal = null; void ops.viewLogs(hostId, undefined, { text: p.process ?? "" }); }}><ScrollText size={13} /></button>{/if}
@@ -104,4 +108,5 @@
       Listening is not the same as reachable: whether anything outside can connect depends on the address, the firewall and the network. A tunnel opens the port on this computer through SSH.
     </p>
   {/if}
+  {#if why}<WhyRunning {hostId} target={why} onclose={() => (why = null)} onretarget={(t) => (why = t)} />{/if}
 </div>

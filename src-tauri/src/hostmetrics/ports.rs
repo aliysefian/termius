@@ -34,12 +34,12 @@ fi
 echo "@@END"
 "#;
 
-fn is_local_only(addr: &str) -> bool {
+pub(super) fn is_local_only(addr: &str) -> bool {
     addr.starts_with("127.") || addr == "::1" || addr == "localhost"
 }
 
 /// `0.0.0.0:22`, `[::]:22`, `*:443`, `127.0.0.53%lo:53`, `[fe80::1%eth0]:53`, `:::22` into (address, port).
-fn split_addr(s: &str) -> Option<(String, u16)> {
+pub(super) fn split_addr(s: &str) -> Option<(String, u16)> {
     let (a, p) = s.rsplit_once(':')?;
     let port = p.parse::<u16>().ok()?;
     let a = a.trim_start_matches('[').trim_end_matches(']');
