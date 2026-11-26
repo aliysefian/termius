@@ -1,11 +1,13 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { AlertTriangle, ArrowDown, ArrowUp, ListTree, Loader2, OctagonX, RefreshCw, Skull } from "lucide-svelte";
+  import { AlertTriangle, ArrowDown, ArrowUp, ListTree, Loader2, Search, OctagonX, RefreshCw, Skull } from "lucide-svelte";
   import { ask } from "$lib/dialogs.svelte";
   import * as api from "$lib/api";
   import { defaultDir, processRows, signalInfo, signalQuestion, signalResult, type Dir, type ProcessSort } from "$lib/hostlists";
   import { baselineNote, memText, pctText, type ProcessInfo, type SignalName } from "$lib/hostsample";
   import { formatUptime } from "$lib/hostmetrics";
+  import type { InvestigateTarget } from "$lib/investigate";
+  import WhyRunning from "./WhyRunning.svelte";
   import { hostDetails } from "$lib/stores/hostdetails.svelte";
   import { ui } from "$lib/stores/ui.svelte";
   import { vaultStore } from "$lib/stores/vault.svelte";
@@ -24,6 +26,7 @@
   let sort = $state<{ key: ProcessSort; dir: Dir }>({ key: "cpu", dir: "desc" });
   let busy = $state<Record<number, boolean>>({});
   let refreshing = $state(false);
+  let why = $state<InvestigateTarget | null>(null);
 
   // Read while this table is on screen, and only then.
   onMount(() => hostDetails.watch("processes", hostId));
@@ -66,7 +69,7 @@
   const MORE: SignalName[] = ["HUP", "INT", "STOP", "CONT", "USR1", "USR2"];
 </script>
 
-<div class="flex h-full min-h-0 flex-col gap-2" data-testid="process-table">
+<div class="relative flex h-full min-h-0 flex-col gap-2" data-testid="process-table">
   <div class="flex flex-wrap items-center gap-2">
     <input class="input h-8 w-64 text-xs" placeholder="Search name, command, user or pid…" aria-label="Search processes" bind:value={query} />
     <button class="btn-secondary py-1 text-xs {tree ? 'border-accent text-accent' : ''}" aria-pressed={tree} onclick={() => (tree = !tree)} title="Show each process under its parent"><ListTree size={13} /> Tree</button>
@@ -107,6 +110,7 @@
               </td>
               <td class="px-2 py-1">
                 <div class="flex justify-end gap-0.5">
+                  <button class="icon-btn h-6 w-6" title="Why is this running? Investigate {p.name}" aria-label="Investigate {p.name} {p.pid}" onclick={() => (why = { type: "pid", pid: p.pid })}><Search size={13} /></button>
                   <button class="icon-btn h-6 w-6" title="Terminate (SIGTERM): ask it to stop" aria-label="Terminate {p.name} {p.pid}" disabled={!!busy[p.pid] || p.pid <= 1} onclick={() => signal(p, "TERM")}><OctagonX size={13} /></button>
                   <button class="icon-btn h-6 w-6 hover:text-danger" title="Force kill (SIGKILL): stop it at once" aria-label="Force kill {p.name} {p.pid}" disabled={!!busy[p.pid] || p.pid <= 1} onclick={() => signal(p, "KILL")}><Skull size={13} /></button>
                   <select class="input h-6 w-[4.75rem] py-0 pl-1 pr-0 text-[11px]" aria-label="Other signals for {p.name} {p.pid}" disabled={!!busy[p.pid] || p.pid <= 1} value="" onchange={(e) => { const v = e.currentTarget.value as SignalName; e.currentTarget.value = ""; if (v) void signal(p, v); }}>
@@ -124,4 +128,5 @@
     </div>
     <p class="text-[11px] text-fg-muted">CPU is a share of one core over the time between two readings, so a busy multi-threaded program can pass 100. {list.commands ? "Command lines can hold what was typed, so they are shown here and never logged. " : "This host has no `ps`, so only program names are shown. "}Signals use your own rights on the host (nothing is elevated), and the host checks the program is still the same one before sending. Nothing is stopped automatically.</p>
   {/if}
+  {#if why}<WhyRunning {hostId} target={why} onclose={() => (why = null)} onretarget={(t) => (why = t)} />{/if}
 </div>

@@ -28,6 +28,7 @@ use super::derive::derive_with;
 use super::logins;
 use super::model::{Gpu, HistoryPoint, LoginReport, Platform, PortList, ProcessList, Sample, StaticInfo};
 use super::parse::{self, Raw};
+use super::investigate::{self, Investigation, Target};
 use super::ports;
 use super::procs::{self, SignalError, SignalOutcome};
 use super::script::{self, Options};
@@ -354,6 +355,22 @@ impl<E: HostExec> HostMetricsManager<E> {
         // The list on screen is out of date now: the next ask reads a new one.
         lock(&slot.data).procs = None;
         Ok(outcome)
+    }
+
+    /// Why a process or a listening port is there: one read-only run on the host, never cached (the answer is about what
+    /// is running now) and never started on its own. It shares the host's gate and the global permits with every other
+    /// reading, so it cannot pile onto a host that is busy, and `cancel` stops it.
+    pub async fn investigate(&self, host: Uuid, target: Target) -> Result<Investigation, MetricsError> {
+        let script = investigate::script(target);
+        let slot = self.slot(host);
+        let _gate = slot.gate.lock().await;
+        let token = slot.token();
+        let _permit = tokio::select! {
+            p = Arc::clone(&self.permits).acquire_owned() => p.map_err(|_| MetricsError::Cancelled)?,
+            _ = token.cancelled() => return Err(MetricsError::Cancelled),
+        };
+        let out = self.run(host, &token, &script).await?;
+        investigate::parse(host, now_ms(), target, &out).map_err(|e| MetricsError::Unreadable { message: e.to_string() })
     }
 
     fn accept(&self, host: Uuid, slot: &Slot, raw: Raw) -> Arc<Sample> {

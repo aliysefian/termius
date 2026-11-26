@@ -324,6 +324,8 @@ pub fn run() {
             commands::hostmetrics::hostmetrics_ports,
             commands::hostmetrics::hostmetrics_logins,
             commands::hostmetrics::hostmetrics_signal,
+            commands::hostmetrics::hostmetrics_investigate_pid,
+            commands::hostmetrics::hostmetrics_investigate_port,
             commands::tmux::tmux_snapshot,
             commands::tmux::tmux_refresh,
             commands::tmux::tmux_latest,

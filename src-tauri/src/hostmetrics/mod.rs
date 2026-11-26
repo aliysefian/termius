@@ -15,6 +15,7 @@
 //! figures are guessed.
 
 pub mod derive;
+pub mod investigate;
 pub mod logins;
 pub mod manager;
 pub mod model;

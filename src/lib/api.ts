@@ -736,6 +736,12 @@ export const hostSamples = {
   /** Signal one process. The host checks it is still the same one (name and start time) before sending anything. */
   signal: (hostId: Uuid, pid: number, startTicks: number, name: string, signal: import("./hostsample").SignalName) =>
     invoke<import("./hostsample").SignalOutcome>("hostmetrics_signal", { hostId, pid, startTicks, name, signal }),
+  /** Why a process or a port is there: what it is, what started it, what manages it. One read-only run, on request. */
+  investigate: {
+    pid: (hostId: Uuid, pid: number) => invoke<import("./investigate").Investigation>("hostmetrics_investigate_pid", { hostId, pid }),
+    port: (hostId: Uuid, port: number, protocol: import("./investigate").Protocol) =>
+      invoke<import("./investigate").Investigation>("hostmetrics_investigate_port", { hostId, port, protocol }),
+  },
   /** Every reading actually taken, once, however many views are open. */
   onSample: (handler: (s: import("./hostsample").HostSample) => void): Promise<UnlistenFn> => listen<import("./hostsample").HostSample>("hostmetrics:sample", (e) => handler(e.payload)),
   onFailed: (handler: (f: import("./hostsample").MetricsFailureEvent) => void): Promise<UnlistenFn> => listen<import("./hostsample").MetricsFailureEvent>("hostmetrics:failed", (e) => handler(e.payload)),
