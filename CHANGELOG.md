@@ -4,7 +4,7 @@ Every notable change, newest first. Dates are when the release was tagged.
 This file is also shown in the app itself, under **Settings → Updates →
 View changelog**.
 
-## 0.63.0 - 2026-11-26
+## 0.63.1 - 2026-11-26
 
 - **New:** **Infrastructure Explorer**, one inventory of your hosts, containers, services and tmux sessions. A tree on the left, a relationship graph and an inspector on the right, and buttons that open the item in the view that owns it. It reads what Containers, Ops and Tmux already hold, shows only relationships it could verify, keeps how fresh the data is apart from the status, and reads a host only when you open or refresh it.
 - **New:** **Why is this running?** In the host metrics tables, investigate a process or a port. It shows the parent chain, every process listening on a port, and the systemd unit the process belongs to. It is read-only and needs nothing installed on the host.
