@@ -879,7 +879,7 @@ mod tests {
         }
         let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = l.local_addr().unwrap().port();
-        let t = Target::Port { port: port.into(), protocol: Proto::Tcp };
+        let t = Target::Port { port, protocol: Proto::Tcp };
         let out = std::process::Command::new("sh").arg("-c").arg(script(t)).output().unwrap();
         let text = String::from_utf8_lossy(&out.stdout);
         let r = parse(Uuid::nil(), 0, t, &text).unwrap_or_else(|e| panic!("{e}: {text}"));
