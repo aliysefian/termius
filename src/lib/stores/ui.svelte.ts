@@ -25,6 +25,7 @@ export type View =
   | "fleet"
   | "fleetlist"
   | "topology"
+  | "infra"
   | "ops"
   | "tmux"
   | "monitoring"
@@ -36,7 +37,7 @@ export type View =
   | "changelog";
 
 /** Views that fill the window instead of sitting beside the terminals. */
-export const PAGE_VIEWS: View[] = ["dashboard", "groups", "keys", "knownhosts", "vault", "security-review", "fleet", "topology", "ops", "tmux", "monitoring", "runbooks", "databases", "containers", "kubernetes", "settings", "changelog", "forwarding"];
+export const PAGE_VIEWS: View[] = ["dashboard", "groups", "keys", "knownhosts", "vault", "security-review", "fleet", "infra", "topology", "ops", "tmux", "monitoring", "runbooks", "databases", "containers", "kubernetes", "settings", "changelog", "forwarding"];
 
 /** What a pane connects to: a saved host, or an unsaved quick connection. */
 export type PaneTarget =

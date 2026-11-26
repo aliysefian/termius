@@ -7,6 +7,7 @@ export const es: Partial<Record<Key, string>> = {
   "rail.hosts": "Servidores",
   "rail.favorites": "Favoritos",
   "rail.fleetlist": "Flota",
+  "rail.infra": "Infraestructura",
   "rail.snippets": "Snippets",
   "rail.sftp": "Archivos",
   "rail.forwarding": "Túneles",

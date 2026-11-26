@@ -7,6 +7,7 @@ export const fa: Partial<Record<Key, string>> = {
   "rail.hosts": "میزبان‌ها",
   "rail.favorites": "علاقه‌مندی‌ها",
   "rail.fleetlist": "ناوگان",
+  "rail.infra": "زیرساخت",
   "rail.snippets": "قطعه‌کدها",
   "rail.sftp": "فایل‌ها",
   "rail.forwarding": "تونل‌ها",
