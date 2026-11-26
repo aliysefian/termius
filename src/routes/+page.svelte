@@ -29,6 +29,7 @@
   import FleetPanel from "$lib/components/FleetPanel.svelte";
   import FleetView from "$lib/components/FleetView.svelte";
   import TopologyView from "$lib/components/TopologyView.svelte";
+  import InfrastructureView from "$lib/components/infra/InfrastructureView.svelte";
   import OpsView from "$lib/components/OpsView.svelte";
   import TmuxMonitor from "$lib/components/tmux/TmuxMonitor.svelte";
   import MonitoringView from "$lib/components/MonitoringView.svelte";
@@ -355,6 +356,8 @@
       <SecurityReview />
     {:else if ui.view === "fleet"}
       <FleetView />
+    {:else if ui.view === "infra"}
+      <InfrastructureView />
     {:else if ui.view === "topology"}
       <TopologyView />
     {:else if ui.view === "runbooks"}

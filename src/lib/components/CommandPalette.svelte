@@ -1,6 +1,6 @@
 <script lang="ts">
   import {
-    Activity, Network, Search, Container, Database, FileOutput, History, Keyboard, SquareTerminal, ArrowLeftRight, ServerCog, Code, FileInput, FolderSync, KeyRound, Lock, Play, Plus, Server, Settings, ShieldAlert, SquareSplitHorizontal, SquareSplitVertical, Zap,
+    Activity, Boxes, Network, Search, Container, Database, FileOutput, History, Keyboard, SquareTerminal, ArrowLeftRight, ServerCog, Code, FileInput, FolderSync, KeyRound, Lock, Play, Plus, Server, Settings, ShieldAlert, SquareSplitHorizontal, SquareSplitVertical, Zap,
       Wrench, ListChecks, HeartPulse,
     Ship,
 } from "lucide-svelte";
@@ -243,6 +243,7 @@
       ["Go to Vault (backups, recovery, integrity)", Lock, go("vault")],
       ["Go to Security review", ShieldAlert, go("security-review")],
       ["Go to Fleet", Activity, go("fleet")],
+      ["Go to Infrastructure Explorer (hosts, containers, services and tmux sessions together)", Boxes, go("infra")],
       ["Go to Topology (how hosts, proxies, tunnels and databases connect)", Network, go("topology")],
       ["Go to Operations (logs, services, alerts)", Wrench, go("ops")],
       ["Go to Tmux Monitor (sessions, windows, panes)", SquareTerminal, go("tmux")],

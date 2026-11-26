@@ -7,6 +7,7 @@ export const zh: Partial<Record<Key, string>> = {
   "rail.hosts": "主机",
   "rail.favorites": "收藏",
   "rail.fleetlist": "集群",
+  "rail.infra": "基础设施",
   "rail.snippets": "代码片段",
   "rail.sftp": "文件",
   "rail.forwarding": "隧道",
