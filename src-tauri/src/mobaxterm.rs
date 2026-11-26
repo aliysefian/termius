@@ -134,6 +134,7 @@ pub fn parse(text: &str, profile_dir: Option<&str>) -> Parsed {
             ..Default::default()
         });
     }
+    attach_tunnels(text, &mut out);
     if skipped_other > 0 {
         out.warnings.push(format!(
             "{skipped_other} non-SSH bookmark(s) (RDP, VNC, serial, …) were skipped"
@@ -147,6 +148,75 @@ pub fn parse(text: &str, profile_dir: Option<&str>) -> Parsed {
         out.warnings.push(why_no_hosts(text, bookmark_sections, unreadable, &other_kinds));
     }
     out
+}
+
+/// `[PortForwarding]` holds the saved SSH tunnels, one per line, apart from the sessions:
+///
+/// ```text
+/// 0003.=Local;root@65.109.190.229:22;127.0.0.1:20128;20128;0;No SSH key selected;0.0.0.0;No proxy selected;0
+/// 0000.=Dynamic;root@147.79.115.80:22;-:0;1080;0;…
+/// ```
+///
+/// that is kind, the SSH server as `user@host:port`, the destination, then the local port. A tunnel goes onto the
+/// session with the same user, host and port. The listen address is always loopback: the 0.0.0.0 in the line is not
+/// taken as a request to open the port to the network.
+fn attach_tunnels(text: &str, out: &mut Parsed) {
+    use crate::models::ForwardKind;
+    let mut in_section = false;
+    let (mut unmatched, mut unreadable) = (0usize, 0usize);
+    for raw in text.lines() {
+        let line = raw.trim();
+        if line.starts_with('[') && line.ends_with(']') {
+            in_section = line[1..line.len() - 1].eq_ignore_ascii_case("PortForwarding");
+            continue;
+        }
+        if !in_section || line.is_empty() {
+            continue;
+        }
+        let Some((_, value)) = line.split_once('=') else { continue };
+        let f: Vec<&str> = value.split(';').map(str::trim).collect();
+        let parsed = (|| {
+            let (user, server) = f.get(1)?.rsplit_once('@').unwrap_or(("", f.get(1)?));
+            let (host, port) = server.rsplit_once(':')?;
+            let port: u16 = port.parse().ok()?;
+            let bind_port: u16 = f.get(3)?.parse().ok().filter(|p| *p > 0)?;
+            let bind_addr = "127.0.0.1".to_string();
+            let forward = match f.first()?.to_ascii_lowercase().as_str() {
+                "dynamic" => ForwardKind::Dynamic { bind_addr, bind_port },
+                kind @ ("local" | "remote") => {
+                    let (dest_host, dest_port) = f.get(2)?.rsplit_once(':')?;
+                    let (dest_host, dest_port) = (dest_host.to_string(), dest_port.parse().ok().filter(|p| *p > 0)?);
+                    if kind == "local" {
+                        ForwardKind::Local { bind_addr, bind_port, dest_host, dest_port }
+                    } else {
+                        ForwardKind::Remote { bind_addr, bind_port, dest_host, dest_port }
+                    }
+                }
+                _ => return None,
+            };
+            Some((user.to_string(), host.to_string(), port, forward))
+        })();
+        let Some((user, host, port, forward)) = parsed else {
+            unreadable += 1;
+            continue;
+        };
+        let mut found = false;
+        for h in out.hosts.iter_mut().filter(|h| {
+            h.hostname.eq_ignore_ascii_case(&host) && h.port == port && (user.is_empty() || h.user.as_deref() == Some(user.as_str()))
+        }) {
+            h.forwards.push(forward.clone());
+            found = true;
+        }
+        if !found {
+            unmatched += 1;
+        }
+    }
+    if unmatched > 0 {
+        out.warnings.push(format!("{unmatched} SSH tunnel(s) belong to a server that has no session in this file, so they were skipped"));
+    }
+    if unreadable > 0 {
+        out.warnings.push(format!("{unreadable} line(s) in [PortForwarding] could not be read and were skipped"));
+    }
 }
 
 /// MobaXterm needs a session's name to be unique only within its folder, so `web-01` can be in `Prod/EU` and in
@@ -747,6 +817,24 @@ broken=#109#0%%22%x
         assert_eq!(db.group.as_deref(), Some("Production/Databases"));
         assert!(p.warnings.iter().any(|w| w.contains("non-SSH")), "{:?}", p.warnings);
         assert!(p.warnings.iter().any(|w| w.contains("broken")));
+    }
+
+    #[test]
+    fn ssh_tunnels_land_on_the_session_for_their_server() {
+        let ini = "[Bookmarks]\nSubRep=\na=#109#0%10.0.0.5%22%root%%-1\nb=#109#0%10.0.0.5%22%other%%-1\n\n[PortForwarding]\n\
+            0000.=Dynamic;root@10.0.0.5:22;-:0;1080;0;No SSH key selected;0.0.0.0;No proxy selected;0\n\
+            0001.=Local;root@10.0.0.5:22;127.0.01:8000;8585;0;k;0.0.0.0;p;0\n\
+            0002.=Local;root@9.9.9.9:22;127.0.0.1:1;1;0;k;0.0.0.0;p;0\n\
+            0003.=Bogus\n";
+        let p = parse(ini, None);
+        use crate::models::ForwardKind::*;
+        assert_eq!(p.hosts[0].forwards, vec![
+            Dynamic { bind_addr: "127.0.0.1".into(), bind_port: 1080 },
+            Local { bind_addr: "127.0.0.1".into(), bind_port: 8585, dest_host: "127.0.01".into(), dest_port: 8000 },
+        ]);
+        assert!(p.hosts[1].forwards.is_empty());
+        assert!(p.warnings.iter().any(|w| w.contains("no session")), "{:?}", p.warnings);
+        assert!(p.warnings.iter().any(|w| w.contains("could not be read")), "{:?}", p.warnings);
     }
 
     #[test]
