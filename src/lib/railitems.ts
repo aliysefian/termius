@@ -7,6 +7,8 @@ export interface RailItem {
   view: View;
   label: string;
   icon: typeof Server;
+  /** The longer name for the tooltip and screen readers, when the visible label has to be short to fit the rail. */
+  tip?: string;
   /** Other pages that belong to the same entry (Kubernetes is a tab of Containers). */
   also?: View[];
 }
@@ -18,7 +20,7 @@ export const RAIL_GROUPS: RailItem[][] = [
     { view: "hosts", label: "Hosts", icon: Server },
     { view: "favorites", label: "Favorites", icon: Star },
     { view: "fleetlist", label: "Fleet", icon: Activity, also: ["fleet"] },
-    { view: "infra", label: "Infrastructure", icon: Boxes },
+    { view: "infra", label: "Infra", tip: "Infrastructure Explorer", icon: Boxes },
   ],
   [
     { view: "snippets", label: "Snippets", icon: Code },

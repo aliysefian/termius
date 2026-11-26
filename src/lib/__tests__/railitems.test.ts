@@ -66,3 +66,15 @@ describe("every entry can be named", () => {
     }
   });
 });
+
+describe("the Infra entry", () => {
+  it("is short on the rail but keeps its full name for the tooltip and screen readers", () => {
+    const item = RAIL_GROUPS.flat().find((i) => i.view === "infra");
+    expect(item?.label).toBe("Infra");
+    expect(item?.tip).toBe("Infrastructure Explorer");
+  });
+  it("is called Infra in English", async () => {
+    const { en } = await import("$lib/i18n/en");
+    expect(en["rail.infra"]).toBe("Infra");
+  });
+});

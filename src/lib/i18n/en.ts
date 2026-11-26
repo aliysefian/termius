@@ -5,7 +5,7 @@ export const en = {
   "rail.hosts": "Hosts",
   "rail.favorites": "Favorites",
   "rail.fleetlist": "Fleet",
-  "rail.infra": "Infrastructure",
+  "rail.infra": "Infra",
   "rail.snippets": "Snippets",
   "rail.sftp": "Files",
   "rail.forwarding": "Tunnels",

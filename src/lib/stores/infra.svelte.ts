@@ -4,7 +4,7 @@
 // the clock the ages are drawn from.
 import * as api from "$lib/api";
 import { Inventory, NO_FILTERS, search, summarize, type Filters, type ResourceView } from "$lib/infra/inventory";
-import { hostKey, scopeKeyOf } from "$lib/infra/model";
+import { hostKey, scopeKeyOf, type ResourceType } from "$lib/infra/model";
 import { dockerSnapshot, hostsSnapshot, systemdSnapshot, tmuxSnapshot, tmuxUnsupported, type HostInput } from "$lib/infra/providers";
 import { buildRows, groupKey, type Row } from "$lib/infra/tree";
 import { neighborhood, parentsOf } from "$lib/infra/graph";
@@ -39,6 +39,8 @@ class InfraStore {
   discovering = $state(false);
   view = $state<"graph" | "list">("graph");
   tab = $state<"overview" | "relationships" | "metrics">("overview");
+  /** When set, the Relationships list shows only this kind of related resource (picked from the inspector's groups). */
+  relatedType = $state<ResourceType | null>(null);
   #flight = new SingleFlight();
   #changes = 0;
   /** Writes `version` without reading it, so an effect that feeds the inventory does not depend on what it changes. */
@@ -197,6 +199,28 @@ class InfraStore {
     this.#unlisten = null;
   }
 
+  /** What the selected resource contains, by kind: the inspector shows these as counts, not as a list of hundreds. */
+  relatedGroups = $derived.by(() => {
+    const by = new Map<ResourceType, number>();
+    for (const c of this.children) by.set(c.type, (by.get(c.type) ?? 0) + 1);
+    return [...by].map(([type, count]) => ({ type, count }));
+  });
+  /** Hosts whose last read failed, with what the owning modules said. Successful reads of other hosts stay as they are. */
+  failures = $derived.by(() => {
+    void this.version;
+    const by = new Map<string, string[]>();
+    for (const sc of this.#inv.scopes.values()) {
+      if (sc.lastError === null || !sc.hostId) continue;
+      by.set(sc.hostId, [...(by.get(sc.hostId) ?? []), `${sc.provider}: ${sc.lastError}`]);
+    }
+    return [...by].map(([hostId, errors]) => ({ hostId, errors }));
+  });
+  /** Hosts that are not SSH, or have no systemd, say so; they are not failures. */
+  skipped = $derived.by(() => {
+    void this.version;
+    return new Set([...this.#inv.scopes.values()].filter((sc) => sc.unsupported && sc.hostId).map((sc) => sc.hostId)).size;
+  });
+
   // -- discovery ----------------------------------------------------------------------------------------------------
 
   /** Read one host: its containers, services and tmux sessions, side by side. One at a time per host; a repeat joins it. */
@@ -273,6 +297,21 @@ class InfraStore {
     }
   }
 
+  /** Read again only the hosts whose last read failed; the rest keep what they have. */
+  async retryFailed() {
+    if (this.discovering) return;
+    const ids = this.failures.map((f) => f.hostId);
+    if (!ids.length) return;
+    this.discovering = true;
+    this.#abort = new AbortController();
+    try {
+      await runBounded(ids, DISCOVERY_CONCURRENCY, (id) => this.discoverHost(id), this.#abort.signal);
+    } finally {
+      this.discovering = false;
+      this.#abort = null;
+    }
+  }
+
   /** Stops starting new hosts. A host already being read finishes. */
   cancel() {
     this.#abort?.abort();
@@ -290,6 +329,14 @@ class InfraStore {
   select(id: string | null) {
     this.selectedId = id;
     this.tab = "overview";
+    this.relatedType = null;
+  }
+
+  /** Show one kind of related resource in the workspace, keeping the selected resource. */
+  openRelated(type: ResourceType) {
+    this.relatedType = type;
+    this.view = "list";
+    this.tab = "relationships";
   }
 
   toggle(key: string, hostId?: string | null) {

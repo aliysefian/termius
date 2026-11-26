@@ -30,7 +30,7 @@
   import { updates } from "$lib/stores/updates.svelte";
   import { alerts } from "$lib/stores/alerts.svelte";
 
-  type Item = { view: View; label: string; icon: typeof Server; hint?: string; /** Other pages that belong to the same entry. */ also?: View[] };
+  type Item = { view: View; label: string; icon: typeof Server; tip?: string; hint?: string; /** Other pages that belong to the same entry. */ also?: View[] };
 
   // What people open every day stays on the rail, in groups: where to connect, what to do once connected,
   // and the data stores. Everything that is set up once and then left alone sits behind "Manage", and so does
@@ -49,6 +49,8 @@
 
   /** A rail entry's name in the chosen language. */
   const name = (item: Item) => t(`rail.${item.view}` as Key) ?? item.label;
+  /** The tooltip and accessible name: the long name when the visible label is shortened for the rail. */
+  const tip = (item: Item) => (item.tip && name(item) === item.label ? item.tip : name(item));
   const isCurrent = (item: Item) => ui.view === item.view || !!item.also?.includes(ui.view);
   const inManage = $derived(manage.some((m) => m.view === ui.view) || arranged.away.some((a) => isCurrent(a)));
   let open = $state(false);
@@ -123,8 +125,8 @@
       <button
         class="{wide ? row : `${rail} ${settings.prefs.railLabels ? 'h-[46px] w-[56px]' : 'h-10 w-10'}`} mb-0.5 {tone(isCurrent(item))}"
         onclick={() => go(item.view)}
-        title={name(item)}
-        aria-label={name(item)}
+        title={tip(item)}
+        aria-label={tip(item)}
         aria-current={isCurrent(item) ? "page" : undefined}
       >
         <item.icon size={wide ? 18 : settings.prefs.railLabels ? 19 : 21} class="shrink-0" />
